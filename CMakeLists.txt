@@ -14,6 +14,8 @@ if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
 endif()
 
 add_executable(Bolt WIN32
+    src/bolt.rc
+    src/resource.h
     src/main.cpp
     src/ui_renderer.cpp
     src/ui_renderer.h

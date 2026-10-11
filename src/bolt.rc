@@ -1,0 +1,11 @@
+// ---------------------------------------------------------------------------
+// Risorse dell'eseguibile.
+//
+// L'icona e' incorporata nel file .exe, non caricata da disco a runtime: e' cio'
+// che permette a Esplora risorse di disegnarla anche quando il programma non e'
+// in esecuzione. Il percorso e' relativo a questo file.
+// ---------------------------------------------------------------------------
+#include <windows.h>
+#include "resource.h"
+
+IDI_BOLT ICON "../brand/bolt.ico"
