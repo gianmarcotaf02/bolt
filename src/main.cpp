@@ -365,6 +365,7 @@ int  FindEntryByName(const AppState& app, const std::wstring& name);
 int  CursorIndex(const AppState& app);
 bool IsEntrySelected(const AppState& app, const Entry& entry);
 std::wstring ParentOf(const std::wstring& path);
+double       NowSeconds();
 
 // --- string helpers --------------------------------------------------------
 std::string ToUtf8(const std::wstring& text)
@@ -1921,7 +1922,34 @@ void DrawList(AppState& app, const Layout& layout, const float* columnX)
         // that offset because no icon is drawn there.
         const float nameX   = row.x + 28.0f * scale;
         const float nameMax = columnX[1] - nameX - 12.0f * scale;
-        app.font.Draw(r, nameX, textY, FitText(app.font, entry.name, scale, nameMax), t.text, scale);
+
+        if (app.renameActive && entry.wideName == app.renameOriginal)
+        {
+            // Il campo si disegna SOPRA la riga invece di sostituirne il
+            // contenuto: la lista non cambia impaginazione mentre si scrive,
+            // quindi niente si sposta sotto le dita di chi sta digitando.
+            const Rect field{nameX - 3.0f * scale, row.y + 1.0f * scale,
+                             nameMax + 6.0f * scale, row.h - 2.0f * scale};
+            r.Draw(UIDraw::Fill(field, t.windowBg, 2.0f * scale));
+            r.Draw(UIDraw::Border(field, t.accent, 1.0f, 2.0f * scale));
+
+            const std::string shown =
+                FitText(app.font, app.renameText, scale, field.w - 8.0f * scale);
+            app.font.Draw(r, nameX + 1.0f * scale, textY, shown, t.text, scale);
+
+            // Il cursore va dopo il testo VISIBILE, non dopo quello completo: se
+            // il nome e' piu' lungo del campo, un cursore sul fondo del campo
+            // sembrerebbe fermo mentre si scrive.
+            const float caretX =
+                nameX + 1.0f * scale + app.font.Measure(shown, scale) + 1.0f * scale;
+            r.FillRect(Rect{caretX, row.y + 3.0f * scale, 1.0f * scale,
+                            row.h - 6.0f * scale},
+                       t.text);
+        }
+        else
+        {
+            app.font.Draw(r, nameX, textY, FitText(app.font, entry.name, scale, nameMax), t.text, scale);
+        }
 
         const float typeMax = columnX[2] - columnX[1] - 12.0f * scale;
         app.font.Draw(r, columnX[1], textY, FitText(app.font, entry.typeText, scale, typeMax), t.textDim, scale);
@@ -2144,6 +2172,18 @@ void DrawStatusBar(AppState& app, const Layout& layout)
                   static_cast<double>(app.renderer.QuadCount()),
                   app.icons.IconCount(), app.previews.ReadyCount(),
                   app.stats.ActiveJobs());
+    // Un esito recente prende il posto delle statistiche. Chi ha appena premuto
+    // un tasto guarda li' per sapere com'e' andata, e le statistiche non
+    // rispondono alla sua domanda.
+    const bool showingResult = !app.statusMessage.empty() &&
+                               NowSeconds() - app.statusMessageTime < 4.0;
+    if (showingResult)
+    {
+        app.smallFont.Draw(r, 12.0f * scale, layout.statusBar.y + 4.0f * scale,
+                           ToUtf8(app.statusMessage), t.accent, scale);
+        return;
+    }
+
     app.smallFont.Draw(r, 12.0f * scale, layout.statusBar.y + 4.0f * scale, status, t.textDim, scale);
 }
 
