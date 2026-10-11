@@ -1,5 +1,8 @@
 #include "file_ops.h"
 
+// WIN32_LEAN_AND_MEAN esclude shellapi.h da windows.h, ma shlobj.h ha bisogno
+// dei tipi che ci stanno dentro: HDROP, DragQueryFileW e i flag FOF_*.
+#include <shellapi.h>
 #include <shlobj.h>
 #include <shobjidl.h>
 
