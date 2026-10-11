@@ -2573,13 +2573,26 @@ void BuildGoToMenu(AppState& app)
 int          CursorIndex(const AppState& app);
 double       NowSeconds();
 
-// Percorsi completi di cio' che e' selezionato, nell'ordine della lista.
+// Percorsi completi di cio' che e' selezionato **e visibile**, nell'ordine della
+// lista.
+//
+// Filtrare puo' nascondere righe che restano nella selezione: la selezione e'
+// per nome e sopravvive al cambio di filtro. Senza questo controllo il menu
+// contestuale offriva "Elimina definitivamente" su un file che l'utente non
+// vedeva piu', e un'azione su qualcosa che non si vede e' esattamente cio' che
+// non deve poter succedere. La regola e' quella che Ctrl+A gia' segue: il filtro
+// fa parte della domanda, quindi fa parte della risposta.
 std::vector<std::wstring> SelectedPaths(const AppState& app)
 {
     std::vector<std::wstring> paths;
-    for (const Entry& entry : app.entries)
+    for (const Row& row : app.rows)
+    {
+        if (row.header)
+            continue;
+        const Entry& entry = app.entries[static_cast<size_t>(row.entry)];
         if (app.selection.count(entry.wideName) != 0)
             paths.push_back(JoinPath(app.directory, entry.wideName));
+    }
     return paths;
 }
 
