@@ -178,6 +178,8 @@ solo l'ordine in cui pensavo di farle.
 assegnato a ogni movimento del mouse e non letto da nessuna parte: nessun warning,
 nessun errore, solo una funzione che non c'era. Un `grep` dei lettori, non degli
 scrittori, è quello che lo trova.
+
+**Una funzione che non si può scrivere oggi va dichiarata, non improvvisata.** Il
 ripristino dal cestino sembra una casella da spuntare e non lo è: il cestino non
 ha un percorso, e invocare il verbo sbagliato fra quelli del suo menu contestuale
 significa **cancellare davvero**. Il blocco vero è il browsing dello spazio dei

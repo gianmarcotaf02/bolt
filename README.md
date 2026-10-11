@@ -30,6 +30,7 @@ reimplementato in modo indipendente.
 | **Filtro e raggruppamento** | ✅ funzionante (filtro incrementale e per tipo, 5 dimensioni di raggruppamento, bande collassabili) |
 | **Selezione multipla e rettangolare** | ✅ funzionante (Ctrl/Shift+click, banda, Ctrl+A) |
 | **Modalità di visualizzazione** | ✅ Details, List, Tiles, Icons |
+| **Sovrappasso del mouse** | ✅ evidenzia riga o cella, si spegne uscendo dalla finestra |
 | **Due corpi di testo** | ✅ 15 px per il contenuto, 13 px per il secondario |
 | **Tab multipli** con barra del titolo propria | ✅ funzionante (senza drag&drop né albero dei tab) |
 | **Command palette** a gruppi collassabili | ✅ funzionante (31 comandi + le cartelle note) |
