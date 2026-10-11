@@ -85,3 +85,22 @@ al primo avvio.
 Chiedere. Non introdurre una scrittura su disco «piccola», «innocua» o
 «temporanea» per far funzionare qualcosa: è esattamente il modo in cui questo tipo
 di requisito si perde, un compromesso ragionevole alla volta.
+
+---
+
+## 6. Due regole diverse, che è facile confondere
+
+Questo documento parla di **ciò che scrive l'applicazione**. La regola su **ciò che
+tocca chi ci lavora** sta in `AGENTS.md` §0, ed è più stringente:
+
+| | riguarda | regola |
+|---|---|---|
+| `AGENTS.md` §0 | l'agente, la macchina che lavora al progetto | **non tocca file personali, non ne salva copia** |
+| questo documento | il programma Bolt, per chi lo usa | **non scrive impostazioni né tracce su disco** |
+
+Sono due cose distinte e servono entrambe. La prima protegge chi *costruisce* il
+programma; la seconda protegge chi lo *usa*.
+
+Nota pratica per chi verifica: le prove si fanno in `analysis/tmp/`, con file
+finti, **mai** nelle cartelle reali di chi lavora — nemmeno solo per una cattura,
+perché uno screenshot di una cartella vera ne contiene i nomi dei file.
