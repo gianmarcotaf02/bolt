@@ -3721,6 +3721,34 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
                             }
                         }
                         break;
+                    case 'C':
+                        if ((GetKeyState(VK_CONTROL) & 0x8000) != 0)
+                            DoCopyToClipboard(*app, /*cut=*/false);
+                        break;
+                    case 'X':
+                        if ((GetKeyState(VK_CONTROL) & 0x8000) != 0)
+                            DoCopyToClipboard(*app, /*cut=*/true);
+                        break;
+                    case 'V':
+                        if ((GetKeyState(VK_CONTROL) & 0x8000) != 0)
+                            DoPaste(*app);
+                        break;
+                    case 'N':
+                        // Ctrl+Shift+N, come Esplora risorse. Ctrl+N da solo resta
+                        // libero: non c'e' ancora una finestra nuova da aprire.
+                        if ((GetKeyState(VK_CONTROL) & 0x8000) != 0 &&
+                            (GetKeyState(VK_SHIFT) & 0x8000) != 0)
+                            DoNewFolder(*app);
+                        break;
+                    case VK_F2:
+                        BeginRename(*app);
+                        break;
+                    case VK_DELETE:
+                    {
+                        const bool shift = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
+                        DoDelete(*app, shift);
+                        break;
+                    }
                     case 'T':
                         if ((GetKeyState(VK_CONTROL) & 0x8000) != 0)
                             NewTab(*app, app->directory.empty() ? L"C:\\" : app->directory);
@@ -3777,7 +3805,15 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
                 const wchar_t character = static_cast<wchar_t>(wparam);
                 if (character >= 0x20 && character != 0x7F)
                 {
-                    if (GroupMenu* menu = OpenMenu(*app))
+                    if (app->renameActive)
+                    {
+                        // I caratteri non validi in un nome di file li rifiuta
+                        // IFileOperation con un messaggio: meglio non anticiparli,
+                        // cosi' l'errore lo spiega il sistema.
+                        const std::wstring wide(1, character);
+                        app->renameText += ToUtf8(wide);
+                    }
+                    else if (GroupMenu* menu = OpenMenu(*app))
                     {
                         GroupMenuChar(*menu, character);
                     }
