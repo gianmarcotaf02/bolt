@@ -67,6 +67,11 @@ switch ($Action) {
     'f2'     { [BoltKeys]::Key(0x71) }
     'down'   { [BoltKeys]::Key(0x28) }
     'up'     { [BoltKeys]::Key(0x26) }
+    # Alt+sinistra arriva all'applicazione come WM_SYSKEYDOWN, non WM_KEYDOWN:
+    # la finestra ha un menu di sistema e Alt lo dirotta. keybd_event genera il
+    # messaggio giusto da solo, perche' Alt e' premuto davvero.
+    'alt+left'  { [BoltKeys]::Chord(0x12, 0, 0x25) }
+    'alt+right' { [BoltKeys]::Chord(0x12, 0, 0x27) }
     default {
         if ($Action -match '^ctrl\+([a-z])$') {
             [BoltKeys]::Chord(0x11, 0, [byte][char]$Matches[1].ToUpper())
