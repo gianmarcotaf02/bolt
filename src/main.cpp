@@ -297,6 +297,25 @@ struct AppState
     bool  rectAdditive  = false;
     float rectX0 = 0.0f, rectY0 = 0.0f, rectX1 = 0.0f, rectY1 = 0.0f;
 
+    // --- operazioni su file (M7) -------------------------------------------
+    //
+    // Rinomina sul posto: il campo si disegna sopra la riga, quindi la lista non
+    // cambia impaginazione mentre si scrive.
+    bool         renameActive = false;
+    std::wstring renamePath;        // percorso completo di cio' che si rinomina
+    std::wstring renameOriginal;    // nome di partenza, per annullare con Esc
+    std::string  renameText;        // il nome in scrittura
+
+    // Vero se l'ultima scrittura in clipboard era un taglio: decide se incollare
+    // copia o sposta, ed e' lo stesso bit che Esplora risorse legge.
+    bool clipboardCut = false;
+
+    // Messaggio d'esito nella barra di stato. Un'operazione che fallisce in
+    // silenzio e' peggio di una che non parte: senza questo, "Sposta" su un file
+    // in uso sembrerebbe non aver fatto nulla.
+    std::wstring statusMessage;
+    double       statusMessageTime = 0.0;
+
     int   hovered  = -1;
     float scroll   = 0.0f;
     float zoom     = 1.0f;
