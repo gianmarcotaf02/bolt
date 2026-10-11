@@ -3584,7 +3584,6 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
                 switch (wparam)
                 {
                     case VK_ESCAPE:
-                        // Escape unwinds the filter and stops there. Closing the
                         // window is the ✕ button or Alt+F4: an application that
                         // exits on a bare Escape is a trap, and this one did.
                         if (!app->filter.empty() || app->filterActive)
