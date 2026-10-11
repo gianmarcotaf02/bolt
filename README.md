@@ -4,7 +4,9 @@
 Voidstar d.o.o.), ricostruito da zero partendo dall'analisi statica del binario
 distribuito.
 
-Progetto personale, uso personale, non commerciale. Nessuna parte del codice
+Progetto personale, uso personale, non commerciale. **Non salva nulla su disco:**
+nessuna impostazione, nessun elenco di recenti, nessuna traccia. Vedi
+[docs/06-privacy.md](docs/06-privacy.md). Nessuna parte del codice
 dell'applicazione originale è copiata in questo repository: vedi
 [la metodologia](docs/00-metodologia.md) per cosa è stato studiato e come è stato
 reimplementato in modo indipendente.
@@ -111,7 +113,8 @@ analysis/
   out/         report PE, stringhe, identificatori, spec, shader
   out/reverse/ ricostruzione di SumDirStats con pseudocodice
   rea-snapshot database di analisi Ghidra, riusato fra le sessioni
-docs/          metodologia, analisi, architettura ricostruita, spec, roadmap
+docs/          metodologia, analisi, architettura ricostruita, spec, roadmap,
+               privacy
 brand/         identità visiva: brief del logo, palette, prompt pronti
 src/
   main.cpp          finestra Win32, contesto GL, navigazione, layout, input
