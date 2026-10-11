@@ -2596,6 +2596,12 @@ void ReloadKeeping(AppState& app, const std::unordered_set<std::wstring>& keep,
 
     app.scroll = restoreScroll;
     app.viewDirty = true;
+
+    // La cartella e' cambiata, quindi le statistiche che la riguardano non
+    // valgono piu'. Serve invalidare QUESTA cartella, non quella che si sta
+    // guardando: i numeri di una sottocartella si vedono dal genitore, quindi e'
+    // li' che si noterebbe che sono vecchi.
+    app.stats.Invalidate(app.directory);
 }
 
 // Nome predefinito di una cartella nuova, come quello di Esplora risorse.
@@ -2641,13 +2647,15 @@ void CommitRename(AppState& app)
         return;
 
     std::wstring error;
-    const FileOps::Result result = FileOps::Rename(app.window, path, newName, &error);
+    std::vector<std::wstring> created;
+    const FileOps::Result result = FileOps::Rename(app.window, path, newName, &created, &error);
     if (result == FileOps::Result::Ok)
     {
         std::unordered_set<std::wstring> keep;
-        keep.insert(newName);
-        ReloadKeeping(app, keep, newName, scroll);
-        ReportStatus(app, L"Rinominato in " + newName);
+        const std::wstring landed = created.empty() ? newName : LeafName(created.front());
+        keep.insert(landed);
+        ReloadKeeping(app, keep, landed, scroll);
+        ReportStatus(app, L"Rinominato in " + landed);
     }
     else if (result == FileOps::Result::Failed)
     {
@@ -2684,8 +2692,9 @@ void DoPaste(AppState& app)
 
     const float scroll = app.scroll;
     std::wstring error;
-    const FileOps::Result result = cut ? FileOps::Move(app.window, paths, app.directory, &error)
-                                       : FileOps::Copy(app.window, paths, app.directory, &error);
+    std::vector<std::wstring> created;
+    const FileOps::Result result = cut ? FileOps::Move(app.window, paths, app.directory, &created, &error)
+                                       : FileOps::Copy(app.window, paths, app.directory, &created, &error);
 
     if (result == FileOps::Result::Ok)
     {
@@ -2694,15 +2703,25 @@ void DoPaste(AppState& app)
         if (cut)
             FileOps::ClearClipboard(app.window);
 
+        // Si seleziona cio' che la shell ha DAVVERO creato. Con un conflitto di
+        // nome il nome finale non e' quello di partenza, e selezionare quello di
+        // partenza metteva il cursore sull'originale: un Canc subito dopo
+        // cancellava la cosa sbagliata.
         std::unordered_set<std::wstring> keep;
         std::wstring landed;
-        for (const std::wstring& path : paths)
+        for (const std::wstring& path : created)
         {
             const std::wstring name = LeafName(path);
             keep.insert(name);
             if (landed.empty())
                 landed = name;
         }
+        if (keep.empty())
+        {
+            for (const std::wstring& path : paths)
+                keep.insert(LeafName(path));
+        }
+
         ReloadKeeping(app, keep, landed, scroll);
         ReportStatus(app, (cut ? L"Spostati " : L"Incollati ") +
                               std::to_wstring(paths.size()) + L" elementi");
@@ -2738,14 +2757,15 @@ void DoDelete(AppState& app, bool permanently)
 void DoNewFolder(AppState& app)
 {
     const float scroll = app.scroll;
-    std::wstring created;
+    std::vector<std::wstring> created;
     std::wstring error;
     const FileOps::Result result = FileOps::CreateFolder(
         app.window, app.directory, kNewFolderName, &created, &error);
 
     if (result == FileOps::Result::Ok)
     {
-        const std::wstring name = LeafName(created);
+        const std::wstring name = created.empty() ? std::wstring(kNewFolderName)
+                                                  : LeafName(created.front());
         std::unordered_set<std::wstring> keep;
         keep.insert(name);
         ReloadKeeping(app, keep, name, scroll);
