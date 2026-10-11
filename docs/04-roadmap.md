@@ -296,6 +296,8 @@ quelle sono la stessa impaginazione a una scala diversa.
 - [x] intestazione nascosta in griglia, spazio restituito alla lista
 - [x] frecce: `Su`/`Giù` di una riga di griglia, `Sinistra`/`Destra` di una cella
 - [x] `Ctrl`+`1`/`2`/`3`/`4`, più i quattro comandi nella palette
+- [x] secondo corpo di glifi a 13 px per il testo secondario (vedi §7.12 di
+      `docs/02`), su un quarto layer dell'array di texture
 - [ ] raggruppamento in griglia: richiede un impaginatore a flusso con bande a
       piena larghezza; al momento la griglia lo disattiva e lo dichiara
 - [ ] ridimensionamento continuo della cella (la scala fra `Icons` e `Tiles`)
@@ -310,10 +312,8 @@ numero derivato non può entrare in disaccordo con le sue parti.
 
 ### Cosa manca di questa passata
 
-Il **secondo corpo di glifi**: metà del testo secondario è disegnato a scale
-frazionarie (0.8–0.95) e viene quindi ricampionato dall'atlante. La correzione è
-rasterizzare una seconda dimensione e usarla a scala 1.0. È isolata e non tocca
-nient'altro, ma va fatta con calma: sono una ventina di punti di chiamata.
+Il **raggruppamento in griglia**, che richiede un impaginatore a flusso, e il
+**ridimensionamento continuo** della cella. Il secondo corpo di glifi è fatto.
 
 ---
 

@@ -483,3 +483,31 @@ la copertura in scala di grigi, e le frange di colore non sopravvivono alla
 conversione. Le posizioni dei glifi vengono inoltre arrotondate al pixel intero:
 l'avanzamento resta frazionario per non far derivare la spaziatura, ma un glifo
 che cade su mezzo pixel viene ricampionato e perde nitidezza.
+
+### 7.12 Sei dimensioni secondarie, tutte ricampionate
+
+Il testo secondario — intestazioni di colonna, etichette dell'inspector, barra di
+stato, voci dei menu — era disegnato con l'atlante del corpo a scala frazionaria:
+sei valori diversi, da 0.80 a 0.95. Due difetti in uno.
+
+Il primo è che **disegnare a 0.9 un glifo rasterizzato per 15 px lo ricampiona**:
+l'hinting che GDI ha applicato vale per 15 px e non per 13.5, quindi ogni glifo
+perde esattamente la nitidezza che il rasterizzatore aveva prodotto. Si vede
+soprattutto sulle lettere con gambi verticali, dove il ricampionamento li
+distribuisce su due colonne di pixel.
+
+Il secondo è che sei dimensioni secondarie non sono una gerarchia: sono rumore.
+Una barra di stato a 0.90 e un'etichetta a 0.92 non comunicano nulla di diverso,
+e nessuno legge la differenza.
+
+Ora c'è **un secondo corpo, rasterizzato a 13 px**, su un quarto layer
+dell'array di texture, disegnato a scala 1.0. Il testo secondario ha una
+dimensione sola e quella dimensione è rasterizzata invece che ricampionata.
+
+Il costo è un layer di atlante in più su quattro: la dimensione delle texture non
+cambia, cambia il numero di strati. Il corpo resta a 15 px, e resta deliberatamente
+alla sua dimensione nativa, perché è quello dove l'hinting conta di più.
+
+**Limite dichiarato:** lo zoom con `Ctrl`+`+`/`-` scala anche il corpo secondario,
+quindi a zoom diverso da 1.0 il ricampionamento torna. Per eliminarlo servirebbe
+una rasterizzazione a runtime per ogni dimensione, che è un altro mestiere.
