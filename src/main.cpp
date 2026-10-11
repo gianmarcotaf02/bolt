@@ -1,0 +1,3860 @@
+// ---------------------------------------------------------------------------
+// File Pilot clone — application shell.
+//
+// Milestone 1 proved the rendering architecture. Milestone 2 adds what makes it
+// a file manager rather than a mock-up:
+//
+//   * real shell icons, keyed by extension (shell_icons.h)
+//   * a clickable breadcrumb path bar
+//   * sortable columns with a click on the header
+//   * navigation: double click to enter a folder, Backspace to go up, F5 to
+//     refresh, arrow keys and Enter
+//   * an inspector showing metadata taken from the directory entry
+//   * the real known folders in the sidebar
+//
+// Everything still flows through one quad batcher and one draw call per frame.
+// ---------------------------------------------------------------------------
+#include "dir_stats.h"
+#include "font_atlas.h"
+#include "gl_loader.h"
+#include "shell_icons.h"
+#include "shell_preview.h"
+#include "ui_renderer.h"
+
+#include <windows.h>
+#include <shellapi.h>
+#include <shlobj.h>
+#include <windowsx.h>
+
+#include <algorithm>
+#include <cmath>
+#include <cstdio>
+#include <cwctype>
+#include <string>
+#include <unordered_map>
+#include <unordered_set>
+#include <utility>
+#include <vector>
+
+#ifndef REA_SHADER_DIR
+#define REA_SHADER_DIR "shaders"
+#endif
+
+namespace {
+
+// --- WGL context creation attributes (not in the Windows SDK) --------------
+constexpr int kWglContextMajorVersion = 0x2091;
+constexpr int kWglContextMinorVersion = 0x2092;
+constexpr int kWglContextProfileMask  = 0x9126;
+constexpr int kWglContextCoreProfile  = 0x00000001;
+
+using WglCreateContextAttribsArbFn = HGLRC(WINAPI*)(HDC, HGLRC, const int*);
+
+// --- texture array layers ---------------------------------------------------
+// Every UI texture shares one array, so the layer index is the only thing that
+// tells a glyph from an icon from a thumbnail.
+constexpr int kGlyphLayer   = 0;
+constexpr int kIconLayer    = 1;
+constexpr int kPreviewLayer = 2;
+
+// --- theme -----------------------------------------------------------------
+struct Theme
+{
+    Color windowBg    = Color::FromHex(0x1B1C1F);
+    Color panelBg     = Color::FromHex(0x232428);
+    Color panelBorder = Color::FromHex(0x32343A);
+    Color headerBg    = Color::FromHex(0x1F2024);
+    Color rowOdd      = Color::FromHex(0x26272C);
+    Color rowSelected = Color::FromHex(0x2F4C7E);
+    Color rowHover    = Color::FromHex(0x2C2E34);
+    Color text        = Color::FromHex(0xE6E7EA);
+    Color textDim     = Color::FromHex(0x9195A0);
+    Color accent      = Color::FromHex(0x4C8DFF);
+    Color scrollThumb = Color::FromHex(0x4A4D55);
+    Color separator   = Color::FromHex(0x2A2C31);
+};
+
+// --- model -----------------------------------------------------------------
+enum class SortColumn { Name, Type, Modified, Folders, Files, Size };
+
+struct Entry
+{
+    std::wstring wideName;
+    std::string  name;
+    std::string  extension;     // lowercase, no leading dot
+    std::string  typeText;
+    std::string  sizeText;
+    std::string  modifiedText;    // compact, for the list column
+    std::string  modifiedFull;    // with time, for the inspector
+    uint64_t     bytes = 0;
+    bool         isDirectory = false;
+    FILETIME     modified{};
+    bool         readable = true;
+};
+
+struct Place
+{
+    std::string  label;
+    std::wstring path;
+};
+
+// Rectangles recorded while drawing, so input handling can hit test them without
+// duplicating the layout maths. Rebuilt every frame.
+struct ClickTarget
+{
+    enum class Kind
+    {
+        Column, Breadcrumb, Place, Row, GroupHeader, GroupMode,
+        Menu, Tab, TabClose, TabNew,
+        WindowMinimize, WindowMaximize, WindowClose,
+        MenuRow, MenuHeader,
+    };
+    Rect         rect;
+    Kind         kind = Kind::Row;
+    int          index = 0;      // column index or row index
+    std::wstring path;           // for breadcrumbs and places
+    std::string  label;          // for group headers
+};
+
+// --- view model -------------------------------------------------------------
+// The list is not the directory. A filter removes entries and a grouping inserts
+// headers between them, so what gets drawn and hit tested is a list of rows over
+// the entry array, rebuilt only when something that affects it changes.
+
+enum class GroupMode { None, Name, Date, Size, Count, Volume };
+
+// How the list is laid out. Details and List are rows of text; Icons and Tiles
+// are a grid of cells built around a thumbnail. Two row layouts and two cell
+// sizes cover what Explorer exposes as its eight view commands, because most of
+// those are the same layout at a different size.
+enum class ViewMode { Details, List, Tiles, Icons };
+
+const char* ViewModeName(ViewMode mode)
+{
+    switch (mode)
+    {
+        case ViewMode::List:  return "List";
+        case ViewMode::Tiles: return "Tiles";
+        case ViewMode::Icons: return "Icons";
+        default:              return "Details";
+    }
+}
+
+// Geometry of the current view. |columns| is only meaningful in a grid.
+struct ViewMetrics
+{
+    bool  grid       = false;
+    float rowHeight  = 24.0f;
+    float iconSize   = 16.0f;
+    float cellWidth  = 0.0f;
+    float cellHeight = 0.0f;
+    float padding    = 4.0f;
+    int   columns    = 1;
+};
+
+struct Row
+{
+    bool header = false;
+    int  entry  = -1;   // index into AppState::entries
+    int  group  = -1;   // index into AppState::groups
+};
+
+struct Group
+{
+    std::string label;
+    int         count = 0;
+};
+
+// --- command palette ---------------------------------------------------------
+// A command is data, not a callback: the table below is the single place a
+// command is declared, and |RunCommand| is the single place it is executed. The
+// reference exposes 319 of them with a tooltip each; this is the subset the shell
+// can actually carry out, which is the honest place to start.
+enum CommandId
+{
+    CmdNewTab, CmdCloseTab, CmdNextTab, CmdPrevTab,
+    CmdGoUp, CmdBack, CmdForward, CmdRefresh, CmdOpenExplorer, CmdOpenConsole, CmdRecalcStats,
+    CmdGoTo,
+    CmdToggleSidebar, CmdZoomIn, CmdZoomOut, CmdZoomReset, CmdToggleDetails,
+    CmdViewDetails, CmdViewList, CmdViewTiles, CmdViewIcons,
+    CmdSortName, CmdSortType, CmdSortModified, CmdSortFolders, CmdSortFiles,
+    CmdSortSize, CmdSortDirection,
+    CmdGroupNone, CmdGroupName, CmdGroupDate, CmdGroupSize, CmdGroupCount, CmdGroupVolume,
+    CmdFocusFilter, CmdClearFilter, CmdScrollTop, CmdScrollBottom,
+    CmdToggleBookmark, CmdClearBookmarks, CmdClearRecents,
+};
+
+// Item ids below this are CommandId values; above it they are indexes into
+// AppState::places. The palette has two kinds of row and the id has to say which.
+constexpr int kPalettePlaceBase = 1000;
+
+// The reusable part: a modal, filtered, grouped and collapsible list. It knows
+// nothing about what an item means — |id| is the caller's business — which is
+// what lets the same component serve the command palette and the GoTo window.
+// It became a component when the second caller arrived, not before.
+struct GroupMenuItem
+{
+    std::string group;
+    std::string label;
+    std::string detail;   // shown right aligned in detailed mode
+    int         id = 0;   // meaningful only to the caller
+};
+
+struct GroupMenuRow
+{
+    bool header = false;
+    int  group  = -1;   // index into GroupMenu::groups
+    int  item   = -1;   // index into GroupMenu::items
+};
+
+enum class MenuAction { None, Activate, Close };
+
+struct GroupMenu
+{
+    bool         open      = false;
+    bool         detailed  = false;
+    bool         dirty     = true;
+    std::wstring filter;
+    std::string  title;
+    std::string  placeholder;
+    std::string  hint;   // the footer line, which differs per caller
+
+    std::vector<GroupMenuItem>      items;
+    std::vector<GroupMenuRow>       rows;
+    std::vector<std::string>        groups;
+    std::unordered_set<std::string> collapsed;
+    int          selected   = 0;
+    int          matchCount = 0;
+};
+
+// One panel's worth of state. Switching tabs saves the live state into the tab
+// it came from and loads the target tab's, which keeps every other part of the
+// program working on a single set of fields instead of having to know that tabs
+// exist. Completed preview and statistic results are global caches keyed by path,
+// so they survive a switch for free.
+struct Tab
+{
+    std::wstring directory;
+    std::vector<Entry> entries;
+    std::wstring cursor;
+    std::wstring selectionAnchor;
+    std::unordered_set<std::wstring> selection;
+    std::wstring filter;
+    std::string  errorText;
+    float        scroll = 0.0f;
+    bool         filterActive = false;
+    SortColumn   sortColumn = SortColumn::Name;
+    bool         sortAscending = true;
+    GroupMode    groupMode = GroupMode::None;
+    ViewMode     viewMode  = ViewMode::Details;
+
+    // Per-tab navigation history, walked by Alt+Left and Alt+Right.
+    std::vector<std::wstring> history;
+    int                       historyIndex = -1;
+};
+
+struct AppState
+{
+    UIRenderer      renderer;
+    FontAtlas       font;
+    ShellIconAtlas  icons;
+    ShellPreviewCache previews;
+    DirStatsService   stats;
+    Theme             theme;
+
+    HWND          window = nullptr;
+
+    std::vector<Entry> entries;
+    std::vector<Place> places;
+    std::vector<ClickTarget> clickTargets;
+
+    std::vector<Tab> tabs;
+    int              activeTab = 0;
+    bool             sidebarVisible = true;
+    int              hoveredTab = -1;
+    int              hoveredChrome = -1;   // 0 menu, 1 new tab, 2 min, 3 max, 4 close
+
+    std::wstring directory;
+
+    // Selection is kept by file name, not by entry index: sorting, filtering and
+    // refreshing all renumber the entry array, and a selection that slides onto a
+    // different file when the user sorts by size is worse than no selection.
+    std::wstring cursor;                            // the focused entry
+    std::wstring selectionAnchor;                   // Shift+click / Shift+arrow origin
+    std::unordered_set<std::wstring> selection;     // entry names
+
+    // Rubber band, in client coordinates.
+    bool  rectSelecting = false;
+    bool  rectAdditive  = false;
+    float rectX0 = 0.0f, rectY0 = 0.0f, rectX1 = 0.0f, rectY1 = 0.0f;
+
+    int   hovered  = -1;
+    float scroll   = 0.0f;
+    float zoom     = 1.0f;
+    float dpiScale = 1.0f;
+    int   hoveredPlace = -1;
+
+    SortColumn sortColumn    = SortColumn::Name;
+    bool       sortAscending = true;
+    ViewMode   viewMode      = ViewMode::Details;
+
+    // View: filter and grouping sit between the directory and the rows.
+    std::wstring filter;          // free text; a term may be an extension pattern
+    bool         filterActive = false;
+    std::vector<Row>   rows;
+    std::vector<Group> groups;
+
+    // Two menus, one component.
+    GroupMenu palette;                       // Ctrl+P, item id = CommandId
+    GroupMenu goTo;                          // Ctrl+G, item id = index in goToTargets
+    std::vector<std::wstring> goToTargets;
+    std::vector<std::wstring> recents;       // visited this run: StoreRecents = Session
+    std::vector<std::wstring> bookmarks;     // this run; persistence is milestone 9
+    std::unordered_set<std::string> collapsedGroups;
+    GroupMode    groupMode  = GroupMode::None;
+    int          matchCount = 0;   // entries surviving the filter, folding aside
+    bool         viewDirty  = true;
+
+    // Navigation history of the active tab, saved into and out of it like the
+    // rest of the tab state.
+    std::vector<std::wstring> history;
+    int                       historyIndex = -1;
+    uint64_t     viewStatsRevision = 0;
+    double       lastViewRebuild   = 0.0;
+
+    std::string errorText;
+
+    double lastFrameTime = 0.0;
+    float  framesPerSecond = 0.0f;
+    int    viewportWidth = 0;
+    int    viewportHeight = 0;
+};
+
+// Helpers defined further down but needed earlier: the selection queries by the
+// drawing code, and the parent path by the command palette.
+int  FindEntryByName(const AppState& app, const std::wstring& name);
+int  CursorIndex(const AppState& app);
+bool IsEntrySelected(const AppState& app, const Entry& entry);
+std::wstring ParentOf(const std::wstring& path);
+
+// --- string helpers --------------------------------------------------------
+std::string ToUtf8(const std::wstring& text)
+{
+    if (text.empty())
+        return {};
+    const int needed = WideCharToMultiByte(CP_UTF8, 0, text.data(), static_cast<int>(text.size()),
+                                          nullptr, 0, nullptr, nullptr);
+    std::string out(static_cast<size_t>(needed), '\0');
+    WideCharToMultiByte(CP_UTF8, 0, text.data(), static_cast<int>(text.size()),
+                        out.data(), needed, nullptr, nullptr);
+    return out;
+}
+
+std::wstring Widen(const std::string& text)
+{
+    if (text.empty())
+        return {};
+    const int needed = MultiByteToWideChar(CP_UTF8, 0, text.data(), static_cast<int>(text.size()), nullptr, 0);
+    std::wstring out(static_cast<size_t>(needed), L'\0');
+    MultiByteToWideChar(CP_UTF8, 0, text.data(), static_cast<int>(text.size()), out.data(), needed);
+    return out;
+}
+
+// Directory and name joined with exactly one separator, so a drive root such as
+// "C:\\" does not become "C:\\\\name".
+std::wstring JoinPath(const std::wstring& directory, const std::wstring& name)
+{
+    if (directory.empty())
+        return name;
+    if (directory.back() == L'\\')
+        return directory + name;
+    return directory + L"\\" + name;
+}
+
+std::string HumanBytes(uint64_t bytes)
+{
+    static const char* units[] = {"B", "KB", "MB", "GB", "TB"};
+    double value = static_cast<double>(bytes);
+    int unit = 0;
+    while (value >= 1024.0 && unit < 4)
+    {
+        value /= 1024.0;
+        ++unit;
+    }
+    char buffer[64];
+    std::snprintf(buffer, sizeof(buffer), (unit == 0) ? "%.0f %s" : "%.1f %s", value, units[unit]);
+    return buffer;
+}
+
+// Compact count formatting for the Folders and Files columns, in the style the
+// reference application uses: 89, 2.4K, 18.4K, 131K, 109.3K.
+std::string HumanCount(uint64_t value)
+{
+    if (value < 1000)
+        return std::to_string(value);
+
+    static const char* suffixes[] = {"K", "M", "B"};
+    double scaled = static_cast<double>(value) / 1000.0;
+    int suffix = 0;
+    while (scaled >= 1000.0 && suffix < 2)
+    {
+        scaled /= 1000.0;
+        ++suffix;
+    }
+
+    // Round to one decimal, then drop the decimal when it carries nothing: a
+    // count of 131 000 reads better as "131K" than as "131.0K".
+    const double tenths = std::floor(scaled * 10.0 + 0.5) / 10.0;
+    char buffer[32];
+    if (tenths == std::floor(tenths))
+        std::snprintf(buffer, sizeof(buffer), "%.0f%s", tenths, suffixes[suffix]);
+    else
+        std::snprintf(buffer, sizeof(buffer), "%.1f%s", tenths, suffixes[suffix]);
+    return buffer;
+}
+
+std::string FormatFileTime(const FILETIME& fileTime, bool withTime)
+{
+    FILETIME local{};
+    SYSTEMTIME system{};
+    if (FileTimeToLocalFileTime(&fileTime, &local) == FALSE ||
+        FileTimeToSystemTime(&local, &system) == FALSE)
+        return "-";
+
+    char buffer[64];
+    if (withTime)
+        std::snprintf(buffer, sizeof(buffer), "%04u-%02u-%02u %02u:%02u",
+                      system.wYear, system.wMonth, system.wDay, system.wHour, system.wMinute);
+    else
+        std::snprintf(buffer, sizeof(buffer), "%04u-%02u-%02u",
+                      system.wYear, system.wMonth, system.wDay);
+    return buffer;
+}
+
+uint64_t FileTimeToUint64(const FILETIME& fileTime)
+{
+    return (static_cast<uint64_t>(fileTime.dwHighDateTime) << 32) | fileTime.dwLowDateTime;
+}
+
+// Truncates |text| with a trailing ellipsis so it cannot spill into the next
+// column. The renderer has no scissor rectangle, so fitting has to happen here.
+std::string FitText(const FontAtlas& font, const std::string& text, float scale, float maxWidth)
+{
+    if (maxWidth <= 0.0f || text.empty())
+        return {};
+    if (font.Measure(text, scale) <= maxWidth)
+        return text;
+
+    const std::string ellipsis = "...";
+    const float ellipsisWidth = font.Measure(ellipsis, scale);
+
+    std::string truncated;
+    float width = 0.0f;
+    for (const char c : text)
+    {
+        const FontAtlas::Glyph* glyph = font.Find(c);
+        const float advance = (glyph != nullptr) ? glyph->advance * scale : 6.0f * scale;
+        if (width + advance + ellipsisWidth > maxWidth)
+            break;
+        truncated.push_back(c);
+        width += advance;
+    }
+    return truncated + ellipsis;
+}
+
+// Shell type name for an extension, cached: "PNG image" reads better than "PNG file".
+std::string ShellTypeName(const std::string& extension, bool isDirectory)
+{
+    static std::unordered_map<std::string, std::string> cache;
+    const std::string key = isDirectory ? std::string("<dir>") : extension;
+
+    const auto cached = cache.find(key);
+    if (cached != cache.end())
+        return cached->second;
+
+    const std::wstring synthetic = isDirectory ? L"folder" : (L"x." + Widen(extension));
+    const DWORD attributes = isDirectory ? FILE_ATTRIBUTE_DIRECTORY : FILE_ATTRIBUTE_NORMAL;
+
+    SHFILEINFOW info{};
+    std::string result;
+    if (SHGetFileInfoW(synthetic.c_str(), attributes, &info, sizeof(info),
+                       SHGFI_TYPENAME | SHGFI_USEFILEATTRIBUTES) != 0)
+        result = ToUtf8(info.szTypeName);
+
+    if (result.empty())
+        result = isDirectory ? "File folder" : (extension.empty() ? "File" : extension + " file");
+
+    cache.emplace(key, result);
+    return result;
+}
+
+// --- directory reading -----------------------------------------------------
+std::vector<Entry> ReadDirectory(const std::wstring& directory, std::string* error)
+{
+    std::vector<Entry> entries;
+    error->clear();
+
+    WIN32_FIND_DATAW data{};
+    const std::wstring pattern = directory + L"\\*";
+    HANDLE search = FindFirstFileExW(pattern.c_str(),
+                                     FindExInfoBasic,
+                                     &data,
+                                     FindExSearchNameMatch,
+                                     nullptr,
+                                     FIND_FIRST_EX_LARGE_FETCH);
+    if (search == INVALID_HANDLE_VALUE)
+    {
+        // Retry without the large-fetch hint: some network providers reject it.
+        search = FindFirstFileW(pattern.c_str(), &data);
+    }
+
+    if (search == INVALID_HANDLE_VALUE)
+    {
+        const DWORD code = GetLastError();
+        *error = (code == ERROR_ACCESS_DENIED) ? "Access denied." : "Cannot read this folder.";
+        return entries;
+    }
+
+    do
+    {
+        const std::wstring name = data.cFileName;
+        if (name == L"." || name == L"..")
+            continue;
+
+        Entry entry;
+        entry.wideName    = name;
+        entry.name        = ToUtf8(name);
+        entry.isDirectory = (data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
+        entry.bytes       = (static_cast<uint64_t>(data.nFileSizeHigh) << 32) | data.nFileSizeLow;
+        entry.modified    = data.ftLastWriteTime;
+
+        const size_t dot = entry.name.rfind('.');
+        if (!entry.isDirectory && dot != std::string::npos && dot + 1 < entry.name.size())
+        {
+            entry.extension = entry.name.substr(dot + 1);
+            std::transform(entry.extension.begin(), entry.extension.end(), entry.extension.begin(),
+                           [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+        }
+
+        entry.typeText     = ShellTypeName(entry.extension, entry.isDirectory);
+        entry.sizeText     = entry.isDirectory ? "" : HumanBytes(entry.bytes);
+        entry.modifiedText = FormatFileTime(entry.modified, /*withTime=*/false);
+        entry.modifiedFull = FormatFileTime(entry.modified, /*withTime=*/true);
+        entries.push_back(std::move(entry));
+    }
+    while (FindNextFileW(search, &data) != FALSE);
+
+    FindClose(search);
+    return entries;
+}
+
+bool SortEntries(AppState& app)
+{
+    const bool ascending = app.sortAscending;
+    const SortColumn column = app.sortColumn;
+
+    // A statistics column needs the service, which costs a lock per comparison.
+    // That is acceptable here because sorting happens on demand, not per frame.
+    auto statsFor = [&app](const Entry& entry, DirStats* out) -> bool
+    {
+        if (!entry.isDirectory)
+            return false;
+        return app.stats.TryGet(JoinPath(app.directory, entry.wideName), out);
+    };
+
+    auto statValue = [&statsFor](const Entry& entry, SortColumn which) -> uint64_t
+    {
+        if (!entry.isDirectory)
+            return (which == SortColumn::Size) ? entry.bytes : 0;
+
+        DirStats stats;
+        if (!statsFor(entry, &stats))
+            return 0;
+        switch (which)
+        {
+            case SortColumn::Folders: return stats.folders;
+            case SortColumn::Files:   return stats.files;
+            default:                  return stats.logicalBytes;
+        }
+    };
+
+    std::stable_sort(app.entries.begin(), app.entries.end(),
+                     [column, ascending, &statValue](const Entry& left, const Entry& right)
+                     {
+                         // Folders always lead, matching the FoldersFirst default.
+                         if (left.isDirectory != right.isDirectory)
+                             return left.isDirectory;
+
+                         int order = 0;
+                         switch (column)
+                         {
+                             case SortColumn::Size:
+                             case SortColumn::Folders:
+                             case SortColumn::Files:
+                             {
+                                 const uint64_t a = statValue(left, column);
+                                 const uint64_t b = statValue(right, column);
+                                 order = (a < b) ? -1 : (a > b) ? 1 : 0;
+                                 break;
+                             }
+                             case SortColumn::Modified:
+                             {
+                                 const uint64_t a = FileTimeToUint64(left.modified);
+                                 const uint64_t b = FileTimeToUint64(right.modified);
+                                 order = (a < b) ? -1 : (a > b) ? 1 : 0;
+                                 break;
+                             }
+                             case SortColumn::Type:
+                                 order = left.typeText.compare(right.typeText);
+                                 break;
+                             case SortColumn::Name:
+                             default:
+                                 order = _wcsicmp(left.wideName.c_str(), right.wideName.c_str());
+                                 break;
+                         }
+
+                         if (order == 0)
+                             order = _wcsicmp(left.wideName.c_str(), right.wideName.c_str());
+
+                         return ascending ? (order < 0) : (order > 0);
+                     });
+    return true;
+}
+
+// --- view: filtering --------------------------------------------------------
+std::wstring ToLowerWide(const std::wstring& text)
+{
+    std::wstring out = text;
+    for (wchar_t& c : out)
+        c = static_cast<wchar_t>(towlower(c));
+    return out;
+}
+
+// '*' matches any run, '?' one character. Iterative with backtracking on the
+// last star, which is the classic linear-time formulation.
+bool GlobMatch(const std::wstring& pattern, const std::wstring& text)
+{
+    size_t p = 0, t = 0;
+    size_t star = std::wstring::npos;
+    size_t resume = 0;
+
+    while (t < text.size())
+    {
+        if (p < pattern.size() && (pattern[p] == L'?' || pattern[p] == text[t]))
+        {
+            ++p;
+            ++t;
+        }
+        else if (p < pattern.size() && pattern[p] == L'*')
+        {
+            star = p++;
+            resume = t;
+        }
+        else if (star != std::wstring::npos)
+        {
+            p = star + 1;
+            t = ++resume;
+        }
+        else
+        {
+            return false;
+        }
+    }
+
+    while (p < pattern.size() && pattern[p] == L'*')
+        ++p;
+    return p == pattern.size();
+}
+
+bool TermMatches(const Entry& entry, const std::wstring& term)
+{
+    // A term that starts with a dot, or contains a wildcard, asks about the
+    // type rather than the whole name: ".png" and "*.png" mean the same thing.
+    // This is the filter-by-type path of the reference key table
+    // (FilterFileTypes / FilterTypes) expressed in the same box as free text.
+    if (!term.empty() && term[0] == L'.' && term.find(L'*') == std::wstring::npos)
+    {
+        if (entry.isDirectory)
+            return false;
+        return ToLowerWide(Widen(entry.extension)) == term.substr(1);
+    }
+
+    const std::wstring name = ToLowerWide(entry.wideName);
+    if (term.find(L'*') != std::wstring::npos || term.find(L'?') != std::wstring::npos)
+        return GlobMatch(term, name);
+    return name.find(term) != std::wstring::npos;
+}
+
+// Space separated terms, all of which must match. An empty filter matches all.
+bool FilterMatch(const Entry& entry, const std::wstring& filter)
+{
+    if (filter.empty())
+        return true;
+
+    size_t start = 0;
+    for (;;)
+    {
+        size_t space = filter.find(L' ', start);
+        if (space == std::wstring::npos)
+            space = filter.size();
+        if (space > start && !TermMatches(entry, filter.substr(start, space - start)))
+            return false;
+        if (space >= filter.size())
+            break;
+        start = space + 1;
+    }
+    return true;
+}
+
+// --- view: grouping ---------------------------------------------------------
+uint64_t LocalDayIndex(const FILETIME& fileTime)
+{
+    FILETIME local{};
+    if (FileTimeToLocalFileTime(&fileTime, &local) == FALSE)
+        return 0;
+    const uint64_t ticks = (static_cast<uint64_t>(local.dwHighDateTime) << 32) | local.dwLowDateTime;
+    return ticks / (10000000ULL * 60ULL * 60ULL * 24ULL);
+}
+
+uint64_t CurrentDayIndex()
+{
+    FILETIME now{};
+    GetSystemTimeAsFileTime(&now);
+    return LocalDayIndex(now);
+}
+
+bool VolumeUsage(const std::wstring& path, int* percentFull)
+{
+    if (path.size() < 2 || path[1] != L':')
+        return false;
+    const wchar_t root[4] = {path[0], L':', L'\\', L'\0'};
+    ULARGE_INTEGER available{};
+    ULARGE_INTEGER total{};
+    ULARGE_INTEGER freeBytes{};
+    if (GetDiskFreeSpaceExW(root, &available, &total, &freeBytes) == FALSE || total.QuadPart == 0)
+        return false;
+    *percentFull = static_cast<int>((total.QuadPart - freeBytes.QuadPart) * 100 / total.QuadPart);
+    return true;
+}
+
+// The band names come from the reference key table (GroupByLabel_*). The
+// cut-offs do not: docs/03 records them as still unknown, so the values here are
+// a reconstruction and are deliberately easy to find and change.
+void GroupKeyFor(const Entry& entry, GroupMode mode, uint64_t bytes, uint64_t items,
+                 bool statsKnown, int percentFull, int* outOrder, std::string* outLabel)
+{
+    switch (mode)
+    {
+        case GroupMode::Name:
+        {
+            const wchar_t c = entry.wideName.empty()
+                ? L'\0'
+                : static_cast<wchar_t>(towupper(entry.wideName[0]));
+            if (c >= L'0' && c <= L'9')      { *outOrder = 0; *outLabel = "09"; }
+            else if (c >= L'A' && c <= L'H') { *outOrder = 1; *outLabel = "AH"; }
+            else if (c >= L'I' && c <= L'P') { *outOrder = 2; *outLabel = "IP"; }
+            else if (c >= L'Q' && c <= L'Z') { *outOrder = 3; *outLabel = "QZ"; }
+            else                             { *outOrder = 4; *outLabel = "Other"; }
+            break;
+        }
+        case GroupMode::Date:
+        {
+            const uint64_t now  = CurrentDayIndex();
+            const uint64_t then = LocalDayIndex(entry.modified);
+            const uint64_t age  = (now >= then) ? (now - then) : 0;
+            if (age == 0)        { *outOrder = 0; *outLabel = "Today"; }
+            else if (age == 1)   { *outOrder = 1; *outLabel = "Yesterday"; }
+            else if (age <= 6)   { *outOrder = 2; *outLabel = "EarlierThisWeek"; }
+            else if (age <= 13)  { *outOrder = 3; *outLabel = "LastWeek"; }
+            else if (age <= 30)  { *outOrder = 4; *outLabel = "EarlierThisMonth"; }
+            else if (age <= 60)  { *outOrder = 5; *outLabel = "LastMonth"; }
+            else if (age <= 364) { *outOrder = 6; *outLabel = "EarlierThisYear"; }
+            else if (age <= 729) { *outOrder = 7; *outLabel = "LastYear"; }
+            else                 { *outOrder = 8; *outLabel = "Older"; }
+            break;
+        }
+        case GroupMode::Size:
+        {
+            if (entry.isDirectory && !statsKnown) { *outOrder = 7; *outLabel = "Unspecified"; break; }
+            if (bytes == 0)                          { *outOrder = 0; *outLabel = "Empty"; }
+            else if (bytes < 16ULL * 1024)           { *outOrder = 1; *outLabel = "Tiny"; }
+            else if (bytes < 1024ULL * 1024)         { *outOrder = 2; *outLabel = "Small"; }
+            else if (bytes < 16ULL * 1024 * 1024)    { *outOrder = 3; *outLabel = "Medium"; }
+            else if (bytes < 128ULL * 1024 * 1024)   { *outOrder = 4; *outLabel = "Large"; }
+            else if (bytes < 1024ULL * 1024 * 1024)  { *outOrder = 5; *outLabel = "Huge"; }
+            else                                     { *outOrder = 6; *outLabel = "Gigantic"; }
+            break;
+        }
+        case GroupMode::Count:
+        {
+            if (!entry.isDirectory || !statsKnown) { *outOrder = 8; *outLabel = "Unspecified"; break; }
+            if (items == 0)          { *outOrder = 0; *outLabel = "Empty"; }
+            else if (items <= 5)     { *outOrder = 1; *outLabel = "Few"; }
+            else if (items <= 50)    { *outOrder = 2; *outLabel = "Dozens"; }
+            else if (items <= 500)   { *outOrder = 3; *outLabel = "Hundreds"; }
+            else if (items <= 5000)  { *outOrder = 4; *outLabel = "Thousands"; }
+            else if (items <= 50000) { *outOrder = 5; *outLabel = "TensOfThousands"; }
+            else if (items <= 500000){ *outOrder = 6; *outLabel = "HundredsOfThousands"; }
+            else                     { *outOrder = 7; *outLabel = "Millions"; }
+            break;
+        }
+        case GroupMode::Volume:
+        default:
+        {
+            if (percentFull < 0) { *outOrder = 11; *outLabel = "Unspecified"; break; }
+            const int band = (percentFull >= 100) ? 10 : percentFull / 10;
+            *outOrder = band;
+            if (band >= 10)
+            {
+                *outLabel = "100%";
+            }
+            else
+            {
+                char buffer[16];
+                std::snprintf(buffer, sizeof(buffer), "%d-%d%%", band * 10, band * 10 + 9);
+                *outLabel = buffer;
+            }
+            break;
+        }
+    }
+}
+
+const char* GroupModeName(GroupMode mode)
+{
+    switch (mode)
+    {
+        case GroupMode::Name:   return "Name";
+        case GroupMode::Date:   return "Date";
+        case GroupMode::Size:   return "Size";
+        case GroupMode::Count:  return "Count";
+        case GroupMode::Volume: return "Volume";
+        default:                return "None";
+    }
+}
+
+void RebuildView(AppState& app)
+{
+    app.rows.clear();
+    app.groups.clear();
+    app.matchCount = 0;
+    app.viewDirty = false;
+
+    // A grid places cells by index, so a full-width group band would break the
+    // flow. Explorer does group in its icon views; doing it here needs a flow
+    // layout with band breaks, which is a separate job.
+    const bool grid = (app.viewMode == ViewMode::Tiles || app.viewMode == ViewMode::Icons);
+
+    if (app.groupMode == GroupMode::None || grid)
+    {
+        for (int i = 0; i < static_cast<int>(app.entries.size()); ++i)
+        {
+            if (FilterMatch(app.entries[static_cast<size_t>(i)], app.filter))
+                app.rows.push_back(Row{false, i, -1});
+        }
+        app.matchCount = static_cast<int>(app.rows.size());
+        return;
+    }
+
+    int percentFull = -1;
+    if (app.groupMode == GroupMode::Volume)
+    {
+        int percent = 0;
+        if (VolumeUsage(app.directory, &percent))
+            percentFull = percent;
+    }
+
+    struct Bucket
+    {
+        int              order = 0;
+        std::string      label;
+        std::vector<int> entries;
+    };
+
+    std::vector<Bucket> buckets;
+    std::unordered_map<int, int> bucketIndex;
+
+    const auto addToBucket = [&buckets, &bucketIndex](int order, const std::string& label, int entryIndex)
+    {
+        const auto found = bucketIndex.find(order);
+        int index = 0;
+        if (found == bucketIndex.end())
+        {
+            index = static_cast<int>(buckets.size());
+            bucketIndex[order] = index;
+            buckets.push_back(Bucket{order, label, {}});
+        }
+        else
+        {
+            index = found->second;
+        }
+        buckets[static_cast<size_t>(index)].entries.push_back(entryIndex);
+    };
+
+    for (int i = 0; i < static_cast<int>(app.entries.size()); ++i)
+    {
+        const Entry& entry = app.entries[static_cast<size_t>(i)];
+        if (!FilterMatch(entry, app.filter))
+            continue;
+
+        uint64_t bytes = entry.isDirectory ? 0 : entry.bytes;
+        uint64_t items = 0;
+        bool statsKnown = true;
+        if (entry.isDirectory)
+        {
+            DirStats stats;
+            statsKnown = app.stats.TryGet(JoinPath(app.directory, entry.wideName), &stats);
+            if (statsKnown)
+            {
+                bytes = stats.logicalBytes;
+                items = stats.files + stats.folders;
+            }
+        }
+
+        int order = 0;
+        std::string label;
+        GroupKeyFor(entry, app.groupMode, bytes, items, statsKnown, percentFull, &order, &label);
+        addToBucket(order, label, i);
+        ++app.matchCount;
+    }
+
+    std::sort(buckets.begin(), buckets.end(),
+              [](const Bucket& a, const Bucket& b) { return a.order < b.order; });
+
+    for (const Bucket& bucket : buckets)
+    {
+        app.groups.push_back(Group{bucket.label, static_cast<int>(bucket.entries.size())});
+        const int groupIndex = static_cast<int>(app.groups.size()) - 1;
+        app.rows.push_back(Row{true, -1, groupIndex});
+
+        if (app.collapsedGroups.count(bucket.label) != 0)
+            continue;
+        for (const int entryIndex : bucket.entries)
+            app.rows.push_back(Row{false, entryIndex, -1});
+    }
+}
+
+// Last path component, which is what a tab is labelled with. A drive root keeps
+// its colon and slash so "C:\" does not become an empty label.
+std::wstring LeafName(const std::wstring& path)
+{
+    if (path.empty())
+        return L"This PC";
+    std::wstring trimmed = path;
+    while (trimmed.size() > 3 && trimmed.back() == L'\\')
+        trimmed.pop_back();
+    const size_t slash = trimmed.find_last_of(L'\\');
+    if (slash == std::wstring::npos)
+        return trimmed;
+    const std::wstring leaf = trimmed.substr(slash + 1);
+    return leaf.empty() ? trimmed : leaf;
+}
+
+void UpdateWindowTitle(AppState& app)
+{
+    if (app.window == nullptr)
+        return;
+    const std::wstring title = L"File Pilot clone — " +
+                               (app.directory.empty() ? L"This PC" : app.directory);
+    SetWindowTextW(app.window, title.c_str());
+}
+
+// |recordHistory| is false only when the move is itself a history step, or
+// walking back would push the place you are leaving onto the stack again.
+void LoadDirectory(AppState& app, const std::wstring& directory, bool recordHistory = true)
+{
+    const std::wstring normalised = directory.empty() ? L"" : directory;
+    app.entries = ReadDirectory(normalised, &app.errorText);
+    app.directory = normalised;
+    app.previews.CancelPending();
+    app.stats.CancelQueued();
+
+    // The filter does not follow the user into another folder: a filter left over
+    // from a different listing would look like a missing directory. FilterSticky
+    // exists in the reference key table; this is the non-sticky default.
+    app.filter.clear();
+    app.filterActive = false;
+
+    app.scroll = 0.0f;
+    app.selection.clear();
+    app.cursor.clear();
+    app.selectionAnchor.clear();
+    app.rectSelecting = false;
+
+    SortEntries(app);
+    if (!app.entries.empty())
+    {
+        app.cursor = app.entries.front().wideName;
+        app.selection.insert(app.cursor);
+        app.selectionAnchor = app.cursor;
+    }
+    app.viewDirty = true;
+
+    if (recordHistory)
+    {
+        // Walking somewhere new discards the forward stack, the way every
+        // browser and file manager does.
+        if (app.historyIndex + 1 < static_cast<int>(app.history.size()))
+            app.history.resize(static_cast<size_t>(app.historyIndex + 1));
+        app.history.push_back(normalised);
+        app.historyIndex = static_cast<int>(app.history.size()) - 1;
+    }
+
+    // StoreRecents has three modes in the reference key table (LocalDisk,
+    // Persistent, Session). This is Session: nothing is written to disk yet.
+    app.recents.erase(std::remove(app.recents.begin(), app.recents.end(), normalised),
+                      app.recents.end());
+    app.recents.insert(app.recents.begin(), normalised);
+    if (app.recents.size() > 20)
+        app.recents.resize(20);
+
+    UpdateWindowTitle(app);
+}
+
+// --- tabs -------------------------------------------------------------------
+void SaveActiveTab(AppState& app)
+{
+    if (app.activeTab < 0 || app.activeTab >= static_cast<int>(app.tabs.size()))
+        return;
+
+    Tab& tab = app.tabs[static_cast<size_t>(app.activeTab)];
+    tab.directory       = app.directory;
+    tab.entries         = std::move(app.entries);
+    tab.cursor          = app.cursor;
+    tab.selectionAnchor = app.selectionAnchor;
+    tab.selection       = std::move(app.selection);
+    tab.filter          = app.filter;
+    tab.errorText       = app.errorText;
+    tab.scroll          = app.scroll;
+    tab.filterActive    = app.filterActive;
+    tab.sortColumn      = app.sortColumn;
+    tab.sortAscending   = app.sortAscending;
+    tab.groupMode       = app.groupMode;
+    tab.viewMode        = app.viewMode;
+    tab.history         = app.history;
+    tab.historyIndex    = app.historyIndex;
+}
+
+void LoadActiveTab(AppState& app)
+{
+    if (app.activeTab < 0 || app.activeTab >= static_cast<int>(app.tabs.size()))
+        return;
+
+    Tab& tab = app.tabs[static_cast<size_t>(app.activeTab)];
+    app.directory       = tab.directory;
+    app.entries         = std::move(tab.entries);
+    app.cursor          = tab.cursor;
+    app.selectionAnchor = tab.selectionAnchor;
+    app.selection       = std::move(tab.selection);
+    app.filter          = tab.filter;
+    app.errorText       = tab.errorText;
+    app.scroll          = tab.scroll;
+    app.filterActive    = tab.filterActive;
+    app.sortColumn      = tab.sortColumn;
+    app.sortAscending   = tab.sortAscending;
+    app.groupMode       = tab.groupMode;
+    app.viewMode        = tab.viewMode;
+    app.history         = tab.history;
+    app.historyIndex    = tab.historyIndex;
+    app.rectSelecting   = false;
+    app.viewDirty       = true;
+
+    UpdateWindowTitle(app);
+}
+
+void NewTab(AppState& app, const std::wstring& directory)
+{
+    SaveActiveTab(app);
+
+    Tab tab;
+    // A new tab inherits the view settings, not the location: the user's idea of
+    // "how I look at files" should not reset when a tab is opened.
+    tab.sortColumn    = app.sortColumn;
+    tab.sortAscending = app.sortAscending;
+    tab.groupMode     = app.groupMode;
+    tab.directory     = directory;
+
+    app.tabs.push_back(std::move(tab));
+    app.activeTab = static_cast<int>(app.tabs.size()) - 1;
+
+    app.entries.clear();
+    app.selection.clear();
+    app.cursor.clear();
+    app.selectionAnchor.clear();
+    app.scroll = 0.0f;
+    app.filter.clear();
+    app.filterActive = false;
+    LoadDirectory(app, directory);
+}
+
+void ActivateTab(AppState& app, int index)
+{
+    if (index < 0 || index >= static_cast<int>(app.tabs.size()) || index == app.activeTab)
+        return;
+
+    SaveActiveTab(app);
+    app.activeTab = index;
+    LoadActiveTab(app);
+    app.stats.CancelQueued();
+    app.previews.CancelPending();
+}
+
+void CloseTab(AppState& app, int index)
+{
+    if (index < 0 || index >= static_cast<int>(app.tabs.size()))
+        return;
+    if (app.tabs.size() == 1)
+        return;   // the last tab is not closable: use the window button instead
+
+    const bool closingActive = (index == app.activeTab);
+    app.tabs.erase(app.tabs.begin() + index);
+
+    if (index < app.activeTab)
+    {
+        // The active tab merely shifted down; the live state still matches it.
+        --app.activeTab;
+        return;
+    }
+
+    if (closingActive)
+    {
+        if (app.activeTab >= static_cast<int>(app.tabs.size()))
+            app.activeTab = static_cast<int>(app.tabs.size()) - 1;
+        LoadActiveTab(app);
+        app.stats.CancelQueued();
+        app.previews.CancelPending();
+    }
+}
+
+void BuildPlaces(AppState& app)
+{
+    struct Known { KNOWNFOLDERID id; const char* label; };
+    const Known known[] = {
+        {FOLDERID_Profile,   "Home"},
+        {FOLDERID_Desktop,   "Desktop"},
+        {FOLDERID_Documents, "Documents"},
+        {FOLDERID_Downloads, "Downloads"},
+        {FOLDERID_Pictures,  "Pictures"},
+        {FOLDERID_Music,     "Music"},
+        {FOLDERID_Videos,    "Videos"},
+    };
+
+    for (const Known& item : known)
+    {
+        PWSTR path = nullptr;
+        if (SUCCEEDED(SHGetKnownFolderPath(item.id, 0, nullptr, &path)) && path != nullptr)
+        {
+            app.places.push_back(Place{item.label, path});
+            CoTaskMemFree(path);
+        }
+    }
+}
+
+// --- layout ----------------------------------------------------------------
+struct Layout
+{
+    Rect titleBar;
+    Rect sidebar;
+    Rect toolbar;
+    Rect header;
+    Rect list;
+    Rect inspector;
+    Rect statusBar;
+    Rect filterBar;
+    float rowHeight = 0.0f;
+    float scale = 1.0f;
+};
+
+Layout ComputeLayout(const AppState& app)
+{
+    const float scale = app.zoom;
+    const float width = static_cast<float>(app.viewportWidth);
+    const float height = static_cast<float>(app.viewportHeight);
+
+    const float sidebarWidth   = app.sidebarVisible ? 186.0f * scale : 0.0f;
+    const float inspectorWidth = 292.0f * scale;
+    const float titleHeight    = 34.0f * scale;
+    const float toolbarHeight  = 38.0f * scale;
+    // A grid view has no columns to head, so it gives the space back to the list.
+    const bool gridView = (app.viewMode == ViewMode::Tiles || app.viewMode == ViewMode::Icons);
+    const float headerHeight   = gridView ? 0.0f : 26.0f * scale;
+    const float statusHeight   = 22.0f * scale;
+    const float filterHeight   = 24.0f * scale;
+    const float gap            = 6.0f * scale;
+
+    Layout layout;
+    layout.scale      = scale;
+    layout.rowHeight  = 24.0f * scale;
+    layout.titleBar   = Rect{0.0f, 0.0f, width, titleHeight};
+    layout.toolbar    = Rect{0.0f, titleHeight, width, toolbarHeight};
+    layout.sidebar    = Rect{gap, titleHeight + toolbarHeight + gap, sidebarWidth,
+                             height - titleHeight - toolbarHeight - statusHeight - gap * 3};
+    layout.header     = Rect{sidebarWidth + gap * 2, titleHeight + toolbarHeight + gap,
+                             width - sidebarWidth - inspectorWidth - gap * 4, headerHeight};
+    layout.filterBar  = Rect{layout.header.x, height - statusHeight - gap - filterHeight,
+                             layout.header.w, filterHeight};
+    layout.list       = Rect{layout.header.x, layout.header.bottom(),
+                             layout.header.w,
+                             layout.filterBar.y - gap - layout.header.bottom()};
+    layout.inspector  = Rect{width - inspectorWidth - gap, titleHeight + toolbarHeight + gap,
+                             inspectorWidth, layout.list.h + headerHeight + filterHeight + gap};
+    layout.statusBar  = Rect{0.0f, height - statusHeight, width, statusHeight};
+    return layout;
+}
+
+// --- drawing ---------------------------------------------------------------
+float TextY(const Layout& layout, const Rect& row, const FontAtlas& font)
+{
+    const float lineHeight = font.LineHeight() * layout.scale;
+    return row.y + (row.h - lineHeight) * 0.5f;
+}
+
+// The window draws its own caption. The native one is removed by answering
+// WM_NCCALCSIZE; what replaces it is a tab strip, which is the point of the
+// milestone, plus the three window buttons and the menu button.
+void DrawTitleBar(AppState& app, const Layout& layout)
+{
+    UIRenderer& r = app.renderer;
+    const Theme& t = app.theme;
+    const float scale = layout.scale;
+    const Rect bar = layout.titleBar;
+
+    r.FillRect(bar, t.headerBg);
+    r.FillRect(Rect{bar.x, bar.bottom() - 1.0f, bar.w, 1.0f}, t.separator);
+
+    const float buttonWidth = 44.0f * scale;
+    const float stripLeft   = 44.0f * scale;
+    const float stripRight  = bar.right() - buttonWidth * 3.0f;
+
+    // Menu button. The reference opens the application menu here; the menu
+    // component arrives with the command palette, so for now it toggles the one
+    // thing the shell already has.
+    const Rect menu{bar.x + 6.0f * scale, bar.y + 7.0f * scale, 30.0f * scale, bar.h - 14.0f * scale};
+    r.FillRect(menu, app.hoveredChrome == 0 ? t.rowHover : t.panelBg, 5.0f * scale);
+    for (int i = 0; i < 3; ++i)
+        r.FillRect(Rect{menu.x + 8.0f * scale, menu.y + 5.0f * scale + i * 5.0f * scale,
+                        14.0f * scale, 1.5f * scale}, t.text);
+    {
+        ClickTarget target;
+        target.rect = menu;
+        target.kind = ClickTarget::Kind::Menu;
+        app.clickTargets.push_back(target);
+    }
+
+    float x = stripLeft;
+    for (int i = 0; i < static_cast<int>(app.tabs.size()); ++i)
+    {
+        const Tab& tab = app.tabs[static_cast<size_t>(i)];
+        // The active tab's snapshot is empty while it is live: its entries were
+        // moved out and only the live fields are current, so the title has to come
+        // from there.
+        const std::wstring& source = (i == app.activeTab) ? app.directory : tab.directory;
+        const std::string title = ToUtf8(LeafName(source));
+        const float width = (std::min)(220.0f * scale,
+                                       (std::max)(130.0f * scale,
+                                                  app.font.Measure(title, scale) + 66.0f * scale));
+        if (x + width > stripRight)
+            break;   // no overflow menu yet: extra tabs are simply not drawn
+
+        const Rect tabRect{x, bar.y + 5.0f * scale, width, bar.h - 5.0f * scale};
+        const bool active = (i == app.activeTab);
+
+        if (active)
+        {
+            r.FillRect(tabRect, t.panelBg, 6.0f * scale);
+            r.Draw(UIDraw::Border(tabRect, t.panelBorder, 1.0f, 6.0f * scale));
+        }
+        else if (i == app.hoveredTab)
+        {
+            r.FillRect(tabRect, t.rowHover, 6.0f * scale);
+        }
+
+        if (const ShellIconAtlas::IconUV* uv = app.icons.GetFor("", true))
+        {
+            const Rect icon{tabRect.x + 10.0f * scale, tabRect.y + 6.0f * scale,
+                            16.0f * scale, 16.0f * scale};
+            r.Draw(UIDraw::Image(icon, active ? t.text : t.textDim, kIconLayer,
+                                 uv->u0, uv->v0, uv->u1, uv->v1));
+        }
+
+        app.font.Draw(r, tabRect.x + 32.0f * scale, TextY(layout, tabRect, app.font),
+                      FitText(app.font, title, scale, tabRect.w - 56.0f * scale),
+                      active ? t.text : t.textDim, scale);
+
+        const Rect close{tabRect.right() - 24.0f * scale, tabRect.y + 5.0f * scale,
+                         18.0f * scale, tabRect.h - 10.0f * scale};
+        app.font.Draw(r, close.x + 5.0f * scale, TextY(layout, close, app.font), "x",
+                      i == app.hoveredTab ? t.text : t.textDim, scale * 0.9f);
+
+        ClickTarget tabTarget;
+        tabTarget.rect  = tabRect;
+        tabTarget.kind  = ClickTarget::Kind::Tab;
+        tabTarget.index = i;
+        app.clickTargets.push_back(tabTarget);
+
+        ClickTarget closeTarget;
+        closeTarget.rect  = close;
+        closeTarget.kind  = ClickTarget::Kind::TabClose;
+        closeTarget.index = i;
+        app.clickTargets.push_back(closeTarget);
+
+        x += width + 3.0f * scale;
+    }
+
+    const Rect add{x, bar.y + 5.0f * scale, 30.0f * scale, bar.h - 5.0f * scale};
+    if (add.right() <= stripRight)
+    {
+        r.FillRect(add, app.hoveredChrome == 1 ? t.rowHover : t.headerBg, 5.0f * scale);
+        app.font.Draw(r, add.x + 11.0f * scale, TextY(layout, add, app.font), "+", t.text, scale);
+
+        ClickTarget target;
+        target.rect = add;
+        target.kind = ClickTarget::Kind::TabNew;
+        app.clickTargets.push_back(target);
+    }
+
+    const bool maximized = (app.window != nullptr) && IsZoomed(app.window) != FALSE;
+    for (int i = 0; i < 3; ++i)
+    {
+        const Rect button{stripRight + i * buttonWidth, bar.y, buttonWidth, bar.h};
+        const bool hot = (app.hoveredChrome == 2 + i);
+        if (hot)
+            r.FillRect(button, i == 2 ? Color::FromHex(0xC42B1C) : t.rowHover);
+
+        const Color glyph = hot && i == 2 ? Color{1, 1, 1, 1} : t.textDim;
+        const float centreX = button.x + buttonWidth * 0.5f;
+        const float centreY = button.y + button.h * 0.5f;
+
+        if (i == 0)
+        {
+            r.FillRect(Rect{centreX - 5.0f * scale, centreY, 10.0f * scale, 1.0f}, glyph);
+        }
+        else if (i == 1)
+        {
+            if (maximized)
+            {
+                r.Draw(UIDraw::Border(Rect{centreX - 4.0f * scale, centreY - 5.0f * scale,
+                                           9.0f * scale, 9.0f * scale}, glyph, 1.0f));
+                r.Draw(UIDraw::Border(Rect{centreX - 6.0f * scale, centreY - 3.0f * scale,
+                                           9.0f * scale, 9.0f * scale}, glyph, 1.0f));
+            }
+            else
+            {
+                r.Draw(UIDraw::Border(Rect{centreX - 5.0f * scale, centreY - 5.0f * scale,
+                                           10.0f * scale, 10.0f * scale}, glyph, 1.0f));
+            }
+        }
+        else
+        {
+            app.font.Draw(r, centreX - app.font.Measure("x", scale) * 0.5f,
+                          centreY - app.font.LineHeight() * scale * 0.5f, "x", glyph, scale);
+        }
+
+        ClickTarget target;
+        target.rect = button;
+        target.kind = (i == 0) ? ClickTarget::Kind::WindowMinimize
+                    : (i == 1) ? ClickTarget::Kind::WindowMaximize
+                               : ClickTarget::Kind::WindowClose;
+        app.clickTargets.push_back(target);
+    }
+}
+
+void DrawToolbar(AppState& app, const Layout& layout, const std::wstring& displayPath)
+{
+    UIRenderer& r = app.renderer;
+    const Theme& t = app.theme;
+    const float scale = layout.scale;
+
+    r.FillRect(layout.toolbar, t.headerBg);
+
+    // Breadcrumb: split the path into components, each clickable. Everything is
+    // measured from the toolbar rectangle, not from the top of the window: the
+    // title bar above it is drawn by the application and its height varies with
+    // the UI scale.
+    float penX = layout.toolbar.x + 12.0f * scale;
+    const float baseline = layout.toolbar.y + 11.0f * scale;
+
+    std::wstring accumulated;
+    size_t start = 0;
+    while (start <= displayPath.size())
+    {
+        size_t slash = displayPath.find(L'\\', start);
+        if (slash == std::wstring::npos)
+            slash = displayPath.size();
+
+        std::wstring segment = displayPath.substr(start, slash - start);
+        if (accumulated.empty())
+            accumulated = segment;
+        else if (!segment.empty())
+            accumulated += L"\\" + segment;
+
+        const std::string label = ToUtf8(segment);
+        const float width = app.font.Measure(label, scale) + 14.0f * scale;
+
+        const Rect chip{penX, baseline - 4.0f * scale, width, 22.0f * scale};
+        ClickTarget target;
+        target.rect  = chip;
+        target.kind  = ClickTarget::Kind::Breadcrumb;
+        target.path  = accumulated;
+        app.clickTargets.push_back(target);
+
+        if (!segment.empty())
+        {
+            app.font.Draw(r, penX + 7.0f * scale, baseline + 2.0f * scale, label,
+                          slash == displayPath.size() ? t.text : t.textDim, scale);
+        }
+        penX += width;
+
+        if (slash == displayPath.size())
+            break;
+        app.font.Draw(r, penX - 4.0f * scale, baseline + 2.0f * scale, ">", t.textDim, scale);
+        start = slash + 1;
+    }
+
+    // Item count on the right.
+    char summary[64];
+    std::snprintf(summary, sizeof(summary), "%zu items", app.entries.size());
+    const float summaryWidth = app.font.Measure(summary, scale);
+    app.font.Draw(r, static_cast<float>(app.viewportWidth) - summaryWidth - 14.0f * scale,
+                  layout.toolbar.y + 12.0f * scale, summary, t.textDim, scale);
+}
+
+void DrawSidebar(AppState& app, const Layout& layout)
+{
+    if (!app.sidebarVisible)
+        return;
+
+    UIRenderer& r = app.renderer;
+    const Theme& t = app.theme;
+    const float scale = layout.scale;
+
+    r.Draw(UIDraw::Fill(layout.sidebar, t.panelBg, 6.0f * scale));
+    app.font.Draw(r, layout.sidebar.x + 12.0f * scale, layout.sidebar.y + 9.0f * scale,
+                  "QUICK ACCESS", t.textDim, scale * 0.82f);
+
+    float y = layout.sidebar.y + 32.0f * scale;
+    for (size_t i = 0; i < app.places.size(); ++i)
+    {
+        const Place& place = app.places[i];
+        const Rect row{layout.sidebar.x + 5.0f * scale, y, layout.sidebar.w - 10.0f * scale, 26.0f * scale};
+
+        const bool active = (place.path == app.directory);
+        if (active)
+            r.FillRect(row, Color::FromHex(0x2E3138), 4.0f * scale);
+        else if (static_cast<int>(i) == app.hoveredPlace)
+            r.FillRect(row, t.rowHover, 4.0f * scale);
+
+        const ShellIconAtlas::IconUV* uv = app.icons.GetFor("", true);
+        if (uv != nullptr)
+        {
+            const Rect icon{row.x + 8.0f * scale, row.y + 5.0f * scale, 16.0f * scale, 16.0f * scale};
+            r.Draw(UIDraw::Image(icon, active ? t.text : t.textDim, kIconLayer,
+                                 uv->u0, uv->v0, uv->u1, uv->v1));
+        }
+        app.font.Draw(r, row.x + 30.0f * scale, TextY(layout, row, app.font), place.label,
+                      active ? t.text : t.textDim, scale);
+
+        ClickTarget target;
+        target.rect = row;
+        target.kind = ClickTarget::Kind::Place;
+        target.index = static_cast<int>(i);
+        target.path = place.path;
+        app.clickTargets.push_back(target);
+
+        y += 28.0f * scale;
+    }
+}
+
+struct ColumnDef
+{
+    const char* label;
+    SortColumn  sort;
+    float       fraction;   // of the list width, measured from its left edge
+};
+
+// Name, then the columns a directory entry already knows, then the three that
+// depend on the recursive statistics and arrive progressively.
+const ColumnDef kColumns[] = {
+    {"Name",     SortColumn::Name,     0.00f},
+    {"Type",     SortColumn::Type,     0.38f},
+    {"Modified", SortColumn::Modified, 0.57f},
+    {"Folders",  SortColumn::Folders,  0.71f},
+    {"Files",    SortColumn::Files,    0.80f},
+    {"Size",     SortColumn::Size,     0.88f},
+};
+constexpr int kColumnCount = static_cast<int>(sizeof(kColumns) / sizeof(kColumns[0]));
+
+void DrawHeader(AppState& app, const Layout& layout, float* columnX)
+{
+    if (app.viewMode == ViewMode::Tiles || app.viewMode == ViewMode::Icons)
+        return;   // nothing to head, and the list already has the space
+
+    UIRenderer& r = app.renderer;
+    const Theme& t = app.theme;
+    const float scale = layout.scale;
+
+    r.FillRect(layout.header, t.headerBg, 4.0f * scale);
+
+    // A small pulse beside the statistics headers while jobs are running: the
+    // numbers are still moving, and that is worth saying out loud.
+    const float pulse = 0.25f + 0.75f * static_cast<float>(std::fabs(std::sin(app.lastFrameTime * 3.0)));
+
+    for (int i = 0; i < kColumnCount; ++i)
+    {
+        const float x = layout.header.x + 10.0f * scale + layout.header.w * kColumns[i].fraction;
+        columnX[i] = x;
+
+        const bool sorted = (app.sortColumn == kColumns[i].sort);
+        std::string label = kColumns[i].label;
+        if (sorted)
+            label += app.sortAscending ? " ^" : " v";
+
+        app.font.Draw(r, x, TextY(layout, layout.header, app.font), label,
+                      sorted ? t.text : t.textDim, scale * 0.92f);
+
+        if (i >= 3 && app.stats.Busy())
+        {
+            const float dotX = x + app.font.Measure(label, scale * 0.92f) + 6.0f * scale;
+            const float dotY = layout.header.y + layout.header.h * 0.5f - 2.0f * scale;
+            r.FillRect(Rect{dotX, dotY, 4.0f * scale, 4.0f * scale},
+                       t.accent.WithAlpha(pulse), 2.0f * scale);
+        }
+
+        const float width = (i < kColumnCount - 1)
+            ? layout.header.w * (kColumns[i + 1].fraction - kColumns[i].fraction)
+            : layout.header.w * (1.0f - kColumns[i].fraction);
+        ClickTarget target;
+        target.rect = Rect{x - 10.0f * scale, layout.header.y, width, layout.header.h};
+        target.kind = ClickTarget::Kind::Column;
+        target.index = i;
+        app.clickTargets.push_back(target);
+    }
+
+    r.FillRect(Rect{layout.header.x, layout.header.bottom() - 1.0f, layout.header.w, 1.0f}, t.separator);
+}
+
+// The filter box sits under the list, the way the reference application puts it.
+// It is the only text entry in the window, so it owns the keyboard whenever the
+// filter is active.
+void DrawFilterBar(AppState& app, const Layout& layout)
+{
+    UIRenderer& r = app.renderer;
+    const Theme& t = app.theme;
+    const float scale = layout.scale;
+    const Rect bar = layout.filterBar;
+
+    r.FillRect(bar, t.headerBg, 4.0f * scale);
+    r.Draw(UIDraw::Border(bar, app.filterActive ? t.accent.WithAlpha(0.75f) : t.panelBorder,
+                          1.0f, 4.0f * scale));
+
+    const std::string text = app.filter.empty()
+        ? ("Filter " + std::to_string(app.entries.size()) + " files...")
+        : ToUtf8(app.filter);
+
+    const float textX = bar.x + 10.0f * scale;
+    app.font.Draw(r, textX, TextY(layout, bar, app.font), text,
+                  app.filter.empty() ? t.textDim : t.text, scale);
+
+    if (app.filterActive)
+    {
+        const float caretX = textX + app.font.Measure(text, scale) + 1.0f * scale;
+        r.FillRect(Rect{caretX, bar.y + 5.0f * scale, 1.0f, bar.h - 10.0f * scale}, t.text);
+    }
+
+    // The count is how many entries the filter matched, not how many rows are on
+    // screen: folding a group away must not look like the filter changed.
+    const std::string matchText = std::to_string(app.matchCount) + " / " +
+                                  std::to_string(app.entries.size());
+
+    // A grid cannot carry a full-width group band, so grouping is off there. Say
+    // so rather than leaving the control claiming something the view is not doing.
+    const bool gridView = (app.viewMode == ViewMode::Tiles || app.viewMode == ViewMode::Icons);
+    std::string groupText = std::string("Group: ") + GroupModeName(app.groupMode);
+    if (gridView && app.groupMode != GroupMode::None)
+        groupText += " (rows only)";
+    const float matchWidth = app.font.Measure(matchText, scale * 0.9f);
+    const float groupWidth = app.font.Measure(groupText, scale * 0.9f);
+    const float rightEdge  = bar.right() - 10.0f * scale;
+
+    app.font.Draw(r, rightEdge - matchWidth, TextY(layout, bar, app.font),
+                  matchText, t.textDim, scale * 0.9f);
+
+    const Rect groupRect{rightEdge - matchWidth - groupWidth - 20.0f * scale, bar.y,
+                         groupWidth + 12.0f * scale, bar.h};
+    app.font.Draw(r, groupRect.x, TextY(layout, bar, app.font), groupText,
+                  (gridView && app.groupMode != GroupMode::None) ? t.textDim : t.accent,
+                  scale * 0.9f);
+
+    ClickTarget target;
+    target.rect = groupRect;
+    target.kind = ClickTarget::Kind::GroupMode;
+    app.clickTargets.push_back(target);
+}
+
+ViewMetrics ComputeViewMetrics(const AppState& app, const Layout& layout)
+{
+    const float scale = layout.scale;
+    // The cell height is derived from the icon and the label rather than fixed,
+    // so a two line name can never overlap the picture above it.
+    const float labelHeight = app.font.LineHeight() * scale * 2.0f;
+
+    ViewMetrics metrics;
+    metrics.padding = 6.0f * scale;
+
+    switch (app.viewMode)
+    {
+        case ViewMode::List:
+            metrics.rowHeight = 20.0f * scale;
+            metrics.iconSize  = 14.0f * scale;
+            break;
+
+        case ViewMode::Icons:
+            metrics.grid       = true;
+            metrics.iconSize   = 64.0f * scale;
+            metrics.cellWidth  = 104.0f * scale;
+            metrics.cellHeight = metrics.iconSize + labelHeight + 14.0f * scale;
+            break;
+
+        case ViewMode::Tiles:
+            metrics.grid       = true;
+            metrics.iconSize   = 128.0f * scale;
+            metrics.cellWidth  = 176.0f * scale;
+            metrics.cellHeight = metrics.iconSize + labelHeight + 16.0f * scale;
+            break;
+
+        case ViewMode::Details:
+        default:
+            metrics.rowHeight = layout.rowHeight;
+            metrics.iconSize  = 16.0f * scale;
+            break;
+    }
+
+    if (metrics.grid)
+    {
+        const float usable = layout.list.w - metrics.padding * 2.0f;
+        metrics.columns = (std::max)(1, static_cast<int>(usable / metrics.cellWidth));
+        // Spread the leftover width so the cells tile the panel exactly.
+        metrics.cellWidth = usable / static_cast<float>(metrics.columns);
+    }
+    return metrics;
+}
+
+float ViewContentHeight(const ViewMetrics& metrics, size_t count)
+{
+    if (!metrics.grid)
+        return static_cast<float>(count) * metrics.rowHeight;
+    const int rows = static_cast<int>((count + static_cast<size_t>(metrics.columns) - 1) /
+                                      static_cast<size_t>(metrics.columns));
+    return static_cast<float>(rows) * metrics.cellHeight + metrics.padding * 2.0f;
+}
+
+Rect ItemRect(const Layout& layout, const ViewMetrics& metrics, int rowIndex, float scroll)
+{
+    if (!metrics.grid)
+    {
+        return Rect{layout.list.x + 1.0f,
+                    layout.list.y + static_cast<float>(rowIndex) * metrics.rowHeight - scroll,
+                    layout.list.w - 2.0f, metrics.rowHeight};
+    }
+
+    const int column = rowIndex % metrics.columns;
+    const int row    = rowIndex / metrics.columns;
+    return Rect{layout.list.x + metrics.padding + static_cast<float>(column) * metrics.cellWidth,
+                layout.list.y + metrics.padding + static_cast<float>(row) * metrics.cellHeight - scroll,
+                metrics.cellWidth, metrics.cellHeight};
+}
+
+// Splits a name into at most |maxLines| lines that fit, ellipsising the last one.
+// Character based: this is a label, and the glyph atlas is ASCII.
+std::vector<std::string> WrapName(const FontAtlas& font, const std::string& text, float scale,
+                                  float maxWidth, int maxLines)
+{
+    std::vector<std::string> lines;
+    if (text.empty() || maxWidth <= 0.0f || maxLines < 1)
+        return lines;
+
+    std::string current;
+    for (size_t i = 0; i < text.size(); ++i)
+    {
+        const char c = text[i];
+        if (font.Measure(current + c, scale) > maxWidth && !current.empty())
+        {
+            lines.push_back(current);
+            if (static_cast<int>(lines.size()) == maxLines - 1)
+            {
+                current = text.substr(i);   // the rest goes on the last line
+                break;
+            }
+            current.clear();
+            if (c == ' ')
+                continue;                    // do not start a line with a space
+        }
+        current.push_back(c);
+    }
+    if (!current.empty())
+        lines.push_back(current);
+
+    if (!lines.empty())
+        lines.back() = FitText(font, lines.back(), scale, maxWidth);
+    return lines;
+}
+
+// One cell of a grid view: thumbnail on top, name underneath, centred.
+void DrawEntryCell(AppState& app, const Layout& layout, const ViewMetrics& metrics,
+                   const Rect& cell, const Row& view, int cursorIndex)
+{
+    UIRenderer& r = app.renderer;
+    const Theme& t = app.theme;
+    const float scale = layout.scale;
+    const Entry& entry = app.entries[static_cast<size_t>(view.entry)];
+
+    const Rect card = cell.Inset(metrics.padding * 0.5f, metrics.padding * 0.5f);
+    if (IsEntrySelected(app, entry))
+        r.FillRect(card, t.rowSelected, 4.0f * scale);
+    if (view.entry == cursorIndex)
+        r.Draw(UIDraw::Border(card, t.accent.WithAlpha(0.9f), 1.0f, 4.0f * scale));
+
+    ClickTarget target;
+    target.rect  = card;
+    target.kind  = ClickTarget::Kind::Row;
+    target.index = view.entry;
+    app.clickTargets.push_back(target);
+
+    const float lineHeight = app.font.LineHeight() * scale;
+    const float labelTop   = card.bottom() - lineHeight * 2.0f;
+    const float iconArea   = (std::max)(16.0f, labelTop - card.y - 4.0f * scale);
+    const float iconSize   = (std::min)(metrics.iconSize, iconArea);
+    const Rect icon{card.x + (card.w - iconSize) * 0.5f,
+                    card.y + (iconArea - iconSize) * 0.5f,
+                    iconSize, iconSize};
+
+    ShellPreviewCache::IconUV preview;
+    const ShellPreviewCache::State state =
+        app.previews.Query(JoinPath(app.directory, entry.wideName), entry.extension, &preview);
+
+    if (state == ShellPreviewCache::State::Ready)
+    {
+        r.Draw(UIDraw::Image(icon, Color{1.0f, 1.0f, 1.0f, 1.0f}, kPreviewLayer,
+                             preview.u0, preview.v0, preview.u1, preview.v1));
+    }
+    else if (const ShellIconAtlas::IconUV* uv = app.icons.GetFor(entry.extension, entry.isDirectory))
+    {
+        r.Draw(UIDraw::Image(icon, Color{1.0f, 1.0f, 1.0f, 1.0f}, kIconLayer,
+                             uv->u0, uv->v0, uv->u1, uv->v1));
+    }
+
+    const std::vector<std::string> lines =
+        WrapName(app.font, entry.name, scale, card.w - 8.0f * scale, 2);
+    float textY = labelTop;
+    for (const std::string& line : lines)
+    {
+        const float width = app.font.Measure(line, scale);
+        app.font.Draw(r, card.x + (card.w - width) * 0.5f, textY, line, t.text, scale);
+        textY += lineHeight;
+    }
+}
+
+void DrawList(AppState& app, const Layout& layout, const float* columnX)
+{
+    UIRenderer& r = app.renderer;
+    const Theme& t = app.theme;
+    const float scale = layout.scale;
+    const int cursorIndex = CursorIndex(app);
+    const ViewMetrics metrics = ComputeViewMetrics(app, layout);
+    const float rowHeight = metrics.rowHeight;
+
+    r.Draw(UIDraw::Fill(layout.list, t.panelBg, 6.0f * scale));
+
+    if (!app.errorText.empty())
+    {
+        app.font.Draw(r, layout.list.x + 16.0f * scale, layout.list.y + 16.0f * scale,
+                      app.errorText, t.textDim, scale);
+        return;
+    }
+
+    // A grid packs several rows of the view into one visual row, so the window of
+    // interesting rows is computed in items, not in visual rows.
+    int first = 0;
+    int last  = static_cast<int>(app.rows.size());
+    if (metrics.grid)
+    {
+        const int firstGridRow = (std::max)(0, static_cast<int>(app.scroll / metrics.cellHeight) - 1);
+        first = firstGridRow * metrics.columns;
+        last  = (std::min)(last, first + (static_cast<int>(layout.list.h / metrics.cellHeight) + 3) * metrics.columns);
+    }
+    else
+    {
+        first = (std::max)(0, static_cast<int>(app.scroll / rowHeight) - 1);
+        last  = (std::min)(last, first + static_cast<int>(layout.list.h / rowHeight) + 3);
+    }
+
+    for (int rowIndex = first; rowIndex < last; ++rowIndex)
+    {
+        const Row& view = app.rows[static_cast<size_t>(rowIndex)];
+        const Rect row = ItemRect(layout, metrics, rowIndex, app.scroll);
+
+        if (row.y < layout.list.y - row.h || row.y > layout.list.bottom())
+            continue;
+
+        // A group band is a row like any other: it scrolls, it is hit tested, and
+        // clicking it folds the group away. Folding is remembered by label, so it
+        // survives a rebuild of the view.
+        if (view.header)
+        {
+            const Group& group = app.groups[static_cast<size_t>(view.group)];
+            const bool collapsed = app.collapsedGroups.count(group.label) != 0;
+
+            r.FillRect(row, t.headerBg);
+            const std::string title = (collapsed ? "> " : "v ") + group.label;
+            app.font.Draw(r, row.x + 8.0f * scale, TextY(layout, row, app.font),
+                          title, t.text, scale * 0.95f);
+
+            const std::string count = std::to_string(group.count) + " items";
+            app.font.Draw(r, row.right() - app.font.Measure(count, scale * 0.9f) - 10.0f * scale,
+                          TextY(layout, row, app.font), count, t.textDim, scale * 0.9f);
+
+            ClickTarget target;
+            target.rect  = row;
+            target.kind  = ClickTarget::Kind::GroupHeader;
+            target.index = view.group;
+            target.label = group.label;
+            app.clickTargets.push_back(target);
+            continue;
+        }
+
+        if (metrics.grid)
+        {
+            DrawEntryCell(app, layout, metrics, row, view, cursorIndex);
+            continue;
+        }
+
+        const Entry& entry = app.entries[static_cast<size_t>(view.entry)];
+        if (IsEntrySelected(app, entry))
+            r.FillRect(row, t.rowSelected, 3.0f * scale);
+        else if (rowIndex % 2 == 1)
+            r.FillRect(row, t.rowOdd, 3.0f * scale);
+
+        // The selection has a fill; the cursor has an outline. The reference theme
+        // keeps them as separate tokens (ContentSelection, OutlineSelection) for
+        // exactly this reason: with more than one row selected the user still has
+        // to be able to see which one the keyboard is on.
+        if (view.entry == cursorIndex)
+            r.Draw(UIDraw::Border(row.Inset(1.0f, 1.0f), t.accent.WithAlpha(0.9f), 1.0f, 2.0f * scale));
+
+        ClickTarget target;
+        target.rect = row;
+        target.kind = ClickTarget::Kind::Row;
+        target.index = view.entry;
+        app.clickTargets.push_back(target);
+
+        // A real thumbnail replaces the type icon when one is ready. Asking is
+        // free: an unavailable type never reaches the worker, and the request is
+        // de-duplicated while a decode is in flight.
+        const Rect icon{row.x + 6.0f * scale,
+                        row.y + (rowHeight - metrics.iconSize) * 0.5f,
+                        metrics.iconSize, metrics.iconSize};
+        ShellPreviewCache::IconUV preview;
+        const ShellPreviewCache::State previewState =
+            app.previews.Query(JoinPath(app.directory, entry.wideName), entry.extension, &preview);
+
+        if (previewState == ShellPreviewCache::State::Ready)
+        {
+            r.Draw(UIDraw::Image(icon, Color{1.0f, 1.0f, 1.0f, 1.0f}, kPreviewLayer,
+                                 preview.u0, preview.v0, preview.u1, preview.v1));
+        }
+        else if (const ShellIconAtlas::IconUV* uv = app.icons.GetFor(entry.extension, entry.isDirectory))
+        {
+            r.Draw(UIDraw::Image(icon, Color{1.0f, 1.0f, 1.0f, 1.0f}, kIconLayer,
+                                 uv->u0, uv->v0, uv->u1, uv->v1));
+        }
+
+        const float textY = TextY(layout, row, app.font);
+        const std::wstring fullPath = JoinPath(app.directory, entry.wideName);
+
+        // Numeric columns are right aligned so the digits line up down the
+        // column, and underlined while the number is still growing.
+        const auto columnRight = [&](int column) -> float
+        {
+            const float end = (column < kColumnCount - 1) ? columnX[column + 1]
+                                                          : layout.header.right();
+            return end - 8.0f * scale;
+        };
+        const auto drawRight = [&](int column, const std::string& text, Color color, bool growing)
+        {
+            const float right = columnRight(column);
+            const float width = app.font.Measure(text, scale);
+            app.font.Draw(r, right - width, textY, text, color, scale);
+            if (growing)
+                r.FillRect(Rect{right - width, row.bottom() - 5.0f * scale, width, 1.0f},
+                           color.WithAlpha(0.6f));
+        };
+
+        // Name starts clear of the icon; the header label above it does not need
+        // that offset because no icon is drawn there.
+        const float nameX   = row.x + 28.0f * scale;
+        const float nameMax = columnX[1] - nameX - 12.0f * scale;
+        app.font.Draw(r, nameX, textY, FitText(app.font, entry.name, scale, nameMax), t.text, scale);
+
+        const float typeMax = columnX[2] - columnX[1] - 12.0f * scale;
+        app.font.Draw(r, columnX[1], textY, FitText(app.font, entry.typeText, scale, typeMax), t.textDim, scale);
+        app.font.Draw(r, columnX[2], textY, entry.modifiedText, t.textDim, scale);
+
+        // Files answer immediately; folders are answered by the statistics
+        // service, which fills them in progressively. Requesting here means only
+        // rows that are actually on screen get counted.
+        if (entry.isDirectory)
+        {
+            app.stats.Request(fullPath);
+
+            DirStats stats;
+            const bool known = app.stats.TryGet(fullPath, &stats);
+            const Color numberColor = known ? t.text : t.textDim;
+            const bool growing = known && stats.partial;
+
+            drawRight(3, known ? HumanCount(stats.folders) : "--", numberColor, growing);
+            drawRight(4, known ? HumanCount(stats.files) : "--", numberColor, growing);
+            drawRight(5, known ? HumanBytes(stats.logicalBytes) : "--", numberColor, growing);
+        }
+        else
+        {
+            drawRight(3, "--", t.textDim, false);
+            drawRight(4, "--", t.textDim, false);
+            drawRight(5, entry.sizeText, t.textDim, false);
+        }
+    }
+
+    // Scrollbar.
+    const float contentHeight = ViewContentHeight(metrics, app.rows.size());
+    if (contentHeight > layout.list.h)
+    {
+        const float trackHeight = layout.list.h - 8.0f;
+        const float thumbHeight = (std::max)(24.0f * scale, trackHeight * (layout.list.h / contentHeight));
+        const float maxScroll = (std::max)(1.0f, contentHeight - layout.list.h);
+        const float thumbY = layout.list.y + 4.0f + (trackHeight - thumbHeight) * (app.scroll / maxScroll);
+
+        const Rect track{layout.list.right() - 7.0f, layout.list.y + 4.0f, 4.0f, trackHeight};
+        r.FillRect(track, t.separator, 2.0f * scale);
+        r.FillRect(Rect{track.x, thumbY, track.w, thumbHeight}, t.scrollThumb, 2.0f * scale);
+    }
+}
+
+void DrawInspector(AppState& app, const Layout& layout)
+{
+    UIRenderer& r = app.renderer;
+    const Theme& t = app.theme;
+    const float scale = layout.scale;
+
+    r.Draw(UIDraw::Shadow(Rect{layout.inspector.x + 2.0f, layout.inspector.y + 3.0f,
+                               layout.inspector.w, layout.inspector.h},
+                          Color{0.0f, 0.0f, 0.0f, 0.32f}, 10.0f * scale, 8.0f * scale));
+    r.Draw(UIDraw::Fill(layout.inspector, t.panelBg, 8.0f * scale));
+    r.Draw(UIDraw::Border(layout.inspector, t.panelBorder, 1.0f, 8.0f * scale));
+
+    float y = layout.inspector.y + 13.0f * scale;
+    app.font.Draw(r, layout.inspector.x + 14.0f * scale, y, "INSPECTOR", t.textDim, scale * 0.82f);
+    y += 24.0f * scale;
+
+    const int selectedCount = static_cast<int>(app.selection.size());
+    const int cursorIndex = CursorIndex(app);
+
+    if (selectedCount == 0 || cursorIndex < 0)
+    {
+        app.font.Draw(r, layout.inspector.x + 14.0f * scale, y, "Nothing selected", t.textDim, scale);
+        return;
+    }
+
+    if (selectedCount > 1)
+    {
+        // The reference inspector has labels for "file singolo o conteggio" and
+        // "dimensione o somma": with several entries selected it reports the
+        // aggregate. Folder sizes come from the cache only, because asking for a
+        // folder that is not on screen would start work the user cannot see.
+        uint64_t totalBytes = 0;
+        int files = 0;
+        int folders = 0;
+        for (const std::wstring& name : app.selection)
+        {
+            const int index = FindEntryByName(app, name);
+            if (index < 0)
+                continue;
+            const Entry& item = app.entries[static_cast<size_t>(index)];
+            if (item.isDirectory)
+            {
+                ++folders;
+                DirStats stats;
+                if (app.stats.TryGet(JoinPath(app.directory, item.wideName), &stats))
+                    totalBytes += stats.logicalBytes;
+            }
+            else
+            {
+                ++files;
+                totalBytes += item.bytes;
+            }
+        }
+
+        const std::string title = std::to_string(selectedCount) + " items selected";
+        app.font.Draw(r, layout.inspector.x + 14.0f * scale, y, title, t.text, scale);
+        y += 26.0f * scale;
+
+        const std::string breakdown =
+            std::to_string(files) + " files, " + std::to_string(folders) + " folders";
+        const std::pair<const char*, std::string> summary[] = {
+            {"Items", breakdown},
+            {"Size", HumanBytes(totalBytes)},
+        };
+        for (const auto& item : summary)
+        {
+            app.font.Draw(r, layout.inspector.x + 14.0f * scale, y, item.first, t.textDim, scale * 0.92f);
+            app.font.Draw(r, layout.inspector.x + 96.0f * scale, y, item.second, t.text, scale * 0.92f);
+            y += 20.0f * scale;
+        }
+        return;
+    }
+
+    const Entry& entry = app.entries[static_cast<size_t>(cursorIndex)];
+
+    ShellPreviewCache::IconUV preview;
+    const ShellPreviewCache::State previewState =
+        app.previews.Query(JoinPath(app.directory, entry.wideName), entry.extension, &preview);
+
+    if (previewState == ShellPreviewCache::State::Ready)
+    {
+        // A ready thumbnail gets the width of the panel and pushes the name
+        // underneath it: this is the one place large enough to be worth looking at.
+        const float side = 128.0f * scale;
+        const Rect frame{layout.inspector.x + 14.0f * scale, y, side, side};
+        r.Draw(UIDraw::Fill(frame, Color::FromHex(0x131417), 6.0f * scale));
+        r.Draw(UIDraw::Image(frame.Inset(1.0f, 1.0f), Color{1.0f, 1.0f, 1.0f, 1.0f}, kPreviewLayer,
+                             preview.u0, preview.v0, preview.u1, preview.v1));
+        r.Draw(UIDraw::Border(frame, t.panelBorder, 1.0f, 6.0f * scale));
+        y += side + 12.0f * scale;
+
+        app.font.Draw(r, layout.inspector.x + 14.0f * scale, y,
+                      FitText(app.font, entry.name, scale, layout.inspector.w - 28.0f * scale),
+                      t.text, scale);
+        y += 26.0f * scale;
+    }
+    else
+    {
+        if (const ShellIconAtlas::IconUV* uv = app.icons.GetFor(entry.extension, entry.isDirectory))
+        {
+            const Rect icon{layout.inspector.x + 14.0f * scale, y, 32.0f * scale, 32.0f * scale};
+            r.Draw(UIDraw::Image(icon, Color{1.0f, 1.0f, 1.0f, 1.0f}, kIconLayer,
+                                 uv->u0, uv->v0, uv->u1, uv->v1));
+        }
+
+        // Name too long for the inspector column is truncated the same way.
+        const float valueMax = layout.inspector.w - 110.0f * scale;
+        app.font.Draw(r, layout.inspector.x + 56.0f * scale, y + 8.0f * scale,
+                      FitText(app.font, entry.name, scale, valueMax), t.text, scale);
+        y += 46.0f * scale;
+    }
+
+    // Folder numbers, if the panel is counting them. Asking here covers the
+    // selected row even when it has scrolled out of view.
+    DirStats stats;
+    bool hasStats = false;
+    if (entry.isDirectory)
+    {
+        const std::wstring full = JoinPath(app.directory, entry.wideName);
+        app.stats.Request(full);
+        hasStats = app.stats.TryGet(full, &stats);
+    }
+
+    struct Row { const char* label; std::string value; bool growing; };
+    std::vector<Row> rows;
+    rows.push_back({"Type", entry.typeText, false});
+    if (entry.isDirectory)
+    {
+        const bool growing = hasStats && stats.partial;
+        rows.push_back({"Size",    hasStats ? HumanBytes(stats.logicalBytes) : "counting...", growing});
+        rows.push_back({"Folders", hasStats ? HumanCount(stats.folders) : "--", growing});
+        rows.push_back({"Files",   hasStats ? HumanCount(stats.files) : "--", growing});
+    }
+    else
+    {
+        rows.push_back({"Size", entry.sizeText, false});
+    }
+    rows.push_back({"Modified", entry.modifiedFull, false});
+    rows.push_back({"Ext", entry.extension.empty() ? "—" : entry.extension, false});
+
+    for (const Row& row : rows)
+    {
+        app.font.Draw(r, layout.inspector.x + 14.0f * scale, y, row.label, t.textDim, scale * 0.92f);
+        const float valueX = layout.inspector.x + 96.0f * scale;
+        app.font.Draw(r, valueX, y, row.value, t.text, scale * 0.92f);
+        if (row.growing)
+        {
+            const float width = app.font.Measure(row.value, scale * 0.92f);
+            r.FillRect(Rect{valueX, y + 15.0f * scale, width, 1.0f}, t.textDim);
+        }
+        y += 20.0f * scale;
+    }
+
+    // A dashed frame keeps the drop-target affordance from milestone 1 and gives
+    // the dash path in the shader something real to do.
+    const Rect dropTarget{layout.inspector.x + 12.0f * scale, layout.inspector.bottom() - 72.0f * scale,
+                          layout.inspector.w - 24.0f * scale, 58.0f * scale};
+    r.Draw(UIDraw::DashedBorder(dropTarget, t.accent.WithAlpha(0.5f), 1.0f,
+                                6.0f * scale, 4.0f * scale, 6.0f * scale));
+    app.font.Draw(r, dropTarget.x + 12.0f * scale, dropTarget.y + 12.0f * scale,
+                  "Drop files here", t.textDim, scale * 0.92f);
+    app.font.Draw(r, dropTarget.x + 12.0f * scale, dropTarget.y + 30.0f * scale,
+                  "(not wired up yet)", t.textDim, scale * 0.8f);
+}
+
+void DrawStatusBar(AppState& app, const Layout& layout)
+{
+    UIRenderer& r = app.renderer;
+    const Theme& t = app.theme;
+    const float scale = layout.scale;
+
+    char status[200];
+    std::snprintf(status, sizeof(status),
+                  "%zu items, %zu selected   |   %.0f fps   |   %.0f quads   |   %d icons, %d previews   |   %d stats jobs   |   Enter opens, F5 refreshes",
+                  app.entries.size(), app.selection.size(), static_cast<double>(app.framesPerSecond),
+                  static_cast<double>(app.renderer.QuadCount()),
+                  app.icons.IconCount(), app.previews.ReadyCount(),
+                  app.stats.ActiveJobs());
+    app.font.Draw(r, 12.0f * scale, layout.statusBar.y + 4.0f * scale, status, t.textDim, scale * 0.9f);
+}
+
+// --- command palette: registry ----------------------------------------------
+struct CommandDef
+{
+    const char* group;
+    const char* label;
+    CommandId   id;
+};
+
+// Group names come from the reference key table (the 19 palette groups). Only the
+// groups this shell can carry out are present.
+const CommandDef kCommandTable[] = {
+    {"Tabs",    "New tab",                     CmdNewTab},
+    {"Tabs",    "Close current tab",           CmdCloseTab},
+    {"Tabs",    "Next tab",                    CmdNextTab},
+    {"Tabs",    "Previous tab",                CmdPrevTab},
+    {"Folder",  "Go to parent folder",         CmdGoUp},
+    {"Folder",  "Go back",                     CmdBack},
+    {"Folder",  "Go forward",                  CmdForward},
+    {"Folder",  "Refresh",                     CmdRefresh},
+    {"Folder",  "Recalculate folder sizes",    CmdRecalcStats},
+    {"Folder",  "Open in Explorer",            CmdOpenExplorer},
+    {"Folder",  "Open a console here",         CmdOpenConsole},
+    {"GoTo",    "Go to folder...",             CmdGoTo},
+    {"View",    "View: details",               CmdViewDetails},
+    {"View",    "View: list",                  CmdViewList},
+    {"View",    "View: tiles",                 CmdViewTiles},
+    {"View",    "View: icons",                 CmdViewIcons},
+    {"View",    "Toggle sidebar",              CmdToggleSidebar},
+    {"View",    "Zoom in",                     CmdZoomIn},
+    {"View",    "Zoom out",                    CmdZoomOut},
+    {"View",    "Reset zoom",                  CmdZoomReset},
+    {"View",    "Toggle command details",      CmdToggleDetails},
+    {"Sort",    "Sort by name",                CmdSortName},
+    {"Sort",    "Sort by type",                CmdSortType},
+    {"Sort",    "Sort by date modified",       CmdSortModified},
+    {"Sort",    "Sort by folder count",        CmdSortFolders},
+    {"Sort",    "Sort by file count",          CmdSortFiles},
+    {"Sort",    "Sort by size",                CmdSortSize},
+    {"Sort",    "Reverse sort direction",      CmdSortDirection},
+    {"GroupBy", "Group: none",                 CmdGroupNone},
+    {"GroupBy", "Group by name",               CmdGroupName},
+    {"GroupBy", "Group by date",               CmdGroupDate},
+    {"GroupBy", "Group by size",               CmdGroupSize},
+    {"GroupBy", "Group by item count",         CmdGroupCount},
+    {"GroupBy", "Group by volume usage",       CmdGroupVolume},
+    {"Text",    "Focus the filter box",        CmdFocusFilter},
+    {"Text",    "Clear the filter",            CmdClearFilter},
+    {"Scroll",  "Scroll to top",               CmdScrollTop},
+    {"Scroll",  "Scroll to bottom",            CmdScrollBottom},
+    {"Bookmarks", "Bookmark this folder",      CmdToggleBookmark},
+    {"Bookmarks", "Clear all bookmarks",       CmdClearBookmarks},
+    {"Recents", "Clear recent locations",      CmdClearRecents},
+};
+
+bool MenuMatch(const std::string& text, const std::wstring& filter)
+{
+    if (filter.empty())
+        return true;
+
+    std::string lower = text;
+    for (char& c : lower)
+        c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+
+    size_t start = 0;
+    for (;;)
+    {
+        size_t space = filter.find(L' ', start);
+        if (space == std::wstring::npos)
+            space = filter.size();
+        if (space > start)
+        {
+            std::string term = ToUtf8(filter.substr(start, space - start));
+            for (char& c : term)
+                c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+            if (lower.find(term) == std::string::npos)
+                return false;
+        }
+        if (space >= filter.size())
+            break;
+        start = space + 1;
+    }
+    return true;
+}
+
+// --- the group menu component -----------------------------------------------
+void GroupMenuRebuild(GroupMenu& menu);
+
+void GroupMenuOpen(GroupMenu& menu, std::string title, std::string placeholder,
+                   std::vector<GroupMenuItem> items)
+{
+    menu.title       = std::move(title);
+    menu.placeholder = std::move(placeholder);
+    menu.items       = std::move(items);
+    menu.filter.clear();
+    menu.selected = 0;
+    menu.dirty    = true;
+    menu.open     = true;
+    GroupMenuRebuild(menu);   // so the selection is valid before the first frame
+}
+
+void GroupMenuRebuild(GroupMenu& menu)
+{
+    menu.rows.clear();
+    menu.groups.clear();
+    menu.matchCount = 0;
+    menu.dirty = false;
+
+    // Items arrive already ordered by group, so a group is a run of consecutive
+    // items and one pass is enough.
+    std::string current;
+    int groupIndex = -1;
+
+    for (int i = 0; i < static_cast<int>(menu.items.size()); ++i)
+    {
+        const GroupMenuItem& item = menu.items[static_cast<size_t>(i)];
+        if (!MenuMatch(item.label, menu.filter))
+            continue;
+
+        ++menu.matchCount;
+
+        if (item.group != current)
+        {
+            current = item.group;
+            menu.groups.push_back(current);
+            groupIndex = static_cast<int>(menu.groups.size()) - 1;
+            menu.rows.push_back(GroupMenuRow{true, groupIndex, -1});
+        }
+
+        if (menu.collapsed.count(current) != 0)
+            continue;
+        menu.rows.push_back(GroupMenuRow{false, groupIndex, i});
+    }
+
+    // Keep the cursor on a real entry.
+    if (menu.selected < 0 || menu.selected >= static_cast<int>(menu.rows.size()) ||
+        menu.rows[static_cast<size_t>(menu.selected)].header)
+    {
+        menu.selected = 0;
+        while (menu.selected < static_cast<int>(menu.rows.size()) &&
+               menu.rows[static_cast<size_t>(menu.selected)].header)
+            ++menu.selected;
+    }
+}
+
+void GroupMenuMove(GroupMenu& menu, int delta)
+{
+    const int count = static_cast<int>(menu.rows.size());
+    if (count == 0 || delta == 0)
+        return;
+
+    int target = menu.selected + delta;
+    if (target < 0) target = 0;
+    if (target >= count) target = count - 1;
+
+    const int step = (delta > 0) ? 1 : -1;
+    while (target >= 0 && target < count && menu.rows[static_cast<size_t>(target)].header)
+        target += step;
+
+    if (target >= 0 && target < count)
+        menu.selected = target;
+}
+
+// First or last entry row, skipping the group band that may sit on the edge.
+void GroupMenuSelectEdge(GroupMenu& menu, bool last)
+{
+    const int count = static_cast<int>(menu.rows.size());
+    if (count == 0)
+        return;
+
+    int index = last ? count - 1 : 0;
+    const int step = last ? -1 : 1;
+    while (index >= 0 && index < count && menu.rows[static_cast<size_t>(index)].header)
+        index += step;
+
+    if (index >= 0 && index < count)
+        menu.selected = index;
+}
+
+int GroupMenuSelectedId(const GroupMenu& menu)
+{
+    const int index = menu.selected;
+    if (index < 0 || index >= static_cast<int>(menu.rows.size()))
+        return -1;
+    const GroupMenuRow& row = menu.rows[static_cast<size_t>(index)];
+    if (row.header)
+        return -1;
+    return menu.items[static_cast<size_t>(row.item)].id;
+}
+
+// Keys the component owns. The caller checks its own toggle key before calling.
+MenuAction GroupMenuKeyDown(GroupMenu& menu, WPARAM key)
+{
+    switch (key)
+    {
+        case VK_ESCAPE: return MenuAction::Close;
+        case VK_RETURN: return MenuAction::Activate;
+        case VK_UP:     GroupMenuMove(menu, -1); break;
+        case VK_DOWN:   GroupMenuMove(menu, 1);  break;
+        case VK_NEXT:   GroupMenuMove(menu, 10); break;
+        case VK_PRIOR:  GroupMenuMove(menu, -10); break;
+        case VK_HOME:   GroupMenuSelectEdge(menu, false); break;
+        case VK_END:    GroupMenuSelectEdge(menu, true);  break;
+        case VK_BACK:
+            if (!menu.filter.empty())
+            {
+                menu.filter.pop_back();
+                menu.dirty = true;
+            }
+            break;
+        default:
+            break;
+    }
+    return MenuAction::None;
+}
+
+void GroupMenuChar(GroupMenu& menu, wchar_t character)
+{
+    if (character >= 0x20 && character != 0x7F)
+    {
+        menu.filter.push_back(character);
+        menu.dirty = true;
+    }
+}
+
+GroupMenu* OpenMenu(AppState& app)
+{
+    if (app.palette.open) return &app.palette;
+    if (app.goTo.open)    return &app.goTo;
+    return nullptr;
+}
+
+// --- navigation, recents and bookmarks -------------------------------------- 
+void NavigateBack(AppState& app)
+{
+    if (app.historyIndex <= 0)
+        return;
+    --app.historyIndex;
+    LoadDirectory(app, app.history[static_cast<size_t>(app.historyIndex)], false);
+}
+
+void NavigateForward(AppState& app)
+{
+    if (app.historyIndex + 1 >= static_cast<int>(app.history.size()))
+        return;
+    ++app.historyIndex;
+    LoadDirectory(app, app.history[static_cast<size_t>(app.historyIndex)], false);
+}
+
+bool IsBookmarked(const AppState& app)
+{
+    return std::find(app.bookmarks.begin(), app.bookmarks.end(), app.directory) != app.bookmarks.end();
+}
+
+void ToggleBookmark(AppState& app)
+{
+    if (app.directory.empty())
+        return;
+    const auto found = std::find(app.bookmarks.begin(), app.bookmarks.end(), app.directory);
+    if (found != app.bookmarks.end())
+        app.bookmarks.erase(found);
+    else
+        app.bookmarks.push_back(app.directory);
+}
+
+// --- building the two menus -------------------------------------------------
+void BuildPaletteMenu(AppState& app)
+{
+    std::vector<GroupMenuItem> items;
+    for (const CommandDef& command : kCommandTable)
+    {
+        std::string label = command.label;
+        // The one command whose wording depends on state. The table stays data.
+        if (command.id == CmdToggleBookmark && IsBookmarked(app))
+            label = "Remove bookmark from this folder";
+        items.push_back(GroupMenuItem{command.group, label, "", command.id});
+    }
+
+    // Locations are data, not code: one entry per known folder, so the palette
+    // covers the sidebar without a command being declared for each.
+    for (int i = 0; i < static_cast<int>(app.places.size()); ++i)
+    {
+        items.push_back(GroupMenuItem{"Places", app.places[static_cast<size_t>(i)].label, "",
+                                      kPalettePlaceBase + i});
+    }
+
+    app.goTo.open = false;   // one menu at a time
+    GroupMenuOpen(app.palette, "COMMAND PALETTE", "Type to filter commands...", std::move(items));
+    app.palette.hint = "Enter runs   Esc closes   Ctrl+P toggles   Ctrl+Shift+P details";
+}
+
+void BuildGoToMenu(AppState& app)
+{
+    std::vector<GroupMenuItem> items;
+    app.goToTargets.clear();
+
+    const auto add = [&items, &app](const char* group, const std::wstring& path, const std::string& label)
+    {
+        const int id = static_cast<int>(app.goToTargets.size());
+        items.push_back(GroupMenuItem{group, label, ToUtf8(path), id});
+        app.goToTargets.push_back(path);
+    };
+
+    // The path itself, deepest last: the breadcrumb, reachable from the keyboard.
+    if (!app.directory.empty())
+    {
+        std::vector<std::wstring> ancestors;
+        std::wstring current = app.directory;
+        for (;;)
+        {
+            ancestors.push_back(current);
+            const std::wstring parent = ParentOf(current);
+            if (parent == current)
+                break;
+            current = parent;
+        }
+        for (auto it = ancestors.rbegin(); it != ancestors.rend(); ++it)
+            add("Path", *it, ToUtf8(LeafName(*it)));
+    }
+
+    for (const Place& place : app.places)
+        add("Places", place.path, place.label);
+
+    for (const std::wstring& path : app.bookmarks)
+        add("Bookmarks", path, ToUtf8(LeafName(path)));
+
+    for (const std::wstring& path : app.recents)
+        add("Recents", path, ToUtf8(LeafName(path)));
+
+    app.palette.open = false;
+    GroupMenuOpen(app.goTo, "GO TO", "Type to filter locations...", std::move(items));
+    app.goTo.detailed = true;   // a location without its path is not much use
+    app.goTo.hint = "Enter goes   Esc closes   Ctrl+G toggles";
+}
+
+// --- menu execution ---------------------------------------------------------
+void RunCommand(AppState& app, int command);
+
+void RunPaletteSelection(AppState& app)
+{
+    const int id = GroupMenuSelectedId(app.palette);
+    if (id < 0)
+        return;
+
+    if (id >= kPalettePlaceBase)
+    {
+        const int place = id - kPalettePlaceBase;
+        if (place < static_cast<int>(app.places.size()))
+            LoadDirectory(app, app.places[static_cast<size_t>(place)].path);
+        app.palette.open = false;
+        return;
+    }
+
+    RunCommand(app, id);
+    if (id != CmdToggleDetails)
+        app.palette.open = false;
+}
+
+void RunGoToSelection(AppState& app)
+{
+    const int id = GroupMenuSelectedId(app.goTo);
+    if (id < 0 || id >= static_cast<int>(app.goToTargets.size()))
+        return;
+    LoadDirectory(app, app.goToTargets[static_cast<size_t>(id)]);
+    app.goTo.open = false;
+}
+
+void RunCommand(AppState& app, int command)
+{
+    const int cursorIndex = CursorIndex(app);
+
+    switch (static_cast<CommandId>(command))
+    {
+        case CmdNewTab:  NewTab(app, app.directory.empty() ? L"C:\\" : app.directory); break;
+        case CmdCloseTab: CloseTab(app, app.activeTab); break;
+        case CmdNextTab:
+            if (app.tabs.size() > 1) ActivateTab(app, (app.activeTab + 1) % static_cast<int>(app.tabs.size()));
+            break;
+        case CmdPrevTab:
+            if (app.tabs.size() > 1)
+            {
+                const int count = static_cast<int>(app.tabs.size());
+                ActivateTab(app, (app.activeTab + count - 1) % count);
+            }
+            break;
+
+        case CmdGoUp:      LoadDirectory(app, ParentOf(app.directory)); break;
+        case CmdBack:      NavigateBack(app); break;
+        case CmdForward:   NavigateForward(app); break;
+        case CmdGoTo:      BuildGoToMenu(app); break;
+        case CmdRefresh:   app.stats.ClearAll(); LoadDirectory(app, app.directory); break;
+        case CmdRecalcStats: app.stats.ClearAll(); break;
+
+        case CmdOpenExplorer:
+            if (cursorIndex >= 0)
+            {
+                const std::wstring full = JoinPath(app.directory, app.entries[static_cast<size_t>(cursorIndex)].wideName);
+                const std::wstring arguments = L"/select,\"" + full + L"\"";
+                ShellExecuteW(nullptr, L"open", L"explorer.exe", arguments.c_str(), nullptr, SW_SHOWNORMAL);
+            }
+            else
+            {
+                ShellExecuteW(nullptr, L"open", L"explorer.exe", app.directory.c_str(), nullptr, SW_SHOWNORMAL);
+            }
+            break;
+
+        case CmdOpenConsole:
+            ShellExecuteW(nullptr, L"open", L"cmd.exe", nullptr, app.directory.c_str(), SW_SHOWNORMAL);
+            break;
+
+        case CmdToggleSidebar: app.sidebarVisible = !app.sidebarVisible; break;
+        case CmdZoomIn:    app.zoom = (std::min)(2.0f, app.zoom + 0.1f); break;
+        case CmdZoomOut:   app.zoom = (std::max)(0.6f, app.zoom - 0.1f); break;
+        case CmdZoomReset: app.zoom = app.dpiScale; break;
+        case CmdToggleDetails: app.palette.detailed = !app.palette.detailed; break;
+        case CmdViewDetails: app.viewMode = ViewMode::Details; app.viewDirty = true; break;
+        case CmdViewList:    app.viewMode = ViewMode::List;    app.viewDirty = true; break;
+        case CmdViewTiles:   app.viewMode = ViewMode::Tiles;   app.viewDirty = true; break;
+        case CmdViewIcons:   app.viewMode = ViewMode::Icons;   app.viewDirty = true; break;
+        case CmdToggleBookmark: ToggleBookmark(app); break;
+        case CmdClearBookmarks: app.bookmarks.clear(); break;
+        case CmdClearRecents:   app.recents.clear(); break;
+
+        case CmdSortName:     app.sortColumn = SortColumn::Name;     SortEntries(app); app.viewDirty = true; break;
+        case CmdSortType:     app.sortColumn = SortColumn::Type;     SortEntries(app); app.viewDirty = true; break;
+        case CmdSortModified: app.sortColumn = SortColumn::Modified; SortEntries(app); app.viewDirty = true; break;
+        case CmdSortFolders:  app.sortColumn = SortColumn::Folders;  SortEntries(app); app.viewDirty = true; break;
+        case CmdSortFiles:    app.sortColumn = SortColumn::Files;    SortEntries(app); app.viewDirty = true; break;
+        case CmdSortSize:     app.sortColumn = SortColumn::Size;     SortEntries(app); app.viewDirty = true; break;
+        case CmdSortDirection: app.sortAscending = !app.sortAscending; SortEntries(app); app.viewDirty = true; break;
+
+        case CmdGroupNone:   app.groupMode = GroupMode::None;   app.viewDirty = true; break;
+        case CmdGroupName:   app.groupMode = GroupMode::Name;   app.viewDirty = true; break;
+        case CmdGroupDate:   app.groupMode = GroupMode::Date;   app.viewDirty = true; break;
+        case CmdGroupSize:   app.groupMode = GroupMode::Size;   app.viewDirty = true; break;
+        case CmdGroupCount:  app.groupMode = GroupMode::Count;  app.viewDirty = true; break;
+        case CmdGroupVolume: app.groupMode = GroupMode::Volume; app.viewDirty = true; break;
+
+        case CmdFocusFilter: app.filterActive = true; break;
+        case CmdClearFilter:
+            app.filter.clear();
+            app.filterActive = false;
+            app.viewDirty = true;
+            break;
+
+        case CmdScrollTop:
+            app.scroll = 0.0f;
+            break;
+        case CmdScrollBottom:
+        {
+            const Layout layout = ComputeLayout(app);
+            const float content = static_cast<float>(app.rows.size()) * layout.rowHeight;
+            app.scroll = (std::max)(0.0f, content - layout.list.h);
+            break;
+        }
+    }
+}
+
+Rect GroupMenuPanel(const AppState& app, const Layout& layout)
+{
+    const float scale = layout.scale;
+    const float width  = (std::min)(560.0f * scale, static_cast<float>(app.viewportWidth) - 60.0f * scale);
+    const float height = (std::min)(420.0f * scale, static_cast<float>(app.viewportHeight) - 90.0f * scale);
+    return Rect{(static_cast<float>(app.viewportWidth) - width) * 0.5f, 70.0f * scale, width, height};
+}
+
+void GroupMenuDraw(AppState& app, const Layout& layout, GroupMenu& menu)
+{
+    if (!menu.open)
+        return;
+
+    UIRenderer& r = app.renderer;
+    const Theme& t = app.theme;
+    const float scale = layout.scale;
+    const Rect panel = GroupMenuPanel(app, layout);
+
+    r.FillRect(Rect{0.0f, 0.0f, static_cast<float>(app.viewportWidth),
+                    static_cast<float>(app.viewportHeight)}, Color{0.0f, 0.0f, 0.0f, 0.45f});
+
+    r.Draw(UIDraw::Shadow(Rect{panel.x + 3.0f * scale, panel.y + 6.0f * scale, panel.w, panel.h},
+                          Color{0.0f, 0.0f, 0.0f, 0.45f}, 22.0f * scale, 10.0f * scale));
+    r.Draw(UIDraw::Fill(panel, t.panelBg, 10.0f * scale));
+    r.Draw(UIDraw::Border(panel, t.panelBorder, 1.0f, 10.0f * scale));
+
+    app.font.Draw(r, panel.x + 16.0f * scale, panel.y + 12.0f * scale,
+                  menu.title, t.textDim, scale * 0.8f);
+
+    const std::string query = menu.filter.empty() ? menu.placeholder : ToUtf8(menu.filter);
+    app.font.Draw(r, panel.x + 16.0f * scale, panel.y + 32.0f * scale, query,
+                  menu.filter.empty() ? t.textDim : t.text, scale);
+    if (!menu.filter.empty())
+    {
+        const float caretX = panel.x + 16.0f * scale + app.font.Measure(query, scale) + 1.0f * scale;
+        r.FillRect(Rect{caretX, panel.y + 32.0f * scale, 1.0f, app.font.LineHeight() * scale}, t.text);
+    }
+
+    const float listTop    = panel.y + 58.0f * scale;
+    const float listBottom = panel.bottom() - 26.0f * scale;
+    const float rowHeight  = layout.rowHeight;
+    r.FillRect(Rect{panel.x + 1.0f, listTop - 4.0f * scale, panel.w - 2.0f, 1.0f}, t.separator);
+
+    const int visibleRows = (std::max)(1, static_cast<int>((listBottom - listTop) / rowHeight));
+    int firstVisible = 0;
+    if (menu.selected >= firstVisible + visibleRows)
+        firstVisible = menu.selected - visibleRows + 1;
+    if (menu.selected < firstVisible)
+        firstVisible = menu.selected;
+
+    for (int i = firstVisible; i < static_cast<int>(menu.rows.size()); ++i)
+    {
+        const float y = listTop + (i - firstVisible) * rowHeight;
+        if (y + rowHeight > listBottom)
+            break;
+
+        const GroupMenuRow& row = menu.rows[static_cast<size_t>(i)];
+        const Rect rowRect{panel.x + 6.0f * scale, y, panel.w - 12.0f * scale, rowHeight};
+
+        if (row.header)
+        {
+            const std::string& name = menu.groups[static_cast<size_t>(row.group)];
+            const bool collapsed = menu.collapsed.count(name) != 0;
+            r.FillRect(rowRect, t.headerBg, 3.0f * scale);
+            app.font.Draw(r, rowRect.x + 8.0f * scale, TextY(layout, rowRect, app.font),
+                          (collapsed ? "> " : "v ") + name, t.text, scale * 0.95f);
+
+            ClickTarget target;
+            target.rect  = rowRect;
+            target.kind  = ClickTarget::Kind::MenuHeader;
+            target.label = name;
+            app.clickTargets.push_back(target);
+            continue;
+        }
+
+        const GroupMenuItem& item = menu.items[static_cast<size_t>(row.item)];
+        if (i == menu.selected)
+            r.FillRect(rowRect, t.rowSelected, 3.0f * scale);
+
+        app.font.Draw(r, rowRect.x + 14.0f * scale, TextY(layout, rowRect, app.font),
+                      item.label, t.text, scale);
+
+        if (menu.detailed)
+        {
+            const std::string& detail = item.detail.empty() ? item.group : item.detail;
+            const float width = app.font.Measure(detail, scale * 0.85f);
+            app.font.Draw(r, rowRect.right() - width - 12.0f * scale, TextY(layout, rowRect, app.font),
+                          detail, t.textDim, scale * 0.85f);
+        }
+
+        ClickTarget target;
+        target.rect  = rowRect;
+        target.kind  = ClickTarget::Kind::MenuRow;
+        target.index = row.item;
+        app.clickTargets.push_back(target);
+    }
+
+    const std::string footer = std::to_string(menu.matchCount) + " of " +
+                               std::to_string(menu.items.size()) + "   " + menu.hint;
+    app.font.Draw(r, panel.x + 16.0f * scale, panel.bottom() - 20.0f * scale,
+                  footer, t.textDim, scale * 0.8f);
+}
+
+void DrawFrame(AppState& app, const Layout& layout)
+{
+    app.clickTargets.clear();
+
+    float columnX[kColumnCount] = {};
+
+    app.renderer.FillRect(Rect{0.0f, 0.0f, static_cast<float>(app.viewportWidth),
+                               static_cast<float>(app.viewportHeight)}, app.theme.windowBg);
+
+    DrawTitleBar(app, layout);
+    DrawToolbar(app, layout, app.directory.empty() ? L"This PC" : app.directory);
+    DrawSidebar(app, layout);
+    DrawHeader(app, layout, columnX);
+    DrawList(app, layout, columnX);
+
+    // The rubber band is drawn over the rows it is about to select, and only over
+    // the list: it is clamped to that region so dragging past the edge does not
+    // look like it is selecting the sidebar.
+    if (app.rectSelecting)
+    {
+        const float x0 = (std::min)(app.rectX0, app.rectX1);
+        const float y0 = (std::min)(app.rectY0, app.rectY1);
+        const Rect band{x0, y0, std::fabs(app.rectX1 - app.rectX0), std::fabs(app.rectY1 - app.rectY0)};
+        app.renderer.FillRect(band, app.theme.accent.WithAlpha(0.18f), 2.0f * layout.scale);
+        app.renderer.BorderRect(band, app.theme.accent.WithAlpha(0.7f), 1.0f, 2.0f * layout.scale);
+    }
+
+    DrawFilterBar(app, layout);
+    DrawInspector(app, layout);
+    DrawStatusBar(app, layout);
+
+    // Last, so they cover everything and their click targets are the first ones
+    // HitTest finds (it walks the list backwards). At most one is open.
+    GroupMenuDraw(app, layout, app.palette);
+    GroupMenuDraw(app, layout, app.goTo);
+}
+
+// --- input -----------------------------------------------------------------
+const ClickTarget* HitTest(const AppState& app, float x, float y, ClickTarget::Kind kind)
+{
+    // Reverse order: later targets are drawn on top.
+    for (auto it = app.clickTargets.rbegin(); it != app.clickTargets.rend(); ++it)
+    {
+        if (it->kind == kind && it->rect.Contains(x, y))
+            return &*it;
+    }
+    return nullptr;
+}
+
+// A click inside an open group menu. The caller turns the action into whatever
+// the menu means: running a command, or going to a location.
+MenuAction GroupMenuClick(const AppState& app, const Layout& layout, GroupMenu& menu, float x, float y)
+{
+    if (!menu.open)
+        return MenuAction::None;
+
+    if (const ClickTarget* header = HitTest(app, x, y, ClickTarget::Kind::MenuHeader))
+    {
+        if (menu.collapsed.count(header->label) != 0)
+            menu.collapsed.erase(header->label);
+        else
+            menu.collapsed.insert(header->label);
+        menu.dirty = true;
+        return MenuAction::None;
+    }
+
+    if (const ClickTarget* row = HitTest(app, x, y, ClickTarget::Kind::MenuRow))
+    {
+        for (int i = 0; i < static_cast<int>(menu.rows.size()); ++i)
+        {
+            const GroupMenuRow& candidate = menu.rows[static_cast<size_t>(i)];
+            if (!candidate.header && candidate.item == row->index)
+            {
+                menu.selected = i;
+                break;
+            }
+        }
+        return MenuAction::Activate;
+    }
+
+    // Inside the panel but not on a row: swallow the click. Outside it, close.
+    return GroupMenuPanel(app, layout).Contains(x, y) ? MenuAction::None : MenuAction::Close;
+}
+
+std::wstring ParentOf(const std::wstring& path)
+{
+    if (path.size() <= 3)
+        return path;   // already a drive root such as C: followed by one slash
+    const size_t slash = path.find_last_of(L'\\');
+    if (slash == std::wstring::npos || slash < 2)
+        return path;
+    std::wstring parent = path.substr(0, slash);
+    if (parent.size() == 2 && parent[1] == L':')
+        parent += L"\\";
+    return parent;
+}
+
+// --- selection --------------------------------------------------------------
+int FindEntryByName(const AppState& app, const std::wstring& name)
+{
+    for (int i = 0; i < static_cast<int>(app.entries.size()); ++i)
+    {
+        if (app.entries[static_cast<size_t>(i)].wideName == name)
+            return i;
+    }
+    return -1;
+}
+
+int CursorIndex(const AppState& app)
+{
+    return app.cursor.empty() ? -1 : FindEntryByName(app, app.cursor);
+}
+
+bool IsEntrySelected(const AppState& app, const Entry& entry)
+{
+    return app.selection.count(entry.wideName) != 0;
+}
+
+void SelectOnly(AppState& app, int entryIndex)
+{
+    app.selection.clear();
+    if (entryIndex < 0)
+        return;
+    const std::wstring& name = app.entries[static_cast<size_t>(entryIndex)].wideName;
+    app.selection.insert(name);
+    app.cursor          = name;
+    app.selectionAnchor = name;
+}
+
+void ToggleSelection(AppState& app, int entryIndex)
+{
+    if (entryIndex < 0)
+        return;
+    const std::wstring& name = app.entries[static_cast<size_t>(entryIndex)].wideName;
+    if (app.selection.count(name) != 0)
+        app.selection.erase(name);
+    else
+        app.selection.insert(name);
+    app.cursor          = name;
+    app.selectionAnchor = name;
+}
+
+// Row index of an entry in the current view, or -1 when the view hides it.
+int RowOfEntry(const AppState& app, int entryIndex)
+{
+    for (int i = 0; i < static_cast<int>(app.rows.size()); ++i)
+    {
+        if (!app.rows[static_cast<size_t>(i)].header && app.rows[static_cast<size_t>(i)].entry == entryIndex)
+            return i;
+    }
+    return -1;
+}
+
+// Adds every entry row between two row indices, inclusive. Group bands between
+// them are stepped over rather than treated as boundaries.
+void SelectRowRange(AppState& app, int rowFrom, int rowTo)
+{
+    if (rowFrom < 0 || rowTo < 0)
+        return;
+    const int low  = (std::min)(rowFrom, rowTo);
+    const int high = (std::max)(rowFrom, rowTo);
+    for (int i = low; i <= high && i < static_cast<int>(app.rows.size()); ++i)
+    {
+        const Row& row = app.rows[static_cast<size_t>(i)];
+        if (!row.header)
+            app.selection.insert(app.entries[static_cast<size_t>(row.entry)].wideName);
+    }
+}
+
+bool RectsIntersect(const Rect& rect, float x0, float y0, float x1, float y1)
+{
+    return !(rect.right() < x0 || rect.x > x1 || rect.bottom() < y0 || rect.y > y1);
+}
+
+// Ends a rubber band drag. Hit testing uses the row rectangles recorded by the
+// last frame, which is at most one frame stale and only matters if the user
+// releases in the same instant the list scrolls.
+void FinishRectSelection(AppState& app)
+{
+    if (!app.rectSelecting)
+        return;
+    app.rectSelecting = false;
+
+    if (!app.rectAdditive)
+        app.selection.clear();
+
+    const float x0 = (std::min)(app.rectX0, app.rectX1);
+    const float x1 = (std::max)(app.rectX0, app.rectX1);
+    const float y0 = (std::min)(app.rectY0, app.rectY1);
+    const float y1 = (std::max)(app.rectY0, app.rectY1);
+
+    std::wstring last;
+    for (const ClickTarget& target : app.clickTargets)
+    {
+        if (target.kind != ClickTarget::Kind::Row)
+            continue;
+        if (!RectsIntersect(target.rect, x0, y0, x1, y1))
+            continue;
+        const std::wstring& name = app.entries[static_cast<size_t>(target.index)].wideName;
+        app.selection.insert(name);
+        last = name;
+    }
+
+    if (!last.empty())
+    {
+        app.cursor          = last;
+        app.selectionAnchor = last;
+    }
+}
+
+void ActivateSelection(AppState& app)
+{
+    const int cursorIndex = CursorIndex(app);
+    if (cursorIndex < 0)
+        return;
+
+    const Entry& entry = app.entries[static_cast<size_t>(cursorIndex)];
+    if (entry.isDirectory)
+    {
+        LoadDirectory(app, JoinPath(app.directory, entry.wideName));
+    }
+    else
+    {
+        const std::wstring full = JoinPath(app.directory, entry.wideName);
+        ShellExecuteW(nullptr, L"open", full.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+    }
+}
+
+void ScrollBy(AppState& app, const Layout& layout, float delta)
+{
+    const ViewMetrics metrics = ComputeViewMetrics(app, layout);
+    const float content = ViewContentHeight(metrics, app.rows.size());
+    const float maxScroll = (std::max)(0.0f, content - layout.list.h);
+    app.scroll = (std::min)(maxScroll, (std::max)(0.0f, app.scroll + delta));
+}
+
+// Moves the cursor by |delta| entry rows, skipping group bands. Returns without
+// moving when there is no further entry in that direction. |extend| is the Shift
+// case: the selection becomes the range from the anchor to the new cursor.
+void MoveSelection(AppState& app, int delta, bool extend)
+{
+    const int count = static_cast<int>(app.rows.size());
+    if (count == 0 || delta == 0)
+        return;
+
+    const int cursorIndex = CursorIndex(app);
+    const int position = (cursorIndex < 0) ? -1 : RowOfEntry(app, cursorIndex);
+
+    int target = (position < 0) ? (delta > 0 ? 0 : count - 1) : position + delta;
+    const int step = (delta > 0) ? 1 : -1;
+    while (target >= 0 && target < count && app.rows[static_cast<size_t>(target)].header)
+        target += step;
+
+    if (target < 0 || target >= count)
+        return;
+
+    const std::wstring name = app.entries[static_cast<size_t>(app.rows[static_cast<size_t>(target)].entry)].wideName;
+
+    if (extend && !app.selectionAnchor.empty())
+    {
+        const int anchorRow = RowOfEntry(app, FindEntryByName(app, app.selectionAnchor));
+        if (anchorRow >= 0)
+        {
+            // Rebuilt from the anchor each time, so dragging the cursor back
+            // towards the anchor shrinks the range instead of only growing it.
+            app.selection.clear();
+            SelectRowRange(app, anchorRow, target);
+        }
+        else
+        {
+            app.selection.insert(name);
+        }
+    }
+    else
+    {
+        app.selection.clear();
+        app.selection.insert(name);
+        app.selectionAnchor = name;
+    }
+
+    app.cursor = name;
+}
+
+// Keyboard navigation must not be able to walk the selection off the visible
+// area; with grouping and filtering the row index of an entry is not its index
+// in the directory any more.
+void EnsureSelectionVisible(AppState& app, const Layout& layout)
+{
+    const int cursorIndex = CursorIndex(app);
+    if (cursorIndex < 0)
+        return;
+    const int rowIndex = RowOfEntry(app, cursorIndex);
+    if (rowIndex < 0)
+        return;
+
+    // ItemRect already accounts for the grid flow and the current scroll, so the
+    // correction is just how far the item sticks out.
+    const ViewMetrics metrics = ComputeViewMetrics(app, layout);
+    const Rect rect = ItemRect(layout, metrics, rowIndex, app.scroll);
+    if (rect.y < layout.list.y)
+        app.scroll -= layout.list.y - rect.y;
+    else if (rect.bottom() > layout.list.bottom())
+        app.scroll += rect.bottom() - layout.list.bottom();
+    app.scroll = (std::max)(0.0f, app.scroll);
+}
+
+// --- window plumbing -------------------------------------------------------
+AppState* StateFromWindow(HWND window)
+{
+    return reinterpret_cast<AppState*>(GetWindowLongPtrW(window, GWLP_USERDATA));
+}
+
+LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lparam)
+{
+    AppState* app = StateFromWindow(window);
+
+    switch (message)
+    {
+        case WM_NCCALCSIZE:
+            if (wparam == TRUE)
+            {
+                // The window draws its own caption, so the non-client area is
+                // removed entirely. A maximized window is still inflated by the
+                // resize frame, so the client is inset by that much or the
+                // content would sit under the screen edge.
+                if (IsZoomed(window))
+                {
+                    NCCALCSIZE_PARAMS* params = reinterpret_cast<NCCALCSIZE_PARAMS*>(lparam);
+                    const int frameX = GetSystemMetrics(SM_CXSIZEFRAME) + GetSystemMetrics(SM_CXPADDEDBORDER);
+                    const int frameY = GetSystemMetrics(SM_CYSIZEFRAME) + GetSystemMetrics(SM_CXPADDEDBORDER);
+                    params->rgrc[0].left   += frameX;
+                    params->rgrc[0].right  -= frameX;
+                    params->rgrc[0].top    += frameY;
+                    params->rgrc[0].bottom -= frameY;
+                }
+                return 0;
+            }
+            break;
+
+        case WM_NCHITTEST:
+        {
+            if (app == nullptr)
+                break;
+
+            POINT screen{GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam)};
+            ScreenToClient(window, &screen);
+            const float x = static_cast<float>(screen.x);
+            const float y = static_cast<float>(screen.y);
+            const Layout layout = ComputeLayout(*app);
+
+            if (IsZoomed(window) == FALSE)
+            {
+                const float border = 6.0f * layout.scale;
+                const float width  = static_cast<float>(app->viewportWidth);
+                const float height = static_cast<float>(app->viewportHeight);
+                const bool left = x < border, right = x >= width - border;
+                const bool top  = y < border, bottom = y >= height - border;
+
+                if (top && left)      return HTTOPLEFT;
+                if (top && right)     return HTTOPRIGHT;
+                if (bottom && left)   return HTBOTTOMLEFT;
+                if (bottom && right)  return HTBOTTOMRIGHT;
+                if (left)             return HTLEFT;
+                if (right)            return HTRIGHT;
+                if (top)              return HTTOP;
+                if (bottom)           return HTBOTTOM;
+            }
+
+            if (y < layout.titleBar.bottom())
+            {
+                // Buttons and tabs must stay clickable, so they report as client
+                // area; the rest of the strip is the drag handle, which also gives
+                // double-click to maximise and snap for free.
+                for (const ClickTarget& target : app->clickTargets)
+                {
+                    switch (target.kind)
+                    {
+                        case ClickTarget::Kind::Menu:
+                        case ClickTarget::Kind::Tab:
+                        case ClickTarget::Kind::TabClose:
+                        case ClickTarget::Kind::TabNew:
+                        case ClickTarget::Kind::WindowMinimize:
+                        case ClickTarget::Kind::WindowMaximize:
+                        case ClickTarget::Kind::WindowClose:
+                            if (target.rect.Contains(x, y))
+                                return HTCLIENT;
+                            break;
+                        default:
+                            break;
+                    }
+                }
+                return HTCAPTION;
+            }
+            return HTCLIENT;
+        }
+
+        case WM_MOUSEWHEEL:
+            if (app != nullptr)
+            {
+                const Layout layout = ComputeLayout(*app);
+                const ViewMetrics metrics = ComputeViewMetrics(*app, layout);
+                const float stride = metrics.grid ? metrics.cellHeight : metrics.rowHeight;
+                const float steps = static_cast<float>(GET_WHEEL_DELTA_WPARAM(wparam)) / WHEEL_DELTA;
+                ScrollBy(*app, layout, -steps * 3.0f * stride);
+            }
+            return 0;
+
+        case WM_MOUSEMOVE:
+            if (app != nullptr)
+            {
+                const float x = static_cast<float>(GET_X_LPARAM(lparam));
+                const float y = static_cast<float>(GET_Y_LPARAM(lparam));
+
+                if (app->rectSelecting)
+                {
+                    app->rectX1 = x;
+                    app->rectY1 = y;
+                    return 0;
+                }
+
+                app->hovered = -1;
+                app->hoveredPlace = -1;
+                app->hoveredTab = -1;
+                app->hoveredChrome = -1;
+
+                if (HitTest(*app, x, y, ClickTarget::Kind::Menu))              app->hoveredChrome = 0;
+                else if (HitTest(*app, x, y, ClickTarget::Kind::TabNew))       app->hoveredChrome = 1;
+                else if (HitTest(*app, x, y, ClickTarget::Kind::WindowMinimize)) app->hoveredChrome = 2;
+                else if (HitTest(*app, x, y, ClickTarget::Kind::WindowMaximize)) app->hoveredChrome = 3;
+                else if (HitTest(*app, x, y, ClickTarget::Kind::WindowClose))    app->hoveredChrome = 4;
+
+                if (const ClickTarget* tab = HitTest(*app, x, y, ClickTarget::Kind::Tab))
+                    app->hoveredTab = tab->index;
+                else if (const ClickTarget* row = HitTest(*app, x, y, ClickTarget::Kind::Row))
+                    app->hovered = row->index;
+                else if (const ClickTarget* place = HitTest(*app, x, y, ClickTarget::Kind::Place))
+                    app->hoveredPlace = place->index;
+            }
+            return 0;
+
+        case WM_LBUTTONDOWN:
+            if (app != nullptr)
+            {
+                const float x = static_cast<float>(GET_X_LPARAM(lparam));
+                const float y = static_cast<float>(GET_Y_LPARAM(lparam));
+
+                const bool ctrl  = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
+                const bool shift = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
+
+                // An open menu is modal: its clicks are handled first and nothing
+                // underneath is reachable.
+                if (GroupMenu* menu = OpenMenu(*app))
+                {
+                    const MenuAction action = GroupMenuClick(*app, ComputeLayout(*app), *menu, x, y);
+                    if (action == MenuAction::Close)
+                        menu->open = false;
+                    else if (action == MenuAction::Activate)
+                    {
+                        if (menu == &app->palette)
+                            RunPaletteSelection(*app);
+                        else
+                            RunGoToSelection(*app);
+                    }
+                    return 0;
+                }
+
+                if (const ClickTarget* closeTab = HitTest(*app, x, y, ClickTarget::Kind::TabClose))
+                {
+                    CloseTab(*app, closeTab->index);
+                }
+                else if (const ClickTarget* tab = HitTest(*app, x, y, ClickTarget::Kind::Tab))
+                {
+                    ActivateTab(*app, tab->index);
+                }
+                else if (HitTest(*app, x, y, ClickTarget::Kind::TabNew))
+                {
+                    NewTab(*app, app->directory.empty() ? L"C:\\" : app->directory);
+                }
+                else if (HitTest(*app, x, y, ClickTarget::Kind::Menu))
+                {
+                    app->sidebarVisible = !app->sidebarVisible;
+                }
+                else if (HitTest(*app, x, y, ClickTarget::Kind::WindowMinimize))
+                {
+                    SendMessageW(window, WM_SYSCOMMAND, SC_MINIMIZE, 0);
+                }
+                else if (HitTest(*app, x, y, ClickTarget::Kind::WindowMaximize))
+                {
+                    SendMessageW(window, WM_SYSCOMMAND, IsZoomed(window) ? SC_RESTORE : SC_MAXIMIZE, 0);
+                }
+                else if (HitTest(*app, x, y, ClickTarget::Kind::WindowClose))
+                {
+                    PostMessageW(window, WM_CLOSE, 0, 0);
+                }
+                else if (const ClickTarget* row = HitTest(*app, x, y, ClickTarget::Kind::Row))
+                {
+                    if (ctrl)
+                    {
+                        ToggleSelection(*app, row->index);
+                    }
+                    else if (shift)
+                    {
+                        // Extend from the anchor to the clicked row, across group
+                        // bands, matching what the keyboard does.
+                        const int anchorEntry = FindEntryByName(*app, app->selectionAnchor);
+                        SelectRowRange(*app, RowOfEntry(*app, anchorEntry), RowOfEntry(*app, row->index));
+                        app->cursor = app->entries[static_cast<size_t>(row->index)].wideName;
+                    }
+                    else
+                    {
+                        SelectOnly(*app, row->index);
+                    }
+                }
+                else if (const ClickTarget* group = HitTest(*app, x, y, ClickTarget::Kind::GroupHeader))
+                {
+                    // Fold state is keyed by label, so it survives a rebuild of
+                    // the view when the statistics change.
+                    if (app->collapsedGroups.count(group->label) != 0)
+                        app->collapsedGroups.erase(group->label);
+                    else
+                        app->collapsedGroups.insert(group->label);
+                    app->viewDirty = true;
+                }
+                else if (HitTest(*app, x, y, ClickTarget::Kind::GroupMode) != nullptr)
+                {
+                    app->groupMode = static_cast<GroupMode>((static_cast<int>(app->groupMode) + 1) % 6);
+                    app->viewDirty = true;
+                }
+                else if (const ClickTarget* header = HitTest(*app, x, y, ClickTarget::Kind::Column))
+                {
+                    const SortColumn column = kColumns[header->index].sort;
+                    if (column == app->sortColumn)
+                        app->sortAscending = !app->sortAscending;
+                    else
+                    {
+                        app->sortColumn = column;
+                        app->sortAscending = true;
+                    }
+                    SortEntries(*app);
+                    app->viewDirty = true;
+                }
+                else if (const ClickTarget* crumb = HitTest(*app, x, y, ClickTarget::Kind::Breadcrumb))
+                {
+                    LoadDirectory(*app, crumb->path);
+                }
+                else if (const ClickTarget* place = HitTest(*app, x, y, ClickTarget::Kind::Place))
+                {
+                    LoadDirectory(*app, place->path);
+                }
+                else
+                {
+                    // Nothing under the cursor: an empty area of the list starts a
+                    // rubber band. Everywhere else the press is simply ignored.
+                    const Layout layout = ComputeLayout(*app);
+                    if (layout.list.Contains(x, y))
+                    {
+                        app->rectSelecting = true;
+                        // Shift adds to the selection here too, the way it does on a
+                        // click: a band is a range gesture, and Shift is the range
+                        // modifier.
+                        app->rectAdditive  = ctrl || shift;
+                        app->rectX0 = app->rectX1 = x;
+                        app->rectY0 = app->rectY1 = y;
+                        if (!ctrl)
+                        {
+                            app->selection.clear();
+                            app->cursor.clear();
+                            app->selectionAnchor.clear();
+                        }
+                    }
+                }
+            }
+            return 0;
+
+        case WM_LBUTTONUP:
+            if (app != nullptr)
+                FinishRectSelection(*app);
+            return 0;
+
+        case WM_LBUTTONDBLCLK:
+            if (app != nullptr)
+            {
+                const float x = static_cast<float>(GET_X_LPARAM(lparam));
+                const float y = static_cast<float>(GET_Y_LPARAM(lparam));
+                if (const ClickTarget* row = HitTest(*app, x, y, ClickTarget::Kind::Row))
+                {
+                    SelectOnly(*app, row->index);
+                    ActivateSelection(*app);
+                }
+            }
+            return 0;
+
+        case WM_KEYDOWN:
+            if (app != nullptr)
+            {
+                const Layout layout = ComputeLayout(*app);
+
+                // An open menu is modal, so it takes the keyboard first. Returning
+                // here does not stop TranslateMessage from producing WM_CHAR, which
+                // is where printable characters are routed to the menu filter.
+                if (GroupMenu* menu = OpenMenu(*app))
+                {
+                    const bool control = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
+
+                    // Each menu's own toggle key closes it again.
+                    const bool toggling = control &&
+                        ((menu == &app->palette && wparam == 'P') ||
+                         (menu == &app->goTo    && wparam == 'G'));
+                    if (toggling)
+                    {
+                        menu->open = false;
+                        return 0;
+                    }
+
+                    const MenuAction action = GroupMenuKeyDown(*menu, wparam);
+                    if (action == MenuAction::Close)
+                        menu->open = false;
+                    else if (action == MenuAction::Activate)
+                    {
+                        if (menu == &app->palette)
+                            RunPaletteSelection(*app);
+                        else
+                            RunGoToSelection(*app);
+                    }
+                    return 0;
+                }
+
+                switch (wparam)
+                {
+                    case VK_ESCAPE:
+                        // Escape unwinds the filter and stops there. Closing the
+                        // window is the ✕ button or Alt+F4: an application that
+                        // exits on a bare Escape is a trap, and this one did.
+                        if (!app->filter.empty() || app->filterActive)
+                        {
+                            app->filter.clear();
+                            app->filterActive = false;
+                            app->viewDirty = true;
+                        }
+                        break;
+                    case VK_DOWN:
+                    case VK_UP:
+                    case VK_NEXT:
+                    case VK_PRIOR:
+                    {
+                        const bool extend = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
+                        const ViewMetrics metrics = ComputeViewMetrics(*app, layout);
+                        const float stride = metrics.grid ? metrics.cellHeight : metrics.rowHeight;
+                        const int step = metrics.grid ? metrics.columns : 1;
+                        const int page = (std::max)(1, static_cast<int>(layout.list.h / stride)) * step;
+
+                        int delta = step;
+                        if (wparam == VK_UP)         delta = -step;
+                        else if (wparam == VK_NEXT)  delta = page;
+                        else if (wparam == VK_PRIOR) delta = -page;
+
+                        MoveSelection(*app, delta, extend);
+                        EnsureSelectionVisible(*app, layout);
+                        break;
+                    }
+                    case VK_LEFT:
+                    case VK_RIGHT:
+                    {
+                        // Only a grid has a horizontal neighbour to move to.
+                        const ViewMetrics metrics = ComputeViewMetrics(*app, layout);
+                        if (!metrics.grid)
+                            break;
+                        const bool extend = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
+                        MoveSelection(*app, wparam == VK_LEFT ? -1 : 1, extend);
+                        EnsureSelectionVisible(*app, layout);
+                        break;
+                    }
+                    case '1':
+                    case '2':
+                    case '3':
+                    case '4':
+                        if ((GetKeyState(VK_CONTROL) & 0x8000) != 0)
+                        {
+                            app->viewMode = (wparam == '1') ? ViewMode::Details
+                                          : (wparam == '2') ? ViewMode::List
+                                          : (wparam == '3') ? ViewMode::Tiles
+                                                            : ViewMode::Icons;
+                            app->viewDirty = true;
+                        }
+                        break;
+                    case VK_RETURN:
+                        ActivateSelection(*app);
+                        break;
+                    case VK_BACK:
+                        // Backspace edits the filter while it is active, and only
+                        // navigates to the parent when there is nothing to erase.
+                        if (app->filterActive && !app->filter.empty())
+                        {
+                            app->filter.pop_back();
+                            app->viewDirty = true;
+                        }
+                        else
+                        {
+                            LoadDirectory(*app, ParentOf(app->directory));
+                        }
+                        break;
+                    case VK_F5:
+                        // A refresh means the tree may have changed: drop the
+                        // cached folder statistics so they are counted again.
+                        app->stats.ClearAll();
+                        LoadDirectory(*app, app->directory);
+                        break;
+                    case VK_HOME:
+                    {
+                        app->scroll = 0.0f;
+                        for (const Row& row : app->rows)
+                        {
+                            if (!row.header)
+                            {
+                                SelectOnly(*app, row.entry);
+                                break;
+                            }
+                        }
+                        break;
+                    }
+                    case VK_OEM_PLUS:
+                    case VK_ADD:
+                        // Zoom moved to Ctrl+plus so that a plain '+' can be typed
+                        // into the filter, which is what CharacterKeyAction's
+                        // TypeInFilter mode requires.
+                        if ((GetKeyState(VK_CONTROL) & 0x8000) != 0)
+                            app->zoom = (std::min)(2.0f, app->zoom + 0.1f);
+                        break;
+                    case VK_OEM_MINUS:
+                    case VK_SUBTRACT:
+                        if ((GetKeyState(VK_CONTROL) & 0x8000) != 0)
+                            app->zoom = (std::max)(0.6f, app->zoom - 0.1f);
+                        break;
+
+                    case 'A':
+                        if ((GetKeyState(VK_CONTROL) & 0x8000) != 0)
+                        {
+                            // Selects what is on screen: the filter is part of the
+                            // question, so it is part of the answer.
+                            app->selection.clear();
+                            for (const Row& row : app->rows)
+                            {
+                                if (!row.header)
+                                    app->selection.insert(app->entries[static_cast<size_t>(row.entry)].wideName);
+                            }
+                        }
+                        break;
+                    case 'T':
+                        if ((GetKeyState(VK_CONTROL) & 0x8000) != 0)
+                            NewTab(*app, app->directory.empty() ? L"C:\\" : app->directory);
+                        break;
+                    case 'P':
+                        if ((GetKeyState(VK_CONTROL) & 0x8000) != 0)
+                        {
+                            BuildPaletteMenu(*app);
+                            if ((GetKeyState(VK_SHIFT) & 0x8000) != 0)
+                                app->palette.detailed = true;   // Ctrl+Shift+P
+                        }
+                        break;
+                    case 'G':
+                        // GoTo takes the obvious binding; cycling the grouping
+                        // moves to Ctrl+Shift+G.
+                        if ((GetKeyState(VK_CONTROL) & 0x8000) != 0)
+                        {
+                            if ((GetKeyState(VK_SHIFT) & 0x8000) != 0)
+                            {
+                                app->groupMode = static_cast<GroupMode>((static_cast<int>(app->groupMode) + 1) % 6);
+                                app->viewDirty = true;
+                            }
+                            else
+                            {
+                                BuildGoToMenu(*app);
+                            }
+                        }
+                        break;
+                    case 'W':
+                        if ((GetKeyState(VK_CONTROL) & 0x8000) != 0)
+                            CloseTab(*app, app->activeTab);
+                        break;
+                    case VK_TAB:
+                        if ((GetKeyState(VK_CONTROL) & 0x8000) != 0)
+                        {
+                            const int count = static_cast<int>(app->tabs.size());
+                            if (count > 1)
+                                ActivateTab(*app, (app->activeTab + 1) % count);
+                        }
+                        break;
+                    default:
+                        break;
+                }
+            }
+            return 0;
+
+        case WM_CHAR:
+            if (app != nullptr)
+            {
+                // CharacterKeyAction defaults to typing into the filter rather
+                // than triggering a command, so a printable character over the
+                // list starts filtering. Backspace is handled in WM_KEYDOWN: not
+                // handling it here avoids erasing two characters per press.
+                const wchar_t character = static_cast<wchar_t>(wparam);
+                if (character >= 0x20 && character != 0x7F)
+                {
+                    if (GroupMenu* menu = OpenMenu(*app))
+                    {
+                        GroupMenuChar(*menu, character);
+                    }
+                    else
+                    {
+                        app->filter.push_back(character);
+                        app->filterActive = true;
+                        app->viewDirty = true;
+                        app->scroll = 0.0f;
+                    }
+                }
+            }
+            return 0;
+
+        case WM_SYSKEYDOWN:
+            // Alt+Left and Alt+Right arrive as system keys, not as ordinary ones,
+            // because the window has a system menu.
+            if (app != nullptr && wparam == VK_LEFT)
+            {
+                NavigateBack(*app);
+                return 0;
+            }
+            if (app != nullptr && wparam == VK_RIGHT)
+            {
+                NavigateForward(*app);
+                return 0;
+            }
+            break;
+
+        case WM_SETCURSOR:
+            SetCursor(LoadCursorW(nullptr, IDC_ARROW));
+            return TRUE;
+
+        case WM_SIZE:
+            if (app != nullptr)
+            {
+                app->viewportWidth  = LOWORD(lparam);
+                app->viewportHeight = HIWORD(lparam);
+            }
+            return 0;
+
+        case WM_DESTROY:
+            PostQuitMessage(0);
+            return 0;
+
+        default:
+            break;
+    }
+
+    return DefWindowProcW(window, message, wparam, lparam);
+}
+
+bool CreateOpenGLContext(HWND window, HDC* outDc, HGLRC* outContext)
+{
+    HDC dc = GetDC(window);
+    if (dc == nullptr)
+        return false;
+
+    PIXELFORMATDESCRIPTOR descriptor{};
+    descriptor.nSize      = sizeof(descriptor);
+    descriptor.nVersion   = 1;
+    descriptor.dwFlags    = PFD_DRAW_TO_WINDOW | PFD_SUPPORT_OPENGL | PFD_DOUBLEBUFFER;
+    descriptor.iPixelType = PFD_TYPE_RGBA;
+    descriptor.cColorBits = 32;
+    descriptor.cAlphaBits = 8;
+    descriptor.cDepthBits = 24;
+    descriptor.iLayerType = PFD_MAIN_PLANE;
+
+    const int format = ChoosePixelFormat(dc, &descriptor);
+    if (format == 0 || SetPixelFormat(dc, format, &descriptor) == FALSE)
+    {
+        ReleaseDC(window, dc);
+        return false;
+    }
+
+    HGLRC temporary = wglCreateContext(dc);
+    if (temporary == nullptr)
+    {
+        ReleaseDC(window, dc);
+        return false;
+    }
+    wglMakeCurrent(dc, temporary);
+
+    HGLRC context = nullptr;
+    auto createAttribs = reinterpret_cast<WglCreateContextAttribsArbFn>(
+        wglGetProcAddress("wglCreateContextAttribsARB"));
+    if (createAttribs != nullptr)
+    {
+        const int attributes[] = {
+            kWglContextMajorVersion, 3,
+            kWglContextMinorVersion, 3,
+            kWglContextProfileMask,  kWglContextCoreProfile,
+            0, 0};
+        context = createAttribs(dc, nullptr, attributes);
+    }
+
+    if (context == nullptr)
+        context = wglCreateContext(dc);
+
+    wglMakeCurrent(nullptr, nullptr);
+    wglDeleteContext(temporary);
+
+    if (context == nullptr || wglMakeCurrent(dc, context) == FALSE)
+    {
+        ReleaseDC(window, dc);
+        return false;
+    }
+
+    *outDc      = dc;
+    *outContext = context;
+    return true;
+}
+
+void EnableHighDpi()
+{
+    using SetDpiAwarenessFn = BOOL(WINAPI*)(void*);
+    HMODULE user32 = LoadLibraryW(L"user32.dll");
+    if (user32 != nullptr)
+    {
+        auto setContext = reinterpret_cast<SetDpiAwarenessFn>(GetProcAddress(user32, "SetProcessDpiAwarenessContext"));
+        if (setContext != nullptr && setContext(reinterpret_cast<void*>(-4)) != FALSE)
+            return;   // DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2
+        FreeLibrary(user32);
+    }
+    SetProcessDPIAware();
+}
+
+// Writes a startup failure next to the executable. A MessageBox is useless when
+// the program is launched by a script or a capture loop, and this message is the
+// only diagnostic available before the window exists.
+void WriteStartupLog(const std::string& message)
+{
+    wchar_t modulePath[MAX_PATH]{};
+    if (GetModuleFileNameW(nullptr, modulePath, MAX_PATH) == 0)
+        return;
+
+    std::wstring file = modulePath;
+    const size_t slash = file.find_last_of(L'\\');
+    file = (slash == std::wstring::npos) ? L"startup-error.log" : file.substr(0, slash + 1) + L"startup-error.log";
+
+    HANDLE handle = CreateFileW(file.c_str(), GENERIC_WRITE, FILE_SHARE_READ, nullptr,
+                                CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (handle == INVALID_HANDLE_VALUE)
+        return;
+
+    DWORD written = 0;
+    WriteFile(handle, message.data(), static_cast<DWORD>(message.size()), &written, nullptr);
+    CloseHandle(handle);
+}
+
+void ShowError(const std::string& message)
+{
+    WriteStartupLog(message);
+    const std::string text = "File Pilot clone\n\n" + message;
+    MessageBoxA(nullptr, text.c_str(), "Startup failed", MB_ICONERROR | MB_OK);
+}
+
+double NowSeconds()
+{
+    LARGE_INTEGER frequency{}, counter{};
+    QueryPerformanceFrequency(&frequency);
+    QueryPerformanceCounter(&counter);
+    return static_cast<double>(counter.QuadPart) / static_cast<double>(frequency.QuadPart);
+}
+
+} // namespace
+
+int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, LPWSTR, int)
+{
+    EnableHighDpi();
+    CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+
+    // Optional starting directory, the same convenience `explorer` offers:
+    //   FilePilotClone.exe D:\some\folder
+    std::wstring startDirectory;
+    {
+        int argumentCount = 0;
+        if (LPWSTR* arguments = CommandLineToArgvW(GetCommandLineW(), &argumentCount))
+        {
+            if (argumentCount > 1)
+            {
+                const DWORD attributes = GetFileAttributesW(arguments[1]);
+                if (attributes != INVALID_FILE_ATTRIBUTES && (attributes & FILE_ATTRIBUTE_DIRECTORY) != 0)
+                    startDirectory = arguments[1];
+            }
+            LocalFree(arguments);
+        }
+    }
+
+    WNDCLASSEXW windowClass{};
+    windowClass.cbSize        = sizeof(windowClass);
+    windowClass.style         = CS_HREDRAW | CS_VREDRAW | CS_OWNDC | CS_DBLCLKS;
+    windowClass.lpfnWndProc   = WindowProc;
+    windowClass.hInstance     = instance;
+    windowClass.hCursor       = LoadCursorW(nullptr, IDC_ARROW);
+    windowClass.lpszClassName = L"FilePilotCloneWindow";
+    if (RegisterClassExW(&windowClass) == 0)
+    {
+        ShowError("RegisterClassExW failed.");
+        return 1;
+    }
+
+    HWND window = CreateWindowExW(0, windowClass.lpszClassName, L"File Pilot clone",
+                                  WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT, 1240, 760,
+                                  nullptr, nullptr, instance, nullptr);
+    if (window == nullptr)
+    {
+        ShowError("CreateWindowExW failed.");
+        return 1;
+    }
+
+    HDC   dc      = nullptr;
+    HGLRC context = nullptr;
+    if (!CreateOpenGLContext(window, &dc, &context))
+    {
+        ShowError("Could not create an OpenGL context.");
+        return 1;
+    }
+
+    const char* missingFunction = nullptr;
+    if (!LoadOpenGLFunctions(&missingFunction))
+    {
+        ShowError(std::string("Missing OpenGL entry point: ") + (missingFunction ? missingFunction : "?"));
+        return 1;
+    }
+
+    AppState app;
+    std::string error;
+    if (!app.renderer.Initialize(REA_SHADER_DIR, &error))
+    {
+        ShowError(error);
+        return 1;
+    }
+
+    // One atlas size for every layer, so the glyph, icon and thumbnail UVs
+    // cannot diverge. Layer 0 holds the glyphs, layer 1 the shell icons, layer 2
+    // the file thumbnails.
+    constexpr int kTextureLayerSize = 1024;
+    constexpr int kPreviewCellSize  = 128;
+    constexpr int kPreviewCapacity  = 64;
+
+    if (!app.renderer.CreateTextureArray(/*layers=*/3, kTextureLayerSize, &error))
+    {
+        ShowError(error);
+        return 1;
+    }
+
+    if (!app.font.Build(app.renderer, L"Segoe UI", 15, kGlyphLayer, kTextureLayerSize, &error))
+    {
+        ShowError(error);
+        return 1;
+    }
+
+    if (!app.icons.Initialize(app.renderer, kIconLayer, kTextureLayerSize, &error))
+    {
+        ShowError(error);
+        return 1;
+    }
+
+    if (!app.previews.Initialize(app.renderer, kPreviewLayer, kTextureLayerSize,
+                                 kPreviewCellSize, kPreviewCapacity, &error))
+    {
+        ShowError(error);
+        return 1;
+    }
+
+    // Folder statistics run on their own worker pool, sized by the volume
+    // profile of whatever is being counted.
+    app.stats.Start();
+
+    RECT client{};
+    GetClientRect(window, &client);
+    app.viewportWidth  = client.right;
+    app.viewportHeight = client.bottom;
+
+    // Scale the UI to the monitor DPI, then let the user zoom from there.
+    const UINT dpi = GetDpiForWindow(window);
+    app.dpiScale = (dpi > 0) ? static_cast<float>(dpi) / 96.0f : 1.0f;
+    app.zoom = app.dpiScale;
+
+    BuildPlaces(app);
+    app.window = window;
+
+    const std::wstring initialDirectory = startDirectory.empty()
+        ? (app.places.empty() ? L"C:\\" : app.places[0].path)
+        : startDirectory;
+
+    app.tabs.push_back(Tab{});
+    app.activeTab = 0;
+    LoadDirectory(app, initialDirectory);
+
+    SetWindowLongPtrW(window, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(&app));
+    ShowWindow(window, SW_SHOW);
+
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    glDisable(GL_DEPTH_TEST);
+    glDisable(GL_CULL_FACE);
+
+    app.lastFrameTime = NowSeconds();
+    bool running = true;
+
+    while (running)
+    {
+        MSG message{};
+        while (PeekMessageW(&message, nullptr, 0, 0, PM_REMOVE))
+        {
+            if (message.message == WM_QUIT)
+            {
+                running = false;
+                break;
+            }
+            TranslateMessage(&message);
+            DispatchMessageW(&message);
+        }
+        if (!running)
+            break;
+
+        const double now = NowSeconds();
+        const double delta = now - app.lastFrameTime;
+        app.lastFrameTime = now;
+        if (delta > 0.0)
+            app.framesPerSecond = static_cast<float>(0.9 * app.framesPerSecond + 0.1 * (1.0 / delta));
+
+        if (app.viewportWidth <= 0 || app.viewportHeight <= 0)
+            continue;
+
+        // The view is rebuilt only when something that affects it changes: the
+        // filter, the grouping, the sort, the folder. A grouping that depends on
+        // the statistics is refreshed while they arrive, but throttled, so one
+        // publish per work slice does not become one rebuild per frame.
+        if (GroupMenu* menu = OpenMenu(app))
+        {
+            if (menu->dirty)
+                GroupMenuRebuild(*menu);
+        }
+
+        const uint64_t statsRevision = app.stats.Revision();
+        if (app.viewDirty ||
+            (app.groupMode != GroupMode::None && statsRevision != app.viewStatsRevision &&
+             now - app.lastViewRebuild > 0.25))
+        {
+            RebuildView(app);
+            app.viewStatsRevision = statsRevision;
+            app.lastViewRebuild   = now;
+        }
+
+        glViewport(0, 0, app.viewportWidth, app.viewportHeight);
+        glClearColor(0.106f, 0.110f, 0.122f, 1.0f);
+        glClear(GL_COLOR_BUFFER_BIT);
+
+        // Upload any thumbnail that finished decoding on the worker before the
+        // frame that is about to draw it. This is the only place the atlas is
+        // touched, and it runs on the thread that owns the GL context.
+        app.previews.Pump();
+
+        app.renderer.Begin(app.viewportWidth, app.viewportHeight);
+        app.renderer.ReserveQuads(app.entries.size() * 8 + 512);
+        DrawFrame(app, ComputeLayout(app));
+        app.renderer.End();
+
+        SwapBuffers(dc);
+    }
+
+    SetWindowLongPtrW(window, GWLP_USERDATA, 0);
+    app.stats.Stop();
+    app.previews.Shutdown();
+    app.renderer.Shutdown();
+    wglMakeCurrent(nullptr, nullptr);
+    if (context != nullptr)
+        wglDeleteContext(context);
+    ReleaseDC(window, dc);
+    DestroyWindow(window);
+    CoUninitialize();
+    return 0;
+}

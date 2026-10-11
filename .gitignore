@@ -1,0 +1,18 @@
+# Output di build
+build/
+out/
+.vs/
+
+# --- Materiale derivato dal binario originale: resta locale ---
+#
+# analysis/ contiene le copie di File Pilot, gli snapshot, le stringhe estratte,
+# gli snippet GLSL recuperati e le funzioni decompilate. Pubblicarlo su un
+# repository pubblico significherebbe ridistribuire un prodotto commerciale.
+# Si pubblica ciò che abbiamo scritto, non ciò che abbiamo estratto.
+analysis/
+sessione.html
+
+# File di lavoro dell'IDE
+*.user
+*.suo
+*.log

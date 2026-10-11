@@ -1,0 +1,4 @@
+* text=auto eol=lf
+
+# I sorgenti e i documenti sono testo con fine riga LF, come nel working copy.
+*.ps1 text eol=crlf
