@@ -536,13 +536,38 @@ incollato un file al suo interno e essere risaliti mostra `0 | 1 | 5 B`.
 
 ## M9 — Configurazione, hotkey, temi ⬜
 
-- [ ] i tre file JSON con lo schema osservato, versione e migrazione
-- [ ] mappa tasti rimappabile sui 319 comandi
-- [ ] temi a 35 token, con variante chiara e scura
-- [ ] viste per cartella con ereditarietà e applicazione ricorsiva
-- [ ] layout salvabili
+**Vincolo di progetto, deciso dall'autore: niente file di impostazioni, niente
+dati personali, niente tracce su disco.** Vedi `docs/06-privacy.md`. Questo
+cambia la milestone rispetto a come era stata pianificata: i tre file JSON
+sotto `%APPDATA%\Voidstar\FilePilot` sono il comportamento **dell'originale**, e
+copiarlo significherebbe scrivere su disco i percorsi che l'utente visita. Qui
+non si fa.
+
+Quindi le voci restano, ma la persistenza **non è il default e non è implicita**:
+
+- [ ] mappa tasti rimappabile sui 319 comandi — **in memoria**, per la sessione
+- [ ] temi a 35 token, con variante chiara e scura — **in memoria**
+- [ ] viste per cartella con ereditarietà e applicazione ricorsiva — **in memoria**
+- [ ] layout salvabili — **in memoria**
+- [ ] se un giorno la persistenza serve, dev'essere **esplicita, opt-in e locale**,
+      con l'utente che sceglie il file, e con scritto nell'interfaccia cosa viene
+      scritto e dove. Non una cartella creata di nascosto al primo avvio.
+- [ ] nessun elenco di recenti, nessuna cronologia e nessuna anteprima lasciano la
+      memoria del processo
 
 *Stima: 3–4 settimane.*
+
+### Cosa si perde, e perché va bene
+
+Rinunciare alla persistenza significa che a ogni avvio l'applicazione riparte
+dalle impostazioni predefinite. È un costo reale, e va detto invece di essere
+scoperto. In cambio: un file manager che **non lascia traccia di cosa hai aperto**
+è la scelta giusta per uno strumento che vede l'intero disco, e il progetto è
+personale, quindi la configurazione che si perde è quella di una persona sola.
+
+Il precedente nella tabella dello spec resta `StoreRecents: Session`: i recenti di
+sola sessione non sono una limitazione da colmare, sono **il comportamento
+voluto**.
 
 ---
 
