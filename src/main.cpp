@@ -261,6 +261,36 @@ struct Tab
     int                       historyIndex = -1;
 };
 
+// --- menu contestuale: strutture --------------------------------------------
+//
+// Non e' un GroupMenu, ed e' una scelta e non una svista. Condividono l'idea di
+// "una lista di righe etichettate", ma differiscono in tutto il resto: questo si
+// ancora al puntatore invece di stare al centro, e' alto quanto il contenuto
+// invece di 420 px fissi, ha separatori e non bande, e non ha filtro ne' piede.
+// Forzarlo dentro GroupMenu avrebbe voluto dire un campo modalita' e due
+// impaginazioni dentro lo stesso componente.
+
+// Id che non sono comandi della palette: il primo apre la selezione, che l'Invio
+// gia' fa, il secondo apre la finestra delle proprieta' di Windows.
+constexpr int kContextOpen       = -1;
+constexpr int kContextProperties = -2;
+
+struct ContextMenuItem
+{
+    std::string label;
+    int         command   = 0;      // CommandId, oppure kContext*
+    bool        separator = false;
+};
+
+struct ContextMenu
+{
+    bool open = false;
+    float x = 0.0f, y = 0.0f;       // dove e' stato aperto, in coordinate cliente
+    int   selected = -1;
+    std::string subtitle;
+    std::vector<ContextMenuItem> items;
+};
+
 struct AppState
 {
     UIRenderer      renderer;
@@ -337,6 +367,7 @@ struct AppState
     // Two menus, one component.
     GroupMenu palette;                       // Ctrl+P, item id = CommandId
     GroupMenu goTo;                          // Ctrl+G, item id = index in goToTargets
+    ContextMenu contextMenu;                 // tasto destro
     std::vector<std::wstring> goToTargets;
     std::vector<std::wstring> recents;       // visited this run: StoreRecents = Session
     std::vector<std::wstring> bookmarks;     // this run; persistence is milestone 9
@@ -2927,6 +2958,240 @@ Rect GroupMenuPanel(const AppState& app, const Layout& layout)
     const float width  = (std::min)(560.0f * scale, static_cast<float>(app.viewportWidth) - 60.0f * scale);
     const float height = (std::min)(420.0f * scale, static_cast<float>(app.viewportHeight) - 90.0f * scale);
     return Rect{(static_cast<float>(app.viewportWidth) - width) * 0.5f, 70.0f * scale, width, height};
+}
+
+// --- menu contestuale: geometria, disegno, interazione ----------------------
+void ActivateSelection(AppState& app);
+
+float ContextMenuWidth(const AppState& app, const Layout& layout)
+{
+    const float scale = layout.scale;
+    float widest = 0.0f;
+    for (const ContextMenuItem& item : app.contextMenu.items)
+        widest = (std::max)(widest, app.font.Measure(item.label, scale));
+
+    // La larghezza si DERIVA dal contenuto, con un minimo e un massimo: fissa
+    // taglierebbe le voci lunghe come "Apri in Esplora risorse", e larga quanto
+    // l'etichetta piu' lunga lascerebbe il sottotitolo a sbattere sul bordo.
+    return (std::max)(220.0f * scale, (std::min)(340.0f * scale, widest + 56.0f * scale));
+}
+
+Rect ContextMenuPanel(const AppState& app, const Layout& layout)
+{
+    const float scale     = layout.scale;
+    const float separator = 7.0f * scale;
+    const float padding   = 6.0f * scale;
+
+    float content = 0.0f;
+    for (const ContextMenuItem& item : app.contextMenu.items)
+        content += item.separator ? separator : layout.rowHeight;
+
+    const float width  = ContextMenuWidth(app, layout);
+    // 22 px in fondo per il sottotitolo, che non e' una voce.
+    const float height = content + padding * 2.0f + 22.0f * scale;
+
+    // Il menu si ancora al puntatore ma non esce dalla finestra: aperto accanto
+    // al bordo destro finirebbe per meta' fuori e irraggiungibile.
+    const float maxX = static_cast<float>(app.viewportWidth) - width - 4.0f * scale;
+    const float maxY = static_cast<float>(app.viewportHeight) - height - 4.0f * scale;
+    const float x = (std::max)(4.0f * scale, (std::min)(app.contextMenu.x, maxX));
+    const float y = (std::max)(4.0f * scale, (std::min)(app.contextMenu.y, maxY));
+    return Rect{x, y, width, height};
+}
+
+Rect ContextMenuRowRect(const AppState& app, const Layout& layout, int index)
+{
+    const Rect panel       = ContextMenuPanel(app, layout);
+    const float scale      = layout.scale;
+    const float separator  = 7.0f * scale;
+    const float padding    = 6.0f * scale;
+
+    float top = panel.y + padding;
+    for (int i = 0; i < index && i < static_cast<int>(app.contextMenu.items.size()); ++i)
+        top += app.contextMenu.items[static_cast<size_t>(i)].separator ? separator : layout.rowHeight;
+
+    const float height = app.contextMenu.items[static_cast<size_t>(index)].separator
+                             ? separator
+                             : layout.rowHeight;
+    return Rect{panel.x + 4.0f * scale, top, panel.w - 8.0f * scale, height};
+}
+
+void ContextMenuClose(AppState& app)
+{
+    app.contextMenu.open = false;
+    app.contextMenu.selected = -1;
+    app.contextMenu.items.clear();
+}
+
+void BuildContextMenu(AppState& app, float x, float y)
+{
+    ContextMenu& menu = app.contextMenu;
+    menu.items.clear();
+    menu.x = x;
+    menu.y = y;
+    menu.selected = -1;
+
+    const size_t count = app.selection.size();
+    menu.subtitle = count == 0 ? std::string("niente selezionato")
+                               : std::to_string(count) +
+                                     (count == 1 ? " elemento" : " elementi");
+
+    // Il menu si adatta al contesto: nel vuoto restano solo le voci che valgono
+    // per la cartella, perche' offrire "Rinomina" senza niente da rinominare e'
+    // promettere qualcosa che non si puo' mantenere.
+    if (count > 0)
+    {
+        menu.items.push_back({"Apri", kContextOpen});
+        menu.items.push_back({"Apri in Esplora risorse", CmdOpenExplorer});
+        menu.items.push_back({"", 0, /*separator=*/true});
+        menu.items.push_back({"Taglia", CmdCut});
+        menu.items.push_back({"Copia", CmdCopy});
+        menu.items.push_back({"", 0, true});
+        menu.items.push_back({"Rinomina", CmdRename});
+        menu.items.push_back({"Elimina", CmdDelete});
+        menu.items.push_back({"Elimina definitivamente", CmdDeletePermanent});
+        menu.items.push_back({"", 0, true});
+        menu.items.push_back({"Proprieta'", kContextProperties});
+        menu.items.push_back({"", 0, true});
+    }
+
+    menu.items.push_back({count > 0 ? "Incolla qui" : "Incolla", CmdPaste});
+    menu.items.push_back({"Nuova cartella", CmdNewFolder});
+    menu.items.push_back({"", 0, true});
+    menu.items.push_back({"Aggiorna", CmdRefresh});
+    menu.items.push_back({"Apri un terminale qui", CmdOpenConsole});
+
+    menu.open = true;
+}
+
+void ContextMenuMove(ContextMenu& menu, int delta)
+{
+    const int count = static_cast<int>(menu.items.size());
+    if (count == 0)
+        return;
+
+    // Le frecce saltano i separatori: fermarcisi sopra non vuol dire niente e
+    // l'Invio non avrebbe nulla da eseguire.
+    int index = menu.selected < 0 ? (delta > 0 ? 0 : count - 1) : menu.selected;
+    for (int step = 0; step < count; ++step)
+    {
+        index = (index + delta + count * 2) % count;
+        if (!menu.items[static_cast<size_t>(index)].separator)
+            break;
+    }
+    menu.selected = index;
+}
+
+// Apre la finestra delle proprieta' di Windows sulla selezione: la stessa che
+// apre Esplora risorse, quindi schede, permessi, versioni e anteprime sono quelli
+// del sistema e non una nostra imitazione.
+void ShowProperties(HWND owner, const std::vector<std::wstring>& paths)
+{
+    for (const std::wstring& path : paths)
+    {
+        SHELLEXECUTEINFOW info{};
+        info.cbSize = sizeof(info);
+        info.fMask  = SEE_MASK_INVOKEIDLIST | SEE_MASK_FLAG_NO_UI;
+        info.hwnd   = owner;
+        info.lpVerb = L"properties";
+        info.lpFile = path.c_str();
+        info.nShow  = SW_SHOWNORMAL;
+        ShellExecuteExW(&info);
+    }
+}
+
+void ContextMenuActivate(AppState& app)
+{
+    const int index = app.contextMenu.selected;
+    if (index < 0 || index >= static_cast<int>(app.contextMenu.items.size()))
+        return;
+
+    const ContextMenuItem item = app.contextMenu.items[static_cast<size_t>(index)];
+    if (item.separator)
+        return;
+
+    const std::vector<std::wstring> paths = SelectedPaths(app);
+    ContextMenuClose(app);
+
+    if (item.command == kContextOpen)
+    {
+        ActivateSelection(app);
+        return;
+    }
+    if (item.command == kContextProperties)
+    {
+        ShowProperties(app.window, paths);
+        return;
+    }
+
+    // Tutto il resto e' un comando che esiste gia': il menu contestuale non
+    // aggiunge capacita', rende raggiungibile dove serve quella che c'e'.
+    RunCommand(app, item.command);
+}
+
+void ContextMenuDraw(AppState& app, const Layout& layout)
+{
+    ContextMenu& menu = app.contextMenu;
+    if (!menu.open)
+        return;
+
+    UIRenderer& r = app.renderer;
+    const Theme& t = app.theme;
+    const float scale = layout.scale;
+    const Rect panel = ContextMenuPanel(app, layout);
+
+    r.Draw(UIDraw::Shadow(Rect{panel.x + 2.0f * scale, panel.y + 5.0f * scale, panel.w, panel.h},
+                          Color{0.0f, 0.0f, 0.0f, 0.5f}, 20.0f * scale, 8.0f * scale));
+    r.Draw(UIDraw::Fill(panel, t.panelBg, 8.0f * scale));
+    r.Draw(UIDraw::Border(panel, t.panelBorder, 1.0f, 8.0f * scale));
+
+    for (int i = 0; i < static_cast<int>(menu.items.size()); ++i)
+    {
+        const ContextMenuItem& item = menu.items[static_cast<size_t>(i)];
+        const Rect row = ContextMenuRowRect(app, layout, i);
+
+        if (item.separator)
+        {
+            r.FillRect(Rect{row.x + 6.0f * scale, row.y + row.h * 0.5f,
+                            row.w - 12.0f * scale, 1.0f},
+                       t.separator);
+            continue;
+        }
+
+        if (i == menu.selected)
+            r.FillRect(row, t.rowHover, 4.0f * scale);
+
+        app.font.Draw(r, row.x + 10.0f * scale, TextY(layout, row, app.font), item.label,
+                      t.text, scale);
+    }
+
+    app.smallFont.Draw(r, panel.x + 14.0f * scale, panel.bottom() - 17.0f * scale,
+                       menu.subtitle, t.textDim, scale);
+}
+
+// Vero se il clic e' stato consumato dal menu.
+bool ContextMenuClick(AppState& app, const Layout& layout, float x, float y)
+{
+    if (!app.contextMenu.open)
+        return false;
+
+    const Rect panel = ContextMenuPanel(app, layout);
+    if (!panel.Contains(x, y))
+    {
+        ContextMenuClose(app);
+        return true;   // un clic fuori chiude, e non deve arrivare alla lista
+    }
+
+    for (int i = 0; i < static_cast<int>(app.contextMenu.items.size()); ++i)
+    {
+        if (ContextMenuRowRect(app, layout, i).Contains(x, y))
+        {
+            app.contextMenu.selected = i;
+            ContextMenuActivate(app);
+            return true;
+        }
+    }
+    return true;
 }
 
 void GroupMenuDraw(AppState& app, const Layout& layout, GroupMenu& menu)
