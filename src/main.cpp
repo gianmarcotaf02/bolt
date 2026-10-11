@@ -1352,7 +1352,7 @@ void DrawTitleBar(AppState& app, const Layout& layout)
         else
         {
             app.smallFont.Draw(r, centreX - app.smallFont.Measure("x", scale) * 0.5f,
-                          centreY - app.smallFont.LineHeight() * scale, "x", glyph, scale);
+                          centreY - app.smallFont.LineHeight() * scale * 0.5f, "x", glyph, scale);
         }
 
         ClickTarget target;
@@ -1816,8 +1816,7 @@ void DrawList(AppState& app, const Layout& layout, const float* columnX)
 
             const std::string count = std::to_string(group.count) + " items";
             app.smallFont.Draw(r, row.right() - app.smallFont.Measure(count, scale) - 10.0f * scale,
-                          TextY(layout, row, app.smallFont), count, t.textDim, scale)app.smallFont.Measure(count, scale) - 10.0f * scale,
-                          TextY(layout, row, app.font), count, t.textDim, scale * 0.9f);
+                          TextY(layout, row, app.smallFont), count, t.textDim, scale);
 
             ClickTarget target;
             target.rect  = row;
