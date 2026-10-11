@@ -27,6 +27,8 @@ add_executable(Bolt WIN32
     src/shell_preview.h
     src/dir_stats.cpp
     src/dir_stats.h
+    src/file_ops.cpp
+    src/file_ops.h
     src/gl_loader.cpp
     src/gl_loader.h)
 
