@@ -3686,9 +3686,11 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, LPWSTR, int)
     windowClass.hCursor       = LoadCursorW(nullptr, IDC_ARROW);
     // L'icona arriva dalle risorse dell'eseguibile, cosi' la barra delle
     // applicazioni, Alt+Tab ed Esplora risorse mostrano la stessa immagine.
-    windowClass.hIcon         = LoadIconW(instance, MAKEINTRESOURCEW(IDI_BOLT));
+    // LR_SHARED: l'icona e' di proprieta' del sistema e non va distrutta.
+    windowClass.hIcon         = static_cast<HICON>(LoadImageW(instance, MAKEINTRESOURCEW(IDI_BOLT),
+                                                              IMAGE_ICON, 32, 32, LR_SHARED));
     windowClass.hIconSm       = static_cast<HICON>(LoadImageW(instance, MAKEINTRESOURCEW(IDI_BOLT),
-                                                              IMAGE_ICON, 16, 16, LR_DEFAULTCOLOR));
+                                                              IMAGE_ICON, 16, 16, LR_SHARED));
     windowClass.lpszClassName = L"BoltWindow";
     if (RegisterClassExW(&windowClass) == 0)
     {
@@ -3704,6 +3706,14 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, LPWSTR, int)
         ShowError("CreateWindowExW failed.");
         return 1;
     }
+
+    // L'icona registrata con la classe il sistema la usa solo come ripiego: una
+    // finestra dichiara le proprie, ed e' quella dichiarata che legge la barra
+    // delle applicazioni. Senza questo WM_GETICON risponde 0.
+    SendMessageW(window, WM_SETICON, ICON_BIG,
+                 reinterpret_cast<LPARAM>(windowClass.hIcon));
+    SendMessageW(window, WM_SETICON, ICON_SMALL,
+                 reinterpret_cast<LPARAM>(windowClass.hIconSm));
 
     HDC   dc      = nullptr;
     HGLRC context = nullptr;
