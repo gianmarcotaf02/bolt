@@ -71,6 +71,113 @@ private:
     T* ptr_ = nullptr;
 };
 
+// Sink di avanzamento. Serve per una ragione sola, ma decisiva: quando la shell
+// rinomina da sola per evitare un conflitto ("alfa - Copia.txt"), il nome finale
+// lo decide lei e IFileOperation non lo comunica. I metodi Post* ricevono invece
+// l'elemento appena creato, ed e' l'unico punto in cui quel nome e' osservabile.
+//
+// Senza, dopo un incolla con conflitto la selezione cade sul file di partenza: il
+// cursore finisce sull'originale e un Canc subito dopo cancella la cosa sbagliata.
+class OperationSink final : public IFileOperationProgressSink
+{
+public:
+    explicit OperationSink(std::vector<std::wstring>* created) : created_(created) {}
+
+    // --- IUnknown ----------------------------------------------------------
+    HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void** out) override
+    {
+        if (out == nullptr)
+            return E_POINTER;
+        if (riid == IID_IUnknown || riid == IID_IFileOperationProgressSink)
+        {
+            *out = static_cast<IFileOperationProgressSink*>(this);
+            AddRef();
+            return S_OK;
+        }
+        *out = nullptr;
+        return E_NOINTERFACE;
+    }
+
+    ULONG STDMETHODCALLTYPE AddRef() override
+    {
+        return static_cast<ULONG>(InterlockedIncrement(&references_));
+    }
+
+    ULONG STDMETHODCALLTYPE Release() override
+    {
+        const LONG left = InterlockedDecrement(&references_);
+        if (left == 0)
+            delete this;
+        return static_cast<ULONG>(left);
+    }
+
+    // --- IFileOperationProgressSink ----------------------------------------
+    // Le Pre* e i timer non servono: l'avanzamento lo disegna la shell.
+    HRESULT STDMETHODCALLTYPE StartOperations() override { return S_OK; }
+    HRESULT STDMETHODCALLTYPE FinishOperations(HRESULT /*result*/) override { return S_OK; }
+    HRESULT STDMETHODCALLTYPE PreRenameItem(DWORD, IShellItem*, LPCWSTR) override { return S_OK; }
+    HRESULT STDMETHODCALLTYPE PreMoveItem(DWORD, IShellItem*, IShellItem*, LPCWSTR) override { return S_OK; }
+    HRESULT STDMETHODCALLTYPE PreCopyItem(DWORD, IShellItem*, IShellItem*, LPCWSTR) override { return S_OK; }
+    HRESULT STDMETHODCALLTYPE PreDeleteItem(DWORD, IShellItem*) override { return S_OK; }
+    HRESULT STDMETHODCALLTYPE PreNewItem(DWORD, IShellItem*, LPCWSTR) override { return S_OK; }
+    HRESULT STDMETHODCALLTYPE UpdateProgress(UINT, UINT) override { return S_OK; }
+    HRESULT STDMETHODCALLTYPE ResetTimer() override { return S_OK; }
+    HRESULT STDMETHODCALLTYPE PauseTimer() override { return S_OK; }
+    HRESULT STDMETHODCALLTYPE ResumeTimer() override { return S_OK; }
+
+    HRESULT STDMETHODCALLTYPE PostRenameItem(DWORD, IShellItem*, LPCWSTR, HRESULT hr,
+                                             IShellItem* created) override
+    {
+        Remember(hr, created);
+        return S_OK;
+    }
+
+    HRESULT STDMETHODCALLTYPE PostMoveItem(DWORD, IShellItem*, IShellItem*, LPCWSTR,
+                                           HRESULT hr, IShellItem* created) override
+    {
+        Remember(hr, created);
+        return S_OK;
+    }
+
+    HRESULT STDMETHODCALLTYPE PostCopyItem(DWORD, IShellItem*, IShellItem*, LPCWSTR,
+                                           HRESULT hr, IShellItem* created) override
+    {
+        Remember(hr, created);
+        return S_OK;
+    }
+
+    // L'eliminazione non produce niente: l'elemento e' andato nel cestino con un
+    // nome che non ci serve.
+    HRESULT STDMETHODCALLTYPE PostDeleteItem(DWORD, IShellItem*, HRESULT, IShellItem*) override
+    {
+        return S_OK;
+    }
+
+    HRESULT STDMETHODCALLTYPE PostNewItem(DWORD, IShellItem*, LPCWSTR, LPCWSTR, DWORD,
+                                          HRESULT hr, IShellItem* created) override
+    {
+        Remember(hr, created);
+        return S_OK;
+    }
+
+private:
+    void Remember(HRESULT hr, IShellItem* created)
+    {
+        if (created_ == nullptr || FAILED(hr) || created == nullptr)
+            return;
+
+        LPWSTR path = nullptr;
+        if (SUCCEEDED(created->GetDisplayName(SIGDN_FILESYSPATH, &path)) && path != nullptr)
+        {
+            created_->push_back(path);
+            CoTaskMemFree(path);
+        }
+    }
+
+    std::vector<std::wstring>* created_ = nullptr;
+    LONG references_ = 1;
+};
+
 // Costruisce un IShellItem dal percorso. Fallisce sui percorsi che non esistono
 // piu', ed e' corretto che fallisca: un'operazione su un file sparito deve
 // dirlo, non ignorarlo.
@@ -109,8 +216,12 @@ constexpr DWORD kTransferFlags = kBaseFlags | FOF_RENAMEONCOLLISION;
 //
 // L'annullamento non e' un errore: va distinto, perche' l'interfaccia deve
 // reagire in modo diverso — un annullamento non si segnala come guasto.
+//
+// |created| raccoglie i percorsi che l'operazione ha davvero prodotto, nomi
+// scelti dalla shell compresi. Puo' essere nullptr.
 template <typename Body>
-FileOps::Result RunOperation(HWND owner, DWORD flags, Body body, std::wstring* error)
+FileOps::Result RunOperation(HWND owner, DWORD flags, std::vector<std::wstring>* created,
+                            Body body, std::wstring* error)
 {
     ComPtr<IFileOperation> operation;
     HRESULT hr = CoCreateInstance(CLSID_FileOperation, nullptr, CLSCTX_ALL,
@@ -125,15 +236,16 @@ FileOps::Result RunOperation(HWND owner, DWORD flags, Body body, std::wstring* e
     operation->SetOperationFlags(flags);
     operation->SetOwnerWindow(owner);
 
-    hr = body(operation.Get());
-    if (FAILED(hr))
-    {
-        if (error != nullptr)
-            *error = DescribeHresult(hr);
-        return FileOps::Result::Failed;
-    }
+    OperationSink* sink = new OperationSink(created);   // il riferimento e' nostro
 
-    hr = operation->PerformOperations();
+    hr = body(operation.Get(), sink);
+    if (SUCCEEDED(hr))
+        hr = operation->PerformOperations();
+
+    // Va rilasciato dopo PerformOperations: il sink deve vivere per tutta
+    // l'operazione, che ne tiene una propria referenza.
+    sink->Release();
+
     if (FAILED(hr))
     {
         if (error != nullptr)
