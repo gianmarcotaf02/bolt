@@ -1,14 +1,18 @@
 <#
 .SYNOPSIS
-    Captures one window's client area to a PNG.
+    Captures one window to a PNG.
 
 .DESCRIPTION
     Screen-capture based, so it works for OpenGL windows where PrintWindow
     returns an empty surface. Brings the window to the foreground first, waits
-    for the frame to settle, then reads the client rectangle from the desktop.
+    for the frame to settle, then reads the region from the desktop.
 
-    Used as the visual feedback loop for this project: build, run, capture,
-    inspect the PNG.
+    Captures the WHOLE window by default, not just the client area. That is
+    deliberate: capturing only the client area hides the non-client frame, and
+    a defect lived there for the whole of M6 without ever showing up in a
+    capture — two title bars, one system and one drawn by the application. The
+    default now shows what the user sees. Use -ClientOnly when a pixel-exact
+    comparison of the client area is what is wanted.
 
 .EXAMPLE
     powershell -ExecutionPolicy Bypass -File tools/capture-window.ps1 `
@@ -19,7 +23,7 @@ param(
     [string]$ProcessName = 'Bolt',
     [string]$OutputPath  = 'analysis\tmp\shot.png',
     [int]$SettleMs = 1400,
-    [switch]$WholeWindow
+    [switch]$ClientOnly
 )
 
 $ErrorActionPreference = 'Stop'
@@ -59,7 +63,7 @@ if ([Win32Capture]::IsIconic($handle)) { [void][Win32Capture]::ShowWindow($handl
 [void][Win32Capture]::SetForegroundWindow($handle)
 Start-Sleep -Milliseconds $SettleMs
 
-if ($WholeWindow) {
+if ($ClientOnly) {
     $rect = New-Object Win32Capture+RECT
     [void][Win32Capture]::GetWindowRect($handle, [ref]$rect)
     $x = $rect.Left; $y = $rect.Top

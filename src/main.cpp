@@ -366,7 +366,6 @@ int  CursorIndex(const AppState& app);
 bool IsEntrySelected(const AppState& app, const Entry& entry);
 std::wstring ParentOf(const std::wstring& path);
 double       NowSeconds();
-void         WriteStartupLog(const std::string& message);
 
 // --- string helpers --------------------------------------------------------
 std::string ToUtf8(const std::wstring& text)
