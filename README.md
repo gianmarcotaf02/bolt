@@ -106,11 +106,12 @@ analysis/
   out/reverse/ ricostruzione di SumDirStats con pseudocodice
   rea-snapshot database di analisi Ghidra, riusato fra le sessioni
 docs/          metodologia, analisi, architettura ricostruita, spec, roadmap
+brand/         identità visiva: brief del logo, palette, prompt pronti
 src/
   main.cpp          finestra Win32, contesto GL, navigazione, layout, input
   ui_renderer.*     quad batcher: una draw call per frame, catena di mipmap
                     per icone e anteprime (ridotte fino a otto volte in lista)
-  font_atlas.*      atlas di glifi GDI -> texture array, layer 0; ClearType
+  font_atlas.*      atlas di glifi GDI -> texture array, layer 0 (15 px) e 3 (13 px); ClearType
                     ridotto a copertura in scala di grigi, con gutter fra le celle
   shell_icons.*     icone di sistema -> texture array, layer 1
   shell_preview.*   anteprime via IShellItemImageFactory -> layer 2, worker thread
