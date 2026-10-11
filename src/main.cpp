@@ -3723,18 +3723,13 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
             // Aprire il menu su una riga non selezionata sposta prima la
             // selezione li': il menu descrive cio' su cui si e' cliccato, non
             // quello che era selezionato prima.
-            const Layout layout = ComputeLayout(*app);
-            if (!app->contextMenu.open)
+            if (const ClickTarget* row = HitTest(*app, x, y, ClickTarget::Kind::Row))
             {
-                if (const ClickTarget* row = HitTest(*app, x, y, ClickTarget::Kind::Row))
-                {
-                    if (app->selection.count(app->entries[static_cast<size_t>(row->index)].wideName) == 0)
-                        SelectOnly(*app, row->index);
-                }
+                if (app->selection.count(app->entries[static_cast<size_t>(row->index)].wideName) == 0)
+                    SelectOnly(*app, row->index);
             }
 
             BuildContextMenu(*app, x, y);
-            (void)layout;
             return 0;
         }
 
@@ -3759,6 +3754,26 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
                 {
                     app->rectX1 = x;
                     app->rectY1 = y;
+                    return 0;
+                }
+
+                // Con il menu contestuale aperto il puntatore sceglie la voce, non
+                // la riga sotto: la lista e' coperta, e sovrappassarla sarebbe un
+                // secondo stato che l'utente non vede.
+                if (app->contextMenu.open)
+                {
+                    const Layout layout = ComputeLayout(*app);
+                    app->contextMenu.selected = -1;
+                    for (int i = 0; i < static_cast<int>(app->contextMenu.items.size()); ++i)
+                    {
+                        if (!app->contextMenu.items[static_cast<size_t>(i)].separator &&
+                            ContextMenuRowRect(*app, layout, i).Contains(x, y))
+                        {
+                            app->contextMenu.selected = i;
+                            break;
+                        }
+                    }
+                    app->hovered = -1;
                     return 0;
                 }
 
@@ -3790,6 +3805,16 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
 
                 const bool ctrl  = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
                 const bool shift = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
+
+                // Il menu contestuale e' modale quanto la palette: finche' e'
+                // aperto prende il puntatore e la tastiera, e la lista sotto non
+                // risponde.
+                if (app->contextMenu.open)
+                {
+                    const Layout layout = ComputeLayout(*app);
+                    if (ContextMenuClick(*app, layout, x, y))
+                        return 0;
+                }
 
                 // An open menu is modal: its clicks are handled first and nothing
                 // underneath is reachable.
@@ -3965,6 +3990,22 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
                             RunPaletteSelection(*app);
                         else
                             RunGoToSelection(*app);
+                    }
+                    return 0;
+                }
+
+                // Il menu contestuale prende la tastiera prima di tutto il resto,
+                // rinomina compresa: finche' e' aperto e' lui la cosa su cui si
+                // sta agendo.
+                if (app->contextMenu.open)
+                {
+                    switch (wparam)
+                    {
+                        case VK_ESCAPE: ContextMenuClose(*app); break;
+                        case VK_RETURN: ContextMenuActivate(*app); break;
+                        case VK_UP:     ContextMenuMove(app->contextMenu, -1); break;
+                        case VK_DOWN:   ContextMenuMove(app->contextMenu, 1);  break;
+                        default: break;
                     }
                     return 0;
                 }
