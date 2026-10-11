@@ -511,3 +511,33 @@ alla sua dimensione nativa, perché è quello dove l'hinting conta di più.
 **Limite dichiarato:** lo zoom con `Ctrl`+`+`/`-` scala anche il corpo secondario,
 quindi a zoom diverso da 1.0 il ricampionamento torna. Per eliminarlo servirebbe
 una rasterizzazione a runtime per ogni dimensione, che è un altro mestiere.
+
+### 7.13 Un conflitto di nome che congelava l'applicazione, di nascosto
+
+Incollare un file in una cartella dove esisteva già un file con lo stesso nome
+non faceva nulla: nessuna domanda, nessun errore, nessun rinomina. E non faceva
+nulla **per sempre**: da quel momento l'applicazione non ridisegnava più.
+
+Il difetto era in due opzioni che sembravano innocue. `FOF_NOCONFIRMATION` toglie
+le domande, ed è giusto; ma senza `FOF_RENAMEONCOLLISION` un nome già occupato non
+ha né una domanda da fare né una regola da seguire, quindi l'operazione viene
+**saltata**. La shell però crea comunque la propria finestra di stato
+(`OperationStatusWindow`), che resta lì e pompa messaggi: il programma non è
+bloccato nel senso del task manager, è **dentro un ciclo di messaggi modale che
+non finisce mai**.
+
+Due cose rendono questo difetto cattivo:
+
+**Sembra un difetto di rendering.** Le catture a due secondi di distanza erano
+identiche al pixel — l'unico modo di distinguere "fermo" da "lento" era
+confrontare due fotogrammi. Un'applicazione che risponde a `WM_NULL` sembra viva;
+il fatto che risponda perché è dentro un ciclo modale non si vede da fuori.
+
+**La finestra che blocca non si vede.** Stava dietro la finestra principale. La
+diagnosi non poteva arrivare guardando lo schermo: è arrivata enumerando le
+finestre del processo e leggendone i titoli. C'era scritto `2 azioni interrotte`.
+
+La correzione aggiunge `FOF_RENAMEONCOLLISION`: un nome occupato diventa
+`alfa - Copia.txt`. Prevedibile, immediato, nessun dialogo. Esplora risorse in
+questo caso chiede; qui si sceglie, e si dichiara — un dialogo che non si vede è
+peggio di una regola fissa.

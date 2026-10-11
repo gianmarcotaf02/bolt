@@ -412,17 +412,48 @@ a gruppi, invece di scriverne tre.
 
 ---
 
-## M7 — Operazioni su file ⬜
+## M7 — Operazioni su file 🟡
 
-- [ ] copia, sposta, rinomina, crea cartella
-- [ ] eliminazione verso il cestino reale (`IFileOperation` + shell COM)
+- [x] copia, sposta, rinomina, crea cartella (`IFileOperation`)
+- [x] eliminazione verso il cestino reale, e definitiva con `Shift`+`Canc`
+- [x] clipboard con formato shell (`CF_HDROP` + effetto preferito), quindi
+      interoperabile con Esplora risorse nei due sensi
+- [x] rinomina sul posto, con il campo disegnato sopra la riga
+- [x] esito delle operazioni nella barra di stato
+- [x] scorciatoie e comandi nella palette
 - [ ] ripristino dal cestino
-- [ ] clipboard con formato shell (`CF_HDROP`)
 - [ ] drag&drop in ingresso e in uscita con descrizione
-- [ ] menu contestuale della shell
-- [ ] dialogo di progressione con annullamento
+- [ ] menu contestuale della shell (terzo contesto del componente a gruppi)
+- [ ] dialogo di progressione con annullamento proprio
 
-*Stima: 4–6 settimane.* Non usare `SHFileOperation`: è deprecata.
+### Difetti trovati provando — *Ricostruito*
+
+**I conflitti di nome bloccavano l'applicazione in silenzio.** Con
+`FOF_NOCONFIRMATION` e senza `FOF_RENAMEONCOLLISION`, incollare un file dove ne
+esisteva gia' uno non produceva ne' una domanda ne' un rinomina: l'operazione
+veniva saltata, e la shell lasciava una finestra di stato modale
+(`OperationStatusWindow`) che non si vedeva, perche' stava dietro la finestra
+principale, ma che teneva il programma dentro il proprio ciclo di messaggi.
+L'applicazione **sembrava congelata, e il difetto sembrava di rendering**: due
+catture a due secondi di distanza erano identiche al pixel.
+
+La diagnosi e' arrivata enumerando le finestre del processo, non guardando lo
+schermo: la finestra che bloccava non era visibile. E' lo stesso errore di metodo
+del §5 di `docs/05` — guardare il sintomo invece della causa.
+
+**La selezione cade sul file sbagliato dopo un incolla con conflitto.** Il nome
+finale lo decide la shell ("alfa - Copia.txt"), e `IFileOperation` non lo
+comunica: `DoPaste` ripiega sul nome di partenza e seleziona quello. Verificato:
+dopo l'incolla il cursore stava su `alfa.txt`, non sulla copia, e un `Canc`
+subito dopo avrebbe eliminato l'originale. Si corregge con un
+`IFileOperationProgressSink` che raccolga i nomi effettivi.
+
+**Le statistiche delle sottocartelle non vengono invalidate** dopo
+un'operazione: i conteggi restano quelli di prima finche' non si preme `F5`. Un
+copia dentro una sottocartella cambia i suoi numeri, e la riga continua a
+mostrare i vecchi.
+
+*Stima originale: 4–6 settimane.* Non usare `SHFileOperation`: è deprecata.
 
 ---
 
