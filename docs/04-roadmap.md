@@ -421,10 +421,30 @@ a gruppi, invece di scriverne tre.
 - [x] rinomina sul posto, con il campo disegnato sopra la riga
 - [x] esito delle operazioni nella barra di stato
 - [x] scorciatoie e comandi nella palette
-- [ ] ripristino dal cestino
+- [x] dopo un incolla con conflitto, la selezione cade sull'elemento che la shell
+      ha davvero creato, non su quello di partenza
+- [x] le statistiche della cartella vengono invalidate dopo un'operazione
+- [ ] ripristino dal cestino — **bloccato da una scelta strutturale**, vedi sotto
 - [ ] drag&drop in ingresso e in uscita con descrizione
 - [ ] menu contestuale della shell (terzo contesto del componente a gruppi)
 - [ ] dialogo di progressione con annullamento proprio
+
+### Perché il ripristino dal cestino non è una casella da spuntare
+
+Non è pigrizia: è che **il cestino non ha un percorso**. La nostra navigazione è
+basata sui percorsi — `ReadDirectory` + `FindFirstFile` — e il cestino è una
+cartella dello *spazio dei nomi della shell*, fatta di PIDL, non di file.
+
+`C:\$Recycle.Bin` esiste come percorso, ma contiene le coppie `$I…`/`$R…`: i nomi
+originali non ci sono, e mostrarli così sarebbe peggio che non mostrarli. Per
+ripristinare bisogna (a) saper navigare lo spazio dei nomi, che è una **seconda
+fonte di elenco**, e (b) invocare il verbo "Ripristina" del menu contestuale, il
+cui nome è **localizzato** — su Windows italiano è "Ripristina", e sbagliare
+verbo sul cestino significa cancellare davvero.
+
+Quindi: la voce resta aperta, e la sua dipendenza vera è **il browsing dello
+spazio dei nomi**, cioè un pezzo di M7 che oggi non c'è. Farlo prima di quello
+sarebbe un imballaggio sopra una funzione che manca.
 
 ### Difetti trovati provando — *Ricostruito*
 
@@ -441,17 +461,22 @@ La diagnosi e' arrivata enumerando le finestre del processo, non guardando lo
 schermo: la finestra che bloccava non era visibile. E' lo stesso errore di metodo
 del §5 di `docs/05` — guardare il sintomo invece della causa.
 
-**La selezione cade sul file sbagliato dopo un incolla con conflitto.** Il nome
-finale lo decide la shell ("alfa - Copia.txt"), e `IFileOperation` non lo
-comunica: `DoPaste` ripiega sul nome di partenza e seleziona quello. Verificato:
-dopo l'incolla il cursore stava su `alfa.txt`, non sulla copia, e un `Canc`
-subito dopo avrebbe eliminato l'originale. Si corregge con un
-`IFileOperationProgressSink` che raccolga i nomi effettivi.
+**La selezione cadeva sul file sbagliato dopo un incolla con conflitto.**
+Risolto con un `IFileOperationProgressSink`: i metodi `Post*` ricevono l'elemento
+appena creato, ed è l'unico punto in cui il nome scelto dalla shell è
+osservabile. Verificato: dopo l'incolla il cursore sta su `alfa - Copia.txt` e
+non su `alfa.txt`. Prima, un `Canc` subito dopo avrebbe eliminato l'originale.
 
-**Le statistiche delle sottocartelle non vengono invalidate** dopo
-un'operazione: i conteggi restano quelli di prima finche' non si preme `F5`. Un
-copia dentro una sottocartella cambia i suoi numeri, e la riga continua a
-mostrare i vecchi.
+Lo stesso sink ha permesso di togliere un'euristica: `CreateFolder` indovinava il
+nome finale leggendo il disco e provando i suffissi `(2)`, `(3)`, `(4)` in un
+ciclo. Adesso il nome lo riporta la shell. Un valore derivato al posto di uno
+indovinato, di nuovo.
+
+**Le statistiche delle sottocartelle restavano vecchie.** Le colonne
+`Folders`/`Files`/`Size` di una cartella si vedono dal suo genitore, quindi è lì
+che si nota il numero sbagliato. Dopo ogni operazione ora si invalida la cartella
+in cui si è lavorato. Verificato: `una-cartella` mostrava `0 | 0 | 0 B`, dopo aver
+incollato un file al suo interno e essere risaliti mostra `0 | 1 | 5 B`.
 
 *Stima originale: 4–6 settimane.* Non usare `SHFileOperation`: è deprecata.
 
