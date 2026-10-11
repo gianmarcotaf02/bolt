@@ -102,6 +102,24 @@ Le **shader** si leggono dalla sorgente (`REA_SHADER_DIR`), quindi una modifica 
 ciò che sta sopra. Con `SetWindowPos(h, HWND_TOPMOST, …)` e poi
 `HWND_NOTOPMOST` funziona sempre; va tolto il topmost alla fine.
 
+**Il banco di prova deve mostrare ciò che vede l'utente.** `capture-window.ps1`
+leggeva `GetClientRect`, quindi ritagliava via l'area non-cliente — e per tutta la
+durata di M6 il difetto delle **due barre del titolo** è vissuto esattamente lì,
+invisibile a ogni verifica e visibile a chiunque usasse il programma. L'ha
+trovato l'utente. Ora il default è la finestra intera e `-ClientOnly` è l'opzione
+per i confronti al pixel. Vedi §7.14 di `docs/02`.
+
+**Quando una condizione sembra giusta e il comportamento è sbagliato, scrivi il
+valore invece di dedurlo.** `if (wparam == TRUE)` era corretto secondo la
+documentazione e secondo ogni esempio in circolazione; il messaggio arrivava con
+`wparam` a `FALSE`. Una riga di registro ha risolto quello che il ragionamento
+non stava risolvendo.
+
+**Un difetto può nasconderne un altro.** Togliere l'area non-cliente ha tolto
+anche ombra e angoli arrotondati: il primo difetto era così evidente da rendere
+invisibile il secondo. Dopo aver corretto qualcosa, rimisurare — il bordo
+*attorno* alla correzione è la parte che non si guarda mai.
+
 **Input sintetico, tre trappole distinte:**
 
 - `SendKeys` **non** dà il focus a una finestra OpenGL: usare `keybd_event`.
@@ -165,3 +183,8 @@ affidabile di ripetere una prova di input.
 - Ciò che non è verificato a schermo o contro disco non è "fatto": è "scritto".
 - I limiti si dichiarano nell'interfaccia o nella roadmap, non si nascondono.
 - Build **senza warning** (`/W4`): un warning nuovo è un difetto nuovo.
+- **Il banco di prova si verifica quanto il prodotto.** Un difetto visibile a
+  chiunque usi il programma e invisibile allo strumento che lo controlla non è un
+  difetto sfuggito: è uno **strumento sbagliato**. La cattura parte dalla finestra
+  intera, non dall'area cliente.
+- Quando un valore è in dubbio, **scriverlo in un log e leggerlo** batte dedurlo.

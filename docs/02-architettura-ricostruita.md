@@ -541,3 +541,53 @@ La correzione aggiunge `FOF_RENAMEONCOLLISION`: un nome occupato diventa
 `alfa - Copia.txt`. Prevedibile, immediato, nessun dialogo. Esplora risorse in
 questo caso chiede; qui si sceglie, e si dichiara — un dialogo che non si vede è
 peggio di una regola fissa.
+
+### 7.14 Due barre del titolo, e il banco di prova che non poteva vederle
+
+Per tutta la durata di M6 l'applicazione ha mostrato **due** barre del titolo: quella
+di sistema, chiara, con `Bolt — C:\...\Downloads`, e quella disegnata da noi
+sotto. Nessuna delle mie verifiche l'aveva mai vista.
+
+**Perché non la vedevo.** Il mio strumento di cattura leggeva `GetClientRect`,
+cioè l'area cliente della finestra. La barra di sistema vive *fuori* dall'area
+cliente. Ogni singola cattura della sessione aveva ritagliato via esattamente la
+regione di cui l'utente stava parlando. Il banco di prova non era rotto: era
+**cieco in un punto preciso**, e quel punto era quello sbagliato.
+
+L'ha trovata l'utente, non io. Un difetto visibile a chiunque usi il programma e
+invisibile a chi lo verifica è la definizione di banco di prova sbagliato.
+
+**La causa.** Il gestore c'era ed era scritto come lo scrivono tutti:
+
+```cpp
+case WM_NCCALCSIZE:
+    if (wparam == TRUE) { ...; return 0; }
+    break;
+```
+
+Il guasto è in quella condizione. Il messaggio arrivava con **`wParam` a `FALSE`**,
+non a `TRUE`: la condizione non entrava mai, il caso cadeva su `DefWindowProc`, e
+`DefWindowProc` ricalcola l'area non-cliente **dallo stile della finestra** — che
+contiene `WS_CAPTION` — quindi rimetteva la didascalia. Il difetto non era nel
+codice che c'era: era nel ramo che mancava.
+
+L'ho scoperto scrivendo il valore nel log invece di continuare a dedurlo. Una
+riga di registro ha risolto quello che dieci minuti di ragionamento avevano solo
+aggirato.
+
+**Il secondo difetto, nascosto dal primo.** Togliere l'area non-cliente toglie
+anche ciò che DWM disegnava *attorno*: ombra e angoli arrotondati. Il bordo della
+finestra diventava un salto netto di colore — misurato: nessuna sfumatura in otto
+pixel. Su Windows 11 l'applicazione sembrava piatta accanto a tutte le altre.
+
+Si rimedia con `DwmExtendFrameIntoClientArea` di un pixel per lato: DWM disegna il
+riquadro **dentro** l'area cliente, quindi l'ombra e la curva tornano e la
+didascalia **non** torna. Più `DWMWA_USE_IMMERSIVE_DARK_MODE`, perché il riquadro
+di DWM segue il tema di sistema e un tema chiaro avrebbe disegnato una linea
+bianca su un bordo scuro, e `DWMWA_WINDOW_CORNER_PREFERENCE`, perché gli angoli
+arrotondati di Windows 11 valgono per le finestre con didascalia e questa non ne
+ha.
+
+Verificato misurando i pixel, non guardando: gradiente di quattordici pixel
+attorno al bordo, linea di un pixel al posto giusto, e la curva dell'angolo
+visibile nella mappa dei pixel.
