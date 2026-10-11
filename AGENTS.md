@@ -2,10 +2,43 @@
 
 Istruzioni operative per chi lavora su questo repository — umano o agente.
 
-**Questo file è congelato.** È stato scritto una volta, su richiesta esplicita
-dell'autore del progetto, con la consegna di non modificarlo mai più. Non
-aggiornarlo, non riformattarlo, non correggerne i refusi, non aggiungerci righe.
-Se qualcosa qui dentro diventa falso, la correzione va in `docs/`, non qui.
+---
+
+## 0. Regola assoluta — leggere prima di ogni altra cosa
+
+> **Nessun file personale va toccato.** Né sul Desktop, né in Documenti,
+> Immagini, Download, Video, né altrove — **nemmeno per provare, nemmeno per
+> verificare, nemmeno in sola lettura**.
+>
+> **Nessuna informazione personale viene salvata.** Niente screenshot che
+> mostrano il contenuto delle cartelle di una persona, niente elenchi di nomi di
+> file, niente percorsi personali copiati nei documenti o nei messaggi di commit.
+
+Questa regola non ha eccezioni e non si negozia con la comodità.
+
+### Come si fanno le prove, allora
+
+Le prove si fanno **dentro il progetto**, in una cartella usa e getta creata allo
+scopo — `analysis/tmp/<nome>`, che è già esclusa dal controllo di versione. Si
+popola con file finti, si prova lì, e si cancella.
+
+Mai usando il Desktop, i Download o le Immagini di chi lavora, **nemmeno come
+"cartella di esempio"** per una cattura.
+
+### Perché questa regola esiste
+
+Chi lavora qui è una **macchina**. Un agente che ispeziona un disco vede nomi di
+file, percorsi, foto, documenti, e li vede molto più in fretta di quanto una
+persona possa accorgersene. Che li veda mentre costruisce il programma è
+inevitabile. Che ne **conservi una copia** no.
+
+Quindi valgono tutte queste:
+
+- Nessuno screenshot, immagine o file di prova che contenga contenuto personale.
+- Nessuna telemetria, nessun invio di dati, nessun "campione" di percorsi reali.
+- Nessuna informazione viene trattenuta oltre il lavoro che la richiede.
+- Se una verifica richiede per forza dati reali, **si chiede**, e si spiega
+  perché; non si decide da soli che quella volta è innocua.
 
 ---
 
@@ -143,8 +176,9 @@ Costano tempo, sembrano bug dell'applicazione e non lo sono. Vedi anche §5 di
 
 ### Test
 
-- **Usa una cartella usa e getta.** Le operazioni su file cancellano davvero.
-  Mai provare su file personali.
+- **Usa una cartella usa e getta** dentro il progetto. Le operazioni su file
+  cancellano davvero. **Mai provare su file personali** — vedi §0, che vale senza
+  eccezioni.
 
 ---
 
@@ -241,7 +275,8 @@ rettangolo ha bordi continui a qualunque dimensione.
 
 ## 9. Cosa non fare mai
 
-- **Non modificare questo file.**
+- **Non toccare file personali, non salvare informazioni personali.** Vedi §0:
+  vale più di tutto il resto scritto in questo file.
 - **Non committare `analysis/`.** Contiene le copie del binario originale, gli
   snapshot, le stringhe estratte e le funzioni decompilate: pubblicarlo
   significherebbe ridistribuire un prodotto commerciale. È già in `.gitignore` —
