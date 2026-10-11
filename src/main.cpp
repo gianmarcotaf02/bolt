@@ -3581,9 +3581,30 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
                     return 0;
                 }
 
+                // La rinomina sul posto prende la tastiera prima di tutto il
+                // resto. Deve stare qui e non dentro lo switch: con la rinomina
+                // attiva, Backspace deve cancellare una lettera del nome e non del
+                // filtro, ed Esc deve annullare il nome e non svuotare il filtro.
+                if (app->renameActive)
+                {
+                    switch (wparam)
+                    {
+                        case VK_RETURN: CommitRename(*app); break;
+                        case VK_ESCAPE: CancelRename(*app); break;
+                        case VK_BACK:
+                            if (!app->renameText.empty())
+                                app->renameText.pop_back();
+                            break;
+                        default:
+                            break;
+                    }
+                    return 0;
+                }
+
                 switch (wparam)
                 {
                     case VK_ESCAPE:
+                        // Escape unwinds the filter and stops there. Closing the
                         // window is the ✕ button or Alt+F4: an application that
                         // exits on a bare Escape is a trap, and this one did.
                         if (!app->filter.empty() || app->filterActive)
