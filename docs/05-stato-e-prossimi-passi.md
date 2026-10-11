@@ -86,7 +86,7 @@ CMAKE="/c/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/Commo
 Il ciclo visivo è: costruire, lanciare su una cartella nota, catturare, guardare.
 
 ```powershell
-./build/RelWithDebInfo/Bolt.exe "C:\Users\Gianmarco\Downloads"
+./build/RelWithDebInfo/Bolt.exe "D:\una\cartella"
 powershell -ExecutionPolicy Bypass -File tools/capture-window.ps1 `
     -ProcessName Bolt -OutputPath analysis/tmp/shot.png
 ```

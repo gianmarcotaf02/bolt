@@ -102,7 +102,7 @@ CMAKE="/c/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/Commo
 **Lanciare** su una cartella:
 
 ```bash
-./build/RelWithDebInfo/Bolt.exe "C:\Users\Gianmarco\Downloads"
+./build/RelWithDebInfo/Bolt.exe "D:\una\cartella"
 ```
 
 **Catturare** la finestra:
