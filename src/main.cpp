@@ -19,6 +19,7 @@
 #include "dir_stats.h"
 #include "font_atlas.h"
 #include "gl_loader.h"
+#include "resource.h"
 #include "shell_icons.h"
 #include "shell_preview.h"
 #include "ui_renderer.h"
@@ -3683,6 +3684,11 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, LPWSTR, int)
     windowClass.lpfnWndProc   = WindowProc;
     windowClass.hInstance     = instance;
     windowClass.hCursor       = LoadCursorW(nullptr, IDC_ARROW);
+    // L'icona arriva dalle risorse dell'eseguibile, cosi' la barra delle
+    // applicazioni, Alt+Tab ed Esplora risorse mostrano la stessa immagine.
+    windowClass.hIcon         = LoadIconW(instance, MAKEINTRESOURCEW(IDI_BOLT));
+    windowClass.hIconSm       = static_cast<HICON>(LoadImageW(instance, MAKEINTRESOURCEW(IDI_BOLT),
+                                                              IMAGE_ICON, 16, 16, LR_DEFAULTCOLOR));
     windowClass.lpszClassName = L"BoltWindow";
     if (RegisterClassExW(&windowClass) == 0)
     {
