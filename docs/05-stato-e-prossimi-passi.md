@@ -18,6 +18,7 @@ Ultimo aggiornamento: dopo il nucleo di M7 (operazioni su file).
 | M3 — statistiche di cartella | 🟡 mancano byte allocati e invalidazione da `ReadDirectoryChangesW` |
 | M5 — filtro, ordinamento, raggruppamento, selezione | ✅ |
 | M5c — modalità di visualizzazione | 🟡 manca il raggruppamento in griglia |
+| M5d — sovrappasso del mouse | 🟡 evidenzia righe e celle; mancano `HoverToSelect`, `UnderlineOnHover`, `ShowTooltips` |
 | M6 — tab, barra del titolo, palette, GoTo | 🟡 fatti tab, titolo, palette, GoTo; mancano quick access pinnato, drag&drop e albero dei tab |
 | M7 — operazioni su file | 🟡 nucleo solido: copia, sposta, rinomina, cestino, clipboard interoperabile. Mancano drag&drop, menu contestuale e ripristino dal cestino, che dipende dal browsing dello spazio dei nomi |
 | M8 — inspector completo | ⬜ |
@@ -65,7 +66,9 @@ In ordine di valore, non di facilità.
    comandi, i 35 token di tema. È anche dove i **recenti e i segnalibri** smettono
    di essere di sola sessione (`StoreRecents: Persistent`).
 5. **Raggruppamento in griglia** e **ridimensionamento continuo** della cella.
-6. **Spezzare `main.cpp`** — ormai sono ~4.250 righe e cinque moduli esterni
+6. **Il resto di M5d** — `HoverToSelect`, `UnderlineOnHover` e `ShowTooltips`,
+   più le altre chiavi di interazione dello spec. Vedi `docs/04-roadmap.md`.
+7. **Spezzare `main.cpp`** — ormai sono ~4.300 righe e cinque moduli esterni
    (`file_ops`, `dir_stats`, `shell_icons`, `shell_preview`, `font_atlas`): il
    confine c'è, ma il file che lo contiene è diventato il collo di bottiglia.
 
@@ -161,7 +164,20 @@ davvero: la prova è stata fatta su `analysis/tmp/m7b`, mai su file personali, e
 sandbox va ricreata prima di ogni giro. Cancellare `alfa - Copia.txt` per sbaglio
 è il modo in cui un test diventa un danno.
 
-**Una funzione che non si può scrivere oggi va dichiarata, non improvvisata.** Il
+**Una domanda dell'utente può trovare una lacuna che nessun test trova.** Il
+sovrappasso del mouse non era nella roadmap: non l'avevo previsto. Lo spec
+funzionale dell'originale lo elencava da sempre (`HoverToSelect`,
+`UnderlineOnHover`, `ShowTooltips`) e il tema aveva già quattro token dedicati. Il
+campo `app.hovered` era **calcolato e mai letto**.
+
+Morale: quando manca una funzione, la domanda da farsi non è «l'avevo prevista?»
+ma «lo spec la elencava?». Lo spec è la lista delle cose che mancano; la roadmap è
+solo l'ordine in cui pensavo di farle.
+
+**Un campo scritto e mai letto è un difetto silenzioso.** `app.hovered` veniva
+assegnato a ogni movimento del mouse e non letto da nessuna parte: nessun warning,
+nessun errore, solo una funzione che non c'era. Un `grep` dei lettori, non degli
+scrittori, è quello che lo trova.
 ripristino dal cestino sembra una casella da spuntare e non lo è: il cestino non
 ha un percorso, e invocare il verbo sbagliato fra quelli del suo menu contestuale
 significa **cancellare davvero**. Il blocco vero è il browsing dello spazio dei

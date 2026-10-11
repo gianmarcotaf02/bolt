@@ -317,6 +317,45 @@ Il **raggruppamento in griglia**, che richiede un impaginatore a flusso, e il
 
 ---
 
+## M5d — Sovrappasso e comportamento del clic 🟡
+
+Non era nei piani. È emerso da una domanda dell'utente — «quando passo sopra dei
+file si preseleziona qualcosa?» — e la risposta era che **no, e non era previsto**:
+la roadmap non ne parlava, ma lo spec funzionale dell'originale sì. Lacuna mia, non
+una scelta.
+
+Il campo `app.hovered` era già calcolato a ogni `WM_MOUSEMOVE` e **non veniva mai
+letto**: l'impianto c'era, il disegno no. Il token di tema `Hover` / `ContentHover`
+esisteva già fra i 35.
+
+- [x] riquadro di sovrappasso su righe e celle di griglia
+- [x] si spegne uscendo dalla finestra (`TrackMouseEvent` + `WM_MOUSELEAVE`) —
+      senza, resterebbe appeso sull'ultima riga toccata, perché uscendo non arriva
+      più nessun `WM_MOUSEMOVE`
+- [x] la selezione vince sul sovrappasso: la riga selezionata **non** cambia colore
+      sotto il puntatore
+- [ ] `HoverToSelect` — il passaggio **seleziona**, non solo evidenzia
+- [ ] `UnderlineOnHover` — sottolineatura al passaggio
+- [ ] `ShowTooltips`
+- [ ] `ActOnPress`, `SingleClick`, `SingleClickFoldersOnly`, `DoubleClickToParent`,
+      `ShowCheckboxes`
+
+### Cosa fa l'originale, e cosa non abbiamo ancora — *Ricostruito*
+
+Lo spec funzionale elenca otto chiavi di interazione (`docs/03`, sezione
+Interazione), e il tema ha **quattro** token di sovrappasso: `Hover`,
+`ContentHover`, `MatchHover`, `OutlineHover`. La famiglia `Match*` copre quattro
+stati di una riga che corrisponde al filtro — normale, sovrappasso, selezionata,
+selezionata ma disabilitata — quindi nell'originale il sovrappasso **convive con
+la selezione** invece di essere assorbito da essa.
+
+Nota di merito: `HoverToSelect` è una **chiave di configurazione**, quindi
+nell'originale non è il comportamento predefinito. Evidenziare e selezionare sono
+due cose distinte, e la seconda si accende. Anche `UnderlineOnHover` è una chiave,
+non un dato di fatto.
+
+---
+
 ## M6 — Tab, quick access, palette, GoTo 🟡
 
 - [x] tab multipli: creazione, chiusura, attivazione, stato indipendente
