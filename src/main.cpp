@@ -366,6 +366,7 @@ int  CursorIndex(const AppState& app);
 bool IsEntrySelected(const AppState& app, const Entry& entry);
 std::wstring ParentOf(const std::wstring& path);
 double       NowSeconds();
+void         WriteStartupLog(const std::string& message);
 
 // --- string helpers --------------------------------------------------------
 std::string ToUtf8(const std::wstring& text)
@@ -3333,6 +3334,11 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
     switch (message)
     {
         case WM_NCCALCSIZE:
+            WriteStartupLog("WM_NCCALCSIZE wparam=" + std::to_string(wparam) +
+                            " zoomed=" + std::to_string(IsZoomed(window)) +
+                            " client=" + std::to_string(GetSystemMetrics(SM_CXSIZEFRAME)) +
+                            "x" + std::to_string(GetSystemMetrics(SM_CYSIZEFRAME)) +
+                            "\n");
             if (wparam == TRUE)
             {
                 // The window draws its own caption, so the non-client area is
