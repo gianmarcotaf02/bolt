@@ -3436,11 +3436,32 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
             }
             return 0;
 
+        case WM_MOUSELEAVE:
+            if (app != nullptr)
+            {
+                app->hovered       = -1;
+                app->hoveredPlace  = -1;
+                app->hoveredTab    = -1;
+                app->hoveredChrome = -1;
+            }
+            return 0;
+
         case WM_MOUSEMOVE:
             if (app != nullptr)
             {
                 const float x = static_cast<float>(GET_X_LPARAM(lparam));
                 const float y = static_cast<float>(GET_Y_LPARAM(lparam));
+
+                // Uscendo dalla finestra il mouse non manda altri WM_MOUSEMOVE,
+                // quindi il riquadro di sovrappasso resterebbe appeso sull'ultima
+                // riga toccata. TrackMouseEvent fa arrivare un WM_MOUSELEAVE, e va
+                // richiesto a ogni movimento perche' la richiesta vale una volta
+                // sola.
+                TRACKMOUSEEVENT track{};
+                track.cbSize    = sizeof(track);
+                track.dwFlags   = TME_LEAVE;
+                track.hwndTrack = window;
+                TrackMouseEvent(&track);
 
                 if (app->rectSelecting)
                 {
