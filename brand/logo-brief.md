@@ -148,3 +148,24 @@ Il logo è l'ultima cosa da fare, non la prima. Un prodotto che funziona con un
 logo mediocre è credibile; un logo eccellente su un prodotto che non copia i file
 non lo è. Questa sezione esiste perché il nome è deciso e i colori sono
 verificati — non perché sia il momento di disegnarlo.
+
+---
+
+## Stato — icona in opera
+
+L'icona è agganciata (commit sulla cartella col fulmine, blu `#3082FC`).
+
+**Provenienza.** Il file fornito era un `.ico` con **una sola immagine, 32×27 e
+non quadrata**. Windows ne vuole molte, quadrate: ricomposta su tela 32×32 e
+rigenerata a 16/20/24/32/48/64/256 in `brand/bolt.ico`, incorporata
+nell'eseguibile dalla risorsa `IDI_BOLT` (`src/bolt.rc`). Verificata nella barra
+delle applicazioni reale.
+
+**Limite dichiarato.** Le misure **16, 20, 24 e 32 sono ribassate dal master a 32
+px** e sono buone: è lì che l'icona conta, ed è lì che si vede. Le misure **48, 64
+e 256 sono ingrandite** dallo stesso master e sono quindi morbide: si nota nella
+vista "icone extra grandi" di Esplora risorse.
+
+Per averle nitide serve un **sorgente ad alta risoluzione** (512 o 1024 px, o un
+vettoriale). Rigenerare è meccanico: si rilancia la stessa procedura sul nuovo
+sorgente e le misure piccole restano identiche.
