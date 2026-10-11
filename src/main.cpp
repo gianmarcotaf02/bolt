@@ -3097,9 +3097,10 @@ void ContextMenuMove(ContextMenu& menu, int delta)
 
 // Apre la finestra delle proprieta' di Windows sulla selezione: la stessa che
 // apre Esplora risorse, quindi schede, permessi, versioni e anteprime sono quelli
-// del sistema e non una nostra imitazione.
-void ShowProperties(HWND owner, const std::vector<std::wstring>& paths)
+// del sistema e non una nostra imitazione. Restituisce quante ne ha aperte.
+int ShowProperties(HWND owner, const std::vector<std::wstring>& paths)
 {
+    int launched = 0;
     for (const std::wstring& path : paths)
     {
         SHELLEXECUTEINFOW info{};
@@ -3109,8 +3110,10 @@ void ShowProperties(HWND owner, const std::vector<std::wstring>& paths)
         info.lpVerb = L"properties";
         info.lpFile = path.c_str();
         info.nShow  = SW_SHOWNORMAL;
-        ShellExecuteExW(&info);
+        if (ShellExecuteExW(&info))
+            ++launched;
     }
+    return launched;
 }
 
 void ContextMenuActivate(AppState& app)
@@ -3133,7 +3136,12 @@ void ContextMenuActivate(AppState& app)
     }
     if (item.command == kContextProperties)
     {
-        ShowProperties(app.window, paths);
+        // Un'azione che non fa niente in silenzio e' peggio di una che non parte:
+        // se non si apre niente, l'utente deve sapere perche'.
+        if (paths.empty())
+            ReportStatus(app, L"Niente su cui aprire le proprieta'.");
+        else if (ShowProperties(app.window, paths) == 0)
+            ReportStatus(app, L"Proprieta' non disponibili per la selezione.");
         return;
     }
 
