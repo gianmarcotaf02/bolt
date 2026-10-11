@@ -4,7 +4,7 @@ Documento di lavoro, non di progetto: serve a riprendere senza rileggere la
 conversazione. Aggiornarlo è l'ultima cosa da fare prima di una pausa lunga o di
 una compattazione del contesto.
 
-Ultimo aggiornamento: dopo M5c (modalità di visualizzazione).
+Ultimo aggiornamento: dopo il secondo corpo di glifi (M5c).
 
 ---
 
@@ -17,7 +17,7 @@ Ultimo aggiornamento: dopo M5c (modalità di visualizzazione).
 | M2b — navigazione | ✅ |
 | M3 — statistiche di cartella | 🟡 mancano byte allocati e invalidazione da `ReadDirectoryChangesW` |
 | M5 — filtro, ordinamento, raggruppamento, selezione | ✅ |
-| M5c — modalità di visualizzazione | 🟡 mancano secondo corpo di glifi e raggruppamento in griglia |
+| M5c — modalità di visualizzazione | 🟡 manca il raggruppamento in griglia |
 | M6 — tab, barra del titolo, palette, GoTo | 🟡 fatti tab, titolo, palette, GoTo; mancano quick access pinnato, drag&drop e albero dei tab |
 | M7 — operazioni su file | ⬜ non iniziata |
 | M8 — inspector completo | ⬜ |
@@ -38,10 +38,13 @@ Ordinato per quanto morde.
    che `AppState` e i tipi condivisi escano dall'anonimo namespace in un header:
    è un lavoro meccanico ma largo, e va fatto quando c'è spazio per riverificare
    tutto.
-2. **Nessun controllo di versione.** Nessun `.git`. L'albero di lavoro è l'unica
-   copia: un errore non si annulla.
-3. **Il testo secondario è ricampionato.** Metà delle etichette usa scale
-   frazionarie (0.8–0.95) sull'atlante dei glifi del corpo. Vedi §3, punto 1.
+2. **Nessun controllo di versione locale.** Il repository è su GitHub
+   (`gianmarcotaf02/bolt`) e il sistema salva con commit automatici a ogni turno,
+   ma non c'è una convenzione di branch: si lavora su `main`.
+3. **Lo zoom ricampiona il testo.** A `scale` diverso da 1.0 sia il corpo che il
+   secondo corpo vengono scalati, quindi il ricampionamento torna. Eliminarlo
+   richiede una rasterizzazione a runtime per ogni dimensione: è un altro
+   mestiere, non un difetto da correggere adesso.
 
 ---
 
@@ -49,22 +52,20 @@ Ordinato per quanto morde.
 
 In ordine di valore, non di facilità.
 
-1. **Secondo corpo di glifi** — chiude la passata di qualità. Rasterizzare una
-   seconda dimensione (13 px) su un layer nuovo, e sostituire i ~20 punti di
-   chiamata che oggi usano `scale * 0.8..0.95` con `smallFont` a scala 1.0.
-   Isolato, non tocca la logica. Vedi `font_atlas.h`.
-2. **M7 — operazioni su file** — è il buco di prodotto più grande: copia, sposta,
+1. **M7 — operazioni su file** — è il buco di prodotto più grande: copia, sposta,
    rinomina, crea, cestino reale (`IFileOperation`), clipboard `CF_HDROP`,
    drag&drop, dialogo di progressione. Porta con sé il **terzo contesto** del
    componente a gruppi (il menu contestuale), che è il momento giusto per
    spostarlo in un file suo.
-3. **Raggruppamento in griglia** — richiede un impaginatore a flusso con bande a
+2. **Raggruppamento in griglia** — richiede un impaginatore a flusso con bande a
    piena larghezza. Oggi la griglia lo disattiva e lo dichiara nella barra.
-4. **M8 — inspector completo** — proprietà estese (`PROPSYS`), anteprima immagine
+3. **M8 — inspector completo** — proprietà estese (`PROPSYS`), anteprima immagine
    con zoom, visualizzatore di testo con minimap e numeri di riga.
-5. **M9 — configurazione e temi** — i tre file JSON, la mappa tasti sui 319
+4. **M9 — configurazione e temi** — i tre file JSON, la mappa tasti sui 319
    comandi, i 35 token di tema. È anche dove i **recenti e i segnalibri** smettono
    di essere di sola sessione (`StoreRecents: Persistent`).
+5. **Spezzare `main.cpp`** — ora che il confine del componente a gruppi è maturato
+   con un terzo utilizzatore in arrivo (il menu contestuale di M7).
 
 ---
 
@@ -116,6 +117,16 @@ finestra ha un menu di sistema.
 
 **Un `Esc` che chiude l'app** è una trappola: corretto, ora azzera il filtro e si
 ferma.
+
+**Le riscritture massive di chiamate annidate duplicano il testo.** Sostituendo
+`app.font.Draw(...)` con un secondo atlante, una regex che trova sia la chiamata
+esterna sia la `Measure` annidata dentro produce due intervalli **sovrapposti**, e
+il secondo incolla il proprio testo sopra la parte già riscritta del primo. Il
+compilatore non se ne accorge subito e il danno sembra un difetto di layout.
+Prima di riscrivere in massa: cercare i match annidati, e **rileggere il diff**
+riga per riga. Il diff ha trovato anche un secondo errore — `scale * 0.5f` in un
+centraggio scambiato per una scala di carattere — che nessun test visivo avrebbe
+attribuito alla causa giusta.
 
 ---
 
