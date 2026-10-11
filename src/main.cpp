@@ -3334,17 +3334,18 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
     switch (message)
     {
         case WM_NCCALCSIZE:
-            WriteStartupLog("WM_NCCALCSIZE wparam=" + std::to_string(wparam) +
-                            " zoomed=" + std::to_string(IsZoomed(window)) +
-                            " client=" + std::to_string(GetSystemMetrics(SM_CXSIZEFRAME)) +
-                            "x" + std::to_string(GetSystemMetrics(SM_CYSIZEFRAME)) +
-                            "\n");
+            // wParam arriva a FALSE, non a TRUE. La condizione `wparam == TRUE`
+            // non entrava mai, il caso cadeva su DefWindowProc, e DefWindowProc
+            // ricalcola il rettangolo cliente DALLO STILE — che contiene
+            // WS_CAPTION — quindi rimetteva la didascalia di sistema, disegnata
+            // sopra il nostro contenuto. Da qui le due barre.
+            //
+            // L'area non-cliente va tolta in entrambi i casi.
             if (wparam == TRUE)
             {
-                // The window draws its own caption, so the non-client area is
-                // removed entirely. A maximized window is still inflated by the
-                // resize frame, so the client is inset by that much or the
-                // content would sit under the screen edge.
+                // A finestra ingrandita il sistema gonfia comunque la finestra
+                // del bordo di ridimensionamento: il contenuto va rientrato di
+                // altrettanto o finirebbe sotto il bordo dello schermo.
                 if (IsZoomed(window))
                 {
                     NCCALCSIZE_PARAMS* params = reinterpret_cast<NCCALCSIZE_PARAMS*>(lparam);
@@ -3355,9 +3356,8 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
                     params->rgrc[0].top    += frameY;
                     params->rgrc[0].bottom -= frameY;
                 }
-                return 0;
             }
-            break;
+            return 0;
 
         case WM_NCHITTEST:
         {
