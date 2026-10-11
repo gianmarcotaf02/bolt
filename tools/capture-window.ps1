@@ -12,11 +12,11 @@
 
 .EXAMPLE
     powershell -ExecutionPolicy Bypass -File tools/capture-window.ps1 `
-        -ProcessName FilePilotClone -OutputPath analysis/tmp/shot.png
+        -ProcessName Bolt -OutputPath analysis/tmp/shot.png
 #>
 [CmdletBinding()]
 param(
-    [string]$ProcessName = 'FilePilotClone',
+    [string]$ProcessName = 'Bolt',
     [string]$OutputPath  = 'analysis\tmp\shot.png',
     [int]$SettleMs = 1400,
     [switch]$WholeWindow

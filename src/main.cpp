@@ -1,5 +1,7 @@
 // ---------------------------------------------------------------------------
-// File Pilot clone — application shell.
+// Bolt — application shell.
+//
+// Clone didattico di File Pilot, ricostruito da analisi statica del binario.
 //
 // Milestone 1 proved the rendering architecture. Milestone 2 adds what makes it
 // a file manager rather than a mock-up:
@@ -953,7 +955,7 @@ void UpdateWindowTitle(AppState& app)
 {
     if (app.window == nullptr)
         return;
-    const std::wstring title = L"File Pilot clone — " +
+    const std::wstring title = L"Bolt — " +
                                (app.directory.empty() ? L"This PC" : app.directory);
     SetWindowTextW(app.window, title.c_str());
 }
@@ -3635,7 +3637,7 @@ void WriteStartupLog(const std::string& message)
 void ShowError(const std::string& message)
 {
     WriteStartupLog(message);
-    const std::string text = "File Pilot clone\n\n" + message;
+    const std::string text = "Bolt\n\n" + message;
     MessageBoxA(nullptr, text.c_str(), "Startup failed", MB_ICONERROR | MB_OK);
 }
 
@@ -3655,7 +3657,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, LPWSTR, int)
     CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
 
     // Optional starting directory, the same convenience `explorer` offers:
-    //   FilePilotClone.exe D:\some\folder
+    //   Bolt.exe D:\some\folder
     std::wstring startDirectory;
     {
         int argumentCount = 0;
@@ -3677,14 +3679,14 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, LPWSTR, int)
     windowClass.lpfnWndProc   = WindowProc;
     windowClass.hInstance     = instance;
     windowClass.hCursor       = LoadCursorW(nullptr, IDC_ARROW);
-    windowClass.lpszClassName = L"FilePilotCloneWindow";
+    windowClass.lpszClassName = L"BoltWindow";
     if (RegisterClassExW(&windowClass) == 0)
     {
         ShowError("RegisterClassExW failed.");
         return 1;
     }
 
-    HWND window = CreateWindowExW(0, windowClass.lpszClassName, L"File Pilot clone",
+    HWND window = CreateWindowExW(0, windowClass.lpszClassName, L"Bolt",
                                   WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT, 1240, 760,
                                   nullptr, nullptr, instance, nullptr);
     if (window == nullptr)

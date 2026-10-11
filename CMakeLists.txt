@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.20)
 
-project(FilePilotClone
+project(Bolt
     VERSION 0.1.0
     DESCRIPTION "Clone of a fast native Windows file manager, reconstructed from static binary analysis"
     LANGUAGES CXX)
@@ -13,7 +13,7 @@ if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
     set(CMAKE_BUILD_TYPE RelWithDebInfo CACHE STRING "" FORCE)
 endif()
 
-add_executable(FilePilotClone WIN32
+add_executable(Bolt WIN32
     src/main.cpp
     src/ui_renderer.cpp
     src/ui_renderer.h
@@ -28,12 +28,12 @@ add_executable(FilePilotClone WIN32
     src/gl_loader.cpp
     src/gl_loader.h)
 
-target_include_directories(FilePilotClone PRIVATE src)
+target_include_directories(Bolt PRIVATE src)
 
 # The shader directory is passed in as a compile definition so development builds
 # read the shaders straight from the source tree and can be iterated on without
 # rebuilding.
-target_compile_definitions(FilePilotClone PRIVATE
+target_compile_definitions(Bolt PRIVATE
     WIN32_LEAN_AND_MEAN
     NOMINMAX
     UNICODE
@@ -44,21 +44,21 @@ target_compile_definitions(FilePilotClone PRIVATE
 # runtime through wglGetProcAddress.
 # shell32 + ole32 + uuid provide the shell icon, thumbnail and known-folder APIs:
 # the FOLDERID_* identifiers live in uuid.lib.
-target_link_libraries(FilePilotClone PRIVATE opengl32 gdi32 user32 shell32 ole32 uuid)
+target_link_libraries(Bolt PRIVATE opengl32 gdi32 user32 shell32 ole32 uuid)
 
 if(MSVC)
-    target_compile_options(FilePilotClone PRIVATE /W4 /permissive- /utf-8)
+    target_compile_options(Bolt PRIVATE /W4 /permissive- /utf-8)
     # Static CRT keeps the executable self-contained, matching the reference
     # application's standalone single-file property.
-    set_property(TARGET FilePilotClone PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+    set_property(TARGET Bolt PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 else()
-    target_compile_options(FilePilotClone PRIVATE -Wall -Wextra)
+    target_compile_options(Bolt PRIVATE -Wall -Wextra)
 endif()
 
 # Also stage the shaders next to the binary so a copied build directory stays
 # runnable.
-add_custom_command(TARGET FilePilotClone POST_BUILD
+add_custom_command(TARGET Bolt POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_directory
         "${CMAKE_CURRENT_SOURCE_DIR}/src/shaders"
-        "$<TARGET_FILE_DIR:FilePilotClone>/shaders"
+        "$<TARGET_FILE_DIR:Bolt>/shaders"
     COMMENT "Staging shaders next to the executable")
