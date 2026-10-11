@@ -19,10 +19,18 @@ Questa regola non ha eccezioni e non si negozia con la comodità.
 ### Come si fanno le prove, allora
 
 Le prove si fanno **dentro il progetto**, in una cartella usa e getta creata allo
-scopo — `analysis/tmp/<nome>`, che è già esclusa dal controllo di versione. Si
-popola con file finti, si prova lì, e si cancella.
+scopo. C'è un copione che la prepara:
 
-Mai usando il Desktop, i Download o le Immagini di chi lavora, **nemmeno come
+```bash
+powershell -ExecutionPolicy Bypass -File tools/make-test-sandbox.ps1
+# -> analysis/tmp/sandbox, con contenuto finto e sempre uguale
+```
+
+Il contenuto è finto, deterministico e ripetibile: due cartelle, qualche file di
+testo, un CSV e una PNG generata. `analysis/` è esclusa dal controllo di versione,
+quindi niente di tutto questo finisce nel repository.
+
+Mai usare il Desktop, i Download o le Immagini di chi lavora, **nemmeno come
 "cartella di esempio"** per una cattura.
 
 ### Perché questa regola esiste
