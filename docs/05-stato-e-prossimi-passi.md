@@ -4,7 +4,7 @@ Documento di lavoro, non di progetto: serve a riprendere senza rileggere la
 conversazione. Aggiornarlo è l'ultima cosa da fare prima di una pausa lunga o di
 una compattazione del contesto.
 
-Ultimo aggiornamento: dopo il secondo corpo di glifi (M5c).
+Ultimo aggiornamento: dopo il nucleo di M7 (operazioni su file).
 
 ---
 
@@ -19,7 +19,7 @@ Ultimo aggiornamento: dopo il secondo corpo di glifi (M5c).
 | M5 — filtro, ordinamento, raggruppamento, selezione | ✅ |
 | M5c — modalità di visualizzazione | 🟡 manca il raggruppamento in griglia |
 | M6 — tab, barra del titolo, palette, GoTo | 🟡 fatti tab, titolo, palette, GoTo; mancano quick access pinnato, drag&drop e albero dei tab |
-| M7 — operazioni su file | ⬜ non iniziata |
+| M7 — operazioni su file | 🟡 nucleo fatto: copia, sposta, rinomina, cestino, clipboard interoperabile; mancano ripristino, drag&drop, menu contestuale |
 | M8 — inspector completo | ⬜ |
 | M9 — configurazione e temi | ⬜ |
 | M10 — backend D3D11 | ⬜ |
@@ -52,20 +52,23 @@ Ordinato per quanto morde.
 
 In ordine di valore, non di facilità.
 
-1. **M7 — operazioni su file** — è il buco di prodotto più grande: copia, sposta,
-   rinomina, crea, cestino reale (`IFileOperation`), clipboard `CF_HDROP`,
-   drag&drop, dialogo di progressione. Porta con sé il **terzo contesto** del
-   componente a gruppi (il menu contestuale), che è il momento giusto per
+1. **Il resto di M7** — ripristino dal cestino, drag&drop in ingresso e in
+   uscita, menu contestuale della shell. Il menu contestuale porta con sé il
+   **terzo contesto** del componente a gruppi, che è il momento giusto per
    spostarlo in un file suo.
-2. **Raggruppamento in griglia** — richiede un impaginatore a flusso con bande a
-   piena larghezza. Oggi la griglia lo disattiva e lo dichiara nella barra.
+2. **I tre difetti dichiarati di M7** (vedi `docs/04-roadmap.md`): la selezione
+   che cade sul file sbagliato dopo un incolla con conflitto — quello con il
+   `Canc` subito dopo è pericoloso — le statistiche non invalidate, e il
+   ripristino dal cestino.
 3. **M8 — inspector completo** — proprietà estese (`PROPSYS`), anteprima immagine
    con zoom, visualizzatore di testo con minimap e numeri di riga.
 4. **M9 — configurazione e temi** — i tre file JSON, la mappa tasti sui 319
    comandi, i 35 token di tema. È anche dove i **recenti e i segnalibri** smettono
    di essere di sola sessione (`StoreRecents: Persistent`).
-5. **Spezzare `main.cpp`** — ora che il confine del componente a gruppi è maturato
-   con un terzo utilizzatore in arrivo (il menu contestuale di M7).
+5. **Raggruppamento in griglia** e **ridimensionamento continuo** della cella.
+6. **Spezzare `main.cpp`** — ormai sono ~4.200 righe e quattro moduli esterni
+   (`file_ops`, `dir_stats`, `shell_icons`, `shell_preview`): il confine c'è, ma
+   il file che lo contiene è diventato il collo di bottiglia.
 
 ---
 
@@ -127,6 +130,23 @@ Prima di riscrivere in massa: cercare i match annidati, e **rileggere il diff**
 riga per riga. Il diff ha trovato anche un secondo errore — `scale * 0.5f` in un
 centraggio scambiato per una scala di carattere — che nessun test visivo avrebbe
 attribuito alla causa giusta.
+
+**Un'applicazione che sembra congelata può essere dentro un ciclo modale.** Due
+catture identiche a distanza di secondi distinguono "fermo" da "lento"; una
+`SendMessageTimeout` dice se risponde, ma **non** se sta lavorando. Quando l'app
+non ridisegna e risponde ai messaggi, la prima cosa da fare è **enumerare le
+finestre del processo** e leggerne i titoli: il 2025-10-11 c'era scritto
+`OperationStatusWindow — 2 azioni interrotte`, e la finestra che bloccava tutto
+non era visibile sullo schermo. Vedi §7.13 di `docs/02`.
+
+**I test devono usare una cartella usa e getta.** Le operazioni di M7 cancellano
+davvero: la prova è stata fatta su `analysis/tmp/m7-sandbox`, mai su file
+personali, e la sandbox va ricreata prima di ogni giro. Cancellare
+`alfa - Copia.txt` per sbaglio è il modo in cui un test diventa un danno.
+
+**`tools/send-keys.ps1`** esiste perché l'escaping di PowerShell dentro bash
+mangiava i caratteri e i tasti non arrivavano: uno script su file è l'unico modo
+affidabile di ripetere una prova di input.
 
 ---
 

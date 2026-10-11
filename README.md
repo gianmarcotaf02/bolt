@@ -36,7 +36,8 @@ reimplementato in modo indipendente.
 | **Finestra GoTo** con recenti e segnalibri | ✅ funzionante (di sessione) |
 | Cronologia di navigazione per tab | ✅ funzionante (`Alt`+`←` / `Alt`+`→`) |
 | Quick access pinnato, drag&drop dei tab | ⬜ milestone 6 |
-| Operazioni su file, clipboard, drag&drop | ⬜ milestone 7 |
+| Operazioni su file (copia, sposta, rinomina, cestino) | ✅ funzionanti, clipboard interoperabile con Esplora risorse |
+| Drag&drop, menu contestuale della shell | ⬜ milestone 7 |
 | Persistenza configurazione, temi, hotkey | ⬜ milestone 9 |
 | Backend Direct3D 11 | ⬜ milestone 10 |
 
@@ -86,6 +87,10 @@ Controlli a runtime:
 | `Alt`+`←` / `Alt`+`→` | indietro / avanti nella cronologia del tab |
 | `Ctrl+Shift+G` o click su `Group:` | cambia la dimensione di raggruppamento |
 | `Ctrl+1` / `2` / `3` / `4` | Details / List / Tiles / Icons |
+| `Ctrl+C` / `Ctrl+X` / `Ctrl+V` | copia / taglia / incolla (clipboard di sistema) |
+| `F2` | rinomina sul posto |
+| `Ctrl+Shift+N` | nuova cartella, col nome gia' in scrittura |
+| `Canc` / `Shift+Canc` | cestino / eliminazione definitiva |
 | frecce in griglia | `Su`/`Giù` di una riga, `Sinistra`/`Destra` di una cella |
 | click su una banda di gruppo | collassa o espande |
 | `Ctrl` + `+` / `-` | zoom della UI |
