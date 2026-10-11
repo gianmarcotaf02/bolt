@@ -2,7 +2,7 @@
 
 ## Cos'è questo progetto
 
-Un clone didattico di File Pilot per Windows, scritto da zero. L'obiettivo non è
+**Bolt** è un clone didattico di File Pilot per Windows, scritto da zero. L'obiettivo non è
 distribuire un prodotto: è capire come è costruita un'applicazione nativa
 performante e reimplementarne l'architettura in modo indipendente.
 

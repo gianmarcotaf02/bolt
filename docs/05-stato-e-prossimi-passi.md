@@ -80,9 +80,9 @@ CMAKE="/c/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/Commo
 Il ciclo visivo è: costruire, lanciare su una cartella nota, catturare, guardare.
 
 ```powershell
-./build/RelWithDebInfo/FilePilotClone.exe "C:\Users\Gianmarco\Downloads"
+./build/RelWithDebInfo/Bolt.exe "C:\Users\Gianmarco\Downloads"
 powershell -ExecutionPolicy Bypass -File tools/capture-window.ps1 `
-    -ProcessName FilePilotClone -OutputPath analysis/tmp/shot.png
+    -ProcessName Bolt -OutputPath analysis/tmp/shot.png
 ```
 
 Le **shader** si leggono dalla sorgente (`REA_SHADER_DIR`), quindi una modifica a

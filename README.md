@@ -1,7 +1,8 @@
-# File Pilot clone — reimplementazione guidata da analisi statica
+# Bolt — reimplementazione guidata da analisi statica
 
-Clone didattico di **File Pilot** (file manager nativo per Windows di Voidstar d.o.o.),
-ricostruito da zero partendo dall'analisi statica del binario distribuito.
+**Bolt** è un clone didattico di **File Pilot** (file manager nativo per Windows di
+Voidstar d.o.o.), ricostruito da zero partendo dall'analisi statica del binario
+distribuito.
 
 Progetto personale, uso personale, non commerciale. Nessuna parte del codice
 dell'applicazione originale è copiata in questo repository: vedi
@@ -51,7 +52,7 @@ Richiede Visual Studio 2022 (o Build Tools) con Windows SDK e CMake ≥ 3.20.
 ```powershell
 cmake -S . -B build -G "Visual Studio 17 2022" -A x64
 cmake --build build --config RelWithDebInfo
-.\build\RelWithDebInfo\FilePilotClone.exe
+.\build\RelWithDebInfo\Bolt.exe
 ```
 
 Controlli a runtime:
@@ -91,7 +92,7 @@ Controlli a runtime:
 Si può partire da una cartella specifica come con `explorer`:
 
 ```powershell
-.\build\RelWithDebInfo\FilePilotClone.exe "D:\qualcosa"
+.\build\RelWithDebInfo\Bolt.exe "D:\qualcosa"
 ```
 
 ## Struttura
