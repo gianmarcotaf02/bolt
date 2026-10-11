@@ -17,6 +17,7 @@
 // Everything still flows through one quad batcher and one draw call per frame.
 // ---------------------------------------------------------------------------
 #include "dir_stats.h"
+#include "file_ops.h"
 #include "font_atlas.h"
 #include "gl_loader.h"
 #include "resource.h"
@@ -2487,6 +2488,238 @@ void BuildGoToMenu(AppState& app)
     app.goTo.hint = "Enter goes   Esc closes   Ctrl+G toggles";
 }
 
+// --- operazioni su file (M7) ------------------------------------------------
+int          CursorIndex(const AppState& app);
+double       NowSeconds();
+
+// Percorsi completi di cio' che e' selezionato, nell'ordine della lista.
+std::vector<std::wstring> SelectedPaths(const AppState& app)
+{
+    std::vector<std::wstring> paths;
+    for (const Entry& entry : app.entries)
+        if (app.selection.count(entry.wideName) != 0)
+            paths.push_back(JoinPath(app.directory, entry.wideName));
+    return paths;
+}
+
+// Un'operazione che fallisce in silenzio e' peggio di una che non parte: senza
+// un messaggio, "Sposta" su un file in uso sembrerebbe non aver fatto nulla.
+void ReportStatus(AppState& app, const std::wstring& message)
+{
+    app.statusMessage     = message;
+    app.statusMessageTime = NowSeconds();
+}
+
+// Ricarica la cartella mantenendo la selezione sui nomi che esistono ancora.
+//
+// LoadDirectory svuota la selezione e sceglie la prima riga, ed e' giusto perche'
+// cambia cartella. Dopo un incolla o un'eliminazione no: l'utente sta lavorando
+// li' e perdere il posto a ogni operazione lo costringe a ricercarlo.
+void ReloadKeeping(AppState& app, const std::unordered_set<std::wstring>& keep,
+                   const std::wstring& preferCursor, float restoreScroll)
+{
+    LoadDirectory(app, app.directory, /*recordHistory=*/false);
+
+    const auto present = [&](const std::wstring& name) {
+        for (const Entry& entry : app.entries)
+            if (entry.wideName == name)
+                return true;
+        return false;
+    };
+
+    app.selection.clear();
+    for (const Entry& entry : app.entries)
+        if (keep.count(entry.wideName) != 0)
+            app.selection.insert(entry.wideName);
+
+    if (!preferCursor.empty() && present(preferCursor))
+    {
+        app.cursor = preferCursor;
+        if (app.selection.empty())
+            app.selection.insert(preferCursor);
+        app.selectionAnchor = preferCursor;
+    }
+    else
+    {
+        // Il primo nome sopravvissuto in ordine di lista, non un elemento
+        // qualunque dell'insieme: la selezione e' un insieme non ordinato.
+        for (const Entry& entry : app.entries)
+        {
+            if (app.selection.count(entry.wideName) != 0)
+            {
+                app.cursor          = entry.wideName;
+                app.selectionAnchor = entry.wideName;
+                break;
+            }
+        }
+    }
+
+    app.scroll = restoreScroll;
+    app.viewDirty = true;
+}
+
+// Nome predefinito di una cartella nuova, come quello di Esplora risorse.
+constexpr wchar_t kNewFolderName[] = L"Nuova cartella";
+
+void BeginRename(AppState& app)
+{
+    const int index = CursorIndex(app);
+    if (index < 0)
+        return;
+
+    const Entry& entry = app.entries[static_cast<size_t>(index)];
+    app.renameActive   = true;
+    app.renamePath     = JoinPath(app.directory, entry.wideName);
+    app.renameOriginal = entry.wideName;
+    app.renameText     = entry.name;
+
+    // La tastiera adesso scrive nel nome, non nel filtro: senza questo, rinominare
+    // in "foto" filtrerebbe la lista a ogni lettera.
+    app.filterActive = false;
+}
+
+void CancelRename(AppState& app)
+{
+    app.renameActive = false;
+    app.renameText.clear();
+    app.renamePath.clear();
+    app.renameOriginal.clear();
+}
+
+void CommitRename(AppState& app)
+{
+    if (!app.renameActive)
+        return;
+
+    const std::wstring newName  = Widen(app.renameText);
+    const std::wstring path     = app.renamePath;
+    const std::wstring original = app.renameOriginal;
+    const float        scroll   = app.scroll;
+    CancelRename(app);
+
+    if (newName.empty() || newName == original)
+        return;
+
+    std::wstring error;
+    const FileOps::Result result = FileOps::Rename(app.window, path, newName, &error);
+    if (result == FileOps::Result::Ok)
+    {
+        std::unordered_set<std::wstring> keep;
+        keep.insert(newName);
+        ReloadKeeping(app, keep, newName, scroll);
+        ReportStatus(app, L"Rinominato in " + newName);
+    }
+    else if (result == FileOps::Result::Failed)
+    {
+        ReportStatus(app, L"Rinomina non riuscita: " + error);
+    }
+}
+
+void DoCopyToClipboard(AppState& app, bool cut)
+{
+    const std::vector<std::wstring> paths = SelectedPaths(app);
+    if (paths.empty())
+        return;
+
+    if (!FileOps::SetClipboardFiles(app.window, paths, cut))
+    {
+        ReportStatus(app, L"Clipboard non disponibile.");
+        return;
+    }
+
+    app.clipboardCut = cut;
+    ReportStatus(app, (cut ? L"Tagliati " : L"Copiati ") +
+                          std::to_wstring(paths.size()) + L" elementi");
+}
+
+void DoPaste(AppState& app)
+{
+    std::vector<std::wstring> paths;
+    bool cut = false;
+    if (!FileOps::ReadClipboardFiles(&paths, &cut))
+    {
+        ReportStatus(app, L"Niente da incollare.");
+        return;
+    }
+
+    const float scroll = app.scroll;
+    std::wstring error;
+    const FileOps::Result result = cut ? FileOps::Move(app.window, paths, app.directory, &error)
+                                       : FileOps::Copy(app.window, paths, app.directory, &error);
+
+    if (result == FileOps::Result::Ok)
+    {
+        // Un taglio si consuma con l'incolla: lasciarlo nella clipboard farebbe
+        // spostare gli stessi file una seconda volta al prossimo Ctrl+V.
+        if (cut)
+            FileOps::ClearClipboard(app.window);
+
+        std::unordered_set<std::wstring> keep;
+        std::wstring landed;
+        for (const std::wstring& path : paths)
+        {
+            const std::wstring name = LeafName(path);
+            keep.insert(name);
+            if (landed.empty())
+                landed = name;
+        }
+        ReloadKeeping(app, keep, landed, scroll);
+        ReportStatus(app, (cut ? L"Spostati " : L"Incollati ") +
+                              std::to_wstring(paths.size()) + L" elementi");
+    }
+    else if (result == FileOps::Result::Failed)
+    {
+        ReportStatus(app, L"Incolla non riuscito: " + error);
+    }
+}
+
+void DoDelete(AppState& app, bool permanently)
+{
+    const std::vector<std::wstring> paths = SelectedPaths(app);
+    if (paths.empty())
+        return;
+
+    const float scroll = app.scroll;
+    std::wstring error;
+    const FileOps::Result result = FileOps::Delete(app.window, paths, permanently, &error);
+
+    if (result == FileOps::Result::Ok)
+    {
+        ReloadKeeping(app, /*keep=*/{}, /*preferCursor=*/{}, scroll);
+        ReportStatus(app, (permanently ? L"Eliminati definitivamente " : L"Nel cestino: ") +
+                              std::to_wstring(paths.size()) + L" elementi");
+    }
+    else if (result == FileOps::Result::Failed)
+    {
+        ReportStatus(app, L"Eliminazione non riuscita: " + error);
+    }
+}
+
+void DoNewFolder(AppState& app)
+{
+    const float scroll = app.scroll;
+    std::wstring created;
+    std::wstring error;
+    const FileOps::Result result = FileOps::CreateFolder(
+        app.window, app.directory, kNewFolderName, &created, &error);
+
+    if (result == FileOps::Result::Ok)
+    {
+        const std::wstring name = LeafName(created);
+        std::unordered_set<std::wstring> keep;
+        keep.insert(name);
+        ReloadKeeping(app, keep, name, scroll);
+
+        // Creare e rinominare sono un'azione sola: chi preme Ctrl+Shift+N vuole
+        // dare un nome, non guardare un'altra "Nuova cartella".
+        BeginRename(app);
+    }
+    else if (result == FileOps::Result::Failed)
+    {
+        ReportStatus(app, L"Cartella non creata: " + error);
+    }
+}
+
 // --- menu execution ---------------------------------------------------------
 void RunCommand(AppState& app, int command);
 
@@ -2544,6 +2777,14 @@ void RunCommand(AppState& app, int command)
         case CmdGoTo:      BuildGoToMenu(app); break;
         case CmdRefresh:   app.stats.ClearAll(); LoadDirectory(app, app.directory); break;
         case CmdRecalcStats: app.stats.ClearAll(); break;
+
+        case CmdCopy:      DoCopyToClipboard(app, /*cut=*/false); break;
+        case CmdCut:       DoCopyToClipboard(app, /*cut=*/true); break;
+        case CmdPaste:     DoPaste(app); break;
+        case CmdRename:    BeginRename(app); break;
+        case CmdNewFolder: DoNewFolder(app); break;
+        case CmdDelete:          DoDelete(app, /*permanently=*/false); break;
+        case CmdDeletePermanent: DoDelete(app, /*permanently=*/true); break;
 
         case CmdOpenExplorer:
             if (cursorIndex >= 0)
