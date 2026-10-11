@@ -55,9 +55,10 @@ using WglCreateContextAttribsArbFn = HGLRC(WINAPI*)(HDC, HGLRC, const int*);
 // --- texture array layers ---------------------------------------------------
 // Every UI texture shares one array, so the layer index is the only thing that
 // tells a glyph from an icon from a thumbnail.
-constexpr int kGlyphLayer   = 0;
-constexpr int kIconLayer    = 1;
-constexpr int kPreviewLayer = 2;
+constexpr int kGlyphLayer      = 0;
+constexpr int kIconLayer       = 1;
+constexpr int kPreviewLayer    = 2;
+constexpr int kSmallGlyphLayer = 3;
 
 // --- theme -----------------------------------------------------------------
 struct Theme
@@ -259,6 +260,9 @@ struct AppState
 {
     UIRenderer      renderer;
     FontAtlas       font;
+    // Testo secondario: intestazioni, etichette, barra di stato. Rasterizzato
+    // alla sua dimensione invece che ricampionato dal corpo.
+    FontAtlas       smallFont;
     ShellIconAtlas  icons;
     ShellPreviewCache previews;
     DirStatsService   stats;
@@ -3719,19 +3723,30 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, LPWSTR, int)
     }
 
     // One atlas size for every layer, so the glyph, icon and thumbnail UVs
-    // cannot diverge. Layer 0 holds the glyphs, layer 1 the shell icons, layer 2
-    // the file thumbnails.
+    // cannot diverge. Layer 0 holds the body glyphs, layer 1 the shell icons,
+    // layer 2 the file thumbnails, layer 3 the secondary glyphs.
     constexpr int kTextureLayerSize = 1024;
     constexpr int kPreviewCellSize  = 128;
     constexpr int kPreviewCapacity  = 64;
 
-    if (!app.renderer.CreateTextureArray(/*layers=*/3, kTextureLayerSize, &error))
+    if (!app.renderer.CreateTextureArray(/*layers=*/4, kTextureLayerSize, &error))
     {
         ShowError(error);
         return 1;
     }
 
     if (!app.font.Build(app.renderer, L"Segoe UI", 15, kGlyphLayer, kTextureLayerSize, &error))
+    {
+        ShowError(error);
+        return 1;
+    }
+
+    // The secondary size is rasterised rather than scaled down. Drawing the body
+    // atlas at 0.8-0.95 resamples glyphs that were hinted for 15 px, which is
+    // exactly where small text loses its crispness; a second body costs one more
+    // atlas layer and makes the whole secondary tier sharp.
+    if (!app.smallFont.Build(app.renderer, L"Segoe UI", 13, kSmallGlyphLayer,
+                             kTextureLayerSize, &error))
     {
         ShowError(error);
         return 1;
