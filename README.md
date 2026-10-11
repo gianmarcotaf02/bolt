@@ -123,6 +123,8 @@ src/
   dir_stats.*       statistiche di cartella ricorsive: job, profili di volume,
                     budget di tempo, risultati progressivi
   gl_loader.*       caricamento runtime delle entry point OpenGL 3.3
+  file_ops.*        copia, sposta, rinomina, cestino via IFileOperation;
+                    clipboard CF_HDROP con effetto preferito
   shaders/          ui.vert, ui.frag — scritti da zero
 tools/
   capture-window.ps1           screenshot di una finestra, per il ciclo visivo
