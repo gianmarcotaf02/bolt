@@ -1288,8 +1288,8 @@ void DrawTitleBar(AppState& app, const Layout& layout)
 
         const Rect close{tabRect.right() - 24.0f * scale, tabRect.y + 5.0f * scale,
                          18.0f * scale, tabRect.h - 10.0f * scale};
-        app.font.Draw(r, close.x + 5.0f * scale, TextY(layout, close, app.font), "x",
-                      i == app.hoveredTab ? t.text : t.textDim, scale * 0.9f);
+        app.smallFont.Draw(r, close.x + 5.0f * scale, TextY(layout, close, app.smallFont), "x",
+                      i == app.hoveredTab ? t.text : t.textDim, scale);
 
         ClickTarget tabTarget;
         tabTarget.rect  = tabRect;
@@ -1351,8 +1351,8 @@ void DrawTitleBar(AppState& app, const Layout& layout)
         }
         else
         {
-            app.font.Draw(r, centreX - app.font.Measure("x", scale) * 0.5f,
-                          centreY - app.font.LineHeight() * scale * 0.5f, "x", glyph, scale);
+            app.smallFont.Draw(r, centreX - app.smallFont.Measure("x", scale) * 0.5f,
+                          centreY - app.smallFont.LineHeight() * scale, "x", glyph, scale);
         }
 
         ClickTarget target;
@@ -1434,8 +1434,8 @@ void DrawSidebar(AppState& app, const Layout& layout)
     const float scale = layout.scale;
 
     r.Draw(UIDraw::Fill(layout.sidebar, t.panelBg, 6.0f * scale));
-    app.font.Draw(r, layout.sidebar.x + 12.0f * scale, layout.sidebar.y + 9.0f * scale,
-                  "QUICK ACCESS", t.textDim, scale * 0.82f);
+    app.smallFont.Draw(r, layout.sidebar.x + 12.0f * scale, layout.sidebar.y + 9.0f * scale,
+                  "QUICK ACCESS", t.textDim, scale);
 
     float y = layout.sidebar.y + 32.0f * scale;
     for (size_t i = 0; i < app.places.size(); ++i)
@@ -1514,12 +1514,12 @@ void DrawHeader(AppState& app, const Layout& layout, float* columnX)
         if (sorted)
             label += app.sortAscending ? " ^" : " v";
 
-        app.font.Draw(r, x, TextY(layout, layout.header, app.font), label,
-                      sorted ? t.text : t.textDim, scale * 0.92f);
+        app.smallFont.Draw(r, x, TextY(layout, layout.header, app.smallFont), label,
+                      sorted ? t.text : t.textDim, scale);
 
         if (i >= 3 && app.stats.Busy())
         {
-            const float dotX = x + app.font.Measure(label, scale * 0.92f) + 6.0f * scale;
+            const float dotX = x + app.smallFont.Measure(label, scale) + 6.0f * scale;
             const float dotY = layout.header.y + layout.header.h * 0.5f - 2.0f * scale;
             r.FillRect(Rect{dotX, dotY, 4.0f * scale, 4.0f * scale},
                        t.accent.WithAlpha(pulse), 2.0f * scale);
@@ -1577,18 +1577,18 @@ void DrawFilterBar(AppState& app, const Layout& layout)
     std::string groupText = std::string("Group: ") + GroupModeName(app.groupMode);
     if (gridView && app.groupMode != GroupMode::None)
         groupText += " (rows only)";
-    const float matchWidth = app.font.Measure(matchText, scale * 0.9f);
-    const float groupWidth = app.font.Measure(groupText, scale * 0.9f);
+    const float matchWidth = app.smallFont.Measure(matchText, scale);
+    const float groupWidth = app.smallFont.Measure(groupText, scale);
     const float rightEdge  = bar.right() - 10.0f * scale;
 
-    app.font.Draw(r, rightEdge - matchWidth, TextY(layout, bar, app.font),
-                  matchText, t.textDim, scale * 0.9f);
+    app.smallFont.Draw(r, rightEdge - matchWidth, TextY(layout, bar, app.smallFont),
+                  matchText, t.textDim, scale);
 
     const Rect groupRect{rightEdge - matchWidth - groupWidth - 20.0f * scale, bar.y,
                          groupWidth + 12.0f * scale, bar.h};
-    app.font.Draw(r, groupRect.x, TextY(layout, bar, app.font), groupText,
+    app.smallFont.Draw(r, groupRect.x, TextY(layout, bar, app.smallFont), groupText,
                   (gridView && app.groupMode != GroupMode::None) ? t.textDim : t.accent,
-                  scale * 0.9f);
+                  scale);
 
     ClickTarget target;
     target.rect = groupRect;
@@ -1811,11 +1811,12 @@ void DrawList(AppState& app, const Layout& layout, const float* columnX)
 
             r.FillRect(row, t.headerBg);
             const std::string title = (collapsed ? "> " : "v ") + group.label;
-            app.font.Draw(r, row.x + 8.0f * scale, TextY(layout, row, app.font),
-                          title, t.text, scale * 0.95f);
+            app.smallFont.Draw(r, row.x + 8.0f * scale, TextY(layout, row, app.smallFont),
+                          title, t.text, scale);
 
             const std::string count = std::to_string(group.count) + " items";
-            app.font.Draw(r, row.right() - app.font.Measure(count, scale * 0.9f) - 10.0f * scale,
+            app.smallFont.Draw(r, row.right() - app.smallFont.Measure(count, scale) - 10.0f * scale,
+                          TextY(layout, row, app.smallFont), count, t.textDim, scale)app.smallFont.Measure(count, scale) - 10.0f * scale,
                           TextY(layout, row, app.font), count, t.textDim, scale * 0.9f);
 
             ClickTarget target;
@@ -1956,7 +1957,7 @@ void DrawInspector(AppState& app, const Layout& layout)
     r.Draw(UIDraw::Border(layout.inspector, t.panelBorder, 1.0f, 8.0f * scale));
 
     float y = layout.inspector.y + 13.0f * scale;
-    app.font.Draw(r, layout.inspector.x + 14.0f * scale, y, "INSPECTOR", t.textDim, scale * 0.82f);
+    app.smallFont.Draw(r, layout.inspector.x + 14.0f * scale, y, "INSPECTOR", t.textDim, scale);
     y += 24.0f * scale;
 
     const int selectedCount = static_cast<int>(app.selection.size());
@@ -2009,8 +2010,8 @@ void DrawInspector(AppState& app, const Layout& layout)
         };
         for (const auto& item : summary)
         {
-            app.font.Draw(r, layout.inspector.x + 14.0f * scale, y, item.first, t.textDim, scale * 0.92f);
-            app.font.Draw(r, layout.inspector.x + 96.0f * scale, y, item.second, t.text, scale * 0.92f);
+            app.smallFont.Draw(r, layout.inspector.x + 14.0f * scale, y, item.first, t.textDim, scale);
+            app.smallFont.Draw(r, layout.inspector.x + 96.0f * scale, y, item.second, t.text, scale);
             y += 20.0f * scale;
         }
         return;
@@ -2085,12 +2086,12 @@ void DrawInspector(AppState& app, const Layout& layout)
 
     for (const Row& row : rows)
     {
-        app.font.Draw(r, layout.inspector.x + 14.0f * scale, y, row.label, t.textDim, scale * 0.92f);
+        app.smallFont.Draw(r, layout.inspector.x + 14.0f * scale, y, row.label, t.textDim, scale);
         const float valueX = layout.inspector.x + 96.0f * scale;
-        app.font.Draw(r, valueX, y, row.value, t.text, scale * 0.92f);
+        app.smallFont.Draw(r, valueX, y, row.value, t.text, scale);
         if (row.growing)
         {
-            const float width = app.font.Measure(row.value, scale * 0.92f);
+            const float width = app.smallFont.Measure(row.value, scale);
             r.FillRect(Rect{valueX, y + 15.0f * scale, width, 1.0f}, t.textDim);
         }
         y += 20.0f * scale;
@@ -2102,10 +2103,10 @@ void DrawInspector(AppState& app, const Layout& layout)
                           layout.inspector.w - 24.0f * scale, 58.0f * scale};
     r.Draw(UIDraw::DashedBorder(dropTarget, t.accent.WithAlpha(0.5f), 1.0f,
                                 6.0f * scale, 4.0f * scale, 6.0f * scale));
-    app.font.Draw(r, dropTarget.x + 12.0f * scale, dropTarget.y + 12.0f * scale,
-                  "Drop files here", t.textDim, scale * 0.92f);
-    app.font.Draw(r, dropTarget.x + 12.0f * scale, dropTarget.y + 30.0f * scale,
-                  "(not wired up yet)", t.textDim, scale * 0.8f);
+    app.smallFont.Draw(r, dropTarget.x + 12.0f * scale, dropTarget.y + 12.0f * scale,
+                  "Drop files here", t.textDim, scale);
+    app.smallFont.Draw(r, dropTarget.x + 12.0f * scale, dropTarget.y + 30.0f * scale,
+                  "(not wired up yet)", t.textDim, scale);
 }
 
 void DrawStatusBar(AppState& app, const Layout& layout)
@@ -2121,7 +2122,7 @@ void DrawStatusBar(AppState& app, const Layout& layout)
                   static_cast<double>(app.renderer.QuadCount()),
                   app.icons.IconCount(), app.previews.ReadyCount(),
                   app.stats.ActiveJobs());
-    app.font.Draw(r, 12.0f * scale, layout.statusBar.y + 4.0f * scale, status, t.textDim, scale * 0.9f);
+    app.smallFont.Draw(r, 12.0f * scale, layout.statusBar.y + 4.0f * scale, status, t.textDim, scale);
 }
 
 // --- command palette: registry ----------------------------------------------
@@ -2607,8 +2608,8 @@ void GroupMenuDraw(AppState& app, const Layout& layout, GroupMenu& menu)
     r.Draw(UIDraw::Fill(panel, t.panelBg, 10.0f * scale));
     r.Draw(UIDraw::Border(panel, t.panelBorder, 1.0f, 10.0f * scale));
 
-    app.font.Draw(r, panel.x + 16.0f * scale, panel.y + 12.0f * scale,
-                  menu.title, t.textDim, scale * 0.8f);
+    app.smallFont.Draw(r, panel.x + 16.0f * scale, panel.y + 12.0f * scale,
+                  menu.title, t.textDim, scale);
 
     const std::string query = menu.filter.empty() ? menu.placeholder : ToUtf8(menu.filter);
     app.font.Draw(r, panel.x + 16.0f * scale, panel.y + 32.0f * scale, query,
@@ -2645,8 +2646,8 @@ void GroupMenuDraw(AppState& app, const Layout& layout, GroupMenu& menu)
             const std::string& name = menu.groups[static_cast<size_t>(row.group)];
             const bool collapsed = menu.collapsed.count(name) != 0;
             r.FillRect(rowRect, t.headerBg, 3.0f * scale);
-            app.font.Draw(r, rowRect.x + 8.0f * scale, TextY(layout, rowRect, app.font),
-                          (collapsed ? "> " : "v ") + name, t.text, scale * 0.95f);
+            app.smallFont.Draw(r, rowRect.x + 8.0f * scale, TextY(layout, rowRect, app.smallFont),
+                          (collapsed ? "> " : "v ") + name, t.text, scale);
 
             ClickTarget target;
             target.rect  = rowRect;
@@ -2666,9 +2667,9 @@ void GroupMenuDraw(AppState& app, const Layout& layout, GroupMenu& menu)
         if (menu.detailed)
         {
             const std::string& detail = item.detail.empty() ? item.group : item.detail;
-            const float width = app.font.Measure(detail, scale * 0.85f);
-            app.font.Draw(r, rowRect.right() - width - 12.0f * scale, TextY(layout, rowRect, app.font),
-                          detail, t.textDim, scale * 0.85f);
+            const float width = app.smallFont.Measure(detail, scale);
+            app.smallFont.Draw(r, rowRect.right() - width - 12.0f * scale, TextY(layout, rowRect, app.smallFont),
+                          detail, t.textDim, scale);
         }
 
         ClickTarget target;
@@ -2680,8 +2681,8 @@ void GroupMenuDraw(AppState& app, const Layout& layout, GroupMenu& menu)
 
     const std::string footer = std::to_string(menu.matchCount) + " of " +
                                std::to_string(menu.items.size()) + "   " + menu.hint;
-    app.font.Draw(r, panel.x + 16.0f * scale, panel.bottom() - 20.0f * scale,
-                  footer, t.textDim, scale * 0.8f);
+    app.smallFont.Draw(r, panel.x + 16.0f * scale, panel.bottom() - 20.0f * scale,
+                  footer, t.textDim, scale);
 }
 
 void DrawFrame(AppState& app, const Layout& layout)
