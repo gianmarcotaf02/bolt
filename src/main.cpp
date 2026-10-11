@@ -3324,6 +3324,7 @@ void DrawFrame(AppState& app, const Layout& layout)
     // HitTest finds (it walks the list backwards). At most one is open.
     GroupMenuDraw(app, layout, app.palette);
     GroupMenuDraw(app, layout, app.goTo);
+    ContextMenuDraw(app, layout);
 }
 
 // --- input -----------------------------------------------------------------
@@ -3710,6 +3711,32 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
                 app->hoveredChrome = -1;
             }
             return 0;
+
+        case WM_RBUTTONUP:
+        {
+            if (app == nullptr)
+                break;
+
+            const float x = static_cast<float>(GET_X_LPARAM(lparam));
+            const float y = static_cast<float>(GET_Y_LPARAM(lparam));
+
+            // Aprire il menu su una riga non selezionata sposta prima la
+            // selezione li': il menu descrive cio' su cui si e' cliccato, non
+            // quello che era selezionato prima.
+            const Layout layout = ComputeLayout(*app);
+            if (!app->contextMenu.open)
+            {
+                if (const ClickTarget* row = HitTest(*app, x, y, ClickTarget::Kind::Row))
+                {
+                    if (app->selection.count(app->entries[static_cast<size_t>(row->index)].wideName) == 0)
+                        SelectOnly(*app, row->index);
+                }
+            }
+
+            BuildContextMenu(*app, x, y);
+            (void)layout;
+            return 0;
+        }
 
         case WM_MOUSEMOVE:
             if (app != nullptr)
