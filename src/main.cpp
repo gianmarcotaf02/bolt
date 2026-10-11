@@ -186,6 +186,8 @@ enum CommandId
     CmdGroupNone, CmdGroupName, CmdGroupDate, CmdGroupSize, CmdGroupCount, CmdGroupVolume,
     CmdFocusFilter, CmdClearFilter, CmdScrollTop, CmdScrollBottom,
     CmdToggleBookmark, CmdClearBookmarks, CmdClearRecents,
+    // Operazioni su file (M7).
+    CmdCopy, CmdCut, CmdPaste, CmdDelete, CmdDeletePermanent, CmdRename, CmdNewFolder,
 };
 
 // Item ids below this are CommandId values; above it they are indexes into
@@ -2147,6 +2149,13 @@ const CommandDef kCommandTable[] = {
     {"Folder",  "Recalculate folder sizes",    CmdRecalcStats},
     {"Folder",  "Open in Explorer",            CmdOpenExplorer},
     {"Folder",  "Open a console here",         CmdOpenConsole},
+    {"File",    "Copy",                        CmdCopy},
+    {"File",    "Cut",                         CmdCut},
+    {"File",    "Paste",                       CmdPaste},
+    {"File",    "Rename",                      CmdRename},
+    {"File",    "New folder",                  CmdNewFolder},
+    {"File",    "Delete (recycle bin)",        CmdDelete},
+    {"File",    "Delete permanently",          CmdDeletePermanent},
     {"GoTo",    "Go to folder...",             CmdGoTo},
     {"View",    "View: details",               CmdViewDetails},
     {"View",    "View: list",                  CmdViewList},
