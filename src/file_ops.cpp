@@ -87,11 +87,23 @@ HRESULT ShellItemFromPath(const std::wstring& path, IShellItem** item)
 //
 // FOFX_ADDUNDORECORD registra l'operazione con Annulla di Windows.
 //
-// FOF_NOCONFIRMATION | FOF_NOCONFIRMMKDIR toglie le domande ridondanti; i
-// conflitti di nome restano, perche' FOF_RENAMEONCOLLISION non e' impostato e il
-// sistema deve poter chiedere.
+// FOF_NOCONFIRMATION | FOF_NOCONFIRMMKDIR toglie le domande ridondanti.
 constexpr DWORD kBaseFlags = FOF_ALLOWUNDO | FOFX_ADDUNDORECORD |
                              FOF_NOCONFIRMMKDIR | FOF_NOCONFIRMATION;
+
+// FOF_RENAMEONCOLLISION e' obbligatorio, e la ragione e' un difetto trovato
+// provando: senza, con FOF_NOCONFIRMATION attivo, un nome gia' esistente non
+// produce ne' una domanda ne' un rinomina automatica. L'operazione viene
+// saltata e la shell lascia in giro una finestra di stato modale
+// (OperationStatusWindow) che NON si vede, perche' sta dietro la finestra
+// principale, ma che tiene l'applicazione bloccata dentro il proprio ciclo di
+// messaggi. L'applicazione sembrava congelata, e il difetto sembrava di
+// rendering: le catture erano identiche a due secondi di distanza.
+//
+// Con questa opzione un nome occupato diventa "alfa (2).txt": prevedibile,
+// immediato, e senza nessun dialogo da chiudere. Esplora risorse in questo caso
+// chiede; noi scegliamo, e lo dichiariamo.
+constexpr DWORD kTransferFlags = kBaseFlags | FOF_RENAMEONCOLLISION;
 
 // Prepara IFileOperation, esegue |body|, e traduce l'esito.
 //
@@ -159,7 +171,7 @@ FileOps::Result Transfer(HWND owner, const std::vector<std::wstring>& sources,
     }
 
     return RunOperation(
-        owner, kBaseFlags,
+        owner, kTransferFlags,
         [&](IFileOperation* operation) -> HRESULT {
             ComPtr<IShellItem> target;
             HRESULT hr = ShellItemFromPath(destination, &target);
