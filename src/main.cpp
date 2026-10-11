@@ -26,6 +26,7 @@
 #include "ui_renderer.h"
 
 #include <windows.h>
+#include <dwmapi.h>
 #include <shellapi.h>
 #include <shlobj.h>
 #include <windowsx.h>
@@ -4104,6 +4105,28 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, LPWSTR, int)
                  reinterpret_cast<LPARAM>(windowClass.hIcon));
     SendMessageW(window, WM_SETICON, ICON_SMALL,
                  reinterpret_cast<LPARAM>(windowClass.hIconSm));
+
+    // Togliere l'area non-cliente toglie anche quello che DWM disegnava attorno:
+    // ombra e angoli arrotondati, cioe' quello che rende una finestra
+    // riconoscibile come finestra su Windows 11. Senza, il bordo e' un salto
+    // netto di colore e l'applicazione sembra piatta accanto alle altre.
+    //
+    // Estendere il riquadro di DWM di un pixel per lato glieli restituisce: DWM
+    // disegna il riquadro DENTRO l'area cliente, quindi la didascalia non torna.
+    const MARGINS margins{1, 1, 1, 1};
+    DwmExtendFrameIntoClientArea(window, &margins);
+
+    // Il riquadro di DWM segue il tema di sistema, che puo' essere chiaro mentre
+    // l'applicazione e' scura: una linea bianca su un bordo scuro si vede.
+    const BOOL darkFrame = TRUE;
+    DwmSetWindowAttribute(window, DWMWA_USE_IMMERSIVE_DARK_MODE, &darkFrame,
+                          sizeof(darkFrame));
+
+    // Gli angoli arrotondati di Windows 11 valgono per le finestre con
+    // didascalia; questa non ne ha, quindi vanno chiesti.
+    const DWORD cornerPreference = DWMWCP_ROUND;
+    DwmSetWindowAttribute(window, DWMWA_WINDOW_CORNER_PREFERENCE, &cornerPreference,
+                          sizeof(cornerPreference));
 
     HDC   dc      = nullptr;
     HGLRC context = nullptr;
