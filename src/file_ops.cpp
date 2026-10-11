@@ -261,7 +261,7 @@ FileOps::Result RunOperation(HWND owner, DWORD flags, std::vector<std::wstring>*
 // Copia o sposta una lista di origini in una cartella.
 FileOps::Result Transfer(HWND owner, const std::vector<std::wstring>& sources,
                          const std::wstring& destination, bool move,
-                         std::wstring* error)
+                         std::vector<std::wstring>* created, std::wstring* error)
 {
     if (sources.empty())
         return FileOps::Result::Ok;
@@ -283,8 +283,8 @@ FileOps::Result Transfer(HWND owner, const std::vector<std::wstring>& sources,
     }
 
     return RunOperation(
-        owner, kTransferFlags,
-        [&](IFileOperation* operation) -> HRESULT {
+        owner, kTransferFlags, created,
+        [&](IFileOperation* operation, IFileOperationProgressSink* sink) -> HRESULT {
             ComPtr<IShellItem> target;
             HRESULT hr = ShellItemFromPath(destination, &target);
             if (FAILED(hr))
@@ -297,8 +297,10 @@ FileOps::Result Transfer(HWND owner, const std::vector<std::wstring>& sources,
                 if (FAILED(hr))
                     return hr;
 
-                hr = move ? operation->MoveItem(item.Get(), target.Get(), nullptr, nullptr)
-                          : operation->CopyItem(item.Get(), target.Get(), nullptr, nullptr);
+                // Il sink e' l'unico modo di sapere come la shell ha chiamato
+                // l'elemento creato quando un nome era gia' occupato.
+                hr = move ? operation->MoveItem(item.Get(), target.Get(), nullptr, sink)
+                          : operation->CopyItem(item.Get(), target.Get(), nullptr, sink);
                 if (FAILED(hr))
                     return hr;
             }
@@ -311,15 +313,17 @@ FileOps::Result Transfer(HWND owner, const std::vector<std::wstring>& sources,
 namespace FileOps
 {
 Result Copy(HWND owner, const std::vector<std::wstring>& sources,
-            const std::wstring& destination, std::wstring* error)
+            const std::wstring& destination, std::vector<std::wstring>* created,
+            std::wstring* error)
 {
-    return Transfer(owner, sources, destination, /*move=*/false, error);
+    return Transfer(owner, sources, destination, /*move=*/false, created, error);
 }
 
 Result Move(HWND owner, const std::vector<std::wstring>& sources,
-            const std::wstring& destination, std::wstring* error)
+            const std::wstring& destination, std::vector<std::wstring>* created,
+            std::wstring* error)
 {
-    return Transfer(owner, sources, destination, /*move=*/true, error);
+    return Transfer(owner, sources, destination, /*move=*/true, created, error);
 }
 
 Result Delete(HWND owner, const std::vector<std::wstring>& paths, bool permanently,
@@ -335,15 +339,15 @@ Result Delete(HWND owner, const std::vector<std::wstring>& paths, bool permanent
                             : kBaseFlags;
 
     return RunOperation(
-        owner, flags,
-        [&](IFileOperation* operation) -> HRESULT {
+        owner, flags, /*created=*/nullptr,
+        [&](IFileOperation* operation, IFileOperationProgressSink* sink) -> HRESULT {
             for (const std::wstring& path : paths)
             {
                 ComPtr<IShellItem> item;
                 HRESULT hr = ShellItemFromPath(path, &item);
                 if (FAILED(hr))
                     return hr;
-                hr = operation->DeleteItem(item.Get(), nullptr);
+                hr = operation->DeleteItem(item.Get(), sink);
                 if (FAILED(hr))
                     return hr;
             }
@@ -353,58 +357,37 @@ Result Delete(HWND owner, const std::vector<std::wstring>& paths, bool permanent
 }
 
 Result Rename(HWND owner, const std::wstring& path, const std::wstring& newName,
-              std::wstring* error)
+              std::vector<std::wstring>* created, std::wstring* error)
 {
     return RunOperation(
-        owner, kBaseFlags,
-        [&](IFileOperation* operation) -> HRESULT {
+        owner, kBaseFlags, created,
+        [&](IFileOperation* operation, IFileOperationProgressSink* sink) -> HRESULT {
             ComPtr<IShellItem> item;
             HRESULT hr = ShellItemFromPath(path, &item);
             if (FAILED(hr))
                 return hr;
-            return operation->RenameItem(item.Get(), newName.c_str(), nullptr);
+            return operation->RenameItem(item.Get(), newName.c_str(), sink);
         },
         error);
 }
 
 Result CreateFolder(HWND owner, const std::wstring& parent, const std::wstring& name,
-                    std::wstring* created, std::wstring* error)
+                    std::vector<std::wstring>* created, std::wstring* error)
 {
-    // NewItem chiede una cartella esistente, quindi il nome "Nuova cartella" puo'
-    // gia' esserci: il sistema aggiunge "(2)" da solo.
-    const Result result = RunOperation(
-        owner, kBaseFlags,
-        [&](IFileOperation* operation) -> HRESULT {
+    // Il nome definitivo lo decide la shell: se "Nuova cartella" esiste gia',
+    // aggiunge "(2)" da sola. Il sink ce lo riporta, quindi non serve
+    // indovinarlo leggendo il disco dopo.
+    return RunOperation(
+        owner, kBaseFlags, created,
+        [&](IFileOperation* operation, IFileOperationProgressSink* sink) -> HRESULT {
             ComPtr<IShellItem> folder;
             HRESULT hr = ShellItemFromPath(parent, &folder);
             if (FAILED(hr))
                 return hr;
             return operation->NewItem(folder.Get(), FILE_ATTRIBUTE_DIRECTORY, name.c_str(),
-                                      nullptr, nullptr);
+                                      nullptr, sink);
         },
         error);
-
-    if (result == Result::Ok && created != nullptr)
-    {
-        // IFileOperation non dice il nome che ha finito per usare: si legge dal
-        // disco. Il chiamante ne ha bisogno per selezionare la cartella nuova.
-        *created = parent + L"\\" + name;
-        if (GetFileAttributesW(created->c_str()) == INVALID_FILE_ATTRIBUTES)
-        {
-            // Il nome era occupato: cerco il suffisso che il sistema ha scelto.
-            for (int i = 2; i < 1000; ++i)
-            {
-                std::wstring candidate =
-                    parent + L"\\" + name + L" (" + std::to_wstring(i) + L")";
-                if (GetFileAttributesW(candidate.c_str()) != INVALID_FILE_ATTRIBUTES)
-                {
-                    *created = candidate;
-                    break;
-                }
-            }
-        }
-    }
-    return result;
 }
 
 // --- clipboard -------------------------------------------------------------

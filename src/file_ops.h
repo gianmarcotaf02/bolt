@@ -28,12 +28,18 @@ enum class Result
 };
 
 // Copia |sources| dentro la cartella |destination|.
+//
+// |created| riceve i percorsi effettivamente prodotti, che non coincidono con i
+// nomi di partenza quando la shell rinomina per evitare un conflitto. Puo' essere
+// nullptr se il chiamante non ne ha bisogno.
 Result Copy(HWND owner, const std::vector<std::wstring>& sources,
-            const std::wstring& destination, std::wstring* error);
+            const std::wstring& destination, std::vector<std::wstring>* created,
+            std::wstring* error);
 
 // Sposta |sources| dentro la cartella |destination|.
 Result Move(HWND owner, const std::vector<std::wstring>& sources,
-            const std::wstring& destination, std::wstring* error);
+            const std::wstring& destination, std::vector<std::wstring>* created,
+            std::wstring* error);
 
 // Elimina |paths|. Con |permanently| falso va nel cestino, che e' cio' che deve
 // fare il tasto Canc: l'eliminazione definitiva e' Shift+Canc e deve restare
@@ -43,11 +49,11 @@ Result Delete(HWND owner, const std::vector<std::wstring>& paths, bool permanent
 
 // Rinomina |path| in |newName|. |newName| e' il solo nome, non un percorso.
 Result Rename(HWND owner, const std::wstring& path, const std::wstring& newName,
-              std::wstring* error);
+              std::vector<std::wstring>* created, std::wstring* error);
 
 // Crea una cartella e ne restituisce il percorso in |created|.
 Result CreateFolder(HWND owner, const std::wstring& parent, const std::wstring& name,
-                    std::wstring* created, std::wstring* error);
+                    std::vector<std::wstring>* created, std::wstring* error);
 
 // --- clipboard -------------------------------------------------------------
 
