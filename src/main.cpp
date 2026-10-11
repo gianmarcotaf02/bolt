@@ -1739,8 +1739,12 @@ void DrawEntryCell(AppState& app, const Layout& layout, const ViewMetrics& metri
     const Entry& entry = app.entries[static_cast<size_t>(view.entry)];
 
     const Rect card = cell.Inset(metrics.padding * 0.5f, metrics.padding * 0.5f);
+    // La selezione vince sul sovrappasso: la riga sotto il mouse resta leggibile
+    // anche quando e' selezionata, invece di cambiare colore sotto il puntatore.
     if (IsEntrySelected(app, entry))
         r.FillRect(card, t.rowSelected, 4.0f * scale);
+    else if (view.entry == app.hovered)
+        r.FillRect(card, t.rowHover, 4.0f * scale);
     if (view.entry == cursorIndex)
         r.Draw(UIDraw::Border(card, t.accent.WithAlpha(0.9f), 1.0f, 4.0f * scale));
 
@@ -1859,8 +1863,13 @@ void DrawList(AppState& app, const Layout& layout, const float* columnX)
         }
 
         const Entry& entry = app.entries[static_cast<size_t>(view.entry)];
+        // L'ordine e' deliberato: selezione, poi sovrappasso, poi righe alternate.
+        // Il sovrappasso deve stare PRIMA dell'alternanza, o sarebbe visibile
+        // solo sulle righe pari e a chiazze.
         if (IsEntrySelected(app, entry))
             r.FillRect(row, t.rowSelected, 3.0f * scale);
+        else if (view.entry == app.hovered)
+            r.FillRect(row, t.rowHover, 3.0f * scale);
         else if (rowIndex % 2 == 1)
             r.FillRect(row, t.rowOdd, 3.0f * scale);
 
