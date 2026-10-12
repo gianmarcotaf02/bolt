@@ -3499,20 +3499,23 @@ void ReadShellMenu(IContextMenu* shell, HMENU handle, bool folderBackground,
             detailed.cch        = 255;
             GetMenuItemInfoW(handle, static_cast<UINT>(i), TRUE, &detailed);
 
-            // I sottomenu sono il pezzo che manca ancora: "Invia a" e "Apri
-            // con >" vivono li' dentro. Il limite e' dichiarato in
-            // docs/04-roadmap.md, non nascosto qui.
-            if (basic.hSubMenu != nullptr)
-            {
-                DiagLog("  saltata (sottomenu): '" + ShellLabelToAscii(text) + "'");
-                ++(*outSkipped);
-                continue;
-            }
-
             ContextMenuItem item;
             item.label    = ShellLabelToAscii(text);
             item.command  = static_cast<int>(basic.wID);
             item.disabled = (basic.fState & (MFS_DISABLED | MFS_GRAYED)) != 0;
+
+            // Un sottomenu si legge **quando si apre**, non adesso: il suo
+            // contenuto non esiste prima di WM_INITMENUPOPUP, e chiederlo per
+            // tutti a ogni tasto destro costerebbe quanto interrogare la shell
+            // dieci volte, per voci che magari nessuno apre. `shellPosition` e'
+            // dove la voce sta nel menu padre, e la shell vuole saperlo per
+            // decidere cosa popolare.
+            if (basic.hSubMenu != nullptr)
+            {
+                item.command       = 0;
+                item.shellSubmenu  = basic.hSubMenu;
+                item.shellPosition = i;
+            }
 
             // Le voci disegnate da chi le ha messe (ownerdraw) non portano il
             // testo nel menu: il ripiego e' il testo di aiuto, che e' meglio del
@@ -3690,8 +3693,9 @@ void AppendShellItems(AppState& app, ContextMenu& menu)
     if (shell == nullptr)
         return;
 
-    menu.shell     = shell;
-    menu.shellMenu = handle;
+    menu.shell            = shell;
+    menu.shellMenu        = handle;
+    menu.shellIsBackground = folderBackground;
     for (ContextMenuItem& item : items)
         menu.items.push_back(std::move(item));
     // Il separatore va DOPO il blocco: chi lo innesta ci mette il proprio davanti,
@@ -3892,6 +3896,13 @@ bool OpenSubmenu(AppState& app, const Layout& layout, int depth, int index)
     if (item == nullptr || item->disabled || !HasSubmenu(*item))
         return false;
 
+    // Gia' aperto esattamente cosi': non si rifa' niente. I movimenti del mouse
+    // arrivano a decine al secondo, e riaprire il sottomenu a ogni movimento
+    // azzererebbe la scelta che ci si e' appena spostati a fare.
+    if (static_cast<int>(menu.openPath.size()) > depth &&
+        menu.openPath[static_cast<size_t>(depth)] == index)
+        return true;
+
     FillShellSubmenu(app, *item);
     if (item->children.empty())
     {
@@ -4014,16 +4025,17 @@ void ContextMenuActivate(AppState& app)
     RunCommand(app, item.command);
 }
 
-void ContextMenuDraw(AppState& app, const Layout& layout)
+// Disegna un livello del menu. Il livello 0 e' il menu, gli altri i sottomenu:
+// stesso pannello, senza sottotitolo, e col segno che dice quali voci ne hanno
+// uno dentro.
+void ContextMenuDrawLevel(AppState& app, const Layout& layout, int depth)
 {
     ContextMenu& menu = app.contextMenu;
-    if (!menu.open)
-        return;
-
     UIRenderer& r = app.renderer;
     const Theme& t = app.theme;
     const float scale = layout.scale;
-    const Rect panel = ContextMenuPanel(app, layout);
+    const Rect panel = ContextMenuPanel(app, layout, depth);
+    const ContextMenuLevel& level = menu.levels[static_cast<size_t>(depth)];
 
     r.Draw(UIDraw::Shadow(Rect{panel.x + 2.0f * scale, panel.y + 5.0f * scale, panel.w, panel.h},
                           Color{0.0f, 0.0f, 0.0f, 0.5f}, 20.0f * scale, 8.0f * scale));
@@ -4032,12 +4044,14 @@ void ContextMenuDraw(AppState& app, const Layout& layout)
 
     // Solo le voci dentro la finestra del menu: quelle fuori non si disegnano, e
     // quello che non si disegna non sborda fuori dal pannello.
-    for (int i = menu.firstItem; i < ContextMenuLastVisible(app, layout); ++i)
+    for (int i = level.firstItem; i < ContextMenuLastVisible(app, layout, depth); ++i)
     {
-        const ContextMenuItem& item = menu.items[static_cast<size_t>(i)];
-        const Rect row = ContextMenuRowRect(app, layout, i);
+        const ContextMenuItem* item = LevelItem(menu, depth, i);
+        if (item == nullptr)
+            continue;
+        const Rect row = ContextMenuRowRect(app, layout, depth, i);
 
-        if (item.separator)
+        if (item->separator)
         {
             r.FillRect(Rect{row.x + 6.0f * scale, row.y + row.h * 0.5f,
                             row.w - 12.0f * scale, 1.0f},
@@ -4045,24 +4059,32 @@ void ContextMenuDraw(AppState& app, const Layout& layout)
             continue;
         }
 
-        if (i == menu.selected && !item.disabled)
+        if (i == level.selected && !item->disabled)
             r.FillRect(row, t.rowHover, 4.0f * scale);
 
-        app.font.Draw(r, row.x + 10.0f * scale, TextY(layout, row, app.font), item.label,
-                      item.disabled ? t.textDim : t.text, scale);
+        app.font.Draw(r, row.x + 10.0f * scale, TextY(layout, row, app.font), item->label,
+                      item->disabled ? t.textDim : t.text, scale);
+
+        // Il segno che la voce ne contiene altre. L'atlante dei glifi e' ASCII,
+        // quindi e' un '>' e non una punta: si legge uguale, e non chiede un
+        // carattere che l'atlante non ha.
+        if (HasSubmenu(*item))
+            app.font.Draw(r, row.right() - 18.0f * scale, TextY(layout, row, app.font), ">",
+                          t.textDim, scale);
     }
 
     // La barra dice che sopra o sotto c'e' dell'altro: un menu che scorre senza
     // dirlo sembra un menu a cui mancano delle voci.
-    const int total   = static_cast<int>(menu.items.size());
-    const int visible = ContextMenuLastVisible(app, layout) - menu.firstItem;
+    const int total   = LevelCount(menu, depth);
+    const int visible = ContextMenuLastVisible(app, layout, depth) - level.firstItem;
     if (visible < total)
     {
+        const float footer = (depth == 0) ? 22.0f * scale : 0.0f;
         const float trackY = panel.y + 6.0f * scale;
-        const float trackH = panel.h - 12.0f * scale - 22.0f * scale;
+        const float trackH = panel.h - 12.0f * scale - footer;
         const float thumbH = trackH * static_cast<float>(visible) / static_cast<float>(total);
         const float travel = trackH - thumbH;
-        const float offset = static_cast<float>(menu.firstItem) /
+        const float offset = static_cast<float>(level.firstItem) /
                              static_cast<float>((std::max)(1, total - visible));
         r.FillRect(Rect{panel.right() - 7.0f * scale, trackY, 3.0f * scale, trackH}, t.separator);
         r.FillRect(Rect{panel.right() - 7.0f * scale, trackY + travel * offset,
@@ -4070,8 +4092,21 @@ void ContextMenuDraw(AppState& app, const Layout& layout)
                    t.textDim);
     }
 
-    app.smallFont.Draw(r, panel.x + 14.0f * scale, panel.bottom() - 17.0f * scale,
-                       menu.subtitle, t.textDim, scale);
+    // Il sottotitolo e' del primo livello soltanto: un sottomenu non conta niente.
+    if (depth == 0)
+        app.smallFont.Draw(r, panel.x + 14.0f * scale, panel.bottom() - 17.0f * scale,
+                           menu.subtitle, t.textDim, scale);
+}
+
+void ContextMenuDraw(AppState& app, const Layout& layout)
+{
+    if (!app.contextMenu.open)
+        return;
+
+    // Dal primo livello in giu': ogni pannello disegna sopra il precedente, che e'
+    // l'ordine in cui stanno sullo schermo.
+    for (int depth = 0; depth <= ActiveDepth(app.contextMenu); ++depth)
+        ContextMenuDrawLevel(app, layout, depth);
 }
 
 // Vero se il clic e' stato consumato dal menu.
@@ -4080,22 +4115,85 @@ bool ContextMenuClick(AppState& app, const Layout& layout, float x, float y)
     if (!app.contextMenu.open)
         return false;
 
-    const Rect panel = ContextMenuPanel(app, layout);
-    if (!panel.Contains(x, y))
-    {
-        ContextMenuClose(app);
-        return true;   // un clic fuori chiude, e non deve arrivare alla lista
-    }
+    ContextMenu& menu = app.contextMenu;
 
-    for (int i = app.contextMenu.firstItem; i < ContextMenuLastVisible(app, layout); ++i)
+    // Dal livello piu' profondo al primo: il pannello aperto per ultimo sta sopra
+    // gli altri, quindi e' lui che riceve il clic.
+    for (int depth = ActiveDepth(menu); depth >= 0; --depth)
     {
-        if (ContextMenuRowRect(app, layout, i).Contains(x, y))
+        if (!ContextMenuPanel(app, layout, depth).Contains(x, y))
+            continue;
+
+        ContextMenuLevel& level = menu.levels[static_cast<size_t>(depth)];
+        for (int i = level.firstItem; i < ContextMenuLastVisible(app, layout, depth); ++i)
         {
-            app.contextMenu.selected = i;
+            if (!ContextMenuRowRect(app, layout, depth, i).Contains(x, y))
+                continue;
+            level.selected = i;
             ContextMenuActivate(app);
             return true;
         }
+        return true;   // dentro il pannello, ma non su una voce
     }
+
+    ContextMenuClose(app);
+    return true;   // un clic fuori chiude, e non deve arrivare alla lista
+}
+
+// Freccia destra: scende nel sottomenu della voce scelta. Se non ce l'ha non fa
+// niente — una voce semplice non e' un errore.
+void ContextMenuDescend(AppState& app, const Layout& layout)
+{
+    const ContextMenu& menu = app.contextMenu;
+    const int depth = ActiveDepth(menu);
+    const int index = menu.levels[static_cast<size_t>(depth)].selected;
+    if (index < 0)
+        return;
+    OpenSubmenu(app, layout, depth, index);
+}
+
+// Con il menu aperto il puntatore sceglie la voce, non la riga sotto: la lista e'
+// coperta, e sovrappassarla sarebbe un secondo stato che l'utente non vede.
+//
+// Il puntatore sceglie anche il LIVELLO: entrando in un pannello piu' profondo si
+// agisce su quello, e su una voce che contiene un sottomenu il sottomenu si apre
+// da solo. Col mouse e' cosi' che si usano i menu, ed e' anche l'unico modo di
+// accorgersi che quella voce ne aveva uno.
+bool ContextMenuHover(AppState& app, const Layout& layout, float x, float y)
+{
+    ContextMenu& menu = app.contextMenu;
+    if (!menu.open)
+        return false;
+
+    for (int depth = ActiveDepth(menu); depth >= 0; --depth)
+    {
+        if (!ContextMenuPanel(app, layout, depth).Contains(x, y))
+            continue;
+
+        ContextMenuLevel& level = menu.levels[static_cast<size_t>(depth)];
+        for (int i = level.firstItem; i < ContextMenuLastVisible(app, layout, depth); ++i)
+        {
+            const ContextMenuItem* item = LevelItem(menu, depth, i);
+            if (item == nullptr || item->separator || item->disabled ||
+                !ContextMenuRowRect(app, layout, depth, i).Contains(x, y))
+                continue;
+
+            level.selected = i;
+            if (HasSubmenu(*item))
+                OpenSubmenu(app, layout, depth, i);
+            else
+                CloseSubmenusBelow(menu, depth);   // questa voce non ne contiene altri
+            return true;
+        }
+
+        // Dentro il pannello ma non su una voce: la scelta di QUESTO livello cade,
+        // i livelli sotto restano dove sono.
+        level.selected = -1;
+        return true;
+    }
+
+    // Fuori da ogni pannello non si tocca niente: la scelta della tastiera non
+    // deve cadere perche' il puntatore e' andato altrove.
     return true;
 }
 
