@@ -6531,7 +6531,29 @@ void DrawFrame(AppState& app, const Layout& layout)
     DrawToolbar(app, layout, LocationLabel(app.directory));
     DrawSidebar(app, layout);
     DrawHeader(app, layout, columnX);
+
+    // La lista disegna **solo dentro il suo rettangolo**, e il ritaglio lo fa il
+    // scissor. Il controllo che salta le righe fuori dal riquadro non basta: salta
+    // quelle che stanno fuori tutte intere, non taglia quelle a meta' — e una cella
+    // di griglia e' alta quanto una miniatura, quindi il pezzo che esce dal bordo
+    // finisce **sopra la barra del titolo**. Si vedeva: quattro icone disegnate
+    // sopra le schede, con la riga di nomi piu' in basso.
+    //
+    // I quadrilateri si accumulano in un batch solo, quindi il batch va chiuso e
+    // riaperto attorno al ritaglio: tre disegni per fotogramma invece di uno. E' il
+    // prezzo del ritaglio, e si paga.
+    app.renderer.End();
+    glEnable(GL_SCISSOR_TEST);
+    glScissor(static_cast<GLint>(layout.list.x),
+              static_cast<GLint>(static_cast<float>(app.viewportHeight) - layout.list.bottom()),
+              static_cast<GLsizei>(layout.list.w), static_cast<GLsizei>(layout.list.h));
+    app.renderer.Begin(app.viewportWidth, app.viewportHeight);
+
     DrawList(app, layout, columnX);
+
+    app.renderer.End();
+    glDisable(GL_SCISSOR_TEST);
+    app.renderer.Begin(app.viewportWidth, app.viewportHeight);
 
     // The rubber band is drawn over the rows it is about to select, and only over
     // the list: it is clamped to that region so dragging past the edge does not
