@@ -3519,7 +3519,7 @@ void ContextMenuActivate(AppState& app)
             return;
         }
 
-        CMINVOKECOMMANDINFOEXW info{};
+        CMINVOKECOMMANDINFOEX info{};
         info.cbSize  = sizeof(info);
         info.fMask   = CMIC_MASK_UNICODE | CMIC_MASK_FLAG_NO_UI;
         info.hwnd    = app.window;
