@@ -14,6 +14,9 @@ param(
     [int]$Clicks = 1
 )
 
+Add-Type -AssemblyName System.Windows.Forms
+Add-Type -AssemblyName System.Drawing
+
 Add-Type -TypeDefinition @'
 using System;
 using System.Runtime.InteropServices;
