@@ -208,6 +208,17 @@ powershell -ExecutionPolicy Bypass -File tools/send-mouse.ps1 -Action right -X 3
 powershell -ExecutionPolicy Bypass -File tools/send-mouse.ps1 -Action left|-move|-wheel -X … -Y … [-Clicks n]
 ```
 
+**Cercare una finestra per titolo**, per verificare l'effetto di un comando che è
+un dialogo (proprietà, conferme, avvisi) senza catturare lo schermo e anche se la
+finestra è dietro o invisibile:
+
+```bash
+powershell -ExecutionPolicy Bypass -File tools/find-window.ps1 -Needle <parola> [-Close]
+```
+
+Stampa classe e visibilità, non i titoli: un titolo può contenere il nome di un
+file personale.
+
 **Log di avvio**: `build/RelWithDebInfo/startup-error.log` (sovrascritto a ogni
 avvio; assente significa nessun errore).
 
@@ -238,9 +249,16 @@ Costano tempo, sembrano bug dell'applicazione e non lo sono. Vedi anche §5 di
   "lento"; `SendMessageTimeout` dice se risponde, ma **non** se sta lavorando.
   Quando l'app non ridisegna e risponde ai messaggi, **enumera le finestre del
   processo** e leggi i titoli: la finestra che blocca può essere invisibile.
+  Con `tools/find-window.ps1`, e ricordando che il titolo cercato può comparire
+  anche nella finestra dell'applicazione, che allora va risparmiata dal
+  `WM_CLOSE` di pulizia.
 
 ### Input sintetico
 
+- **Scegliere una voce di menu col puntatore è un bersaglio mobile.** Il menu
+  contestuale non è alto uguale a ogni apertura — dalla seconda arrivano le
+  estensioni moderne di Windows 11 — quindi le righe sotto il puntatore scendono.
+  Per una voce precisa: aprire il menu e usare la tastiera (`Fine`, poi `giù`).
 - **`SendKeys` non dà il focus a una finestra OpenGL.** Serve `keybd_event`.
 - **`keybd_event` va preceduto da `SetForegroundWindow`**, o i tasti vanno
   altrove. Un falso negativo da mancanza di focus sembra un bug dell'app: **leggi
@@ -356,7 +374,7 @@ rettangolo ha bordi continui a qualunque dimensione.
 
 - `docs/04-roadmap.md` — le milestone, con le caselle spuntate e i difetti aperti.
 - `docs/05-stato-e-prossimi-passi.md` — dove si è arrivati, cosa resta, le trappole.
-- `docs/02-architettura-ricostruita.md` — l'architettura e i **diciassette** difetti
+- `docs/02-architettura-ricostruita.md` — l'architettura e i **diciotto** difetti
   trovati e risolti, §7.
 - `docs/03-spec-funzionale.md` — la spec ricostruita dall'originale: 1124 chiavi,
   319 comandi, 35 token di tema, 23 colonne.
