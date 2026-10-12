@@ -46,16 +46,17 @@ std::wstring DisplayName(const std::wstring& location);
 // scritto dentro il nostro codice.
 std::wstring ParsingNameOf(REFKNOWNFOLDERID id);
 
+// Quello che serve a riempire una riga della lista. Il resto — il tipo, la
+// dimensione in lettere, le date — lo scrive `main.cpp` con le funzioni che usa
+// gia' per le cartelle normali: due formati diversi nella stessa colonna si
+// vedrebbero subito.
 struct Item
 {
     std::wstring name;      // come si vede nella lista
     std::wstring location;  // nome assoluto: per navigarci, e per i verbi della shell
-    std::string  extension;
-    std::string  typeText;
-    std::string  sizeText;
-    std::string  modifiedText;
-    std::string  modifiedFull;
+    std::string  extension; // minuscola, senza punto
     uint64_t     bytes = 0;
+    FILETIME     modified{};
     bool         isDirectory = false;
 };
 

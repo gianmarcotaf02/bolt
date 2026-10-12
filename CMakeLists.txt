@@ -23,6 +23,8 @@ add_executable(Bolt WIN32
     src/font_atlas.h
     src/shell_icons.cpp
     src/shell_icons.h
+    src/shell_location.cpp
+    src/shell_location.h
     src/shell_new.cpp
     src/shell_new.h
     src/shell_preview.cpp
@@ -60,7 +62,10 @@ target_compile_definitions(Bolt PRIVATE
 # shell stores in the registry for the "New" menu types. RegLoadMUIString, which
 # would need no new library, returns an error on the same strings and the names
 # come out in English.
-target_link_libraries(Bolt PRIVATE opengl32 gdi32 user32 shell32 ole32 uuid shlwapi dwmapi)
+# propsys reads the shell's property values (VariantToUInt64, VariantToFileTime):
+# namespace folders like the recycle bin have no file attributes to read, and their
+# size and date come from IShellFolder2::GetDetailsEx as PROPVARIANTs.
+target_link_libraries(Bolt PRIVATE opengl32 gdi32 user32 shell32 ole32 uuid shlwapi dwmapi propsys)
 
 if(MSVC)
     target_compile_options(Bolt PRIVATE /W4 /permissive- /utf-8)
