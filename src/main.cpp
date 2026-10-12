@@ -1777,7 +1777,9 @@ void DrawToolbar(AppState& app, const Layout& layout, const std::wstring& displa
     {
         const Rect button{navX, layout.toolbar.y + 5.0f * scale, kNavSize * scale,
                           kNavSize * scale};
-        const bool bookmarked = (i == 4) && IsBookmarked(app);
+        const bool bookmarked =
+            (i == 4) && std::find(app.bookmarks.begin(), app.bookmarks.end(), app.directory) !=
+                            app.bookmarks.end();
         if (i == app.hoveredNav && navEnabled[i])
             r.FillRect(button, t.rowHover, 5.0f * scale);
         else if (bookmarked)
@@ -1791,7 +1793,7 @@ void DrawToolbar(AppState& app, const Layout& layout, const std::wstring& displa
                                             : t.textDim;
         const float glyphWidth = app.font.Measure(glyph, scale);
         app.font.Draw(r, button.x + (button.w - glyphWidth) * 0.5f,
-                      boxTop(layout.toolbar.y, button, app.font), glyph, color, scale);
+                      TextY(layout, button, app.font), glyph, color, scale);
 
         ClickTarget target;
         target.rect  = button;
@@ -5838,7 +5840,10 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
                 app->hoveredTab = -1;
                 app->hoveredChrome = -1;
                 app->hoveredSection = -1;
+                app->hoveredNav = -1;
 
+                if (const ClickTarget* nav = HitTest(*app, x, y, ClickTarget::Kind::NavButton))
+                    app->hoveredNav = nav->index;
                 if (HitTest(*app, x, y, ClickTarget::Kind::Menu))              app->hoveredChrome = 0;
                 else if (HitTest(*app, x, y, ClickTarget::Kind::TabNew))       app->hoveredChrome = 1;
                 else if (HitTest(*app, x, y, ClickTarget::Kind::WindowMinimize)) app->hoveredChrome = 2;
@@ -5892,7 +5897,17 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
                     return 0;
                 }
 
-                if (const ClickTarget* closeTab = HitTest(*app, x, y, ClickTarget::Kind::TabClose))
+                if (const ClickTarget* nav = HitTest(*app, x, y, ClickTarget::Kind::NavButton))
+                {
+                    // I pulsanti non fanno niente di nuovo: eseguono i comandi che
+                    // esistono gia', quelli della tastiera e della palette. Una sola
+                    // implementazione per ogni azione, o prima o poi divergono.
+                    static const int kNavCommands[5] = {CmdBack, CmdForward, CmdGoUp, CmdRefresh,
+                                                        CmdToggleBookmark};
+                    if (nav->index >= 0 && nav->index < 5)
+                        RunCommand(*app, kNavCommands[nav->index]);
+                }
+                else if (const ClickTarget* closeTab = HitTest(*app, x, y, ClickTarget::Kind::TabClose))
                 {
                     CloseTab(*app, closeTab->index);
                 }
