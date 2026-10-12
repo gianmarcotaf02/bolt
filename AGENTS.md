@@ -94,12 +94,12 @@ artefatto derivato: si rigenera, non si scrive a mano.
 interroga il grafo.**
 
 ```bash
-graphify query "chi decide il layout della lista?"     # contesto ampio (BFS)
-graphify query "..." --dfs --budget 1500              # traccia un percorso
-graphify path "AppState" "UIRenderer"                  # cammino più breve
-graphify explain "GroupMenu"                           # un nodo e i suoi vicini
-graphify affected "AppState" --depth 2                 # chi tocca questo nodo
-graphify god-nodes --top 10                            # i nodi di smistamento
+graphify query "chi decide il layout della lista?"  # contesto ampio (BFS)
+graphify query "..." --dfs --budget 1500            # traccia un percorso
+graphify path "AppState" "UIRenderer"               # cammino più breve
+graphify explain "GroupMenu"                        # un nodo e i suoi vicini
+graphify affected "AppState" --depth 2              # chi tocca questo nodo
+graphify god-nodes --top 10                         # i nodi di smistamento
 ```
 
 `path` e `explain` vogliono l'**id completo** del nodo quando l'etichetta è
