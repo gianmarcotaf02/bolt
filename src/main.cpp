@@ -2574,6 +2574,8 @@ void DrawHeader(AppState& app, const Layout& layout, float* columnX)
 // The filter box sits under the list, the way the reference application puts it.
 // It is the only text entry in the window, so it owns the keyboard whenever the
 // filter is active.
+GroupMenu* OpenMenu(AppState& app);
+
 // `ShowTooltips`: il nome per esteso e due righe di contesto, vicino al puntatore.
 //
 // Compare **dopo una pausa**, come i suggerimenti del sistema: il conto riparte
