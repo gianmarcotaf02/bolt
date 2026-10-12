@@ -140,7 +140,7 @@ struct ClickTarget
 {
     enum class Kind
     {
-        Column, Breadcrumb, Place, Row, GroupHeader, GroupMode,
+        Column, Breadcrumb, Place, SidebarHeader, Row, GroupHeader, GroupMode,
         Menu, Tab, TabClose, TabNew,
         WindowMinimize, WindowMaximize, WindowClose,
         MenuRow, MenuHeader,
@@ -402,6 +402,7 @@ struct AppState
     bool             sidebarVisible = true;
     int              hoveredTab = -1;
     int              hoveredChrome = -1;   // 0 menu, 1 new tab, 2 min, 3 max, 4 close
+    int              hoveredSection = -1;  // intestazione di sezione della barra laterale
 
     std::wstring directory;
 
@@ -1737,6 +1738,62 @@ void DrawToolbar(AppState& app, const Layout& layout, const std::wstring& displa
                   layout.toolbar.y + 12.0f * scale, summary, t.textDim, scale);
 }
 
+// --- barra laterale ---------------------------------------------------------
+//
+// Quattro sezioni, nell'ordine in cui si vedono in File Pilot: i fissaggi della
+// shell, i segnalibri, i volumi, le cartelle standard. Non e' una lista sola
+// perche' le voci sono di natura diversa — e perche' i segnalibri li fa l'utente,
+// quindi la sezione deve poter stare vuota senza sparire.
+//
+// Le intestazioni sono in inglese come nell'originale: sono i suoi nomi
+// (`QuickAccess`, `Bookmarks`, `Storage`, `Places` nella tabella delle chiavi),
+// non parole nostre da tradurre.
+
+struct SidebarRow
+{
+    bool         header = false;
+    std::string  title;     // per un'intestazione: il nome della sezione
+    std::string  label;
+    std::wstring path;
+    bool         volume = false;
+    float        usedFraction = 0.0f;
+    std::string  freeText;
+};
+
+void BuildSidebarRows(const AppState& app, std::vector<SidebarRow>* rows)
+{
+    const auto section = [&](const char* title, const std::vector<Place>& places) {
+        SidebarRow header;
+        header.header = true;
+        header.title  = title;
+        rows->push_back(std::move(header));
+
+        if (app.collapsedSections.count(title) != 0)
+            return;
+        for (const Place& place : places)
+        {
+            SidebarRow row;
+            row.label        = place.label;
+            row.path         = place.path;
+            row.freeText     = place.freeText;
+            row.usedFraction = place.usedFraction;
+            row.volume       = !place.freeText.empty();
+            rows->push_back(std::move(row));
+        }
+    };
+
+    section("QUICK ACCESS", app.quickAccess);
+
+    std::vector<Place> marks;
+    marks.reserve(app.bookmarks.size());
+    for (const std::wstring& path : app.bookmarks)
+        marks.push_back(Place{ToUtf8(LeafName(path)), path});
+    section("BOOKMARKS", marks);
+
+    section("STORAGE", app.volumes);
+    section("PLACES", app.places);
+}
+
 void DrawSidebar(AppState& app, const Layout& layout)
 {
     if (!app.sidebarVisible)
@@ -1747,21 +1804,48 @@ void DrawSidebar(AppState& app, const Layout& layout)
     const float scale = layout.scale;
 
     r.Draw(UIDraw::Fill(layout.sidebar, t.panelBg, 6.0f * scale));
-    app.smallFont.Draw(r, layout.sidebar.x + 12.0f * scale, layout.sidebar.y + 9.0f * scale,
-                  "QUICK ACCESS", t.textDim, scale);
 
-    float y = layout.sidebar.y + 32.0f * scale;
-    for (size_t i = 0; i < app.places.size(); ++i)
+    std::vector<SidebarRow> rows;
+    BuildSidebarRows(app, &rows);
+
+    float y = layout.sidebar.y + 8.0f * scale;
+    for (size_t i = 0; i < rows.size(); ++i)
     {
-        const Place& place = app.places[i];
-        const Rect row{layout.sidebar.x + 5.0f * scale, y, layout.sidebar.w - 10.0f * scale, 26.0f * scale};
+        const SidebarRow& item = rows[i];
+        const float rowHeight = (item.header ? 24.0f : (item.volume ? 40.0f : 26.0f)) * scale;
+        const Rect row{layout.sidebar.x + 5.0f * scale, y, layout.sidebar.w - 10.0f * scale,
+                       rowHeight};
 
-        const bool active = (place.path == app.directory);
+        if (item.header)
+        {
+            const bool collapsed = app.collapsedSections.count(item.title) != 0;
+            if (static_cast<int>(i) == app.hoveredSection)
+                r.FillRect(row, t.rowHover, 4.0f * scale);
+
+            // Il verso del triangolino e' lo stato: chiuso punta a destra, aperto in
+            // giu'. E' l'unico segno che dice che la sezione si puo' chiudere.
+            app.smallFont.Draw(r, row.x + 6.0f * scale, row.y + 5.0f * scale,
+                               collapsed ? ">" : "v", t.textDim, scale);
+            app.smallFont.Draw(r, row.x + 20.0f * scale, row.y + 5.0f * scale, item.title,
+                               t.textDim, scale);
+
+            ClickTarget target;
+            target.rect  = row;
+            target.kind  = ClickTarget::Kind::SidebarHeader;
+            target.label = item.title;
+            app.clickTargets.push_back(target);
+            y += rowHeight;
+            continue;
+        }
+
+        const bool active = (item.path == app.directory);
         if (active)
             r.FillRect(row, Color::FromHex(0x2E3138), 4.0f * scale);
         else if (static_cast<int>(i) == app.hoveredPlace)
             r.FillRect(row, t.rowHover, 4.0f * scale);
 
+        // L'icona di un volume e' quella che la shell da' all'unita': un disco, non
+        // una cartella. Le altre voci sono cartelle.
         const ShellIconAtlas::IconUV* uv = app.icons.GetFor("", true);
         if (uv != nullptr)
         {
@@ -1769,17 +1853,34 @@ void DrawSidebar(AppState& app, const Layout& layout)
             r.Draw(UIDraw::Image(icon, active ? t.text : t.textDim, kIconLayer,
                                  uv->u0, uv->v0, uv->u1, uv->v1));
         }
-        app.font.Draw(r, row.x + 30.0f * scale, TextY(layout, row, app.font), place.label,
+        app.font.Draw(r, row.x + 30.0f * scale, row.y + 5.0f * scale, item.label,
                       active ? t.text : t.textDim, scale);
+
+        if (item.volume)
+        {
+            // Barra di occupazione e spazio libero: due informazioni in un posto
+            // solo, come le mostra Esplora risorse. La barra si colora quando il
+            // disco e' quasi pieno, perche' e' quello il momento in cui la si guarda.
+            const Rect track{row.x + 30.0f * scale, row.y + 24.0f * scale,
+                             row.w - 42.0f * scale, 4.0f * scale};
+            r.FillRect(track, Color::FromHex(0x2A2D34), 2.0f * scale);
+            const Color fill = item.usedFraction > 0.9f ? Color::FromHex(0xE06C5A)
+                                                       : t.accent;
+            r.FillRect(Rect{track.x, track.y, track.w * (std::min)(1.0f, item.usedFraction),
+                            track.h},
+                       fill, 2.0f * scale);
+            app.smallFont.Draw(r, row.x + 30.0f * scale, row.y + 28.0f * scale,
+                               item.freeText + " free", t.textDim, scale);
+        }
 
         ClickTarget target;
         target.rect = row;
         target.kind = ClickTarget::Kind::Place;
         target.index = static_cast<int>(i);
-        target.path = place.path;
+        target.path = item.path;
         app.clickTargets.push_back(target);
 
-        y += 28.0f * scale;
+        y += rowHeight;
     }
 }
 
@@ -5530,6 +5631,7 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
                 app->hoveredPlace = -1;
                 app->hoveredTab = -1;
                 app->hoveredChrome = -1;
+                app->hoveredSection = -1;
 
                 if (HitTest(*app, x, y, ClickTarget::Kind::Menu))              app->hoveredChrome = 0;
                 else if (HitTest(*app, x, y, ClickTarget::Kind::TabNew))       app->hoveredChrome = 1;
@@ -5543,6 +5645,8 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
                     app->hovered = row->index;
                 else if (const ClickTarget* place = HitTest(*app, x, y, ClickTarget::Kind::Place))
                     app->hoveredPlace = place->index;
+                else if (const ClickTarget* header = HitTest(*app, x, y, ClickTarget::Kind::SidebarHeader))
+                    app->hoveredSection = static_cast<int>(header->rect.y);
             }
             return 0;
 
@@ -5667,6 +5771,17 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
                 else if (const ClickTarget* crumb = HitTest(*app, x, y, ClickTarget::Kind::Breadcrumb))
                 {
                     LoadDirectory(*app, crumb->path);
+                }
+                else if (const ClickTarget* header = HitTest(*app, x, y, ClickTarget::Kind::SidebarHeader))
+                {
+                    // Ricordare la sezione chiusa per nome e non per posizione: le
+                    // righe si spostano quando i segnalibri cambiano, e una sezione
+                    // chiusa non deve riaprirsi da sola perche' ne e' arrivata
+                    // un'altra sopra.
+                    if (app->collapsedSections.count(header->label) != 0)
+                        app->collapsedSections.erase(header->label);
+                    else
+                        app->collapsedSections.insert(header->label);
                 }
                 else if (const ClickTarget* place = HitTest(*app, x, y, ClickTarget::Kind::Place))
                 {
