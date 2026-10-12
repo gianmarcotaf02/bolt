@@ -206,6 +206,7 @@ struct ViewMetrics
     float iconSize   = 16.0f;
     float cellWidth  = 0.0f;
     float cellHeight = 0.0f;
+    float bandHeight = 0.0f;
     float padding    = 4.0f;
     int   columns    = 1;
 };
@@ -606,6 +607,15 @@ struct AppState
     int                                     columnPanel = -1;
     std::vector<std::pair<std::string, int>> columnPanelValues;
     GroupMenu                               columnMenu;
+
+    // La geometria della griglia: i rettangoli di ogni riga, senza lo scorrimento.
+    // Si rifa' solo quando cambia qualcosa da cui dipende.
+    std::vector<Rect> gridRects;
+    size_t            gridRectsRows  = static_cast<size_t>(-1);
+    float             gridRectsWidth = -1.0f;
+    float             gridRectsScale = -1.0f;
+    int               gridRectsView  = -1;
+    int               gridRectsGroup = -1;
 
     // --- operazioni su file (M7) -------------------------------------------
     //
@@ -1482,12 +1492,9 @@ void RebuildView(AppState& app)
     app.matchCount = 0;
     app.viewDirty = false;
 
-    // A grid places cells by index, so a full-width group band would break the
-    // flow. Explorer does group in its icon views; doing it here needs a flow
-    // layout with band breaks, which is a separate job.
-    const bool grid = (app.viewMode == ViewMode::Tiles || app.viewMode == ViewMode::Icons);
-
-    if (app.groupMode == GroupMode::None || grid)
+    // Le bande di gruppo adesso stanno anche nella griglia: la geometria e' un
+    // impaginatore a flusso che sa spezzarsi, e la usano tutti — vedi `GridRects`.
+    if (app.groupMode == GroupMode::None)
     {
         for (int i = 0; i < static_cast<int>(app.entries.size()); ++i)
         {
@@ -2686,12 +2693,7 @@ void DrawFilterBar(AppState& app, const Layout& layout)
     const std::string matchText = std::to_string(app.matchCount) + " / " +
                                   std::to_string(app.entries.size());
 
-    // A grid cannot carry a full-width group band, so grouping is off there. Say
-    // so rather than leaving the control claiming something the view is not doing.
-    const bool gridView = (app.viewMode == ViewMode::Tiles || app.viewMode == ViewMode::Icons);
     std::string groupText = std::string("Group: ") + GroupModeName(app.groupMode);
-    if (gridView && app.groupMode != GroupMode::None)
-        groupText += " (rows only)";
     const float matchWidth = app.smallFont.Measure(matchText, scale);
     const float groupWidth = app.smallFont.Measure(groupText, scale);
     const float rightEdge  = bar.right() - 10.0f * scale;
@@ -2701,9 +2703,10 @@ void DrawFilterBar(AppState& app, const Layout& layout)
 
     const Rect groupRect{rightEdge - matchWidth - groupWidth - 20.0f * scale, bar.y,
                          groupWidth + 12.0f * scale, bar.h};
+    // Il comando si accende quando il raggruppamento sta facendo qualcosa: adesso
+    // anche nella griglia, che non e' piu' l'eccezione.
     app.smallFont.Draw(r, groupRect.x, TextY(layout, bar, app.smallFont), groupText,
-                  (gridView && app.groupMode != GroupMode::None) ? t.textDim : t.accent,
-                  scale);
+                  app.groupMode != GroupMode::None ? t.accent : t.textDim, scale);
 
     ClickTarget target;
     target.rect = groupRect;
@@ -2755,33 +2758,106 @@ ViewMetrics ComputeViewMetrics(const AppState& app, const Layout& layout)
         metrics.columns = (std::max)(1, static_cast<int>(usable / metrics.cellWidth));
         // Spread the leftover width so the cells tile the panel exactly.
         metrics.cellWidth = usable / static_cast<float>(metrics.columns);
+        // Una banda di gruppo e' alta come una riga dell'elenco: e' la stessa cosa
+        // detta in un'altra vista, e deve leggersi come la stessa cosa.
+        metrics.bandHeight = layout.rowHeight;
     }
     return metrics;
 }
 
-float ViewContentHeight(const ViewMetrics& metrics, size_t count)
+// La geometria della griglia, **calcolata una volta** e usata da tutti.
+//
+// Prima ogni indice aveva la sua formula (`indice % colonne`, `indice / colonne`),
+// e con le bande di gruppo quella formula non vale piu': una banda a piena
+// larghezza spezza il flusso, e la riga di celle sotto di lei ricomincia da
+// sinistra. Rifare il conto a ogni domanda vorrebbe dire farlo per ogni cella
+// disegnata, per ogni clic e per ogni scorrimento, e tre conti che devono
+// coincidere prima o poi non coincidono.
+//
+// Non c'e' lo scorrimento dentro questi rettangoli: chi li usa lo sottrae, cosi'
+// la geometria non va rifatta a ogni rotella.
+const std::vector<Rect>& GridRects(AppState& app, const Layout& layout)
 {
-    if (!metrics.grid)
-        return static_cast<float>(count) * metrics.rowHeight;
-    const int rows = static_cast<int>((count + static_cast<size_t>(metrics.columns) - 1) /
-                                      static_cast<size_t>(metrics.columns));
-    return static_cast<float>(rows) * metrics.cellHeight + metrics.padding * 2.0f;
-}
+    const ViewMetrics metrics = ComputeViewMetrics(app, layout);
+    if (app.gridRectsRows == app.rows.size() && app.gridRectsWidth == layout.list.w &&
+        app.gridRectsView == static_cast<int>(app.viewMode) &&
+        app.gridRectsGroup == static_cast<int>(app.groupMode) && app.gridRectsScale == layout.scale)
+        return app.gridRects;
 
-Rect ItemRect(const Layout& layout, const ViewMetrics& metrics, int rowIndex, float scroll)
-{
-    if (!metrics.grid)
+    app.gridRects.clear();
+    app.gridRects.reserve(app.rows.size());
+
+    const float left = layout.list.x + metrics.padding;
+    float x = left;
+    float y = layout.list.y + metrics.padding;
+    int column = 0;
+
+    for (const Row& row : app.rows)
     {
-        return Rect{layout.list.x + 1.0f,
-                    layout.list.y + static_cast<float>(rowIndex) * metrics.rowHeight - scroll,
-                    layout.list.w - 2.0f, metrics.rowHeight};
+        if (row.header)
+        {
+            // Una cella a meta' riga non si lascia dietro una banda: la riga in
+            // corso si chiude prima, e la banda parte da sinistra.
+            if (column != 0)
+            {
+                y += metrics.cellHeight;
+                column = 0;
+                x = left;
+            }
+            app.gridRects.push_back(Rect{layout.list.x + 1.0f, y, layout.list.w - 2.0f,
+                                         metrics.bandHeight});
+            y += metrics.bandHeight;
+            continue;
+        }
+
+        app.gridRects.push_back(Rect{x, y, metrics.cellWidth, metrics.cellHeight});
+        x += metrics.cellWidth;
+        if (++column >= metrics.columns)
+        {
+            column = 0;
+            x = left;
+            y += metrics.cellHeight;
+        }
     }
 
-    const int column = rowIndex % metrics.columns;
-    const int row    = rowIndex / metrics.columns;
-    return Rect{layout.list.x + metrics.padding + static_cast<float>(column) * metrics.cellWidth,
-                layout.list.y + metrics.padding + static_cast<float>(row) * metrics.cellHeight - scroll,
-                metrics.cellWidth, metrics.cellHeight};
+    app.gridRectsRows  = app.rows.size();
+    app.gridRectsWidth = layout.list.w;
+    app.gridRectsView  = static_cast<int>(app.viewMode);
+    app.gridRectsGroup = static_cast<int>(app.groupMode);
+    app.gridRectsScale = layout.scale;
+    return app.gridRects;
+}
+
+float ViewContentHeight(AppState& app, const Layout& layout)
+{
+    const ViewMetrics metrics = ComputeViewMetrics(app, layout);
+    if (!metrics.grid)
+        return static_cast<float>(app.rows.size()) * metrics.rowHeight;
+    const std::vector<Rect>& rects = GridRects(app, layout);
+    if (rects.empty())
+        return metrics.padding * 2.0f;
+    return rects.back().bottom() - layout.list.y + metrics.padding;
+}
+
+Rect ItemRect(AppState& app, const Layout& layout, int rowIndex, float scroll)
+{
+    const ViewMetrics metrics = ComputeViewMetrics(app, layout);
+    Rect rect;
+    if (!metrics.grid)
+    {
+        rect = Rect{layout.list.x + 1.0f,
+                    layout.list.y + static_cast<float>(rowIndex) * metrics.rowHeight,
+                    layout.list.w - 2.0f, metrics.rowHeight};
+    }
+    else
+    {
+        const std::vector<Rect>& rects = GridRects(app, layout);
+        if (rowIndex < 0 || rowIndex >= static_cast<int>(rects.size()))
+            return Rect{};
+        rect = rects[static_cast<size_t>(rowIndex)];
+    }
+    rect.y -= scroll;
+    return rect;
 }
 
 // Splits a name into at most |maxLines| lines that fit, ellipsising the last one.
@@ -2931,9 +3007,12 @@ void DrawList(AppState& app, const Layout& layout, const float* columnX)
     int last  = static_cast<int>(app.rows.size());
     if (metrics.grid)
     {
-        const int firstGridRow = (std::max)(0, static_cast<int>(app.scroll / metrics.cellHeight) - 1);
-        first = firstGridRow * metrics.columns;
-        last  = (std::min)(last, first + (static_cast<int>(layout.list.h / metrics.cellHeight) + 3) * metrics.columns);
+        // Con le bande di gruppo non c'e' piu' una corrispondenza fra indice e
+        // posizione, quindi la finestra non si calcola: si guarda la geometria, e
+        // le righe fuori dal riquadro si saltano con lo stesso `continue` di
+        // sempre. Non si disegnano e non lasciano bersagli.
+        first = 0;
+        last  = static_cast<int>(app.rows.size());
     }
     else
     {
@@ -2944,7 +3023,7 @@ void DrawList(AppState& app, const Layout& layout, const float* columnX)
     for (int rowIndex = first; rowIndex < last; ++rowIndex)
     {
         const Row& view = app.rows[static_cast<size_t>(rowIndex)];
-        const Rect row = ItemRect(layout, metrics, rowIndex, app.scroll);
+        const Rect row = ItemRect(app, layout, rowIndex, app.scroll);
 
         if (row.y < layout.list.y - row.h || row.y > layout.list.bottom())
             continue;
@@ -3147,7 +3226,7 @@ void DrawList(AppState& app, const Layout& layout, const float* columnX)
     }
 
     // Scrollbar.
-    const float contentHeight = ViewContentHeight(metrics, app.rows.size());
+    const float contentHeight = ViewContentHeight(app, layout);
     if (contentHeight > layout.list.h)
     {
         const float trackHeight = layout.list.h - 8.0f;
@@ -6723,7 +6802,7 @@ void ActivateSelection(AppState& app)
 void ScrollBy(AppState& app, const Layout& layout, float delta)
 {
     const ViewMetrics metrics = ComputeViewMetrics(app, layout);
-    const float content = ViewContentHeight(metrics, app.rows.size());
+    const float content = ViewContentHeight(app, layout);
     const float maxScroll = (std::max)(0.0f, content - layout.list.h);
     app.scroll = (std::min)(maxScroll, (std::max)(0.0f, app.scroll + delta));
 }
@@ -6789,8 +6868,7 @@ void EnsureSelectionVisible(AppState& app, const Layout& layout)
 
     // ItemRect already accounts for the grid flow and the current scroll, so the
     // correction is just how far the item sticks out.
-    const ViewMetrics metrics = ComputeViewMetrics(app, layout);
-    const Rect rect = ItemRect(layout, metrics, rowIndex, app.scroll);
+    const Rect rect = ItemRect(app, layout, rowIndex, app.scroll);
     if (rect.y < layout.list.y)
         app.scroll -= layout.list.y - rect.y;
     else if (rect.bottom() > layout.list.bottom())
@@ -6809,8 +6887,7 @@ void OpenContextMenuAtCursor(AppState& app, const Layout& layout)
     if (rowIndex < 0)
         return;
 
-    const ViewMetrics metrics = ComputeViewMetrics(app, layout);
-    const Rect item = ItemRect(layout, metrics, rowIndex, app.scroll);
+    const Rect item = ItemRect(app, layout, rowIndex, app.scroll);
     BuildContextMenu(app, item.x + 40.0f * layout.scale, item.y + item.h * 0.5f);
 }
 
