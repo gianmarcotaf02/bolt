@@ -12,6 +12,38 @@ namespace ShellLocation
 namespace
 {
 
+// Il CLSID di una posizione, se ne ha uno: "::{645FF040-...}" e "::{645FF040-...}\..."
+// cominciano tutti e due con un CLSID.
+std::wstring ClsidOf(const std::wstring& location)
+{
+    if (!IsNamespace(location))
+        return std::wstring();
+    const size_t open = location.find(L'{');
+    if (open == std::wstring::npos)
+        return std::wstring();
+    const size_t close = location.find(L'}', open);
+    if (close == std::wstring::npos)
+        return std::wstring();
+    return location.substr(open, close - open + 1);
+}
+
+bool ReadRegistryString(HKEY key, const wchar_t* name, std::wstring* out)
+{
+    DWORD type = 0;
+    DWORD bytes = 0;
+    if (RegQueryValueExW(key, name, nullptr, &type, nullptr, &bytes) != ERROR_SUCCESS ||
+        (type != REG_SZ && type != REG_EXPAND_SZ) || bytes < sizeof(wchar_t))
+        return false;
+
+    std::wstring raw(bytes / sizeof(wchar_t), L'\0');
+    if (RegQueryValueExW(key, name, nullptr, nullptr, reinterpret_cast<BYTE*>(raw.data()),
+                         &bytes) != ERROR_SUCCESS)
+        return false;
+    raw.resize(wcslen(raw.c_str()));
+    *out = raw;
+    return !out->empty();
+}
+
 std::string ToUtf8(const std::wstring& text)
 {
     if (text.empty())
@@ -68,22 +100,56 @@ std::wstring DisplayName(const std::wstring& location)
     if (FAILED(SHParseDisplayName(location.c_str(), nullptr, &pidl, 0, nullptr)) || pidl == nullptr)
         return std::wstring();
 
-    // Tre strade, in ordine, perche' nessuna va bene sempre. Chiedere il nome
-    // all'oggetto con `SIGDN_NORMALDISPLAY`, per "Questo PC", restituisce il nome
-    // del **computer**: una macchina, non una cartella, e nemmeno un'informazione
-    // da mostrare in giro.
+    // Il nome di una cartella di spazio dei nomi **non** si chiede all'oggetto:
+    // per "Questo PC" l'oggetto risponde col nome del computer, che non e' una
+    // cartella e non e' un'informazione da mostrare in giro.
+    //
+    // 1. Una cartella di spazio dei nomi ha un CLSID, e il suo nome sta la':
+    //    `HKCR\CLSID\{...}\LocalizedString` e' la stringa indiretta che la shell
+    //    scrive accanto all'icona, tradotta — `@…windows.storage.dll,-9216` per
+    //    "Questo PC". E' lo stesso meccanismo delle etichette del menu "Nuovo".
+    const std::wstring clsid = ClsidOf(location);
+    if (!clsid.empty())
+    {
+        HKEY key = nullptr;
+        if (RegOpenKeyExW(HKEY_CLASSES_ROOT, (L"CLSID\\" + clsid).c_str(), 0, KEY_READ, &key) ==
+            ERROR_SUCCESS)
+        {
+            std::wstring raw;
+            if (ReadRegistryString(key, L"LocalizedString", &raw) ||
+                ReadRegistryString(key, nullptr, &raw))
+            {
+                if (!raw.empty() && raw[0] == L'@')
+                {
+                    std::vector<wchar_t> buffer(512);
+                    if (SUCCEEDED(SHLoadIndirectString(raw.c_str(), buffer.data(),
+                                                       static_cast<UINT>(buffer.size()), nullptr)))
+                    {
+                        RegCloseKey(key);
+                        return buffer.data();
+                    }
+                }
+                else if (!raw.empty())
+                {
+                    RegCloseKey(key);
+                    return raw;
+                }
+            }
+            RegCloseKey(key);
+        }
+    }
+
+    // 2. Le voci **dentro** una cartella di spazio dei nomi non hanno un CLSID.
+    //    Per quelle valgono, in ordine, il nome che scrive la shell accanto
+    //    all'icona e quello che le da' la cartella che le contiene.
     std::wstring out;
 
-    // 1. `SHGetFileInfo` col PIDL: e' il nome che la shell scrive accanto
-    //    all'icona, quindi localizzato — "Questo PC", "Cestino".
     SHFILEINFOW info{};
     if (SHGetFileInfoW(reinterpret_cast<LPCWSTR>(pidl), 0, &info, sizeof(info),
                        SHGFI_PIDL | SHGFI_DISPLAYNAME) != 0 &&
         info.szDisplayName[0] != L'\0')
         out = info.szDisplayName;
 
-    // 2. Il nome che le da' la cartella che la contiene, come per ogni voce di ogni
-    //    elenco: `SHGDN_NORMAL` sul genitore.
     PIDLIST_ABSOLUTE up = out.empty() ? ILClone(pidl) : nullptr;
     if (up != nullptr && ILRemoveLastID(up))
     {
@@ -104,8 +170,7 @@ std::wstring DisplayName(const std::wstring& location)
     if (up != nullptr)
         CoTaskMemFree(up);
 
-    // 3. Ripiego, se nessuna delle due ha risposto: il nome che l'oggetto da' di
-    //    se'.
+    // Ultimo ripiego: il nome che l'oggetto da' di se'.
     if (out.empty())
     {
         PWSTR name = nullptr;
