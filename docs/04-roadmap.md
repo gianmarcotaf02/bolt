@@ -479,12 +479,18 @@ a gruppi, invece di scriverne tre.
       richiudono con `Esc` e con la freccia sinistra, e portano il `>` sulle voci
       che ne hanno uno. I sottomenu delle **estensioni** (`7-Zip`, `WinRAR`) si
       aprono e si eseguono: verificato vedendo comparire il dialogo di 7-Zip
-- [ ] i sottomenu **della shell** (`Nuovo`, `Invia a`, `Dare accesso a`) non si
-      possono eseguire da qui, quindi non si offrono: la shell consegna i loro
-      comandi alla finestra del menu, e noi una finestra di menu non l'abbiamo.
-      Vanno rifatti **nostri**, dalle stesse fonti che usa la shell: `Nuovo >`
-      dalle chiavi `ShellNew` del registro, `Invia a >` dalla cartella SendTo.
-      Vedi `docs/02` §7.19
+- [x] `Nuovo file >`, fatto da noi: i tipi si leggono dalle chiavi **`ShellNew`**
+      del registro e la creazione passa da `IFileOperation::NewItem`, che sceglie il
+      nome definitivo (e il `(2)` dei conflitti). Il **contenuto** però lo
+      scriviamo noi: `NewItem` senza un modello crea un file di zero byte, e uno
+      zip di zero byte non è uno zip. Vedi sotto
+- [ ] `Invia a >`, fatto da noi: la cartella SendTo è una cartella, quindi si
+      enumera e si esegue con `ShellExecute` passando i percorsi scelti come
+      argomenti — è quello che fa la shell
+- [ ] i modelli col valore **`Command`** restano fuori dal menu `Nuovo file`:
+      quel valore avvia un'applicazione invece di creare un file
+      (`msaccess.exe /NEWDB 1`, `Wab.exe /CreateContact "%1"`), e imitarlo
+      significherebbe eseguire righe di registro arbitrarie
 - [x] il menu della **cartella**, quando non c'è selezione, cioè il tasto destro
       sul fondo della lista: è il menu della *vista*, chiesto con
       `IShellFolder::CreateViewObject(IID_IContextMenu)`, **non** quello della
@@ -559,6 +565,47 @@ niente, perché la shell consegna quei comandi alla finestra del menu.
 Quindi: il componente annida, i sottomenu delle estensioni si offrono, quelli
 della shell si filtrano per verbo canonico. Vedi `docs/02` §7.19. Un elenco che
 risponde `S_OK` e non fa niente è peggio di un elenco che manca.
+
+### Il menu "Nuovo file", fatto da noi — *Ricostruito*
+
+La shell il proprio "Nuovo" lo popola in un sottomenu i cui comandi non si
+possono eseguire da fuori (vedi sopra), quindi il menu se lo costruisce Bolt. Le
+fonti sono le stesse che usa la shell, e sono **tre**, non una:
+
+| dove sta `ShellNew` | esempio |
+|---|---|
+| sotto la chiave dell'estensione | `.zip\ShellNew` (WinRAR) |
+| sotto un ProgID **annidato** nella chiave | `.docx\Word.Document.12\ShellNew` |
+| sotto il ProgID di default dell'estensione | `MQL5.File\ShellNew` |
+
+La seconda è la più usata su Windows 11 e senza di essa il menu avrebbe un quinto
+delle voci: sul banco di prova, 18 modelli invece di 4. Sull'elenco del registro,
+la **shell non offre nessuna API**: il menu lo costruisce internamente, e le
+chiavi vanno lette a mano (`src/shell_new.cpp`).
+
+**Le etichette sono stringhe indirette** (`@C:\WINDOWS\system32\zipfldr.dll,-10194`)
+e si risolvono con `SHLoadIndirectString` — non con `RegLoadMUIString`, che sulla
+stessa stringa restituisce un errore e lascia il menu in **inglese** mentre tutto
+il resto è in italiano. Vedi §7.20 di `docs/02`.
+
+**Il contenuto lo scriviamo noi.** `IFileOperation::NewItem` sceglie il nome
+definitivo — è l'unico modo di avere il `(2)` dei conflitti senza indovinarlo —
+ma senza un modello crea un file di zero byte. I valori del registro sono tre:
+`NullFile` (vuoto), `FileName` (copia di un file modello) e `Data` (i byte).
+Verificati sul banco di prova: `Nuova cartella compressa.zip` esce di **22 byte** e
+si apre come zip valido, `Nuovo foglio di lavoro di Microsoft Excel.xlsx` di
+**6.111 byte**, cioè la copia vera del modello di Office.
+
+Due cose che la verifica ha scoperto e che nessuna lettura avrebbe dato: i modelli
+di Office e di LibreOffice sono **gusci di zero byte** su disco (il contenuto lo
+produce il loro provider, che da fuori non si raggiunge), e il valore `Data` di
+`.rtf` è una **stringa** `{\rtf1}` e non un blocco binario. Il primo caso adesso
+si dichiara all'utente invece di consegnargli un `.docx` che Word rifiuta di
+aprire (§7.21 di `docs/02`); il secondo si accetta in tutte e due le forme.
+
+**I modelli col valore `Command` restano fuori.** Quel valore non crea un file:
+avvia un programma. Restano fuori anche i 35 ms di lettura del registro, che
+avvengono alla prima apertura del sottomenu e non a ogni tasto destro.
 
 **Quattro costi misurati** (registro: `BOLT_DIAG_SHELL_MENU=1` → `shell-menu.log`):
 

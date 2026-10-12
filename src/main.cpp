@@ -4165,9 +4165,6 @@ void ContextMenuActivate(AppState& app)
         const size_t model = static_cast<size_t>(chosen->command - kNewItemCmdFirst);
         ContextMenuClose(app);
         CreateNewItem(app, model);
-        DiagLog("  nuovo file: cursore='" + ShellLabelToAscii(app.cursor) + "' rinomina=" +
-                (app.renameActive ? "si" : "no") + " originale='" +
-                ShellLabelToAscii(app.renameOriginal) + "'");
         return;
     }
 
