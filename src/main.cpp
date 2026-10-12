@@ -3838,7 +3838,8 @@ void ReadShellMenu(IContextMenu* shell, HMENU handle, bool folderBackground,
 // Chiede alla shell il menu della selezione e ne copia le voci utilizzabili.
 // L'IContextMenu esce da qui perche' serve ancora al momento dell'esecuzione: la
 // shell non accetta un verbo senza l'oggetto da cui e' uscito.
-bool BuildShellItems(HWND owner, const std::vector<std::wstring>& paths, bool folderBackground,
+bool BuildShellItems(HWND owner, const std::vector<std::wstring>& paths,
+                     const std::vector<const BYTE*>& selectionPidls, bool folderBackground,
                      IContextMenu** outMenu, HMENU* outHandle,
                      std::vector<ContextMenuItem>* out, int* outSkipped)
 {
@@ -3872,6 +3873,27 @@ bool BuildShellItems(HWND owner, const std::vector<std::wstring>& paths, bool fo
                 folder->Release();
             }
             CoTaskMemFree(pidl);
+        }
+    }
+    else if (!selectionPidls.empty())
+    {
+        // Le voci selezionate **hanno un PIDL**: si usa quello, e non il loro nome.
+        // Per una voce di spazio dei nomi il nome e' un'altra cosa — il percorso del
+        // file dentro `$Recycle.Bin` — e la shell, se le si chiede il menu di quel
+        // nome, risponde col menu di quel file: "Ripristina" non c'e', e al suo
+        // posto ci sono i verbi del tipo di file. Sembra ragionevole ed e' sbagliato.
+        PCUIDLIST_ABSOLUTE first = reinterpret_cast<PCUIDLIST_ABSOLUTE>(selectionPidls.front());
+        if (SUCCEEDED(SHBindToParent(first, IID_IShellFolder, reinterpret_cast<void**>(&parent),
+                                     nullptr)) &&
+            parent != nullptr)
+        {
+            std::vector<PCUITEMID_CHILD> children;
+            children.reserve(selectionPidls.size());
+            for (const BYTE* pidl : selectionPidls)
+                children.push_back(ILFindLastID(reinterpret_cast<PCUIDLIST_ABSOLUTE>(pidl)));
+
+            parent->GetUIObjectOf(owner, static_cast<UINT>(children.size()), children.data(),
+                                  IID_IContextMenu, nullptr, reinterpret_cast<void**>(&shell));
         }
     }
     else
@@ -3963,7 +3985,11 @@ void AppendShellItems(AppState& app, ContextMenu& menu)
     IContextMenu* shell    = nullptr;
     HMENU handle           = nullptr;
     int skipped            = 0;
-    BuildShellItems(app.window, paths, folderBackground, &shell, &handle, &items, &skipped);
+    // I PIDL servono solo per la selezione: sul fondo della cartella il contesto
+    // della shell e' la cartella stessa.
+    const std::vector<const BYTE*> pidls = folderBackground ? std::vector<const BYTE*>()
+                                                            : SelectedPidls(app);
+    BuildShellItems(app.window, paths, pidls, folderBackground, &shell, &handle, &items, &skipped);
     const double elapsed = (NowSeconds() - started) * 1000.0;
 
     DiagLog("--- " + DiagClock() + (folderBackground ? " sfondo," : " selezione,") + " " +
