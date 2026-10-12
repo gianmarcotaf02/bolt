@@ -682,13 +682,16 @@ std::string FitText(const FontAtlas& font, const std::string& text, float scale,
 
     std::string truncated;
     float width = 0.0f;
-    for (const char c : text)
+    for (size_t i = 0; i < text.size(); i = Utf8::Next(text, i))
     {
-        const FontAtlas::Glyph* glyph = font.Find(c);
-        const float advance = (glyph != nullptr) ? glyph->advance * scale : 6.0f * scale;
+        // Il taglio cade fra un carattere e l'altro, mai dentro: troncare a meta'
+        // una sequenza UTF-8 lascia un byte che il disegno legge come un altro
+        // carattere, e in fondo al nome compare un simbolo che non c'e'.
+        const size_t length = Utf8::Length(text, i);
+        const float advance = font.MeasureOne(Utf8::At(text, i, nullptr), scale);
         if (width + advance + ellipsisWidth > maxWidth)
             break;
-        truncated.push_back(c);
+        truncated.append(text, i, length);
         width += advance;
     }
     return truncated + ellipsis;
@@ -3978,9 +3981,26 @@ std::string ShellLabelToAscii(const std::wstring& text)
             out.push_back(static_cast<char>(c));
             continue;
         }
+
+        // Gli accenti si passano come sono: l'atlante li disegna, adesso. Prima si
+        // ripiegavano su ASCII, e "Citta'" era l'unica forma scrivibile — anche per
+        // una cartella che si chiama "Città".
+        if (c >= 0x00A0 && c <= 0x00FF)
+        {
+            out += ToUtf8(std::wstring(1, c));
+            continue;
+        }
+
+        // Oltre il latino-1 resta il ripiego: meglio una lettera senza segno che un
+        // buco. Quello che non si sa ripiegare si passa lo stesso, e sara' l'atlante
+        // a non avere il glifo — che e' diverso dal perdere il carattere qui.
         const char folded = FoldAccent(c);
         if (folded != '\0')
+        {
             out.push_back(folded);
+            continue;
+        }
+        out += ToUtf8(std::wstring(1, c));
     }
     return out;
 }
