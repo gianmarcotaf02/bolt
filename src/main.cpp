@@ -2646,6 +2646,16 @@ void DrawTooltip(AppState& app, const Layout& layout)
     }
 }
 
+void SetViewMode(AppState& app, ViewMode mode)
+{
+    if (app.viewMode == mode)
+        return;
+    app.viewMode    = mode;
+    app.viewDirty   = true;
+    app.hovered     = -1;
+    app.hoverStart  = NowSeconds();
+}
+
 void DrawFilterBar(AppState& app, const Layout& layout)
 {
     UIRenderer& r = app.renderer;
@@ -4810,10 +4820,14 @@ void RunCommand(AppState& app, int command)
         case CmdZoomOut:   app.zoom = (std::max)(0.6f, app.zoom - 0.1f); break;
         case CmdZoomReset: app.zoom = app.dpiScale; break;
         case CmdToggleDetails: app.palette.detailed = !app.palette.detailed; break;
-        case CmdViewDetails: app.viewMode = ViewMode::Details; app.viewDirty = true; break;
-        case CmdViewList:    app.viewMode = ViewMode::List;    app.viewDirty = true; break;
-        case CmdViewTiles:   app.viewMode = ViewMode::Tiles;   app.viewDirty = true; break;
-        case CmdViewIcons:   app.viewMode = ViewMode::Icons;   app.viewDirty = true; break;
+        // Cambiando vista le celle si spostano, e l'indice della riga sotto il
+        // puntatore non vuol piu' dire niente: il sovrappasso si azzera e lo
+        // ricalcola il prossimo movimento. Senza, il suggerimento resta appeso a
+        // una voce che non e' piu' quella sotto il mouse.
+        case CmdViewDetails: SetViewMode(app, ViewMode::Details); break;
+        case CmdViewList:    SetViewMode(app, ViewMode::List);    break;
+        case CmdViewTiles:   SetViewMode(app, ViewMode::Tiles);   break;
+        case CmdViewIcons:   SetViewMode(app, ViewMode::Icons);   break;
         case CmdToggleBookmark: ToggleBookmark(app); break;
         case CmdClearBookmarks: app.bookmarks.clear(); break;
         case CmdClearRecents:   app.recents.clear(); break;
