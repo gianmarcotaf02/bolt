@@ -291,23 +291,38 @@ struct ContextMenuItem
     // mostrata spenta, non nascosta, perche' la sua presenza spiega cosa la
     // shell saprebbe fare in un altro contesto.
     bool        disabled  = false;
+
+    // Sottomenu. `children` vuoto non vuol dire "niente sottomenu": la shell lo
+    // descrive con un HMENU che si legge **quando si apre**, perche' il suo
+    // contenuto non esiste prima di WM_INITMENUPOPUP. Vedi `HasSubmenu`.
+    std::vector<ContextMenuItem> children;
+    HMENU shellSubmenu  = nullptr;   // il sottomenu della shell, non ancora letto
+    int   shellPosition = 0;         // dove sta la voce nel menu della shell
+};
+
+// Scelta e finestra di un livello del menu. Ce n'e' una per livello aperto.
+struct ContextMenuLevel
+{
+    int selected  = -1;
+    int firstItem = 0;
 };
 
 struct ContextMenu
 {
     bool open = false;
     float x = 0.0f, y = 0.0f;       // dove e' stato aperto, in coordinate cliente
-    int   selected = -1;
-    // Prima voce disegnata. Il menu non si scorre a meta' voce: le voci visibili
-    // sono un intervallo intero, e ognuna sta interamente dentro il pannello.
-    int   firstItem = 0;
+    // I sottomenu aperti, un indice per livello: openPath[i] e' la voce aperta
+    // nel livello i. `levels` ne ha sempre uno in piu' di openPath, e non e' mai
+    // vuoto: il livello 0 e' il menu stesso.
+    std::vector<int>              openPath;
+    std::vector<ContextMenuLevel> levels;
     std::string subtitle;
-    std::vector<ContextMenuItem> items;
+    std::vector<ContextMenuItem> items;      // le voci del livello 0
 
     // La shell descrive il proprio menu in un HMENU che non mostriamo mai: serve
-    // per leggere le voci, e nei sottomenu anche per farsele popolare. Va tenuto
-    // vivo finche' l'IContextMenu e' vivo, e distrutto insieme a lui, o l'HMENU
-    // resta appeso a ogni tasto destro.
+    // per leggere le voci, e per i sottomenu anche per farsele popolare. Va
+    // tenuto vivo finche' l'IContextMenu e' vivo, e distrutto insieme a lui, o
+    // l'HMENU resta appeso a ogni tasto destro.
     HMENU         shellMenu = nullptr;
     IContextMenu* shell     = nullptr;
 };
@@ -2997,17 +3012,72 @@ Rect GroupMenuPanel(const AppState& app, const Layout& layout)
 // --- menu contestuale: geometria, disegno, interazione ----------------------
 void ActivateSelection(AppState& app);
 
-float ContextMenuWidth(const AppState& app, const Layout& layout)
+// --- i livelli del menu contestuale ----------------------------------------
+//
+// Un menu non e' una lista: e' un albero di liste. Lo chiamiamo *livello*: 0 e'
+// il primo, 1 il sottomenu aperto, e cosi' via. `openPath` tiene gli indici delle
+// voci aperte, uno per livello, e `levels` la scelta e la finestra di ogni
+// livello. Il livello piu' profondo aperto e' quello su cui si agisce.
+const std::vector<ContextMenuItem>* LevelItems(const ContextMenu& menu, int depth)
+{
+    const std::vector<ContextMenuItem>* items = &menu.items;
+    for (int i = 0; i < depth; ++i)
+    {
+        if (i >= static_cast<int>(menu.openPath.size()))
+            return nullptr;
+        const int index = menu.openPath[static_cast<size_t>(i)];
+        if (index < 0 || index >= static_cast<int>(items->size()))
+            return nullptr;
+        items = &(*items)[static_cast<size_t>(index)].children;
+    }
+    return items;
+}
+
+int LevelCount(const ContextMenu& menu, int depth)
+{
+    const std::vector<ContextMenuItem>* items = LevelItems(menu, depth);
+    return items == nullptr ? 0 : static_cast<int>(items->size());
+}
+
+const ContextMenuItem* LevelItem(const ContextMenu& menu, int depth, int index)
+{
+    const std::vector<ContextMenuItem>* items = LevelItems(menu, depth);
+    if (items == nullptr || index < 0 || index >= static_cast<int>(items->size()))
+        return nullptr;
+    return &(*items)[static_cast<size_t>(index)];
+}
+
+// La voce ha qualcosa dentro? Vale anche per un sottomenu della shell **non
+// ancora letto**: il suo contenuto non esiste prima di aprirlo, e chiederlo per
+// tutti a ogni tasto destro costerebbe quanto interrogare la shell dieci volte.
+bool HasSubmenu(const ContextMenuItem& item)
+{
+    return item.shellSubmenu != nullptr || !item.children.empty();
+}
+
+int ActiveDepth(const ContextMenu& menu)
+{
+    return static_cast<int>(menu.openPath.size());
+}
+
+float ContextMenuWidth(const AppState& app, const Layout& layout, int depth)
 {
     const float scale = layout.scale;
     float widest = 0.0f;
-    for (const ContextMenuItem& item : app.contextMenu.items)
-        widest = (std::max)(widest, app.font.Measure(item.label, scale));
+    float arrow  = 0.0f;
+    const int total = LevelCount(app.contextMenu, depth);
+    for (int i = 0; i < total; ++i)
+    {
+        const ContextMenuItem* item = LevelItem(app.contextMenu, depth, i);
+        widest = (std::max)(widest, app.font.Measure(item->label, scale));
+        if (HasSubmenu(*item))
+            arrow = 18.0f * scale;   // lo spazio del segno di sottomenu
+    }
 
     // La larghezza si DERIVA dal contenuto, con un minimo e un massimo: fissa
     // taglierebbe le voci lunghe come "Apri in Esplora risorse", e larga quanto
     // l'etichetta piu' lunga lascerebbe il sottotitolo a sbattere sul bordo.
-    return (std::max)(220.0f * scale, (std::min)(340.0f * scale, widest + 56.0f * scale));
+    return (std::max)(220.0f * scale, (std::min)(340.0f * scale, widest + 56.0f * scale + arrow));
 }
 
 // Quante voci entrano nell'altezza utile, a partire da |firstItem|.
@@ -3015,23 +3085,23 @@ float ContextMenuWidth(const AppState& app, const Layout& layout)
 // Il taglio cade sempre fra due voci. Una voce mostrata a meta' si sceglie per
 // sbaglio, e con i verbi della shell il menu supera la finestra molto prima di
 // quanto si creda: venti voci su un monitor normale sono piu' della finestra.
-int ContextMenuVisibleCount(const AppState& app, const Layout& layout, int firstItem)
+int ContextMenuVisibleCount(const AppState& app, const Layout& layout, int depth, int firstItem)
 {
     const float scale     = layout.scale;
     const float separator = 7.0f * scale;
-    // 8 px di margine sotto, 6 px di riempimento sopra e sotto, 22 px di
-    // sottotitolo: quello che resta e' lo spazio delle voci.
+    // 8 px di margine sotto, 6 px di riempimento sopra e sotto: quello che resta
+    // e' lo spazio delle voci. Il sottotitolo ce l'ha solo il primo livello.
+    const float footer = (depth == 0) ? 22.0f * scale : 0.0f;
     const float room = static_cast<float>(app.viewportHeight) - 8.0f * scale -
-                       12.0f * scale - 22.0f * scale;
+                       12.0f * scale - footer;
 
-    const int total = static_cast<int>(app.contextMenu.items.size());
+    const int total = LevelCount(app.contextMenu, depth);
     float used  = 0.0f;
     int   count = 0;
     for (int i = firstItem; i < total; ++i)
     {
-        const float height = app.contextMenu.items[static_cast<size_t>(i)].separator
-                                 ? separator
-                                 : layout.rowHeight;
+        const ContextMenuItem* item = LevelItem(app.contextMenu, depth, i);
+        const float height = (item != nullptr && item->separator) ? separator : layout.rowHeight;
         // Almeno una voce si mostra sempre: un menu vuoto non si spiega.
         if (count > 0 && used + height > room)
             break;
@@ -3041,71 +3111,100 @@ int ContextMenuVisibleCount(const AppState& app, const Layout& layout, int first
     return count;
 }
 
-Rect ContextMenuPanel(const AppState& app, const Layout& layout)
+Rect ContextMenuPanel(const AppState& app, const Layout& layout, int depth)
 {
     const float scale     = layout.scale;
     const float separator = 7.0f * scale;
     const float padding   = 6.0f * scale;
 
     const ContextMenu& menu = app.contextMenu;
-    const int first   = menu.firstItem;
-    const int visible = ContextMenuVisibleCount(app, layout, first);
+    const int first   = menu.levels[static_cast<size_t>(depth)].firstItem;
+    const int visible = ContextMenuVisibleCount(app, layout, depth, first);
 
     float content = 0.0f;
     for (int i = first; i < first + visible; ++i)
-        content += menu.items[static_cast<size_t>(i)].separator ? separator : layout.rowHeight;
+    {
+        const ContextMenuItem* item = LevelItem(menu, depth, i);
+        content += (item != nullptr && item->separator) ? separator : layout.rowHeight;
+    }
 
-    const float width = ContextMenuWidth(app, layout);
-    // 22 px in fondo per il sottotitolo, che non e' una voce.
-    const float height = content + padding * 2.0f + 22.0f * scale;
+    const float width = ContextMenuWidth(app, layout, depth);
+    // 22 px in fondo per il sottotitolo, che c'e' solo nel primo livello.
+    const float footer = (depth == 0) ? 22.0f * scale : 0.0f;
+    const float height = content + padding * 2.0f + footer;
+
+    // L'ancora: il primo livello sta dove ha cliccato il puntatore, un sottomenu
+    // accanto alla voce che lo apre.
+    float anchorX = menu.x;
+    float anchorY = menu.y;
+    if (depth > 0)
+    {
+        const Rect parent = ContextMenuPanel(app, layout, depth - 1);
+        const int parentIndex = menu.openPath[static_cast<size_t>(depth - 1)];
+        const Rect row = ContextMenuRowRect(app, layout, depth - 1, parentIndex);
+        anchorX = parent.right() - 4.0f * scale;
+        anchorY = row.y - padding;
+
+        // A destra non ci sta? Si apre a sinistra, come i menu di Windows: un
+        // sottomenu che esce dalla finestra non si puo' leggere.
+        if (anchorX + width > static_cast<float>(app.viewportWidth) - 4.0f * scale)
+            anchorX = parent.x - width + 4.0f * scale;
+    }
 
     // Il menu si ancora al puntatore ma non esce dalla finestra: aperto accanto
     // al bordo destro finirebbe per meta' fuori e irraggiungibile.
     const float maxX = static_cast<float>(app.viewportWidth) - width - 4.0f * scale;
     const float maxY = static_cast<float>(app.viewportHeight) - height - 4.0f * scale;
-    const float x = (std::max)(4.0f * scale, (std::min)(menu.x, maxX));
-    const float y = (std::max)(4.0f * scale, (std::min)(menu.y, maxY));
+    const float x = (std::max)(4.0f * scale, (std::min)(anchorX, maxX));
+    const float y = (std::max)(4.0f * scale, (std::min)(anchorY, maxY));
     return Rect{x, y, width, height};
 }
 
 // Ultimo indice disegnato, escluso. Fuori da questo intervallo una voce non
 // esiste: non si disegna, non si sovrappassa e non si clicca. Cosi' non serve
 // nessun taglio, perche' quello che non si disegna non sborda.
-int ContextMenuLastVisible(const AppState& app, const Layout& layout)
+int ContextMenuLastVisible(const AppState& app, const Layout& layout, int depth)
 {
-    const int first   = app.contextMenu.firstItem;
-    const int visible = ContextMenuVisibleCount(app, layout, first);
-    return (std::min)(static_cast<int>(app.contextMenu.items.size()), first + visible);
+    const int first   = app.contextMenu.levels[static_cast<size_t>(depth)].firstItem;
+    const int visible = ContextMenuVisibleCount(app, layout, depth, first);
+    return (std::min)(LevelCount(app.contextMenu, depth), first + visible);
 }
 
-Rect ContextMenuRowRect(const AppState& app, const Layout& layout, int index)
+Rect ContextMenuRowRect(const AppState& app, const Layout& layout, int depth, int index)
 {
-    const Rect panel       = ContextMenuPanel(app, layout);
+    const Rect panel       = ContextMenuPanel(app, layout, depth);
     const float scale      = layout.scale;
     const float separator  = 7.0f * scale;
     const float padding    = 6.0f * scale;
 
+    const ContextMenu& menu = app.contextMenu;
     float top = panel.y + padding;
-    for (int i = app.contextMenu.firstItem;
-         i < index && i < static_cast<int>(app.contextMenu.items.size()); ++i)
-        top += app.contextMenu.items[static_cast<size_t>(i)].separator ? separator : layout.rowHeight;
+    for (int i = menu.levels[static_cast<size_t>(depth)].firstItem; i < index; ++i)
+    {
+        const ContextMenuItem* item = LevelItem(menu, depth, i);
+        top += (item != nullptr && item->separator) ? separator : layout.rowHeight;
+    }
 
-    const float height = app.contextMenu.items[static_cast<size_t>(index)].separator
-                             ? separator
-                             : layout.rowHeight;
+    const ContextMenuItem* item = LevelItem(menu, depth, index);
+    const float height = (item != nullptr && item->separator) ? separator : layout.rowHeight;
     return Rect{panel.x + 4.0f * scale, top, panel.w - 8.0f * scale, height};
 }
 
 // Tiene la finestra del menu dentro i limiti e ci tiene dentro la voce scelta:
 // l'Invio esegue quello che si vede, quindi la selezione non deve poter uscire
 // dal pannello.
-void ContextMenuClampWindow(AppState& app, const Layout& layout, bool followSelection = true)
+void ContextMenuClampWindow(AppState& app, const Layout& layout, int depth,
+                            bool followSelection = true)
 {
     ContextMenu& menu = app.contextMenu;
-    const int total = static_cast<int>(menu.items.size());
+    if (depth < 0 || depth >= static_cast<int>(menu.levels.size()))
+        return;
+
+    ContextMenuLevel& level = menu.levels[static_cast<size_t>(depth)];
+    const int total = LevelCount(menu, depth);
     if (total == 0)
     {
-        menu.firstItem = 0;
+        level.firstItem = 0;
         return;
     }
 
@@ -3115,33 +3214,35 @@ void ContextMenuClampWindow(AppState& app, const Layout& layout, bool followSele
     // l'opposto e' vero, e la voce scelta non deve poter uscire dal pannello.
     if (!followSelection)
     {
-        const int capacity = (std::max)(1, ContextMenuVisibleCount(app, layout, 0));
-        menu.firstItem =
-            (std::max)(0, (std::min)(menu.firstItem, (std::max)(0, total - capacity)));
+        const int capacity = (std::max)(1, ContextMenuVisibleCount(app, layout, depth, 0));
+        level.firstItem =
+            (std::max)(0, (std::min)(level.firstItem, (std::max)(0, total - capacity)));
 
-        if (menu.selected >= 0 &&
-            (menu.selected < menu.firstItem || menu.selected >= ContextMenuLastVisible(app, layout)))
-            menu.selected = -1;   // l'Invio esegue quello che si vede, o niente
+        if (level.selected >= 0 &&
+            (level.selected < level.firstItem ||
+             level.selected >= ContextMenuLastVisible(app, layout, depth)))
+            level.selected = -1;   // l'Invio esegue quello che si vede, o niente
         return;
     }
 
-    const int capacity = (std::max)(1, ContextMenuVisibleCount(app, layout, 0));
-    menu.firstItem = (std::max)(0, (std::min)(menu.firstItem, (std::max)(0, total - capacity)));
+    const int capacity = (std::max)(1, ContextMenuVisibleCount(app, layout, depth, 0));
+    level.firstItem = (std::max)(0, (std::min)(level.firstItem, (std::max)(0, total - capacity)));
 
-    if (menu.selected < 0)
+    if (level.selected < 0)
         return;
-    if (menu.selected < menu.firstItem)
+    if (level.selected < level.firstItem)
     {
-        menu.firstItem = menu.selected;
+        level.firstItem = level.selected;
         return;
     }
 
     // Si avanza finche' la voce scelta non entra: quante ne entrano dipende da
     // dove si comincia, perche' un separatore non e' alto quanto una voce.
-    while (menu.firstItem < menu.selected &&
-           menu.firstItem + ContextMenuVisibleCount(app, layout, menu.firstItem) <= menu.selected)
-        ++menu.firstItem;
-    menu.firstItem = (std::min)(menu.firstItem, menu.selected);
+    while (level.firstItem < level.selected &&
+           level.firstItem + ContextMenuVisibleCount(app, layout, depth, level.firstItem) <=
+               level.selected)
+        ++level.firstItem;
+    level.firstItem = (std::min)(level.firstItem, level.selected);
 }
 
 // --- verbi della shell nel menu contestuale ---------------------------------
