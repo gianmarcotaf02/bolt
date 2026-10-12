@@ -40,6 +40,7 @@
 // Dopo windows.h, come vuole la SDK: le PROPERTYKEY si appoggiano ai tipi di
 // sistema. Serve per le proprieta' che il file system non dice.
 #include <propkey.h>
+#include <propvarutil.h>
 #include <windowsx.h>
 
 #include <algorithm>
@@ -370,6 +371,16 @@ struct ContextMenu
     bool shellIsBackground = false;
 };
 
+// Le proprieta' che il file system non dice. Le dimensioni di un'immagine stanno
+// nell'intestazione del file e le sa il gestore di quel tipo: e' quello che
+// risponde `IPropertyStore`, ed e' la stessa fonte da cui Windows riempie le
+// colonne. Si legge una volta per percorso e si tiene.
+struct FileProperties
+{
+    uint32_t imageWidth = 0;
+    uint32_t imageHeight = 0;
+};
+
 struct AppState
 {
     // Il contesto di disegno della finestra, per poter disegnare un fotogramma
@@ -617,16 +628,6 @@ uint64_t FileTimeToUint64(const FILETIME& fileTime)
 
 // Truncates |text| with a trailing ellipsis so it cannot spill into the next
 // column. The renderer has no scissor rectangle, so fitting has to happen here.
-// Le proprieta' che il file system non dice. Le dimensioni di un'immagine stanno
-// nell'intestazione del file e le sa il gestore di quel tipo: e' quello che
-// risponde `IPropertyStore`, ed e' la stessa fonte da cui Windows riempie le
-// colonne. Si legge una volta per percorso e si tiene.
-struct FileProperties
-{
-    uint32_t imageWidth = 0;
-    uint32_t imageHeight = 0;
-};
-
 const FileProperties& PropertiesOf(AppState& app, const std::wstring& path)
 {
     const auto cached = app.fileProperties.find(path);
@@ -641,14 +642,18 @@ const FileProperties& PropertiesOf(AppState& app, const std::wstring& path)
         store != nullptr)
     {
         PROPVARIANT value;
+        ULONG number = 0;
+
         PropVariantInit(&value);
-        if (SUCCEEDED(store->GetValue(PKEY_Image_HorizontalSize, &value)))
-            VariantToUInt32(value, &properties.imageWidth);
+        if (SUCCEEDED(store->GetValue(PKEY_Image_HorizontalSize, &value)) &&
+            SUCCEEDED(VariantToUInt32(value, &number)))
+            properties.imageWidth = number;
         PropVariantClear(&value);
 
         PropVariantInit(&value);
-        if (SUCCEEDED(store->GetValue(PKEY_Image_VerticalSize, &value)))
-            VariantToUInt32(value, &properties.imageHeight);
+        if (SUCCEEDED(store->GetValue(PKEY_Image_VerticalSize, &value)) &&
+            SUCCEEDED(VariantToUInt32(value, &number)))
+            properties.imageHeight = number;
         PropVariantClear(&value);
 
         store->Release();
