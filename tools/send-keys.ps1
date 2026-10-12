@@ -65,6 +65,7 @@ switch ($Action) {
     'escape' { [BoltKeys]::Key(0x1B) }
     'delete' { [BoltKeys]::Key(0x2E) }
     'f2'     { [BoltKeys]::Key(0x71) }
+    'f5'     { [BoltKeys]::Key(0x74) }
     'down'   { [BoltKeys]::Key(0x28) }
     'up'     { [BoltKeys]::Key(0x26) }
     'left'   { [BoltKeys]::Key(0x25) }
