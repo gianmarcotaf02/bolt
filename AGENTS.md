@@ -96,7 +96,7 @@ interroga il grafo.**
 ```bash
 graphify query "chi decide il layout della lista?"     # contesto ampio
 graphify query "..." --dfs                             # traccia un percorso
-(graphify path "AppState" "UIRenderer")                # cammino più breve
+graphify path "AppState" "UIRenderer"                  # cammino più breve
 graphify explain "GroupMenu"                           # spiegazione di un nodo
 ```
 
