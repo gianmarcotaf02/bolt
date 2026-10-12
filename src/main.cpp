@@ -2762,6 +2762,100 @@ void DrawList(AppState& app, const Layout& layout, const float* columnX)
     }
 }
 
+// L'immagine grande dell'inspector: si decodifica quando cambia la voce scelta, e si
+// carica nello strato una volta sola. La miniatura della shell arriva a 128 px e va
+// bene per un'icona; qui il file si decodifica davvero, e ingrandirlo e' poi solo
+// geometria di un quad.
+//
+// Si prova a decodificare solo per le estensioni che sono immagini: tentare su ogni
+// file vorrebbe dire far aprire a WIC anche quello che non e' un'immagine, e su un
+// JPEG da dieci megapixel la decodifica si sente.
+bool LooksLikeImage(const std::string& extension)
+{
+    static const char* const kImageExtensions[] = {
+        "jpg", "jpeg", "jpe", "png", "bmp", "gif", "tif", "tiff", "webp", "avif", "heic", "heif",
+        "jfif", "ico",
+    };
+    for (const char* candidate : kImageExtensions)
+    {
+        if (extension == candidate)
+            return true;
+    }
+    return false;
+}
+
+void EnsureBigImage(AppState& app)
+{
+    const int cursorIndex = CursorIndex(app);
+    std::wstring path;
+    if (cursorIndex >= 0)
+    {
+        const Entry& entry = app.entries[static_cast<size_t>(cursorIndex)];
+        if (!entry.isDirectory && entry.location.empty() && LooksLikeImage(entry.extension))
+            path = JoinPath(app.directory, entry.wideName);
+    }
+
+    if (path == app.bigImagePath)
+        return;
+
+    app.bigImagePath     = path;
+    app.bigImage         = path.empty() ? ImagePreview::Image{} : ImagePreview::Load(path, kBigImageSide);
+    app.bigImageUploaded = false;
+    app.imageZoom        = 1.0f;
+}
+
+// Disegna l'anteprima nell'area data, adattata e con l'ingrandimento scelto. Restituisce
+// falso se non c'e' niente da disegnare, cosi' chi chiama sa che lo spazio resta al
+// visualizzatore di testo o alle righe.
+bool DrawBigImage(AppState& app, const Layout& layout, const Rect& area, float* usedHeight)
+{
+    if (!app.bigImage.Valid() || area.w < 40.0f || area.h < 40.0f)
+        return false;
+
+    if (!app.bigImageUploaded)
+    {
+        app.renderer.UploadLayerRegion(kBigImageLayer, app.bigImage.rgba.data(), app.bigImage.width,
+                                       app.bigImage.height, 0, 0);
+        app.bigImageUploaded = true;
+    }
+
+    // Adattata allo spazio, poi ingrandita: il fattore non scende sotto quello che fa
+    // entrare l'immagine, cosi' "zoom indietro" non la fa uscire dal pannello.
+    const float fit = (std::min)(area.w / static_cast<float>(app.bigImage.width),
+                                 area.h / static_cast<float>(app.bigImage.height));
+    const float scale = (std::max)(fit, fit * app.imageZoom);
+    const float width  = static_cast<float>(app.bigImage.width) * scale;
+    const float height = static_cast<float>(app.bigImage.height) * scale;
+
+    UIRenderer& r = app.renderer;
+    const Theme& t = app.theme;
+    const Rect frame{area.x, area.y, area.w, (std::min)(area.h, height + 8.0f * layout.scale)};
+    r.Draw(UIDraw::Fill(frame, Color::FromHex(0x131417), 6.0f * layout.scale));
+
+    // Il quad si disegna solo per la parte che entra: con l'ingrandimento acceso
+    // l'immagine puo' essere piu' larga del pannello, e lasciarla uscire la farebbe
+    // disegnare sopra il resto della finestra.
+    const float visibleWidth  = (std::min)(width, area.w);
+    const float visibleHeight = (std::min)(height, frame.h - 8.0f * layout.scale);
+    const Rect picture{area.x + (area.w - visibleWidth) * 0.5f,
+                       frame.y + (frame.h - visibleHeight) * 0.5f, visibleWidth, visibleHeight};
+    const float u = (app.bigImage.width > 0)
+                        ? (visibleWidth / width) * static_cast<float>(app.bigImage.width) /
+                              static_cast<float>(kBigImageSide)
+                        : 0.0f;
+    const float v = (app.bigImage.height > 0)
+                        ? (visibleHeight / height) * static_cast<float>(app.bigImage.height) /
+                              static_cast<float>(kBigImageSide)
+                        : 0.0f;
+    r.Draw(UIDraw::Image(picture, Color{1.0f, 1.0f, 1.0f, 1.0f}, static_cast<float>(kBigImageLayer),
+                         0.0f, 0.0f, u, v));
+    r.Draw(UIDraw::Border(frame, t.panelBorder, 1.0f, 6.0f * layout.scale));
+
+    if (usedHeight != nullptr)
+        *usedHeight = frame.h + 10.0f * layout.scale;
+    return true;
+}
+
 // --- visualizzatore di testo (M8) -------------------------------------------
 //
 // Tre passi, e ognuno ha una ragione: il **documento** si legge quando la voce
@@ -3120,9 +3214,21 @@ void DrawInspector(AppState& app, const Layout& layout)
     const ShellPreviewCache::State previewState =
         app.previews.Query(EntryLocation(app, entry), entry.extension, &preview);
 
+    // L'anteprima grande: il file decodificato davvero, adattato al pannello e
+    // ingrandibile. Prende il posto della miniatura da 128 px, che per una fotografia
+    // e' un'icona piu' grande, non un'anteprima.
+    EnsureBigImage(app);
+    const Rect previewArea{layout.inspector.x + 14.0f * scale, y,
+                           layout.inspector.w - 28.0f * scale,
+                           (std::min)(260.0f * scale, layout.inspector.h * 0.42f)};
+    float imageHeight = 0.0f;
+    const bool hasBigImage = DrawBigImage(app, layout, previewArea, &imageHeight);
+    if (hasBigImage)
+        y += imageHeight;
+
     // Per un file di testo la miniatura della shell e' un'icona di documento: lo
     // spazio serve al testo, che e' l'anteprima vera.
-    if (previewState == ShellPreviewCache::State::Ready && !app.textDocument.isText)
+    if (!hasBigImage && previewState == ShellPreviewCache::State::Ready && !app.textDocument.isText)
     {
         // A ready thumbnail gets the width of the panel and pushes the name
         // underneath it: this is the one place large enough to be worth looking at.
