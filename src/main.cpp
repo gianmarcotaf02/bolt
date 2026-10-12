@@ -4122,9 +4122,15 @@ void SendToTargets(AppState& app, size_t index, const std::vector<std::wstring>&
     if (!ShellExecuteExW(&info))
     {
         // Un'azione che fallisce in silenzio e' peggio di una che non parte.
+        // Nel registro va l'indice e il codice d'errore, **non l'etichetta**: le
+        // destinazioni dicono quali programmi ha installato chi usa il computer.
+        DiagLog("  invio a voce " + std::to_string(index) + ": non avviata, errore " +
+                std::to_string(GetLastError()));
         ReportStatus(app, L"\"" + targets[index].label + L"\" non si e' potuto avviare.");
         return;
     }
+
+    DiagLog("  invio a voce " + std::to_string(index) + ": avviata");
 
     // "Avviato", non "fatto": la destinazione puo' copiare, comprimere o aprire
     // una finestra sua, e il suo esito non e' nostro da dichiarare.
