@@ -4,7 +4,7 @@ Documento di lavoro, non di progetto: serve a riprendere senza rileggere la
 conversazione. Aggiornarlo è l'ultima cosa da fare prima di una pausa lunga o di
 una compattazione del contesto.
 
-Ultimo aggiornamento: dopo il nucleo di M7 (operazioni su file).
+Ultimo aggiornamento: dopo il menu contestuale e il requisito di privacy.
 
 ---
 
@@ -20,13 +20,14 @@ Ultimo aggiornamento: dopo il nucleo di M7 (operazioni su file).
 | M5c — modalità di visualizzazione | 🟡 manca il raggruppamento in griglia |
 | M5d — sovrappasso del mouse | 🟡 evidenzia righe e celle; mancano `HoverToSelect`, `UnderlineOnHover`, `ShowTooltips` |
 | M6 — tab, barra del titolo, palette, GoTo | 🟡 fatti tab, titolo, palette, GoTo; mancano quick access pinnato, drag&drop e albero dei tab |
-| M7 — operazioni su file | 🟡 nucleo solido: copia, sposta, rinomina, cestino, clipboard interoperabile. Mancano drag&drop, menu contestuale e ripristino dal cestino, che dipende dal browsing dello spazio dei nomi |
+| M7 — operazioni su file | 🟡 copia, sposta, rinomina, cestino, clipboard interoperabile, **menu contestuale** con Proprietà di Windows. Mancano drag&drop, i verbi della shell nel menu e il ripristino dal cestino |
 | M8 — inspector completo | ⬜ |
-| M9 — configurazione e temi | ⬜ |
+| M9 — configurazione e temi | ⬜ **vincolata**: niente file di impostazioni, vedi `docs/06` |
 | M10 — backend D3D11 | ⬜ |
 
 L'applicazione è **usabile**: si naviga, si filtra, si raggruppa, si seleziona, si
-aprono tab, si salta con GoTo, si guardano anteprime e statistiche ricorsive.
+aprono tab, si salta con GoTo, si guardano anteprime e statistiche ricorsive, e si
+lavorano i file — inclusa l'apertura delle proprietà di Windows.
 
 ---
 
@@ -34,10 +35,11 @@ aprono tab, si salta con GoTo, si guardano anteprime e statistiche ricorsive.
 
 Ordinato per quanto morde.
 
-1. **`src/main.cpp` è a ~3.860 righe.** Il confine del componente a gruppi
-   (`GroupMenu`) esiste ed è pulito, ma vive nello stesso file. Spezzarlo richiede
-   che `AppState` e i tipi condivisi escano dall'anonimo namespace in un header:
-   è un lavoro meccanico ma largo, e va fatto quando c'è spazio per riverificare
+1. **`src/main.cpp` è a ~4.500 righe.** I confini dei componenti ci sono
+   (`GroupMenu`, `ContextMenu`, `file_ops`, `dir_stats`) ma vivono tutti nello
+   stesso file. Spezzarlo richiede che `AppState` e i tipi condivisi escano
+   dall'anonimo namespace in un header: è un lavoro meccanico ma largo, e va fatto
+   quando c'è spazio per riverificare
    tutto.
 2. **Nessun controllo di versione locale.** Il repository è su GitHub
    (`gianmarcotaf02/bolt`) e il sistema salva con commit automatici a ogni turno,
@@ -53,28 +55,36 @@ Ordinato per quanto morde.
 
 In ordine di valore, non di facilità.
 
-1. **Il resto di M7** — drag&drop in ingresso e in uscita, menu contestuale della
-   shell. Il menu contestuale porta con sé il **terzo contesto** del componente a
-   gruppi, che è il momento giusto per spostarlo in un file suo.
-2. **Il browsing dello spazio dei nomi** — è il prerequisito vero del ripristino
+1. **I verbi della shell nel menu contestuale** — `Apri con`, `Invia a` e le voci
+   delle estensioni installate. Oggi il menu ha i nostri comandi più Proprietà;
+   per il resto servono `IContextMenu` e la gestione dei **sottomenu**, che è la
+   parte davvero complicata. È il completamento naturale di ciò che c'è.
+2. **Drag&drop in ingresso e in uscita** con descrizione. In ingresso è
+   `RegisterDragDrop` + `IDropTarget`; in uscita `IDataObject`. **Attenzione:**
+   un trascinamento OLE non si riesce a simulare come si simula un clic, quindi
+   va progettato in modo da poter essere verificato a pezzi.
+3. **Il browsing dello spazio dei nomi** — è il prerequisito vero del ripristino
    dal cestino: la nostra navigazione è basata sui percorsi, il cestino è fatto di
    PIDL. Senza questo, il ripristino sarebbe un imballaggio sopra una funzione che
    manca. Vedi `docs/04-roadmap.md`, sezione M7.
-3. **M8 — inspector completo** — proprietà estese (`PROPSYS`), anteprima immagine
+4. **M8 — inspector completo** — proprietà estese (`PROPSYS`), anteprima immagine
    con zoom, visualizzatore di testo con minimap e numeri di riga.
-4. **M9 — configurazione e temi** — i tre file JSON, la mappa tasti sui 319
-   comandi, i 35 token di tema. È anche dove i **recenti e i segnalibri** smettono
-   di essere di sola sessione (`StoreRecents: Persistent`).
-5. **Raggruppamento in griglia** e **ridimensionamento continuo** della cella.
-6. **Il resto di M5d** — `HoverToSelect`, `UnderlineOnHover` e `ShowTooltips`,
+5. **M9 — configurazione e temi** — **vincolata da `docs/06`**: niente file di
+   impostazioni, tutto in memoria. Restano la mappa tasti sui 319 comandi e i 35
+   token di tema.
+6. **Raggruppamento in griglia** e **ridimensionamento continuo** della cella.
+7. **Il resto di M5d** — `HoverToSelect`, `UnderlineOnHover` e `ShowTooltips`,
    più le altre chiavi di interazione dello spec. Vedi `docs/04-roadmap.md`.
-7. **Spezzare `main.cpp`** — ormai sono ~4.300 righe e cinque moduli esterni
-   (`file_ops`, `dir_stats`, `shell_icons`, `shell_preview`, `font_atlas`): il
-   confine c'è, ma il file che lo contiene è diventato il collo di bottiglia.
+8. **Spezzare `main.cpp`** — ~4.500 righe e otto moduli: il confine c'è, ma il
+   file che lo contiene è diventato il collo di bottiglia.
 
 ---
 
 ## 4. Come si costruisce e si verifica
+
+> **Prima di qualunque prova: `AGENTS.md` §0.** Nessun file personale va toccato,
+> e nessuna informazione personale va salvata. Le prove si fanno nella sandbox
+> del progetto, creata con `tools/make-test-sandbox.ps1`.
 
 Non c'è `cmake` nel PATH della shell. Il percorso è:
 
