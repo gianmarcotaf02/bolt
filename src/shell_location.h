@@ -85,4 +85,21 @@ struct Item
 // Le voci della cartella. Vuoto con |error| pieno se non si apre: una cartella che
 // non si apre e' un'informazione, non un elenco vuoto.
 std::vector<Item> Read(const std::wstring& location, std::string* error);
+
+// Una colonna come la mostra la shell: nome e valore.
+struct Column
+{
+    std::wstring title;
+    std::wstring value;
+};
+
+// **Tutte** le colonne che la shell ha per una voce, con i nomi che usa lei. Per un
+// file riciclato sono "Posizione originale", "Data eliminazione" e il tipo — cose
+// che non sono proprieta' di sistema (`propkey.h` non le ha) e che quindi non si
+// possono chiedere come le altre: si chiedono alla cartella del cestino, che le ha.
+//
+// Si leggono tutte invece di sceglierne due per numero: l'ordine delle colonne e'
+// fisso ma i nomi sono tradotti, e cercare "la seconda" sarebbe indovinare — su una
+// macchina in un'altra lingua l'indovinello cambierebbe risposta.
+std::vector<Column> Columns(const std::vector<BYTE>& pidl);
 } // namespace ShellLocation

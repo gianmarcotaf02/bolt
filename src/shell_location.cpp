@@ -260,6 +260,62 @@ std::wstring ParentOf(const std::wstring& location)
     return parent;
 }
 
+std::vector<Column> Columns(const std::vector<BYTE>& pidl)
+{
+    std::vector<Column> columns;
+    if (pidl.empty())
+        return columns;
+
+    PCUIDLIST_ABSOLUTE absolute = reinterpret_cast<PCUIDLIST_ABSOLUTE>(pidl.data());
+    IShellFolder* folder = nullptr;
+    PCUITEMID_CHILD child = nullptr;
+    if (FAILED(SHBindToParent(absolute, IID_IShellFolder, reinterpret_cast<void**>(&folder), &child)) ||
+        folder == nullptr || child == nullptr)
+        return columns;
+
+    IShellFolder2* folder2 = nullptr;
+    folder->QueryInterface(IID_IShellFolder2, reinterpret_cast<void**>(&folder2));
+
+    if (folder2 != nullptr)
+    {
+        // Quante colonne: si va avanti finche' la shell da' un nome. Non c'e' un
+        // "quante sono", e chiederlo a un indice di troppo risponde con un nome vuoto
+        // invece che con un errore.
+        for (int index = 0; index < 24; ++index)
+        {
+            SHELLDETAILS title{};
+            if (FAILED(folder2->GetDetailsOf(nullptr, index, &title)))
+                break;
+
+            wchar_t titleText[256]{};
+            if (FAILED(StrRetToBufW(&title.str, nullptr, titleText, 256)) || titleText[0] == L' ')
+                break;
+
+            // Il nome della voce lo si mostra gia': ripeterlo in una riga "Name" e'
+            // una riga in piu' con dentro la stessa parola.
+            if (_wcsicmp(titleText, L"Name") == 0 || _wcsicmp(titleText, L"Nome") == 0)
+                continue;
+
+            SHELLDETAILS details{};
+            if (FAILED(folder2->GetDetailsOf(child, index, &details)))
+                continue;
+
+            wchar_t valueText[512]{};
+            if (FAILED(StrRetToBufW(&details.str, child, valueText, 512)) || valueText[0] == L' ')
+                continue;
+
+            Column column;
+            column.title = titleText;
+            column.value = valueText;
+            columns.push_back(std::move(column));
+        }
+        folder2->Release();
+    }
+
+    folder->Release();
+    return columns;
+}
+
 std::vector<Item> Read(const std::wstring& location, std::string* error)
 {
     std::vector<Item> items;
