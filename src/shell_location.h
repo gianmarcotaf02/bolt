@@ -1,0 +1,65 @@
+// ---------------------------------------------------------------------------
+// Le cartelle che non sono percorsi.
+//
+// Il cestino, "Questo PC", il pannello di controllo: la shell li chiama *spazio
+// dei nomi*, e non hanno un percorso di file. Si raggiungono con un nome che
+// comincia per `::` — `::{645FF040-5081-101B-9F08-00AA002F954E}` e' il cestino —
+// e si aprono con `SHParseDisplayName`, che quel nome lo sa leggere.
+//
+// Modo per ricostruirlo senza scriverne i CLSID a mano:
+//
+//     SHGetKnownFolderIDList(FOLDERID_RecycleBinFolder, ...)  -> PIDL
+//     SHGetNameFromIDList(pidl, SIGDN_DESKTOPABSOLUTEPARSING) -> "::{...}"
+//
+// Perche' serve: **il cestino e' l'unica cartella in cui "ripristina" esiste**, e
+// il ripristino e' una voce del menu contestuale della shell sul singolo oggetto.
+// Con la navigazione per percorso quella cartella era irraggiungibile, e con essa
+// il ripristino — che era fermo da M7 proprio per questo.
+//
+// Qui si legge l'elenco. La conversione in `Entry` e tutto il resto — lista,
+// ordinamento, filtro, gruppi — stanno in `main.cpp`, e da li' in poi queste voci
+// sono voci come le altre: e' l'unico modo di non avere due liste diverse.
+//
+// Quello che NON si fa, e va detto: sui nomi di spazio dei nomi le operazioni per
+// percorso (copia, taglia, elimina, rinomina) non valgono. Li' si usano i verbi
+// della shell, che quegli oggetti li conoscono.
+// ---------------------------------------------------------------------------
+#pragma once
+
+#include <windows.h>
+#include <shobjidl.h>
+
+#include <string>
+#include <vector>
+
+namespace ShellLocation
+{
+// Vero se |location| non e' un percorso di file. Il prefisso `::` e' come la shell
+// scrive i nomi dello spazio dei nomi.
+bool IsNamespace(const std::wstring& location);
+
+// Il nome da mostrare — "Cestino" dove un percorso mostrerebbe se stesso. Vuoto
+// se la shell non riconosce la posizione.
+std::wstring DisplayName(const std::wstring& location);
+
+// Il nome di spazio dei nomi di una cartella nota, cosi' "Cestino" non ha un CLSID
+// scritto dentro il nostro codice.
+std::wstring ParsingNameOf(REFKNOWNFOLDERID id);
+
+struct Item
+{
+    std::wstring name;      // come si vede nella lista
+    std::wstring location;  // nome assoluto: per navigarci, e per i verbi della shell
+    std::string  extension;
+    std::string  typeText;
+    std::string  sizeText;
+    std::string  modifiedText;
+    std::string  modifiedFull;
+    uint64_t     bytes = 0;
+    bool         isDirectory = false;
+};
+
+// Le voci della cartella. Vuoto con |error| pieno se non si apre: una cartella che
+// non si apre e' un'informazione, non un elenco vuoto.
+std::vector<Item> Read(const std::wstring& location, std::string* error);
+} // namespace ShellLocation
