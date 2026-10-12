@@ -395,7 +395,7 @@ Tre regole che ne derivano:
 
 ## 8. Architettura in breve
 
-**Un solo array di texture** (1024 px, **5 strati**), **un quad batcher**, **una
+**Un solo array di texture** (1024 px, **6 strati**), **un quad batcher**, **una
 draw call per frame**.
 
 | strato | contenuto |
@@ -405,6 +405,7 @@ draw call per frame**.
 | 2 | anteprime dei file (cella 128, cache 64) |
 | 3 | glifi secondari, 13 px |
 | 4 | glifi del testo, 14 px a spaziatura fissa (Consolas) |
+| 5 | l'immagine dell'anteprima grande, fino a 1024 px |
 
 Le forme sono disegnate da uno shader **SDF** (`src/shaders/ui.frag`), quindi ogni
 rettangolo ha bordi continui a qualunque dimensione.
@@ -419,6 +420,7 @@ rettangolo ha bordi continui a qualunque dimensione.
 | `src/shell_icons.*` | icone di sistema → strato 1 |
 | `src/drag_drop.*` | trascinamento OLE: `IDropTarget` sulla finestra, `IDropSource` per portare fuori |
 | `src/diag.*` | registro diagnostico (`BOLT_DIAG=1` → `bolt-diag.log`) |
+| `src/image_preview.*` | decodifica di un'immagine via WIC, ridimensionata per l'anteprima grande |
 | `src/text_view.*` | decodifica di un file di testo: codifica, righe, terminatori, rifiuto dei binari |
 | `src/shell_location.*` | le cartelle che non sono percorsi (cestino, Questo PC): enumerazione, nomi, PIDL |
 | `src/shell_new.*` | i modelli del menu "Nuovo": chiavi `ShellNew` del registro, etichette risolte con `SHLoadIndirectString` |

@@ -25,7 +25,7 @@ contenuto), **`Invia a >`** (destinazioni della cartella SendTo, eseguite lascia
 cadere sopra la selezione), **drag&drop dentro e fuori** con OLE e la **navigazione
 nello spazio dei nomi** col **ripristino dal cestino**. Mancano il trascinamento sul
 riquadro di navigazione e le cartelle riciclate (che si ripristinano, non si aprono) |
-| M8 — inspector | ✅ metadati (creazione, modifica, accesso, percorso), proprietà `PROPSYS` (dimensioni immagine, file system e spazio dei volumi), conteggio per tipo, e il **visualizzatore di testo** (righe, minimap, spazi visibili, andare a capo, ingrandimento, codifica e terminatori). Due voci dichiarate non fatte: zoom dell'anteprima immagine e le due etichette del cestino |
+| M8 — inspector | ✅ metadati, proprietà `PROPSYS`, conteggio per tipo, **visualizzatore di testo** (righe, minimap, spazi visibili, andare a capo, ingrandimento, codifica) e **anteprima immagine** decodificata con adattamento e ingrandimento. Le voci di spazio dei nomi mostrano le colonne della shell (percorso originale, data di eliminazione). Unica chiave non ricostruita: `InspectorHideGrid` |
 | M9 — configurazione e temi | ⬜ **vincolata**: niente file di impostazioni, vedi `docs/06` |
 | M10 — backend D3D11 | ⬜ |
 
@@ -73,10 +73,8 @@ In ordine di valore, non di facilità.
 5. **Colonne ridimensionabili e filtri per colonna** — nel riferimento ci sono
    entrambi: le intestazioni hanno un'icona di filtro e i bordi si trascinano. Qui
    le colonne sono frazioni fisse della larghezza.
-6. **Le due voci di M8 dichiarate non fatte**: lo zoom dell'anteprima immagine (la
-   cella dell'atlante è da 128 px, serve una texture sua) e le due etichette del
-   cestino (percorso originale e data di eliminazione: il cestino le dà per colonna,
-   non come proprietà di sistema).
+6. **`InspectorHideGrid`** — la sola chiave di M8 che resta senza risposta: cosa sia
+   la griglia dell'inspector non è ricostruito, e non si inventa.
 7. **Il resto di M5c e M5d** — raggruppamento in griglia, `HoverToSelect`,
    `UnderlineOnHover`, `ShowTooltips`.
 8. **Drag&drop e albero dei tab** (`TabDropMarker_*`, `CloseInTree`).

@@ -891,12 +891,16 @@ incollato un file al suo interno e essere risaliti mostra `0 | 1 | 5 B`.
       `InspectorZoomLevel`
 - [x] rilevamento della codifica (UTF-8, UTF-8 con BOM, UTF-16 LE e BE, ANSI) e
       conteggio delle righe, con i terminatori (`CRLF`, `LF`, `CR`, `misto`)
-- [ ] anteprima immagine con **zoom e adattamento** — dichiarata non fatta, e la
-      ragione è nel codice: la miniatura della shell vive in una cella da 128 px
-      dell'atlante, quindi ingrandirla mostrerebbe 128 px allargati. Serve una
-      texture sua, cioè una modifica al renderer, non all'inspector
-- [ ] le 20 etichette `PanelInspector_Label*` al completo: mancano percorso
-      originale e data di eliminazione, che il cestino dà solo per colonna
+- [x] **anteprima immagine con zoom e adattamento**: il file si decodifica davvero
+      (WIC, quindi JPEG, PNG, BMP, GIF, TIFF e i codec installati) e si carica in un
+      **sesto strato** dell'array, da 1024 px. Niente secondo campionatore e niente
+      ramo nello shader: ingrandire è geometria di un quad
+- [x] le 20 etichette `PanelInspector_Label*`: percorso originale e data di
+      eliminazione arrivano dalle **colonne della shell**, con i nomi che usa lei —
+      per una voce di spazio dei nomi l'inspector mostra *le sue* colonne, che sono
+      la sua vista di quell'oggetto, invece di ripetere metà delle nostre
+- [ ] `InspectorHideGrid`: la chiave esiste, e cosa sia la "griglia" dell'inspector
+      non è ricostruito. Non si inventa
 
 *Stima: 3 settimane.* Il rasterizzatore di font proprio dell'originale
 (`WinFontRasterizer.cpp`) resta fuori perimetro: GDI è sufficiente.
