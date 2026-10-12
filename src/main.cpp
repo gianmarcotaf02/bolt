@@ -3516,7 +3516,14 @@ void DrawTextViewer(AppState& app, const Layout& layout, const Rect& area)
 
     const float lineHeight = font.LineHeight() * textScale;
     const float content = static_cast<float>(app.textRows.size()) * lineHeight;
-    app.textScroll = (std::min)((std::max)(0.0f, content - text.h), app.textScroll);
+    // Il limite e' **due**: sotto zero non si scorre, e oltre `content - text.h`
+    // nemmeno. Prima ce n'era uno solo scritto al contrario — `min(max(0, content -
+    // text.h), scroll)` limita solo in alto, e il `max(0, ...)` era applicato al
+    // limite invece che allo scorrimento. Scorrendo la rotella verso l'alto oltre
+    // l'inizio, `textScroll` diventava negativo e li' restava: il testo veniva
+    // spinto verso il basso fino a sparire, e la fascia della minimap usciva dal
+    // suo riquadro e finiva sopra il pannello. Trovato dall'autore, guardando.
+    app.textScroll = (std::max)(0.0f, (std::min)(app.textScroll, content - text.h));
 
     const int first = (std::max)(0, static_cast<int>(app.textScroll / lineHeight) - 1);
     const int last = (std::min)(static_cast<int>(app.textRows.size()),
