@@ -19,7 +19,7 @@ Ultimo aggiornamento: dopo dragUltimo aggiornamento: dopo "Nuovo file >" e "Invi
 | M5 — filtro, ordinamento, raggruppamento, selezione | ✅ |
 | M5c — modalità di visualizzazione | 🟡 manca il raggruppamento in griglia |
 | M5d — sovrappasso del mouse | 🟡 evidenzia righe e celle; mancano `HoverToSelect`, `UnderlineOnHover`, `ShowTooltips` |
-| M6 — tab, barra del titolo, palette, GoTo | 🟡 fatti tab, titolo, palette, GoTo; mancano quick access pinnato, drag&drop e albero dei tab |
+| M6 — tab, barra del titolo, palette, GoTo | 🟡 fatti tab, titolo, palette, GoTo, **barra laterale a sezioni** (fissaggi, segnalibri, volumi, cartelle standard) e **pulsanti di navigazione**; mancano drag&drop e albero dei tab |
 | M7 — operazioni su file | 🟡 copia, sposta, rinomina, cestino, clipboard interoperabile, **menu contestuale a più livelli** con Proprietà di Windows, le **voci di primo livello della shell**, il **menu della cartella** sul fondo, i **sottomenu delle estensioni**, **`Nuovo file >`** (tipi dal registro, creazione con
 contenuto), **`Invia a >`** (destinazioni della cartella SendTo, eseguite lasciandoci
 cadere sopra la selezione), **drag&drop dentro e fuori** con OLE e la **navigazione
@@ -63,7 +63,10 @@ In ordine di valore, non di facilità.
    cadere su una riga di cartella e sul fondo della lista, non sui collegamenti
    della barra laterale: il meccanismo c'è (`docs/02` §7.22), manca il bersaglio.
    Con quello, trascinare qualcosa **sul cestino** diventa il gesto per buttarlo via.
-2. **Trascinare fuori dalle cartelle di spazio dei nomi** — oggi è rifiutato con un
+2. **Colonne ridimensionabili e filtri per colonna** — nel riferimento ci sono
+   entrambi: le intestazioni hanno un'icona di filtro e i bordi si trascinano. Qui
+   le colonne sono frazioni fisse della larghezza.
+3. **Trascinare fuori dalle cartelle di spazio dei nomi** — oggi è rifiutato con un
    messaggio, e la ragione è scritta (`docs/02` §7.25): l'oggetto dati si costruisce
    dai nomi. Con i PIDL che ormai si hanno in mano si può fare, ed è il passo che
    chiude il cerchio.
@@ -222,6 +225,13 @@ Windows 11 si registrano solo dalla seconda apertura, quindi la stessa voce sta 
 un indice diverso fra il primo e il secondo tasto destro. Contare le frecce con un
 numero fisso sbaglia voce; per una voce precisa si legge il registro diagnostico
 dell'apertura in corso, e si naviga con `Fine` e le frecce.
+
+**Un nome di file si prova anche con un accento dentro.** È il difetto che nessuna
+prova aveva visto, perché i nomi di prova erano tutti ASCII: `perché.txt` si
+disegnava `perch .txt`, e la cosa non dipendeva dal nome del file ma
+dall'**atlante dei glifi**, che era ASCII puro (`docs/02` §7.29). Un file manager
+italiano senza lettere accentate è rotto per metà dei documenti di chi lo usa, e il
+modo di accorgersene è scrivere un nome come lo scriverebbe una persona.
 
 **Trascinare si prova fotografando a metà gesto.** Un trascinamento è un gesto
 continuo: la sua evidenza visiva — la destinazione tratteggiata — esiste solo

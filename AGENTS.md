@@ -60,6 +60,15 @@ nomi di quello che è stato buttato da qualcuno, e una cattura li copia. Quindi:
 - mai una cattura del cestino senza filtro. È già successo il 2026-10-12: due
   catture, cancellate subito, e la lezione sta in `docs/05`.
 
+### Il riferimento di File Pilot
+
+Sul Desktop dell'autore c'è una cattura del prodotto originale, `file pilot.png`,
+usata come confronto di funzioni e grafica. **Si apre solo quando l'autore lo
+chiede**, mai di iniziativa: mostra le cartelle personali di chi lavora, e una
+cattura è una copia. Non si copia nel repository, non se ne citano i nomi che si
+vedono dentro, e se ne prendono solo le **decisioni di interfaccia** — quali
+pannelli esistono, cosa mostrano, dove stanno.
+
 ---
 
 ## 1. Cos'è questo progetto
@@ -241,6 +250,10 @@ non si indovinano); `tools/capture-rect.ps1` salva un riquadro senza toccare
 l'ordine delle finestre; `tools/explorer-side.ps1` apre Esplora risorse su una
 cartella **del progetto** e lo mette di fianco.
 
+**Contatori del motore nella barra di stato**: `BOLT_DEV_HUD=1` li rimette
+(fotogrammi, quadrilateri, icone, lavori). Di default la barra mostra quello che
+serve a chi usa il programma.
+
 **Log dei verbi della shell**: `BOLT_DIAG=1` fa scrivere a ogni
 interrogazione di `IContextMenu` le voci trovate, i verbi, quelle saltate e il
 tempo impiegato, in `bolt-diag.log` accanto all'eseguibile. Spento di default,
@@ -300,6 +313,19 @@ Costano tempo, sembrano bug dell'applicazione e non lo sono. Vedi anche §5 di
   accorge subito. **Rileggi sempre il diff riga per riga** dopo una riscrittura
   meccanica: ha trovato errori che nessun test visivo avrebbe attribuito alla
   causa giusta.
+
+### Testo e nomi
+
+- **Un nome di file si prova anche con un accento dentro.** L'atlante dei glifi
+  copre ASCII, latino-1 e pochi simboli; quello che sta fuori si disegna come un
+  **buco**, e un taglio a metà di una sequenza UTF-8 lascia in fondo al nome un
+  carattere che non c'è. Con l'atlante solo-ASCII, `perché.txt` appariva come
+  `perch .txt`, e nessuna prova lo mostrava perché i nomi di prova erano tutti
+  senza accenti. Vedi `docs/02` §7.29.
+- **Un nome di spazio dei nomi sbagliato non dà errore: dà una cartella vuota.** È
+  la forma di guasto peggiore, perché sembra che non ci sia niente da mostrare.
+  Prima di usarlo lo si verifica, e una sezione vuota non si disegna: `docs/02`
+  §7.30.
 
 ### Test
 
@@ -398,7 +424,7 @@ rettangolo ha bordi continui a qualunque dimensione.
 
 - `docs/04-roadmap.md` — le milestone, con le caselle spuntate e i difetti aperti.
 - `docs/05-stato-e-prossimi-passi.md` — dove si è arrivati, cosa resta, le trappole.
-- `docs/02-architettura-ricostruita.md` — l'architettura e i **ventotto** difetti
+- `docs/02-architettura-ricostruita.md` — l'architettura e i **trenta** difetti
   trovati e risolti, §7.
 - `docs/03-spec-funzionale.md` — la spec ricostruita dall'originale: 1124 chiavi,
   319 comandi, 35 token di tema, 23 colonne.
