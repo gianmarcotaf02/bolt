@@ -432,15 +432,36 @@ IDataObject* DataObjectFor(const std::vector<std::wstring>& paths)
     return data;
 }
 
-void DragOut(HWND window, const std::vector<std::wstring>& paths, DWORD* effect)
+IDataObject* DataObjectForPidls(const std::vector<const BYTE*>& pidls)
+{
+    if (pidls.empty())
+        return nullptr;
+
+    // La cartella genitore si ricava dal primo: e' quello che fa anche la versione
+    // per percorsi, e per la shell un oggetto dati nasce sempre da un genitore e
+    // dai suoi figli.
+    PIDLIST_ABSOLUTE folder = ILClone(reinterpret_cast<PCUIDLIST_ABSOLUTE>(pidls.front()));
+    if (folder == nullptr)
+        return nullptr;
+    ILRemoveLastID(folder);
+
+    std::vector<PCUITEMID_CHILD> children;
+    children.reserve(pidls.size());
+    for (const BYTE* pidl : pidls)
+        children.push_back(ILFindLastID(reinterpret_cast<PCUIDLIST_ABSOLUTE>(pidl)));
+
+    IDataObject* data = nullptr;
+    SHCreateDataObject(folder, static_cast<UINT>(children.size()), children.data(), nullptr,
+                       IID_IDataObject, reinterpret_cast<void**>(&data));
+    CoTaskMemFree(folder);
+    return data;
+}
+
+void DragOutData(HWND window, IDataObject* data, size_t count, DWORD* effect)
 {
     if (effect == nullptr)
         return;
     *effect = DROPEFFECT_NONE;
-    if (paths.empty())
-        return;
-
-    IDataObject* data = DataObjectFor(paths);
     if (data == nullptr)
         return;
 
@@ -459,13 +480,28 @@ void DragOut(HWND window, const std::vector<std::wstring>& paths, DWORD* effect)
     const DWORD performed = PerformedEffect(data);
     *effect |= performed;
 
-    DiagLog("--- " + DiagClock() + " trascinamento in uscita: " + std::to_string(paths.size()) +
-            " percorsi, effetto restituito " + std::to_string(chosen) + ", esito dichiarato " +
+    DiagLog("--- " + DiagClock() + " trascinamento in uscita: " + std::to_string(count) +
+            " voci, effetto restituito " + std::to_string(chosen) + ", esito dichiarato " +
             std::to_string(performed));
 
     source->Release();
-    data->Release();
     (void)window;   // la finestra serve a OLE, che la conosce dalla registrazione
+}
+
+void DragOut(HWND window, const std::vector<std::wstring>& paths, DWORD* effect)
+{
+    if (effect == nullptr)
+        return;
+    *effect = DROPEFFECT_NONE;
+    if (paths.empty())
+        return;
+
+    IDataObject* data = DataObjectFor(paths);
+    if (data == nullptr)
+        return;
+
+    DragOutData(window, data, paths.size(), effect);
+    data->Release();
 }
 
 bool Register(HWND window)

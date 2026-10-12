@@ -331,6 +331,13 @@ Costano tempo, sembrano bug dell'applicazione e non lo sono. Vedi anche §5 di
   tasti non partono mai: sembra che l'applicazione ignori l'input. Per questo
   esiste `tools/send-keys.ps1`: uno script su file è l'unico modo affidabile di
   ripetere una prova.
+- **`send-mouse.ps1` vuole coordinate CLIENTE, `drag-mouse.ps1` coordinate
+  SCHERMO**, e la ragione è scritta in testa a ciascuno: un clic si ripete anche se
+  la finestra si sposta, un trascinamento attraversa due finestre e le coordinate
+  cliente dell'una non vogliono dire niente per l'altra. Scambiarle non dà un
+  errore: **dà un clic da un'altra parte**, che è peggio, perché sembra che
+  l'applicazione non risponda. Un file di prova è finito sul Desktop di chi lavora
+  proprio così (vedi `docs/05`, §0).
 
 ### Modifiche in massa
 

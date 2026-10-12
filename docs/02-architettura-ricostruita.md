@@ -1133,8 +1133,16 @@ riga. Adesso l'annullamento si dice a schermo ("Operazione annullata"), e ogni
 caduta scrive nel registro cosa ha fatto, quanti elementi e — quando serve — perche'
 non e' riuscita.
 
-Vale anche per l'**incolla**: una volta ne e' partito uno senza che si riuscisse a
-capire da quale gesto, e l'unica traccia era un messaggio che dura quattro secondi.
-La riga di registro adesso c'e'. Il caso resta aperto e dichiarato: l'effetto e'
-stato nullo (il percorso nella clipboard non esisteva piu'), ma la causa non e'
-ricostruita.
+**E il messaggio giusto lo copriva quello sbagliato.** A schermo, buttando via un
+file, si leggeva `Spostati 1 elementi`: la caduta aveva detto `Buttati via 1 elementi
+nel cestino`, e subito dopo la **fine del trascinamento** — che riferisce "Spostati N
+elementi" senza sapere dove sono finiti — aveva sovrascritto il messaggio piu'
+preciso con uno piu' generico. Adesso chi esegue la caduta alza una bandiera, e chi
+chiude il trascinamento parla solo se nessuno l'ha gia' fatto: sa meno, quindi tace.
+
+**Il metodo, in tre righe.** Questa parte e' costata piu' diagnosi che codice, e ogni
+volta per la stessa ragione: un valore letto *dopo* non dimostra niente. Il
+messaggio di stato dura quattro secondi e io l'ho fotografato trenta secondi dopo; il
+registro diagnostico non c'era, e senza di lui l'unica ipotesi era "l'operazione e'
+fallita in silenzio". Con una riga di registro, `esito della caduta: spostamento di 1
+elementi, prodotti 1`, la stessa domanda ha avuto risposta in un minuto.

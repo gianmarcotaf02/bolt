@@ -45,11 +45,21 @@ namespace DragDrop
 // |paths| come oggetto dati della shell. Il chiamante lo rilascia.
 IDataObject* DataObjectFor(const std::vector<std::wstring>& paths);
 
+// Lo stesso, ma da **PIDL** invece che da percorsi. Serve per le cartelle che non
+// sono percorsi: il nome di una voce del cestino e' il percorso del file dentro
+// `$Recycle.Bin`, quindi trascinare quel nome significa trascinare un altro file.
+// Da un PIDL invece la shell sa risalire all'oggetto vero. Il chiamante lo rilascia.
+IDataObject* DataObjectForPidls(const std::vector<const BYTE*>& pidls);
+
 // Trascina |paths| fuori dalla finestra. |effect| riceve quello che la
 // destinazione ha dichiarato: `DROPEFFECT_NONE` se non e' successo niente.
 // `DROPEFFECT_MOVE` dice al chiamante che gli originali non ci sono piu' e la
 // vista e' da rifare.
 void DragOut(HWND window, const std::vector<std::wstring>& paths, DWORD* effect);
+
+// Trascina un oggetto dati gia' costruito: |count| e' quante voci porta, e serve
+// solo al registro diagnostico.
+void DragOutData(HWND window, IDataObject* data, size_t count, DWORD* effect);
 
 // --- verso l'interno --------------------------------------------------------
 

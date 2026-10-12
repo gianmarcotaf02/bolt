@@ -235,6 +235,16 @@ ritagli delle prove si tagliano sulla lista dei file, non sulla finestra intera.
 Per lo stesso motivo le destinazioni di "Invia a" non finiscono nel registro
 diagnostico — si contano, non si trascrivono.
 
+**Un file di prova è finito sul Desktop di chi lavora.** È successo provando il
+trascinamento sul cestino: `QUICK ACCESS` era rimasto aperto, quindi la riga a
+quell'`y` non era "Cestino" ma "Desktop", e ci è finito dentro un file finto di
+sedici byte. Rimosso subito, per percorso esatto, senza aprire né leggere nient'altro
+di quella cartella. Due errori si erano sommati: la sezione non era stata chiusa, e
+`send-mouse.ps1` era stato chiamato con coordinate schermo mentre vuole coordinate
+cliente — così anche il clic che doveva chiudere la sezione era finito dentro la
+lista. Da allora: **prima si chiude `QUICK ACCESS` e si guarda la freccia**, e le
+destinazioni sulle voci standard si scelgono solo dopo aver visto il riquadro.
+
 **Il cestino è dati personali, e una cattura li copia.** È successo il
 2026-10-12: dopo un ripristino la lista del cestino non era più filtrata — per un
 difetto vero, `docs/02` §7.28 — e la cattura ha preso i nomi di quello che qualcuno
