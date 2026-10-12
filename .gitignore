@@ -20,7 +20,7 @@ sessione.html
 # senza chiavi API.
 #
 # Due ragioni per non versionarla. La prima: .graphify_python contiene il percorso
-# assoluto dell'interprete sulla macchina che l'ha generata, cioe` un percorso
+# assoluto dell'interprete sulla macchina che l'ha generata, cioe' un percorso
 # personale dentro un repository pubblico. La seconda: la cache cambia a ogni run,
 # quindi ogni aggiornamento della mappa diventerebbe rumore nei commit.
 graphify-out/
