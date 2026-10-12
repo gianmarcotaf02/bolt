@@ -82,7 +82,7 @@ In ordine di valore, non di facilità.
    costa ~350 ms e in regime ~65 ms, con **22 handle di kernel** per apertura dentro
    le estensioni. Da decidere: chiedere la shell su richiesta invece che a ogni
    tasto destro. Vedi `docs/04-roadmap.md`, sezione M7.
-8. **Spezzare `main.cpp`** — **7.790 righe** e undici moduli: il confine c'è, ma il
+8. **Spezzare `main.cpp`** — **8.480 righe** e undici moduli: il confine c'è, ma il
    file che lo contiene resta il collo di bottiglia dichiarato fin dall'inizio.
 
 
