@@ -91,7 +91,12 @@ bool DetailTime(IShellFolder2* folder, PCUITEMID_CHILD child, const PROPERTYKEY&
 
 bool IsNamespace(const std::wstring& location)
 {
-    return location.size() >= 2 && location[0] == L':' && location[1] == L':';
+    // Due forme, e sono due cose diverse: `::{CLSID}` cerca una cartella dentro lo
+    // spazio dei nomi del desktop, `shell:::{CLSID}` la chiede alla shell per
+    // identificatore — l'unica che risponde per "Accesso rapido".
+    if (location.size() >= 2 && location[0] == L':' && location[1] == L':')
+        return true;
+    return location.rfind(L"shell::", 0) == 0;
 }
 
 std::wstring DisplayName(const std::wstring& location)
@@ -208,7 +213,15 @@ std::wstring QuickAccessName()
     // "Accesso rapido" ha un CLSID e una chiave in `HKCR\CLSID`, ma **non** una voce
     // in `FolderDescriptions`: `SHGetKnownFolderIDList` non lo conosce, e la strada
     // che funziona per il cestino e per "Questo PC" qui restituisce vuoto.
-    const std::wstring location = L"::{679f85cb-0220-4080-b29b-5540cc05aab6}";
+    // La forma con `shell::` e non `::` da sola: la prima chiede alla shell la
+    // cartella *per identificatore*, la seconda la cerca **dentro** lo spazio dei
+    // nomi del desktop, dove "Accesso rapido" non sta. Con `::{...}` la shell
+    // risponde "non lo so", che e' quello che si e' misurato.
+    const std::wstring location = L"shell:::{679f85cb-0220-4080-b29b-5540cc05aab6}";
+
+    // Il prefisso diverso si porta dietro una conseguenza: `IsNamespace` guarda il
+    // nome, quindi deve riconoscere anche questa forma.
+
 
     // Si verifica che la shell lo riconosca. Un nome di spazio dei nomi sbagliato
     // non da' errore: da' una cartella **vuota**, che e' la forma di guasto peggiore

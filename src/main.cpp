@@ -1440,19 +1440,26 @@ void BuildQuickAccess(AppState& app)
     app.quickAccess.clear();
 
     const std::wstring location = ShellLocation::QuickAccessName();
-    if (location.empty())
-        return;
-
     std::string error;
-    for (const ShellLocation::Item& item : ShellLocation::Read(location, &error))
+    if (!location.empty())
     {
-        if (item.location.empty())
-            continue;
-        Place place;
-        place.label = ToUtf8(item.name);
-        place.path  = item.location;
-        app.quickAccess.push_back(std::move(place));
+        for (const ShellLocation::Item& item : ShellLocation::Read(location, &error))
+        {
+            if (item.location.empty())
+                continue;
+            Place place;
+            place.label = ToUtf8(item.name);
+            place.path  = item.location;
+            app.quickAccess.push_back(std::move(place));
+        }
     }
+
+    // Nel registro va il motivo, non i nomi: i fissaggi della shell sono cartelle
+    // scelte dall'utente. Vedi `AGENTS.md` §0.
+    DiagLog("--- " + DiagClock() + " accesso rapido: " +
+            (location.empty() ? std::string("la posizione non si apre")
+                              : std::to_string(app.quickAccess.size()) + " voci" +
+                                    (error.empty() ? "" : ", errore: " + error)));
 }
 
 // I volumi, con quanto sono pieni. La shell il nome di un volume lo sa scrivere —
