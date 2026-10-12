@@ -874,16 +874,46 @@ incollato un file al suo interno e essere risaliti mostra `0 | 1 | 5 B`.
 
 ---
 
-## M8 — Inspector ⬜
+## M8 — Inspector 🟡
 
-- [ ] metadati di base e proprietà estese (`PROPSYS`)
-- [ ] anteprima immagine con zoom e adattamento
-- [ ] visualizzatore di testo con minimap, numeri di riga, spazi visibili
-- [ ] rilevamento della codifica
-- [ ] conteggio righe
+- [x] metadati di base: tipo, dimensione, **creazione, modifica, accesso**, percorso
+- [x] proprietà che il file system non dice, lette da `IPropertyStore`:
+      **dimensioni dell'immagine** (`64 x 64 px`), e per i **volumi** il file system
+      e lo spazio libero
+- [x] selezione multipla: conteggio per tipo ("3 Documento di testo, 2 Cartella di
+      file, 1 Excel.CSV"), somma delle dimensioni, cartelle e file
+- [x] anteprima del file selezionato nella sua cella grande
+- [ ] **visualizzatore di testo** con minimap, numeri di riga, spazi visibili
+      (`InspectorShowWhitespace`, `InspectorHideLineNumbers`, `InspectorHideMinimap`,
+      `InspectorWordWrap`, `InspectorZoomLevel`, `InspectorHideGrid`)
+- [ ] rilevamento della codifica e conteggio righe
+- [ ] anteprima immagine con **zoom e adattamento** (adesso è la miniatura della
+      shell, non un'immagine ingrandibile)
+- [ ] le 20 etichette `PanelInspector_Label*` al completo: mancano percorso
+      originale e data di eliminazione, che il cestino dà solo per colonna
 
 *Stima: 3 settimane.* Il rasterizzatore di font proprio dell'originale
 (`WinFontRasterizer.cpp`) resta fuori perimetro: GDI è sufficiente.
+
+### Le proprietà che il file system non dice — *Ricostruito*
+
+Un file system sa dire nome, dimensione e tre date. Non sa dire che un'immagine è
+larga 64 pixel: quello sta nell'intestazione del file, e chi lo sa è il gestore di
+quel tipo. La strada per chiederglielo è `IPropertyStore`
+(`SHGetPropertyStoreFromParsingName` + `PKEY_*`), la stessa da cui Windows riempie
+le colonne della sua lista, e le chiavi sono documentate in `propkey.h`.
+
+Il **volume** invece è un'altra domanda con un'altra risposta: capacità, spazio
+libero e file system si chiedono al sistema (`GetDiskFreeSpaceExW`,
+`GetVolumeInformationW`) — lo dice anche `docs/03`, che ricostruisce il
+raggruppamento per occupazione dei volumi proprio da quell'import.
+
+Tutte e due le letture si fanno **una volta per percorso** e si tengono in una
+mappa: l'inspector si ridisegna a ogni fotogramma.
+
+**E una cosa che non si fa**: per un volume non si chiedono le statistiche
+ricorsive. Non è una dimenticanza, è che la domanda non ha senso — e la prima
+versione la faceva lo stesso, riceveva zeri e li scriveva (§7.31 di `docs/02`).
 
 ---
 

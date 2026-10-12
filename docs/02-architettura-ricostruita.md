@@ -1049,3 +1049,52 @@ Tre cose da portare via:
   risolto quello che due tentativi a occhio non avevano risolto;
 - il CLSID di "Accesso rapido" è **l'unico identificatore scritto nel codice** di
   tutto il progetto, e adesso c'è scritto perché.
+
+### 7.31 Il disco da zero byte
+
+L'inspector di un'unità diceva:
+
+```
+Type      Cartella di file
+Size      0 B
+Folders   0
+Files     0
+Modified
+System    NTFS
+Space     224.7 GB free (76% used)
+```
+
+Il disco ha 952,6 GB e il pannello dichiara zero byte, zero cartelle e zero file.
+Non un errore di lettura: **una risposta data a una domanda che non aveva senso**.
+Un volume non è una cartella, e le statistiche ricorsive non hanno niente da
+camminare lì dentro; il servizio rispondeva comunque, con zeri, e l'inspector li
+mostrava come se fossero un fatto.
+
+Tre righe di conseguenza, tutte verificate a schermo:
+
+- per un **volume** la dimensione è la **capacità del disco**
+  (`GetDiskFreeSpaceExW`), non la somma di ciò che contiene — `Size 952,6 GB`;
+- le statistiche si chiedono solo per una cartella **che sta su un percorso**, come
+  già si faceva per le colonne della lista;
+- la riga `Modified` di un volume **non esiste**: il file system non gli dà una
+  data, e l'etichetta con niente accanto — che era il caso di `Ext` per una
+  cartella, e di `Created`/`Accessed` per metà delle voci — non dice niente e
+  occupa lo spazio di una riga che direbbe.
+
+**Un numero falso detto con sicurezza è peggio di nessun numero**, ed è la stessa
+lezione della sezione vuota di §7.30: quello che non si sa si tace.
+
+### 7.32 E il trattino lungo, che era un buco
+
+`Ext` per una cartella mostrava `—` quando non c'era estensione. A schermo non si
+vedeva niente, perché U+2014 **non era nell'atlante**: fuori dai due intervalli
+(ASCII e latino-1) e dall'elenco dei simboli, un carattere si disegna come un
+buco. È lo stesso difetto di §7.29, in un posto dove nessuno lo cercava — non un
+nome di file, ma un carattere scritto da noi in una stringa.
+
+L'elenco dei simboli adesso comprende i trattini e le virgolette tipografiche
+(`–  —  '  '  "  "`), che le etichette della shell usano davvero, e la riga non si
+mostra più quando non ha niente da dire.
+
+**La regola che ne esce**: un carattere non-ASCII si scrive nel codice **solo** se
+sta nell'insieme rasterizzato. Altrimenti resta un buco, e un buco non fa rumore.

@@ -25,7 +25,7 @@ contenuto), **`Invia a >`** (destinazioni della cartella SendTo, eseguite lascia
 cadere sopra la selezione), **drag&drop dentro e fuori** con OLE e la **navigazione
 nello spazio dei nomi** col **ripristino dal cestino**. Mancano il trascinamento sul
 riquadro di navigazione e le cartelle riciclate (che si ripristinano, non si aprono) |
-| M8 — inspector completo | ⬜ |
+| M8 — inspector | 🟡 metadati (creazione, modifica, accesso, percorso), proprietà `PROPSYS` (dimensioni immagine, file system e spazio dei volumi), conteggio per tipo sulla selezione multipla, anteprima; manca il **visualizzatore di testo** |
 | M9 — configurazione e temi | ⬜ **vincolata**: niente file di impostazioni, vedi `docs/06` |
 | M10 — backend D3D11 | ⬜ |
 
@@ -59,14 +59,18 @@ Ordinato per quanto morde.
 
 In ordine di valore, non di facilità.
 
-1. **Il riquadro di navigazione come destinazione di caduta** — si può lasciare
+1. **Il visualizzatore di testo dell'inspector** — è il pezzo più grosso che resta
+   di M8: minimap, numeri di riga, spazi visibili, rilevamento della codifica e
+   conteggio righe (`docs/03` §5 elenca le chiavi). Con quello l'inspector è
+   completo.
+2. **Il riquadro di navigazione come destinazione di caduta** — si può lasciare
    cadere su una riga di cartella e sul fondo della lista, non sui collegamenti
    della barra laterale: il meccanismo c'è (`docs/02` §7.22), manca il bersaglio.
    Con quello, trascinare qualcosa **sul cestino** diventa il gesto per buttarlo via.
-2. **Colonne ridimensionabili e filtri per colonna** — nel riferimento ci sono
+3. **Colonne ridimensionabili e filtri per colonna** — nel riferimento ci sono
    entrambi: le intestazioni hanno un'icona di filtro e i bordi si trascinano. Qui
    le colonne sono frazioni fisse della larghezza.
-3. **Trascinare fuori dalle cartelle di spazio dei nomi** — oggi è rifiutato con un
+4. **Trascinare fuori dalle cartelle di spazio dei nomi** — oggi è rifiutato con un
    messaggio, e la ragione è scritta (`docs/02` §7.25): l'oggetto dati si costruisce
    dai nomi. Con i PIDL che ormai si hanno in mano si può fare, ed è il passo che
    chiude il cerchio.

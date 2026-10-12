@@ -326,6 +326,15 @@ Costano tempo, sembrano bug dell'applicazione e non lo sono. Vedi anche §5 di
   la forma di guasto peggiore, perché sembra che non ci sia niente da mostrare.
   Prima di usarlo lo si verifica, e una sezione vuota non si disegna: `docs/02`
   §7.30.
+- **Un carattere non-ASCII si scrive nel codice solo se sta nell'insieme
+  rasterizzato.** Fuori da lì si disegna come un **buco**, e un buco non fa rumore:
+  è così che un trattino lungo è stato invisibile in una riga dell'inspector
+  (§7.32). Se serve un carattere nuovo, si aggiunge all'atlante **e** si guarda a
+  schermo.
+- **Una domanda senza senso riceve comunque una risposta.** Chiedere le statistiche
+  ricorsive di un volume dà zero byte, zero cartelle e zero file, e l'inspector lo
+  scriveva come se fosse un fatto: un disco da 952 GB dichiarato vuoto (§7.31). Non
+  basta che la funzione risponda: bisogna che la domanda sia quella giusta.
 
 ### Test
 
@@ -424,7 +433,7 @@ rettangolo ha bordi continui a qualunque dimensione.
 
 - `docs/04-roadmap.md` — le milestone, con le caselle spuntate e i difetti aperti.
 - `docs/05-stato-e-prossimi-passi.md` — dove si è arrivati, cosa resta, le trappole.
-- `docs/02-architettura-ricostruita.md` — l'architettura e i **trenta** difetti
+- `docs/02-architettura-ricostruita.md` — l'architettura e i **trentadue** difetti
   trovati e risolti, §7.
 - `docs/03-spec-funzionale.md` — la spec ricostruita dall'originale: 1124 chiavi,
   319 comandi, 35 token di tema, 23 colonne.
