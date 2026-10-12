@@ -4,7 +4,7 @@ Documento di lavoro, non di progetto: serve a riprendere senza rileggere la
 conversazione. Aggiornarlo è l'ultima cosa da fare prima di una pausa lunga o di
 una compattazione del contesto.
 
-Ultimo aggiornamento: dopo il menu contestuale e il requisito di privacy.
+Ultimo aggiornamento: dopo i verbi della shell nel menu contestuale.
 
 ---
 
@@ -20,7 +20,7 @@ Ultimo aggiornamento: dopo il menu contestuale e il requisito di privacy.
 | M5c — modalità di visualizzazione | 🟡 manca il raggruppamento in griglia |
 | M5d — sovrappasso del mouse | 🟡 evidenzia righe e celle; mancano `HoverToSelect`, `UnderlineOnHover`, `ShowTooltips` |
 | M6 — tab, barra del titolo, palette, GoTo | 🟡 fatti tab, titolo, palette, GoTo; mancano quick access pinnato, drag&drop e albero dei tab |
-| M7 — operazioni su file | 🟡 copia, sposta, rinomina, cestino, clipboard interoperabile, **menu contestuale** con Proprietà di Windows. Mancano drag&drop, i verbi della shell nel menu e il ripristino dal cestino |
+| M7 — operazioni su file | 🟡 copia, sposta, rinomina, cestino, clipboard interoperabile, **menu contestuale** con Proprietà di Windows e le **voci di primo livello della shell**. Mancano drag&drop, i sottomenu della shell e il ripristino dal cestino |
 | M8 — inspector completo | ⬜ |
 | M9 — configurazione e temi | ⬜ **vincolata**: niente file di impostazioni, vedi `docs/06` |
 | M10 — backend D3D11 | ⬜ |
@@ -35,7 +35,7 @@ lavorano i file — inclusa l'apertura delle proprietà di Windows.
 
 Ordinato per quanto morde.
 
-1. **`src/main.cpp` è a ~4.500 righe.** I confini dei componenti ci sono
+1. **`src/main.cpp` è a ~4.700 righe.** I confini dei componenti ci sono
    (`GroupMenu`, `ContextMenu`, `file_ops`, `dir_stats`) ma vivono tutti nello
    stesso file. Spezzarlo richiede che `AppState` e i tipi condivisi escano
    dall'anonimo namespace in un header: è un lavoro meccanico ma largo, e va fatto
@@ -55,27 +55,37 @@ Ordinato per quanto morde.
 
 In ordine di valore, non di facilità.
 
-1. **I verbi della shell nel menu contestuale** — `Apri con`, `Invia a` e le voci
-   delle estensioni installate. Oggi il menu ha i nostri comandi più Proprietà;
-   per il resto servono `IContextMenu` e la gestione dei **sottomenu**, che è la
-   parte davvero complicata. È il completamento naturale di ciò che c'è.
-2. **Drag&drop in ingresso e in uscita** con descrizione. In ingresso è
+1. **I sottomenu del menu contestuale** — `Invia a`, `7-Zip`, `WinRAR`,
+   "Dare accesso a", "Includi nella raccolta": sono quattro o cinque voci su
+   venti quelle che restano fuori. Le voci di primo livello della shell ci sono
+   già (`IContextMenu` → `QueryContextMenu` → `InvokeCommand`), quindi è il
+   completamento naturale di ciò che c'è: serve che il componente sappia
+   annidare — e che i sottomenu si facciano popolare da
+   `IContextMenu2::HandleMenuMsg(WM_INITMENUPOPUP)`, che è la parte davvero
+   complicata.
+2. **Il costo dell'interrogazione della shell** — la prima apertura dopo l'avvio
+   costa ~350 ms e le estensioni moderne di Windows 11 compaiono solo dalla
+   seconda; in regime sono ~65 ms e **22 handle di kernel** per apertura, dentro
+   le estensioni. Da decidere: chiedere la shell su richiesta, invece che a ogni
+   tasto destro. Vedi `docs/04-roadmap.md`, sezione M7.
+3. **Drag&drop in ingresso e in uscita** con descrizione. In ingresso è
    `RegisterDragDrop` + `IDropTarget`; in uscita `IDataObject`. **Attenzione:**
    un trascinamento OLE non si riesce a simulare come si simula un clic, quindi
-   va progettato in modo da poter essere verificato a pezzi.
-3. **Il browsing dello spazio dei nomi** — è il prerequisito vero del ripristino
+   va progettato in modo da poter essere verificato a pezzi. Per la metà del
+   lavoro serve qualcosa come `tools/send-mouse.ps1`, che ora esiste.
+4. **Il browsing dello spazio dei nomi** — è il prerequisito vero del ripristino
    dal cestino: la nostra navigazione è basata sui percorsi, il cestino è fatto di
    PIDL. Senza questo, il ripristino sarebbe un imballaggio sopra una funzione che
    manca. Vedi `docs/04-roadmap.md`, sezione M7.
-4. **M8 — inspector completo** — proprietà estese (`PROPSYS`), anteprima immagine
+5. **M8 — inspector completo** — proprietà estese (`PROPSYS`), anteprima immagine
    con zoom, visualizzatore di testo con minimap e numeri di riga.
-5. **M9 — configurazione e temi** — **vincolata da `docs/06`**: niente file di
+6. **M9 — configurazione e temi** — **vincolata da `docs/06`**: niente file di
    impostazioni, tutto in memoria. Restano la mappa tasti sui 319 comandi e i 35
    token di tema.
-6. **Raggruppamento in griglia** e **ridimensionamento continuo** della cella.
-7. **Il resto di M5d** — `HoverToSelect`, `UnderlineOnHover` e `ShowTooltips`,
+7. **Raggruppamento in griglia** e **ridimensionamento continuo** della cella.
+8. **Il resto di M5d** — `HoverToSelect`, `UnderlineOnHover` e `ShowTooltips`,
    più le altre chiavi di interazione dello spec. Vedi `docs/04-roadmap.md`.
-8. **Spezzare `main.cpp`** — ~4.500 righe e otto moduli: il confine c'è, ma il
+9. **Spezzare `main.cpp`** — ~4.700 righe e otto moduli: il confine c'è, ma il
    file che lo contiene è diventato il collo di bottiglia.
 
 ---
@@ -198,6 +208,32 @@ nomi. Vedi `docs/04-roadmap.md`, sezione M7.
 **`tools/send-keys.ps1`** esiste perché l'escaping di PowerShell dentro bash
 mangiava i caratteri e i tasti non arrivavano: uno script su file è l'unico modo
 affidabile di ripetere una prova di input.
+
+**`tools/send-mouse.ps1`** esiste per la stessa ragione, applicata al puntatore:
+il menu contestuale si apre col tasto destro, e i tasti `Menu`/`Shift`+`F10` — che
+pure ci sono — non verificano la via che usa la gente. Le coordinate sono in area
+**cliente**, così la stessa prova si ripete anche se la finestra si sposta.
+
+**Un registro aperto in append a ogni riga può perdere le righe.** Il primo
+diagnostico dei verbi della shell apriva, scriveva una riga e chiudeva; il file
+risultante conteneva **118 byte su venti voci** — il riassunto e un frammento di
+due voci, il resto sparito. Il secondo giro dello stesso problema non costa nulla
+se le righe si accumulano e si riscrivono tutte insieme: un registro incompleto è
+peggio di nessun registro, perché sembra dire che quelle voci non esistono.
+
+**Un menu più alto della finestra non è un dettaglio estetico.** Le voci che
+sporgono sotto il bordo non si leggono e non si cliccano, e il menu contestuale
+con i verbi della shell è passato da undici a trentuno voci. Un menu che scorre
+va previsto nel componente, non aggiunto quando serve: la correzione è costata
+una riscrittura della geometria (`firstItem`, altezza derivata dalle voci che
+entrano, barra sul bordo destro). Vedi §7.16 di `docs/02`.
+
+**Con più di una modalità di scorrimento, le regole sono più di una.** Le frecce
+devono portarsi dietro la voce scelta; la rotella no. Usare una regola sola per
+entrambe ha prodotto un menu che si rifiutava di scorrere sotto il puntatore. E
+una prova che non distingue il caso rotto dal caso giusto non è una prova: il
+menu straripava di **una** voce, quindi la rotella toccava il tetto comunque. La
+finestra è stata ridotta a 460 px per rendere la misura decidibile.
 
 ---
 
