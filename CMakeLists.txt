@@ -50,7 +50,11 @@ target_compile_definitions(Bolt PRIVATE
 # runtime through wglGetProcAddress.
 # shell32 + ole32 + uuid provide the shell icon, thumbnail and known-folder APIs:
 # the FOLDERID_* identifiers live in uuid.lib.
-target_link_libraries(Bolt PRIVATE opengl32 gdi32 user32 shell32 ole32 uuid dwmapi)
+# shlwapi provides SHLoadIndirectString, which resolves the "@dll,-id" labels the
+# shell stores in the registry for the "New" menu types. RegLoadMUIString, which
+# would need no new library, returns an error on the same strings and the names
+# come out in English.
+target_link_libraries(Bolt PRIVATE opengl32 gdi32 user32 shell32 ole32 uuid shlwapi dwmapi)
 
 if(MSVC)
     target_compile_options(Bolt PRIVATE /W4 /permissive- /utf-8)

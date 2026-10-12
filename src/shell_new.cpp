@@ -1,6 +1,7 @@
 #include "shell_new.h"
 
 #include <windows.h>
+#include <shlwapi.h>
 
 #include <algorithm>
 #include <string.h>
@@ -53,8 +54,14 @@ bool ReadRaw(HKEY key, const wchar_t* name, std::wstring* out)
 }
 
 // Legge un'etichetta, risolvendo le stringhe indirette: la shell registra
-// "@C:\WINDOWS\system32\zipfldr.dll,-10194" dove noi vogliamo "Cartella
-// compressa", e le traduzioni stanno in quella DLL, non nel nostro eseguibile.
+// "@C:\WINDOWS\system32\zipfldr.dll,-10194" dove noi vogliamo "Nuova cartella
+// compressa", e la traduzione sta in quella DLL, non nel nostro eseguibile.
+//
+// Si risolve con `SHLoadIndirectString`, non con `RegLoadMUIString`: la seconda,
+// provata sulla stessa stringa, restituisce un errore — e il ripiego che ne segue
+// mostra il nome del tipo in INGLESE mentre tutto il resto del menu e' in
+// italiano. La funzione di shlwapi e' quella che usa la shell, e dà la stringa
+// localizzata.
 bool ReadLabel(HKEY key, const wchar_t* name, std::wstring* out)
 {
     std::wstring raw;
@@ -64,8 +71,8 @@ bool ReadLabel(HKEY key, const wchar_t* name, std::wstring* out)
     if (raw[0] == L'@')
     {
         std::vector<wchar_t> buffer(512);
-        if (RegLoadMUIStringW(key, name, buffer.data(), static_cast<DWORD>(buffer.size()),
-                              nullptr, 0, nullptr) != ERROR_SUCCESS)
+        if (FAILED(SHLoadIndirectString(raw.c_str(), buffer.data(),
+                                        static_cast<UINT>(buffer.size()), nullptr)))
             return false;   // un'etichetta che non si risolve non si inventa
         *out = buffer.data();
         return !out->empty();
