@@ -106,13 +106,14 @@ graphify god-nodes --top 10                            # i nodi di smistamento
 ambigua (`src_ui_renderer_uirenderer`, non `UIRenderer`): se rispondono
 `Ambiguous:`, riprova con l'id che ti stampano.
 
-Se il grafo manca o è vecchio:
+Se il grafo manca o è vecchio — **su un clone nuovo manca sempre**, perché non è
+versionato (§10):
 
 ```bash
 graphify update .                # dopo una modifica ai sorgenti: solo i file
                                  # cambiati, senza LLM. Non tocca la semantica.
-graphify extract . --code-only   # ricostruzione completa del solo codice,
-                                 # senza chiavi API
+graphify extract . --code-only   # prima volta su un clone, o ricostruzione
+                                 # completa del solo codice, senza chiavi API
 ```
 
 Per le modifiche a documenti e immagini l'aggiornamento è la skill, in chat:
@@ -137,7 +138,10 @@ Per le modifiche a documenti e immagini l'aggiornamento è la skill, in chat:
 - Il grafo è **vecchio appena modifichi un file**. Dopo una modifica sostanziale,
   `graphify update .`, o non fidarti delle risposte.
 - Un file che l'estrattore non riesce a leggere **non è nel grafo**: l'assenza di un
-  nodo è un'ipotesi, non la prova che il simbolo non esista.
+  nodo è un'ipotesi, non la prova che il simbolo non esista. Caso noto: i typedef di
+  puntatore a funzione con `APIENTRY` fermano il parser di `src/gl_loader.h` a riga
+  52, quindi il file non produce **nessun** simbolo. Se il grafo dice che una
+  funzione OpenGL non esiste, guarda `gl_loader.h` a mano.
 - L'interprete usato da graphify è scritto in `graphify-out/.graphify_python`:
   serve per i comandi inline.
 
@@ -370,6 +374,11 @@ rettangolo ha bordi continui a qualunque dimensione.
   ogni turno; i commit scritti a mano si sovrappongono a quelli e spesso non
   servono. Non è un errore se `git commit` dice "nothing to commit".
 - Ramo di lavoro: `main`, con remoto `origin`.
-- `.gitignore` esclude `build/`, `analysis/`, `sessione.html`, `out/`, `.vs/`,
-  `*.user`, `*.suo`, `*.log`.
+- `.gitignore` esclude `build/`, `analysis/`, `sessione.html`, `graphify-out/`,
+  `out/`, `.vs/`, `*.user`, `*.suo`, `*.log`.
+- **`graphify-out/` non si versiona.** Contiene la mappa (§2-bis), che è derivata:
+  si rigenera dai sorgenti senza chiavi API. In più `.graphify_python` porta dentro
+  il percorso assoluto dell'interprete della macchina che l'ha generata, e la cache
+  cambia a ogni run. Le copie già entrate nella storia non si tolgono con una riga
+  di `.gitignore`.
 - Il progetto **non ha una convenzione di branch**: si lavora su `main`.
