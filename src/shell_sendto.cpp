@@ -64,13 +64,11 @@ std::vector<Target> ReadAll()
 
 } // namespace
 
-const std::vector<Target>& Targets()
+std::vector<Target> Targets()
 {
-    // Deliberatamente NON in cache: e' una cartella dell'utente, e chi ci mette
+    // Deliberatamente non in cache: e' una cartella dell'utente, e chi ci mette
     // dentro un collegamento nuovo si aspetta di vederlo. Vedi la testa del file.
-    static std::vector<Target> targets;   // il buffer, non il contenuto
-    targets = ReadAll();
-    return targets;
+    return ReadAll();
 }
 
 } // namespace ShellSendTo

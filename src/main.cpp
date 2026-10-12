@@ -24,6 +24,7 @@
 #include "shell_icons.h"
 #include "shell_new.h"
 #include "shell_preview.h"
+#include "shell_sendto.h"
 #include "ui_renderer.h"
 
 #include <windows.h>
@@ -303,6 +304,9 @@ struct ContextMenuItem
     // "Nuovo file" stanno nel registro, e leggerli costa qualche centinaio di
     // aperture di chiave che non si devono pagare a ogni tasto destro.
     bool  lazyNewFile   = false;
+    // E cosi' "Invia a": le destinazioni stanno in una cartella dell'utente, e
+    // leggerle a ogni tasto destro e' lavoro che si fa quando il menu si apre.
+    bool  lazySendTo    = false;
 };
 
 // Scelta e finestra di un livello del menu. Ce n'e' una per livello aperto.
@@ -3179,7 +3183,8 @@ ContextMenuItem* LevelItemMutable(ContextMenu& menu, int depth, int index)
 // tutti a ogni tasto destro costerebbe quanto interrogare la shell dieci volte.
 bool HasSubmenu(const ContextMenuItem& item)
 {
-    return item.shellSubmenu != nullptr || !item.children.empty() || item.lazyNewFile;
+    return item.shellSubmenu != nullptr || !item.children.empty() || item.lazyNewFile ||
+           item.lazySendTo;
 }
 
 int ActiveDepth(const ContextMenu& menu)
@@ -3395,6 +3400,11 @@ constexpr int kShellCmdLast  = 0x6FFF;
 // la posizione del modello nell'elenco letto dal registro.
 constexpr int kNewItemCmdFirst = 0x7000;
 constexpr int kNewItemCmdLast  = 0x70FF;
+
+// Le destinazioni di "Invia a": stessa banda per lo stesso motivo, l'indice e' la
+// posizione nell'elenco letto dalla cartella SendTo.
+constexpr int kSendToCmdFirst = 0x7100;
+constexpr int kSendToCmdLast  = 0x71FF;
 
 // Registro diagnostico spento di default. Serve a LEGGERE cosa la shell offre su
 // questa macchina invece di dedurlo: le voci dipendono dalle estensioni
@@ -3924,6 +3934,16 @@ void BuildContextMenu(AppState& app, float x, float y)
         menu.items.push_back(std::move(newFile));
     }
 
+    // "Invia a": le destinazioni della cartella SendTo. Serve qualcosa da mandare,
+    // e serve che la cartella ne abbia almeno una.
+    if (count > 0 && !ShellSendTo::Targets().empty())
+    {
+        ContextMenuItem sendTo;
+        sendTo.label    = "Invia a";
+        sendTo.lazySendTo = true;
+        menu.items.push_back(std::move(sendTo));
+    }
+
     menu.items.push_back({"", 0, true});
     menu.items.push_back({"Aggiorna", CmdRefresh});
     menu.items.push_back({"Apri un terminale qui", CmdOpenConsole});
@@ -4092,6 +4112,8 @@ bool OpenSubmenu(AppState& app, const Layout& layout, int depth, int index)
 
     if (item->lazyNewFile && item->children.empty())
         FillNewFileMenu(*item);
+    if (item->lazySendTo && item->children.empty())
+        FillSendToMenu(*item);
 
     FillShellSubmenu(app, *item);
     if (item->children.empty())
@@ -4165,6 +4187,17 @@ void ContextMenuActivate(AppState& app)
         const size_t model = static_cast<size_t>(chosen->command - kNewItemCmdFirst);
         ContextMenuClose(app);
         CreateNewItem(app, model);
+        return;
+    }
+
+    // Una destinazione di "Invia a": stessa forma — la posizione nella banda e'
+    // l'indice nell'elenco letto dalla cartella SendTo.
+    if (chosen->command >= kSendToCmdFirst && chosen->command < kSendToCmdLast)
+    {
+        const size_t target = static_cast<size_t>(chosen->command - kSendToCmdFirst);
+        const std::vector<std::wstring> paths = SelectedPaths(app);
+        ContextMenuClose(app);
+        SendToTargets(app, target, paths);
         return;
     }
 
