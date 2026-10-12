@@ -4,7 +4,7 @@ Documento di lavoro, non di progetto: serve a riprendere senza rileggere la
 conversazione. Aggiornarlo è l'ultima cosa da fare prima di una pausa lunga o di
 una compattazione del contesto.
 
-Ultimo aggiornamento: dopo "Nuovo file >" e i sottomenu del menu contestuale.
+Ultimo aggiornamento: dopo "Nuovo file >" e "Invia a >", i due sottomenu che la shell non sa eseguire.
 
 ---
 
