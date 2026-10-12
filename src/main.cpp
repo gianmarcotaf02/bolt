@@ -17,6 +17,7 @@
 // Everything still flows through one quad batcher and one draw call per frame.
 // ---------------------------------------------------------------------------
 #include "dir_stats.h"
+#include "drag_drop.h"
 #include "file_ops.h"
 #include "font_atlas.h"
 #include "gl_loader.h"
@@ -377,6 +378,19 @@ struct AppState
     bool  rectSelecting = false;
     bool  rectAdditive  = false;
     float rectX0 = 0.0f, rectY0 = 0.0f, rectX1 = 0.0f, rectY1 = 0.0f;
+
+    // Trascinamento. La pressione su una riga non e' ancora un trascinamento: lo
+    // diventa quando il mouse si muove oltre la soglia di sistema — sotto quella
+    // resta un clic, ed e' l'unico modo di distinguere le due intenzioni. Il punto
+    // di partenza serve perche' la soglia si misura da li'.
+    bool  dragArmed  = false;
+    float dragStartX = 0.0f, dragStartY = 0.0f;
+
+    // La destinazione di una caduta in corso: si evidenzia finche' il puntatore ci
+    // sta sopra, ed e' l'unico modo di far vedere DOVE finiranno i file prima di
+    // lasciarli. |dropTargetIsRow| distingue una riga dal fondo della lista.
+    std::wstring dropTarget;
+    bool         dropTargetIsRow = false;
 
     // --- operazioni su file (M7) -------------------------------------------
     //
@@ -1828,6 +1842,13 @@ void DrawEntryCell(AppState& app, const Layout& layout, const ViewMetrics& metri
     if (view.entry == cursorIndex)
         r.Draw(UIDraw::Border(card, t.accent.WithAlpha(0.9f), 1.0f, 4.0f * scale));
 
+    // La destinazione di una caduta: tratteggio, cosi' si distingue sia dal
+    // riempimento della selezione sia dalla linea continua del cursore.
+    if (!app.dropTarget.empty() && app.dropTargetIsRow &&
+        entry.wideName == LeafName(app.dropTarget))
+        r.Draw(UIDraw::DashedBorder(card, t.accent, 2.0f * scale, 6.0f * scale, 4.0f * scale,
+                                    6.0f * scale));
+
     ClickTarget target;
     target.rect  = card;
     target.kind  = ClickTarget::Kind::Row;
@@ -1878,6 +1899,14 @@ void DrawList(AppState& app, const Layout& layout, const float* columnX)
     const float rowHeight = metrics.rowHeight;
 
     r.Draw(UIDraw::Fill(layout.list, t.panelBg, 6.0f * scale));
+
+    // Il fondo della lista riceve la caduta nella cartella aperta: si evidenzia
+    // l'area, perche' li' sotto non c'e' nessuna riga da tratteggiare. Il
+    // tratteggio e' lo stesso della riga, cosi' le due destinazioni si leggono
+    // come la stessa cosa detta in due punti diversi.
+    if (!app.dropTarget.empty() && !app.dropTargetIsRow)
+        r.Draw(UIDraw::DashedBorder(layout.list.Inset(1.0f, 1.0f), t.accent, 2.0f * scale,
+                                    6.0f * scale, 4.0f * scale, 6.0f * scale));
 
     if (!app.errorText.empty())
     {
@@ -1959,6 +1988,12 @@ void DrawList(AppState& app, const Layout& layout, const float* columnX)
         // to be able to see which one the keyboard is on.
         if (view.entry == cursorIndex)
             r.Draw(UIDraw::Border(row.Inset(1.0f, 1.0f), t.accent.WithAlpha(0.9f), 1.0f, 2.0f * scale));
+
+        // La destinazione di una caduta in corso.
+        if (!app.dropTarget.empty() && app.dropTargetIsRow &&
+            entry.wideName == LeafName(app.dropTarget))
+            r.Draw(UIDraw::DashedBorder(row.Inset(1.0f, 1.0f), t.accent, 2.0f * scale,
+                                        6.0f * scale, 4.0f * scale, 6.0f * scale));
 
         ClickTarget target;
         target.rect = row;
@@ -2237,16 +2272,11 @@ void DrawInspector(AppState& app, const Layout& layout)
         y += 20.0f * scale;
     }
 
-    // A dashed frame keeps the drop-target affordance from milestone 1 and gives
-    // the dash path in the shader something real to do.
-    const Rect dropTarget{layout.inspector.x + 12.0f * scale, layout.inspector.bottom() - 72.0f * scale,
-                          layout.inspector.w - 24.0f * scale, 58.0f * scale};
-    r.Draw(UIDraw::DashedBorder(dropTarget, t.accent.WithAlpha(0.5f), 1.0f,
-                                6.0f * scale, 4.0f * scale, 6.0f * scale));
-    app.smallFont.Draw(r, dropTarget.x + 12.0f * scale, dropTarget.y + 12.0f * scale,
-                  "Drop files here", t.textDim, scale);
-    app.smallFont.Draw(r, dropTarget.x + 12.0f * scale, dropTarget.y + 30.0f * scale,
-                  "(not wired up yet)", t.textDim, scale);
+    // Qui c'era un riquadro tratteggiato "Drop files here (not wired up yet)",
+    // lasciato da M1 quando il tratteggio serviva solo a dare qualcosa da fare al
+    // tracciato dello shader. Adesso il tratteggio ha il suo uso vero —
+    // l'evidenziazione della destinazione di una caduta, in `DrawList` — e questo
+    // segnaposto prometteva qualcosa che nessuna milestone ha mai previsto.
 }
 
 void DrawStatusBar(AppState& app, const Layout& layout)
@@ -4084,46 +4114,6 @@ void FillSendToMenu(ContextMenuItem& item)
             std::to_string(elapsed) + " ms");
 }
 
-// I percorsi scelti come oggetto dati della shell: e' quello che si lascia cadere
-// su una destinazione, e porta le stesse cose che si vedono trascinando — non solo
-// l'elenco dei percorsi, ma anche la parte che serve a un gestore di caduta per
-// sapere *cosa* ha ricevuto.
-IDataObject* SelectionDataObject(const std::vector<std::wstring>& paths)
-{
-    std::vector<PIDLIST_ABSOLUTE> absolute;
-    for (const std::wstring& path : paths)
-    {
-        PIDLIST_ABSOLUTE pidl = nullptr;
-        if (SUCCEEDED(SHParseDisplayName(path.c_str(), nullptr, &pidl, 0, nullptr)) &&
-            pidl != nullptr)
-            absolute.push_back(pidl);
-    }
-    if (absolute.empty())
-        return nullptr;
-
-    // I figli si passano relativi alla loro cartella: si prende la parte finale di
-    // ogni percorso assoluto, e la cartella padre dal primo.
-    PIDLIST_ABSOLUTE folder = ILClone(absolute.front());
-    std::vector<PCUITEMID_CHILD> children;
-    if (folder != nullptr)
-    {
-        ILRemoveLastID(folder);
-        for (PIDLIST_ABSOLUTE pidl : absolute)
-            children.push_back(ILFindLastID(pidl));
-    }
-
-    IDataObject* data = nullptr;
-    if (!children.empty())
-        SHCreateDataObject(folder, static_cast<UINT>(children.size()), children.data(), nullptr,
-                           IID_IDataObject, reinterpret_cast<void**>(&data));
-
-    for (PIDLIST_ABSOLUTE pidl : absolute)
-        CoTaskMemFree(pidl);
-    if (folder != nullptr)
-        CoTaskMemFree(folder);
-    return data;
-}
-
 // Lascia cadere la selezione su una voce della cartella SendTo.
 //
 // Non si avvia con `ShellExecuteEx`, e la ragione e' nel registro: la voce
@@ -4193,7 +4183,7 @@ void SendToTargets(AppState& app, size_t index, const std::vector<std::wstring>&
     if (paths.empty())
         return;   // mandare "niente" da qualche parte non e' un'azione
 
-    IDataObject* data = SelectionDataObject(paths);
+    IDataObject* data = DragDrop::DataObjectFor(paths);
     const bool dropped = DropOnSendToTarget(app.window, targets[index].path, data);
     if (data != nullptr)
         data->Release();
@@ -4737,6 +4727,108 @@ const ClickTarget* HitTest(const AppState& app, float x, float y, ClickTarget::K
     return nullptr;
 }
 
+// --- trascinamento: la parte che sa la vista -------------------------------
+//
+// Il modulo OLE (`drag_drop.cpp`) non sa cosa sia una riga o una cartella aperta:
+// sa leggere un oggetto dati e consegnare una caduta. La destinazione la decide
+// chi conosce l'elenco, cioe' queste tre funzioni.
+
+namespace DragDrop
+{
+
+std::wstring TargetAt(HWND window, POINT client, bool* ontoRow)
+{
+    AppState* app = reinterpret_cast<AppState*>(GetWindowLongPtrW(window, GWLP_USERDATA));
+    if (app == nullptr)
+        return std::wstring();
+
+    const float x = static_cast<float>(client.x);
+    const float y = static_cast<float>(client.y);
+
+    if (const ClickTarget* row = HitTest(*app, x, y, ClickTarget::Kind::Row))
+    {
+        const Entry& entry = app->entries[static_cast<size_t>(row->index)];
+        if (!entry.isDirectory)
+        {
+            // Sopra un file la destinazione e' la cartella che lo contiene, come
+            // in Esplora risorse: li' un file non riceve niente, ma la lista si'.
+            if (ontoRow != nullptr)
+                *ontoRow = false;
+            return app->directory;
+        }
+        if (ontoRow != nullptr)
+            *ontoRow = true;
+        // Una cartella va aperta per lasciarci qualcosa dentro: la riga mostra il
+        // nome, la destinazione e' il percorso.
+        return JoinPath(app->directory, entry.wideName);
+    }
+
+    const Layout layout = ComputeLayout(*app);
+    if (layout.list.Contains(x, y))
+    {
+        if (ontoRow != nullptr)
+            *ontoRow = false;
+        return app->directory;
+    }
+    return std::wstring();   // fuori dalla lista non si lascia cadere niente
+}
+
+void Highlight(HWND window, const std::wstring& target, bool ontoRow)
+{
+    AppState* app = reinterpret_cast<AppState*>(GetWindowLongPtrW(window, GWLP_USERDATA));
+    if (app == nullptr)
+        return;
+    app->dropTarget      = target;
+    app->dropTargetIsRow = ontoRow && !target.empty();
+}
+
+void Drop(HWND window, const std::vector<std::wstring>& sources, const std::wstring& target,
+          bool move)
+{
+    AppState* app = reinterpret_cast<AppState*>(GetWindowLongPtrW(window, GWLP_USERDATA));
+    if (app == nullptr || sources.empty())
+        return;
+
+    const float scroll = app->scroll;
+    std::wstring error;
+    std::vector<std::wstring> created;
+    const FileOps::Result result =
+        move ? FileOps::Move(window, sources, target, &created, &error)
+             : FileOps::Copy(window, sources, target, &created, &error);
+
+    if (result == FileOps::Result::Cancelled)
+        return;
+
+    if (result == FileOps::Result::Failed)
+    {
+        ReportStatus(*app, (move ? L"Spostamento non riuscito: " : L"Copia non riuscita: ") + error);
+        return;
+    }
+
+    // La vista si rifa' sempre: uno spostamento toglie gli originali da qui, e una
+    // copia puo' aver aggiunto qualcosa se la destinazione e' la cartella aperta.
+    // Si seleziona solo cio' che e' arrivato *qui*, perche' quello che e' finito
+    // altrove non si vede e non si potrebbe evidenziare.
+    std::unordered_set<std::wstring> keep;
+    std::wstring landed;
+    if (_wcsicmp(target.c_str(), app->directory.c_str()) == 0)
+    {
+        for (const std::wstring& path : created)
+        {
+            const std::wstring name = LeafName(path);
+            keep.insert(name);
+            if (landed.empty())
+                landed = name;
+        }
+    }
+    ReloadKeeping(*app, keep, landed, scroll);
+
+    ReportStatus(*app, (move ? L"Spostati " : L"Copiati ") + std::to_wstring(sources.size()) +
+                           L" elementi in " + LeafName(target));
+}
+
+} // namespace DragDrop
+
 // A click inside an open group menu. The caller turns the action into whatever
 // the menu means: running a command, or going to a location.
 MenuAction GroupMenuClick(const AppState& app, const Layout& layout, GroupMenu& menu, float x, float y)
@@ -5194,6 +5286,35 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
                     return 0;
                 }
 
+                // Trascinamento armato e mouse che si allontana: si parte. La
+                // soglia e' quella di sistema (`SM_CXDRAG`), perche' una mano che
+                // trema su un clic non deve spostare dei file.
+                if (app->dragArmed && (GetKeyState(VK_LBUTTON) & 0x8000) != 0)
+                {
+                    const float farX = std::fabs(x - app->dragStartX);
+                    const float farY = std::fabs(y - app->dragStartY);
+                    const float thresholdX = static_cast<float>(GetSystemMetrics(SM_CXDRAG));
+                    const float thresholdY = static_cast<float>(GetSystemMetrics(SM_CYDRAG));
+                    if (farX > thresholdX || farY > thresholdY)
+                    {
+                        app->dragArmed = false;   // si parte una volta sola
+
+                        const std::vector<std::wstring> paths = SelectedPaths(*app);
+                        DWORD effect = DROPEFFECT_NONE;
+                        DragDrop::DragOut(window, paths, &effect);
+
+                        // Spostati davvero: gli originali non ci sono piu' e la
+                        // vista li sta ancora mostrando.
+                        if ((effect & DROPEFFECT_MOVE) != 0 && !paths.empty())
+                        {
+                            ReloadKeeping(*app, /*keep=*/{}, /*preferCursor=*/{}, app->scroll);
+                            ReportStatus(*app, L"Spostati " + std::to_wstring(paths.size()) +
+                                                   L" elementi");
+                        }
+                        return 0;
+                    }
+                }
+
                 // Con il menu contestuale aperto il puntatore sceglie la voce, non
                 // la riga sotto: la lista e' coperta, e sovrappassarla sarebbe un
                 // secondo stato che l'utente non vede.
@@ -5291,6 +5412,13 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
                 }
                 else if (const ClickTarget* row = HitTest(*app, x, y, ClickTarget::Kind::Row))
                 {
+                    // La pressione su una riga arma un trascinamento: partira' solo
+                    // se il mouse si muove oltre la soglia, e fino ad allora resta
+                    // il clic che e' sempre stato.
+                    app->dragArmed  = true;
+                    app->dragStartX = x;
+                    app->dragStartY = y;
+
                     if (ctrl)
                     {
                         ToggleSelection(*app, row->index);
@@ -5371,7 +5499,10 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
 
         case WM_LBUTTONUP:
             if (app != nullptr)
+            {
+                app->dragArmed = false;
                 FinishRectSelection(*app);
+            }
             return 0;
 
         case WM_LBUTTONDBLCLK:
@@ -5741,6 +5872,11 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
             return 0;
 
         case WM_DESTROY:
+            // La finestra sta per morire: la registrazione come destinazione di
+            // caduta va tolta adesso, o OLE resta con un puntatore a una finestra
+            // che non c'e' piu'.
+            DragDrop::Unregister(window);
+
             // Uscendo con il menu aperto la shell ci ha prestato un oggetto che
             // nessuno rilascerebbe piu'.
             if (app != nullptr)
@@ -5873,7 +6009,10 @@ double NowSeconds()
 int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, LPWSTR, int)
 {
     EnableHighDpi();
-    CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+    // `OleInitialize` e non `CoInitializeEx`: il trascinamento fra finestre lo
+    // richiede, e fa anche quello che faceva l'altra. L'appartamento deve essere
+    // quello singolo, ed e' quello che usavamo gia'.
+    OleInitialize(nullptr);
 
     // Optional starting directory, the same convenience `explorer` offers:
     //   Bolt.exe D:\some\folder
@@ -6043,6 +6182,13 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, LPWSTR, int)
     LoadDirectory(app, initialDirectory);
 
     SetWindowLongPtrW(window, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(&app));
+
+    // Da qui in poi la finestra accetta file trascinati da fuori. Se il sistema
+    // non vuole registrarla lo si dice: un trascinamento che non arriva sembra un
+    // difetto dell'applicazione, ed e' un limite del sistema.
+    if (!DragDrop::Register(window))
+        ReportStatus(app, L"Trascinamento in entrata non disponibile su questo sistema.");
+
     ShowWindow(window, SW_SHOW);
 
     glEnable(GL_BLEND);
@@ -6117,6 +6263,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, LPWSTR, int)
 
     SetWindowLongPtrW(window, GWLP_USERDATA, 0);
     app.stats.Stop();
+    OleUninitialize();
     app.previews.Shutdown();
     app.renderer.Shutdown();
     wglMakeCurrent(nullptr, nullptr);
