@@ -3534,11 +3534,14 @@ void DrawTextViewer(AppState& app, const Layout& layout, const Rect& area)
     // cosi' la riga a meta' si vede a meta' invece di comparire di colpo — ed e'
     // proprio quella riga che, senza ritaglio, finisce sopra la testata
     // `UTF-8 ... righe`. Si vedeva scorrendo.
+    // Il ritaglio parte dal bordo del pannello, non da quello del testo: i numeri di
+    // riga stanno nella gutter, a sinistra, e ritagliando sul solo testo sparivano —
+    // un ritaglio stretto e' un difetto quanto uno largo.
     app.renderer.End();
     glEnable(GL_SCISSOR_TEST);
-    glScissor(static_cast<GLint>(text.x),
+    glScissor(static_cast<GLint>(body.x),
               static_cast<GLint>(static_cast<float>(app.viewportHeight) - text.bottom()),
-              static_cast<GLsizei>(text.w), static_cast<GLsizei>(text.h));
+              static_cast<GLsizei>(text.right() - body.x), static_cast<GLsizei>(text.h));
     app.renderer.Begin(app.viewportWidth, app.viewportHeight);
 
     for (int row = first; row < last; ++row)
