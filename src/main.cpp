@@ -4384,6 +4384,16 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
                 if (app->selection.count(app->entries[static_cast<size_t>(row->index)].wideName) == 0)
                     SelectOnly(*app, row->index);
             }
+            // Sul fondo della lista non c'e' niente su cui agire, quindi la
+            // selezione cade e il menu diventa quello della **cartella** — come
+            // in Esplora risorse. Il cursore resta: e' il fuoco della tastiera,
+            // non una scelta, e cosi' `Menu` continua a funzionare anche qui.
+            // Fuori dalla lista (barra laterale, inspector) non si tocca niente:
+            // li' un "fondo" non esiste.
+            else if (ComputeLayout(*app).list.Contains(x, y))
+            {
+                app->selection.clear();
+            }
 
             BuildContextMenu(*app, x, y);
             return 0;
