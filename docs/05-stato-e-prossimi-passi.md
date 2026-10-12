@@ -4,7 +4,11 @@ Documento di lavoro, non di progetto: serve a riprendere senza rileggere la
 conversazione. Aggiornarlo è l'ultima cosa da fare prima di una pausa lunga o di
 una compattazione del contesto.
 
-Ultimo aggiornamento: dopo dragUltimo aggiornamento: dopo "Nuovo file >" e "Invia a >", i due sottomenu che la shell non sa eseguire.drop, "Nuovo file >" e "Invia a >".
+Ultimo aggiornamento: dopo il **raggruppamento in griglia** (M5c), le tre chiavi di
+M5d, le **colonne ridimensionabili coi filtri per valore** (M5b), il **trascinamento
+sul riquadro di navigazione** e due difetti di **ritaglio** trovati dall'autore
+guardando (`docs/02` §7.36 e §7.37). Registro: **trentasette** difetti trovati e
+risolti, **otto** cose da fare, i limiti dichiarati sparsi dove vivono.
 
 ---
 
@@ -42,16 +46,19 @@ lavorano i file — inclusa l'apertura delle proprietà di Windows.
 
 Ordinato per quanto morde.
 
-1. **`src/main.cpp` è a ~5.300 righe.** I confini dei componenti ci sono
-   (`GroupMenu`, `ContextMenu`, `file_ops`, `dir_stats`) ma vivono tutti nello
-   stesso file. Spezzarlo richiede che `AppState` e i tipi condivisi escano
-   dall'anonimo namespace in un header: è un lavoro meccanico ma largo, e va fatto
-   quando c'è spazio per riverificare
-   tutto.
+1. **`src/main.cpp` è a 8.480 righe.** I confini dei componenti ci sono
+   (`GroupMenu`, `ContextMenu`, `file_ops`, `dir_stats`, `shell_*`, `drag_drop`)
+   ma quelli della vista vivono tutti nello stesso file. Spezzarlo richiede che
+   `AppState` e i tipi condivisi escano dall'anonimo namespace in un header: è un
+   lavoro meccanico ma largo, e va fatto quando c'è spazio per riverificare tutto.
 2. **Nessun controllo di versione locale.** Il repository è su GitHub
    (`gianmarcotaf02/bolt`) e il sistema salva con commit automatici a ogni turno,
    ma non c'è una convenzione di branch: si lavora su `main`.
-3. **Lo zoom ricampiona il testo.** A `scale` diverso da 1.0 sia il corpo che il
+3. **Il ritaglio costa due disegni per area.** Il posto giusto per un ritaglio è il
+   **quad**, valutato nello shader: riporterebbe il fotogramma a un disegno solo e
+   renderebbe il ritaglio una proprietà di chi disegna invece che dell'ordine in cui
+   si disegna. Vedi `AGENTS.md` §8.
+4. **Lo zoom ricampiona il testo.** A `scale` diverso da 1.0 sia il corpo che il
    secondo corpo vengono scalati, quindi il ricampionamento torna. Eliminarlo
    richiede una rasterizzazione a runtime per ogni dimensione: è un altro
    mestiere, non un difetto da correggere adesso.
