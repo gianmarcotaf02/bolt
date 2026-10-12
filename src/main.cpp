@@ -1625,6 +1625,10 @@ void LoadDirectory(AppState& app, const std::wstring& directory, bool recordHist
     {
         app.filter.clear();
         app.filterActive = false;
+        // I valori di una colonna sono quelli della cartella che si sta lasciando:
+        // il pannello si chiude invece di filtrare su un elenco che non c'e' piu'.
+        app.columnMenu.open = false;
+        app.columnPanel     = -1;
     }
 
     app.scroll = 0.0f;
@@ -2389,6 +2393,13 @@ constexpr int kFilterNoneId = -2;
 
 void BuildColumnMenu(AppState& app, int column)
 {
+    // Il pannello si appoggia al bordo sinistro della sua colonna: e' cosi' che si
+    // vede a quale intestazione appartiene, senza doverlo scrivere.
+    const Layout layout = ComputeLayout(app);
+    app.columnMenu.anchor = Rect{layout.header.x + layout.header.w *
+                                     app.columns[static_cast<size_t>(column)].fraction,
+                                 layout.header.y, 0.0f, layout.header.h};
+
     std::vector<std::pair<std::string, int>> counts;
     std::unordered_map<std::string, int> index;
     for (const Entry& entry : app.entries)
@@ -4015,9 +4026,43 @@ void GroupMenuChar(GroupMenu& menu, wchar_t character)
 
 GroupMenu* OpenMenu(AppState& app)
 {
-    if (app.palette.open) return &app.palette;
-    if (app.goTo.open)    return &app.goTo;
+    if (app.palette.open)    return &app.palette;
+    if (app.goTo.open)       return &app.goTo;
+    if (app.columnMenu.open) return &app.columnMenu;
     return nullptr;
+}
+
+// Cosa fa l'Invio, o un clic, dentro il pannello dei valori. Non lo chiude: una
+// lista di caselle si spunta **a piu' riprese**, ed e' tutto il motivo per cui e'
+// una lista e non un singolo interruttore.
+void RunColumnMenuSelection(AppState& app)
+{
+    if (app.columnPanel < 0)
+        return;
+    const int id = GroupMenuSelectedId(app.columnMenu);
+    auto& column = app.columns[static_cast<size_t>(app.columnPanel)];
+
+    if (id == kFilterAllId)
+    {
+        column.excluded.clear();
+    }
+    else if (id == kFilterNoneId)
+    {
+        for (const std::pair<std::string, int>& value : app.columnPanelValues)
+            column.excluded.insert(value.first);
+    }
+    else if (id >= 0 && id < static_cast<int>(app.columnPanelValues.size()))
+    {
+        const std::string& value = app.columnPanelValues[static_cast<size_t>(id)].first;
+        if (column.excluded.count(value) != 0)
+            column.excluded.erase(value);
+        else
+            column.excluded.insert(value);
+    }
+
+    RefreshColumnMenuChecks(app);
+    app.viewDirty = true;
+    app.scroll    = 0.0f;
 }
 
 // --- navigation, recents and bookmarks -------------------------------------- 
@@ -6300,6 +6345,9 @@ void DrawFrame(AppState& app, const Layout& layout)
     // HitTest finds (it walks the list backwards). At most one is open.
     GroupMenuDraw(app, layout, app.palette);
     GroupMenuDraw(app, layout, app.goTo);
+    // Il pannello dei valori sta attaccato all'intestazione da cui e' nato, e si
+    // disegna per ultimo: e' l'unico che deve coprire la lista.
+    GroupMenuDraw(app, layout, app.columnMenu);
     ContextMenuDraw(app, layout);
 }
 
@@ -6999,8 +7047,26 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
                     {
                         if (menu == &app->palette)
                             RunPaletteSelection(*app);
-                        else
+                        else if (menu == &app->goTo)
                             RunGoToSelection(*app);
+                        else
+                            RunColumnMenuSelection(*app);
+                    }
+                    return 0;
+                }
+
+                // La linguetta del filtro: apre l'elenco dei valori di quella
+                // colonna, o richiude quello che c'e' gia'.
+                if (const ClickTarget* tab = HitTest(*app, x, y, ClickTarget::Kind::ColumnFilter))
+                {
+                    if (app->columnPanel == tab->index && app->columnMenu.open)
+                    {
+                        app->columnMenu.open = false;
+                        app->columnPanel     = -1;
+                    }
+                    else
+                    {
+                        BuildColumnMenu(*app, tab->index);
                     }
                     return 0;
                 }
@@ -7211,8 +7277,10 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
                     {
                         if (menu == &app->palette)
                             RunPaletteSelection(*app);
-                        else
+                        else if (menu == &app->goTo)
                             RunGoToSelection(*app);
+                        else
+                            RunColumnMenuSelection(*app);
                     }
                     return 0;
                 }
