@@ -3944,7 +3944,7 @@ bool OpenSubmenu(AppState& app, const Layout& layout, int depth, int index)
 // Esc e freccia sinistra: si risale di un livello, e solo dal primo livello si
 // chiude il menu. E' l'unico modo di uscire da un sottomenu senza eseguire
 // niente, ed e' quello che fanno tutti i menu.
-void ContextMenuRaiseLevel(AppState& app, const Layout& layout)
+void ContextMenuRaiseLevel(AppState& app)
 {
     const int depth = ActiveDepth(app.contextMenu);
     if (depth == 0)
@@ -5042,7 +5042,7 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
                         // primo livello chiudono il menu. E' l'unico modo di
                         // uscire da un sottomenu senza eseguire niente.
                         case VK_ESCAPE:
-                        case VK_LEFT:   ContextMenuRaiseLevel(*app, layout); break;
+                        case VK_LEFT:   ContextMenuRaiseLevel(*app);       break;
                         case VK_RIGHT:  ContextMenuDescend(*app, layout);    break;
                         case VK_RETURN: ContextMenuActivate(*app); break;
                         case VK_UP:     ContextMenuMove(*app, layout, -1); break;
