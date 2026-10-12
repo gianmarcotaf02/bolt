@@ -3688,7 +3688,9 @@ void ContextMenuDraw(AppState& app, const Layout& layout)
     r.Draw(UIDraw::Fill(panel, t.panelBg, 8.0f * scale));
     r.Draw(UIDraw::Border(panel, t.panelBorder, 1.0f, 8.0f * scale));
 
-    for (int i = 0; i < static_cast<int>(menu.items.size()); ++i)
+    // Solo le voci dentro la finestra del menu: quelle fuori non si disegnano, e
+    // quello che non si disegna non sborda fuori dal pannello.
+    for (int i = menu.firstItem; i < ContextMenuLastVisible(app, layout); ++i)
     {
         const ContextMenuItem& item = menu.items[static_cast<size_t>(i)];
         const Rect row = ContextMenuRowRect(app, layout, i);
@@ -3708,6 +3710,24 @@ void ContextMenuDraw(AppState& app, const Layout& layout)
                       item.disabled ? t.textDim : t.text, scale);
     }
 
+    // La barra dice che sopra o sotto c'e' dell'altro: un menu che scorre senza
+    // dirlo sembra un menu a cui mancano delle voci.
+    const int total   = static_cast<int>(menu.items.size());
+    const int visible = ContextMenuLastVisible(app, layout) - menu.firstItem;
+    if (visible < total)
+    {
+        const float trackY = panel.y + 6.0f * scale;
+        const float trackH = panel.h - 12.0f * scale - 22.0f * scale;
+        const float thumbH = trackH * static_cast<float>(visible) / static_cast<float>(total);
+        const float travel = trackH - thumbH;
+        const float offset = static_cast<float>(menu.firstItem) /
+                             static_cast<float>((std::max)(1, total - visible));
+        r.FillRect(Rect{panel.right() - 7.0f * scale, trackY, 3.0f * scale, trackH}, t.separator);
+        r.FillRect(Rect{panel.right() - 7.0f * scale, trackY + travel * offset,
+                        3.0f * scale, thumbH},
+                   t.textDim);
+    }
+
     app.smallFont.Draw(r, panel.x + 14.0f * scale, panel.bottom() - 17.0f * scale,
                        menu.subtitle, t.textDim, scale);
 }
@@ -3725,7 +3745,7 @@ bool ContextMenuClick(AppState& app, const Layout& layout, float x, float y)
         return true;   // un clic fuori chiude, e non deve arrivare alla lista
     }
 
-    for (int i = 0; i < static_cast<int>(app.contextMenu.items.size()); ++i)
+    for (int i = app.contextMenu.firstItem; i < ContextMenuLastVisible(app, layout); ++i)
     {
         if (ContextMenuRowRect(app, layout, i).Contains(x, y))
         {
@@ -4254,6 +4274,17 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
             if (app != nullptr)
             {
                 const Layout layout = ComputeLayout(*app);
+
+                // Con il menu aperto la rotella scorre il menu: e' l'unica cosa
+                // su cui si sta agendo, e la lista sotto e' coperta.
+                if (app->contextMenu.open)
+                {
+                    const int steps = static_cast<int>(GET_WHEEL_DELTA_WPARAM(wparam)) / WHEEL_DELTA;
+                    app->contextMenu.firstItem -= steps;
+                    ContextMenuClampWindow(*app, layout);
+                    return 0;
+                }
+
                 const ViewMetrics metrics = ComputeViewMetrics(*app, layout);
                 const float stride = metrics.grid ? metrics.cellHeight : metrics.rowHeight;
                 const float steps = static_cast<float>(GET_WHEEL_DELTA_WPARAM(wparam)) / WHEEL_DELTA;
@@ -4323,7 +4354,8 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
                 {
                     const Layout layout = ComputeLayout(*app);
                     app->contextMenu.selected = -1;
-                    for (int i = 0; i < static_cast<int>(app->contextMenu.items.size()); ++i)
+                    for (int i = app->contextMenu.firstItem;
+                         i < ContextMenuLastVisible(*app, layout); ++i)
                     {
                         if (!app->contextMenu.items[static_cast<size_t>(i)].separator &&
                             ContextMenuRowRect(*app, layout, i).Contains(x, y))
@@ -4562,8 +4594,11 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
                     {
                         case VK_ESCAPE: ContextMenuClose(*app); break;
                         case VK_RETURN: ContextMenuActivate(*app); break;
-                        case VK_UP:     ContextMenuMove(app->contextMenu, -1); break;
-                        case VK_DOWN:   ContextMenuMove(app->contextMenu, 1);  break;
+                        case VK_UP:     ContextMenuMove(*app, layout, -1); break;
+                        case VK_DOWN:   ContextMenuMove(*app, layout, 1);  break;
+                        case VK_HOME:   ContextMenuMove(*app, layout, 1);  break;
+                        case VK_NEXT:   ContextMenuMove(*app, layout, 3);  break;
+                        case VK_PRIOR:  ContextMenuMove(*app, layout, -3); break;
                         default: break;
                     }
                     return 0;
