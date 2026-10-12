@@ -1,5 +1,7 @@
 #include "drag_drop.h"
 
+#include "diag.h"
+
 #include <shellapi.h>
 #include <shlobj.h>
 
@@ -153,7 +155,10 @@ public:
         // ricevono, e le sorgenti non cambiano finche' il puntatore sta qui. Si
         // legge adesso, invece di rileggerlo a ogni movimento del mouse.
         sources.clear();
-        ReadPaths(data, &sources);
+        const bool readable = ReadPaths(data, &sources);
+        DiagLog("--- " + DiagClock() + " trascinamento in entrata: " +
+                (readable ? std::to_string(sources.size()) + " percorsi"
+                          : std::string("nessun elenco di file nell'oggetto dati")));
         return Effect(keys, point, effect);
     }
 
@@ -195,6 +200,11 @@ public:
             return S_OK;
 
         const bool move = (negotiated & DROPEFFECT_MOVE) != 0;
+        // Nel registro va la forma della destinazione, non il percorso: "una riga"
+        // o "la cartella aperta" bastano a leggere cosa e' successo.
+        DiagLog("  caduta: " + std::to_string(paths.size()) + " percorsi su " +
+                (ontoRow ? "una riga" : "la cartella aperta") + ", " +
+                (move ? "spostamento" : "copia"));
         ::DragDrop::Drop(window, paths, target, move);
         *effect = move ? DROPEFFECT_MOVE : DROPEFFECT_COPY;
         return S_OK;
@@ -353,6 +363,14 @@ void DragOut(HWND window, const std::vector<std::wstring>& paths, DWORD* effect)
     if (SUCCEEDED(DoDragDrop(data, source,
                              DROPEFFECT_COPY | DROPEFFECT_MOVE | DROPEFFECT_LINK, &chosen)))
         *effect = chosen;
+
+    // Quello che la destinazione ha DICHIARATO di aver fatto. Non e' tutto: una
+    // destinazione puo' aver compiuto lo spostamento e averlo scritto
+    // nell'oggetto dati invece che qui, come fa la shell — vedi
+    // `PerformedEffect`.
+    DiagLog("--- " + DiagClock() + " trascinamento in uscita: " +
+            std::to_string(paths.size()) + " percorsi, la destinazione ha dichiarato " +
+            std::to_string(*effect));
 
     source->Release();
     data->Release();

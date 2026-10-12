@@ -16,6 +16,7 @@
 //
 // Everything still flows through one quad batcher and one draw call per frame.
 // ---------------------------------------------------------------------------
+#include "diag.h"
 #include "dir_stats.h"
 #include "drag_drop.h"
 #include "file_ops.h"
@@ -3440,62 +3441,6 @@ constexpr int kNewItemCmdLast  = 0x70FF;
 constexpr int kSendToCmdFirst = 0x7100;
 constexpr int kSendToCmdLast  = 0x71FF;
 
-// Registro diagnostico spento di default. Serve a LEGGERE cosa la shell offre su
-// questa macchina invece di dedurlo: le voci dipendono dalle estensioni
-// installate, quindi non sono le stesse su due computer. Si accende con
-// BOLT_DIAG_SHELL_MENU=1 e scrive shell-menu.log accanto all'eseguibile.
-bool DiagLogEnabled()
-{
-    static const bool enabled = []()
-    {
-        wchar_t value[8]{};
-        return GetEnvironmentVariableW(L"BOLT_DIAG_SHELL_MENU", value, 8) > 0;
-    }();
-    return enabled;
-}
-
-void DiagLog(const std::string& line)
-{
-    if (!DiagLogEnabled())
-        return;
-
-    // Le righe si accumulano e si riscrivono tutte insieme. Aprendo in append a
-    // ogni riga il registro restava incompleto — il 2026-10-12 conteneva 118 byte
-    // su venti voci — e un registro a meta' e' peggio di nessun registro.
-    static std::string buffer;
-    buffer += line;
-    buffer += "\r\n";
-
-    wchar_t modulePath[MAX_PATH]{};
-    if (GetModuleFileNameW(nullptr, modulePath, MAX_PATH) == 0)
-        return;
-
-    std::wstring file = modulePath;
-    const size_t slash = file.find_last_of(L'\\');
-    file = (slash == std::wstring::npos) ? L"shell-menu.log"
-                                         : file.substr(0, slash + 1) + L"shell-menu.log";
-
-    HANDLE handle = CreateFileW(file.c_str(), GENERIC_WRITE, FILE_SHARE_READ, nullptr,
-                                CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
-    if (handle == INVALID_HANDLE_VALUE)
-        return;
-
-    DWORD written = 0;
-    WriteFile(handle, buffer.data(), static_cast<DWORD>(buffer.size()), &written, nullptr);
-    CloseHandle(handle);
-}
-
-// Segna l'ora nel registro: due giri nella stessa sessione si distinguono solo
-// cosi', e la prima apertura non costa quanto la seconda.
-std::string DiagClock()
-{
-    SYSTEMTIME time{};
-    GetLocalTime(&time);
-    char text[16]{};
-    sprintf_s(text, "%02u:%02u:%02u.%03u", time.wHour, time.wMinute, time.wSecond,
-              time.wMilliseconds);
-    return text;
-}
 
 // L'atlante dei glifi copre il solo ASCII stampabile, quindi un'etichetta della
 // shell con un accento mostrerebbe un buco: si ripiega sull'ASCII, come fa gia'
