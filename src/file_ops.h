@@ -55,6 +55,13 @@ Result Rename(HWND owner, const std::wstring& path, const std::wstring& newName,
 Result CreateFolder(HWND owner, const std::wstring& parent, const std::wstring& name,
                     std::vector<std::wstring>* created, std::wstring* error);
 
+// Crea una voce nuova col meccanismo del sistema: `IFileOperation::NewItem`
+// applica i dati `ShellNew` dell'estensione — il file modello, i byte, o niente —
+// quindi "Nuovo documento di testo.txt" nasce come lo fa Esplora risorse. Il nome
+// definitivo lo sceglie la shell, come per la cartella.
+Result NewItem(HWND owner, const std::wstring& parent, const std::wstring& name,
+               std::vector<std::wstring>* created, std::wstring* error);
+
 // --- clipboard -------------------------------------------------------------
 
 // Mette |paths| nella clipboard. Con |cut| l'effetto preferito e' lo spostamento,
