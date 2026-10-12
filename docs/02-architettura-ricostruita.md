@@ -591,3 +591,66 @@ ha.
 Verificato misurando i pixel, non guardando: gradiente di quattordici pixel
 attorno al bordo, linea di un pixel al posto giusto, e la curva dell'angolo
 visibile nella mappa dei pixel.
+
+### 7.15 La e commerciale degli acceleratori, a schermo
+
+Le etichette che la shell restituisce sono etichette **da menu di Windows**, e in
+un menu di Windows la e commerciale segnala il tasto di scelta rapida:
+`Aggiungi ad &Accesso rapido`, `Apri con &Visual Studio`. Il nostro menu non ha
+tasti di scelta rapida — si naviga con le frecce — quindi l'occhiello finiva a
+schermo, in mezzo a una parola.
+
+Trovato guardando la **prima** cattura del menu nuovo, non leggendo il codice:
+dal codice `GetMenuItemInfoW` restituisce l'etichetta e basta, ed è vero. Che
+quell'etichetta contenga una convenzione che non ci appartiene si vede solo
+stampata.
+
+La regola completa ha una seconda metà, che si scopre solo se la si scrive:
+`&&` in un'etichetta di menu significa **una `&` vera**. Togliere ogni e
+commerciale avrebbe rotto i nomi che ne contengono una — `Find && Replace`
+sarebbe diventato `Find Replace`. Quindi si toglie la singola e si conserva la
+coppia.
+
+### 7.16 Un menu più alto della finestra
+
+Il menu contestuale si dimensionava sul proprio contenuto e si ancorava al
+puntatore, con il solo vincolo di non uscire dal bordo destro. Finché le voci
+erano undici il vincolo non si incontrava mai; con i verbi della shell sono
+diventate trentuno, e su una finestra di 760 px il menu **sporgeva sotto il bordo
+inferiore**. Le ultime voci — `Incolla qui`, `Nuova cartella`, `Aggiorna` — non
+erano né leggibili né cliccabili, e il sottotitolo con il conteggio della
+selezione spariva del tutto.
+
+Il difetto non era nel disegno: era nel fatto che **un menu che scorre non era
+previsto**. La correzione non è un taglio grafico: le voci visibili sono un
+intervallo intero, da `firstItem` in poi, e il pannello è alto esattamente quanto
+le voci che entrano. Fuori da quell'intervallo una voce non si disegna, non si
+sovrappassa e non si clicca — quindi non serve nessun taglio, perché quello che
+non si disegna non sborda. Il taglio cade sempre **fra** due voci: una voce
+mostrata a metà si sceglie per sbaglio.
+
+Restava da dirlo. Un menu che scorre e non lo dichiara sembra un menu a cui
+mancano delle voci, quindi c'è una barra sottile sul bordo destro, alta quanto la
+parte visibile. E le frecce non bastano più: `PagSu`/`PagGiù` scorrono di cinque
+voci, `Home`/`Fine` vanno agli estremi.
+
+### 7.17 La rotella fermata dal sovrappasso
+
+Con il menu aperto il puntatore sceglie la voce sotto di sé. La rotella scorreva
+la finestra e poi la riportava indietro per **tenere visibile la voce scelta** —
+regola giusta per le frecce, sbagliata per la rotella: con il puntatore fermo
+sulla prima voce il menu si rifiutava di scorrere, come se la rotella non
+funzionasse.
+
+Le due regole sono due: le frecce **portano con sé** la scelta, la rotella
+scorre e basta. E se scorrendo la voce scelta esce dal pannello, la scelta cade —
+perché l'Invio esegue quello che si vede, e una voce invisibile non si vede.
+
+Verificato su una finestra ridotta a 460 px di altezza, dove il menu straripa di
+una decina di voci: da `Apri` a `Copia` sono **quattro** righe con quattro tacche
+di rotella, anche con il puntatore fermo sulla prima voce.
+
+La prima prova non era decidibile, e vale la pena dirlo: con il menu più alto
+della finestra di **una sola** voce, la rotella toccava il tetto comunque e non si
+distinguerà mai il caso rotto dal caso giusto. Il banco di prova ha dovuto
+cambiare forma, non la misura.

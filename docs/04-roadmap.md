@@ -536,7 +536,7 @@ non le esegue, ma la voce resta leggibile.
 | misura | valore | lettura |
 |---|---|---|
 | prima apertura dopo l'avvio | ~350 ms | le DLL delle estensioni si caricano in-process |
-| regime | ~65 ms | il costo di ~15 gestori interrogati a ogni tasto destro |
+| regime | ~65 ms | il costo di interrogare i gestori registrati, a ogni tasto destro |
 | handle di kernel | +22 per apertura | dentro le estensioni: i nostri oggetti USER non crescono |
 | estensioni moderne Win11 | dalla **seconda** apertura | `windows.storage` registra le proprie voci al secondo giro |
 
