@@ -104,6 +104,46 @@ bool ReadPaths(IDataObject* data, std::vector<std::wstring>* paths)
     return !paths->empty();
 }
 
+// Cosa la destinazione ha DICHIARATO di aver fatto davvero.
+//
+// L'effetto che `DoDragDrop` restituisce non basta, ed e' un difetto che si vede
+// solo guardando la lista dopo: una destinazione puo' compiere lo spostamento e
+// scriverlo nel formato `CFSTR_PERFORMEDDROPEFFECT` dell'oggetto dati,
+// restituendo poi un effetto diverso. E' quello che fa la shell quando sposta
+// davvero i file: senza leggere questo, la lista continua a mostrare file che non
+// ci sono piu'. Vedi `docs/02` §7.23.
+DWORD PerformedEffect(IDataObject* data)
+{
+    FORMATETC format{};
+    // Il formato si registra: e' una stringa, non un numero fisso come CF_HDROP.
+    // I formati registrati stanno sotto 0xC000, e il cast e' quello che fa la
+    // shell.
+    format.cfFormat =
+        static_cast<CLIPFORMAT>(RegisterClipboardFormatW(CFSTR_PERFORMEDDROPEFFECT));
+    format.dwAspect = DVASPECT_CONTENT;
+    format.lindex   = -1;
+    format.tymed    = TYMED_HGLOBAL;
+    if (format.cfFormat == 0 || data->QueryGetData(&format) != S_OK)
+        return 0;
+
+    STGMEDIUM medium{};
+    if (data->GetData(&format, &medium) != S_OK)
+        return 0;
+
+    // Un DWORD in memoria globale, non un testo.
+    DWORD effect = 0;
+    if (medium.hGlobal != nullptr)
+    {
+        if (const DWORD* value = static_cast<const DWORD*>(GlobalLock(medium.hGlobal)))
+        {
+            effect = *value;
+            GlobalUnlock(medium.hGlobal);
+        }
+    }
+    ReleaseStgMedium(&medium);
+    return effect;
+}
+
 // Vero se la caduta non si puo' fare: dentro cio' che si sta trascinando, o sulla
 // cosa stessa. Una cartella non si copia dentro di se', e nessuno vuole scoprirlo
 // dalla finestra di avanzamento.
@@ -364,13 +404,15 @@ void DragOut(HWND window, const std::vector<std::wstring>& paths, DWORD* effect)
                              DROPEFFECT_COPY | DROPEFFECT_MOVE | DROPEFFECT_LINK, &chosen)))
         *effect = chosen;
 
-    // Quello che la destinazione ha DICHIARATO di aver fatto. Non e' tutto: una
-    // destinazione puo' aver compiuto lo spostamento e averlo scritto
-    // nell'oggetto dati invece che qui, come fa la shell — vedi
-    // `PerformedEffect`.
-    DiagLog("--- " + DiagClock() + " trascinamento in uscita: " +
-            std::to_string(paths.size()) + " percorsi, la destinazione ha dichiarato " +
-            std::to_string(*effect));
+    // L'esito vero: quello restituito, e quello che la destinazione ha scritto
+    // nell'oggetto dati. Se una delle due dice "spostato", i file non sono piu'
+    // dove stavano, e chi ha chiamato deve rifare la vista.
+    const DWORD performed = PerformedEffect(data);
+    *effect |= performed;
+
+    DiagLog("--- " + DiagClock() + " trascinamento in uscita: " + std::to_string(paths.size()) +
+            " percorsi, effetto restituito " + std::to_string(chosen) + ", esito dichiarato " +
+            std::to_string(performed));
 
     source->Release();
     data->Release();
