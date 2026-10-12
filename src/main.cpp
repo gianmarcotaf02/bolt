@@ -3332,6 +3332,12 @@ void ShellMenuRelease(ContextMenu& menu)
     }
 }
 
+// Legge le voci di un menu della shell — separatori compresi — e le traduce nel
+// nostro elenco. Vale per il menu della selezione, per quello del fondo della
+// cartella, e un livello alla volta per un sottomenu.
+void ReadShellMenu(IContextMenu* shell, HMENU handle, bool folderBackground,
+                   std::vector<ContextMenuItem>* out, int* outSkipped)
+{
         const int count = GetMenuItemCount(handle);
         for (int i = 0; i < count; ++i)
         {
