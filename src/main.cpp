@@ -3901,6 +3901,16 @@ void BuildContextMenu(AppState& app, float x, float y)
         menu.items.push_back({"", 0, /*separator=*/true});
         menu.items.push_back({"Taglia", CmdCut});
         menu.items.push_back({"Copia", CmdCopy});
+
+        // "Invia a" qui e non in fondo: e' dove sta in Esplora risorse, subito
+        // dopo il blocco Taglia/Copia, e li' la mano lo cerca.
+        if (!ShellSendTo::Targets().empty())
+        {
+            ContextMenuItem sendTo;
+            sendTo.label      = "Invia a";
+            sendTo.lazySendTo = true;
+            menu.items.push_back(std::move(sendTo));
+        }
         menu.items.push_back({"", 0, true});
         menu.items.push_back({"Rinomina", CmdRename});
         menu.items.push_back({"Elimina", CmdDelete});
@@ -3932,16 +3942,6 @@ void BuildContextMenu(AppState& app, float x, float y)
         newFile.label       = "Nuovo file";
         newFile.lazyNewFile = true;
         menu.items.push_back(std::move(newFile));
-    }
-
-    // "Invia a": le destinazioni della cartella SendTo. Serve qualcosa da mandare,
-    // e serve che la cartella ne abbia almeno una.
-    if (count > 0 && !ShellSendTo::Targets().empty())
-    {
-        ContextMenuItem sendTo;
-        sendTo.label    = "Invia a";
-        sendTo.lazySendTo = true;
-        menu.items.push_back(std::move(sendTo));
     }
 
     menu.items.push_back({"", 0, true});
@@ -4051,6 +4051,84 @@ void FillNewFileMenu(ContextMenuItem& item)
 
     DiagLog("  modelli di 'Nuovo file': " + std::to_string(templates.size()) + " voci, " +
             std::to_string(elapsed) + " ms");
+}
+
+// --- il menu "Invia a", che facciamo noi -------------------------------------
+//
+// Stessa storia del "Nuovo": la shell il proprio "Invia a" lo popola in un
+// sottomenu, e quei comandi non si possono eseguire da fuori. La differenza e' che
+// qui la fonte non e' nascosta: "Invia a" e' **una cartella vera**
+// (`%APPDATA%\Microsoft\Windows\SendTo`), quindi si legge e si esegue a mano.
+// Vedi `src/shell_sendto.h`.
+
+// Riempie il sottomenu con le destinazioni: un CommandId della banda per ciascuna,
+// che e' la sua posizione nell'elenco letto adesso.
+void FillSendToMenu(ContextMenuItem& item)
+{
+    const double started = NowSeconds();
+    const std::vector<ShellSendTo::Target> targets = ShellSendTo::Targets();
+    const double elapsed = (NowSeconds() - started) * 1000.0;
+
+    for (size_t i = 0; i < targets.size(); ++i)
+    {
+        ContextMenuItem entry;
+        entry.label   = ShellLabelToAscii(targets[i].label);
+        entry.command = kSendToCmdFirst + static_cast<int>(i);
+        item.children.push_back(std::move(entry));
+    }
+
+    // Deliberatamente **senza le etichette**: l'elenco delle destinazioni dice
+    // quali programmi ha installato chi usa questo computer, e nel registro
+    // diagnostico non ci finisce. Vedi `AGENTS.md` §0.
+    DiagLog("  destinazioni di 'Invia a': " + std::to_string(targets.size()) + " voci, " +
+            std::to_string(elapsed) + " ms");
+}
+
+// Manda la selezione a una destinazione: la shell esegue il collegamento e i
+// percorsi scelti sono i suoi argomenti — e' quello che fa Esplora risorse, e ogni
+// destinazione si comporta come e' registrata sul sistema.
+void SendToTargets(AppState& app, size_t index, const std::vector<std::wstring>& paths)
+{
+    const std::vector<ShellSendTo::Target> targets = ShellSendTo::Targets();
+    if (index >= targets.size())
+        return;
+    if (paths.empty())
+        return;   // mandare "niente" da qualche parte non e' un'azione
+
+    // I percorsi si citano: un nome con uno spazio dentro, senza virgolette,
+    // arriva alla destinazione spezzato in due argomenti.
+    std::wstring parameters;
+    for (const std::wstring& path : paths)
+    {
+        if (!parameters.empty())
+            parameters += L' ';
+        parameters += L'"';
+        parameters += path;
+        parameters += L'"';
+    }
+
+    // Niente `SEE_MASK_NOASYNC`: la nostra finestra non deve stare ferma ad
+    // aspettare il programma che parte, e l'esito che ci serve — e' partito o no —
+    // ce l'abbiamo lo stesso. `SEE_MASK_FLAG_NO_UI` perche' l'errore lo diciamo
+    // noi, nella barra di stato, invece di aprire una finestra del sistema.
+    SHELLEXECUTEINFOW info{};
+    info.cbSize       = sizeof(info);
+    info.fMask        = SEE_MASK_FLAG_NO_UI;
+    info.hwnd         = app.window;
+    info.lpFile       = targets[index].path.c_str();
+    info.lpParameters = parameters.c_str();
+    info.nShow        = SW_SHOWNORMAL;
+
+    if (!ShellExecuteExW(&info))
+    {
+        // Un'azione che fallisce in silenzio e' peggio di una che non parte.
+        ReportStatus(app, L"\"" + targets[index].label + L"\" non si e' potuto avviare.");
+        return;
+    }
+
+    // "Avviato", non "fatto": la destinazione puo' copiare, comprimere o aprire
+    // una finestra sua, e il suo esito non e' nostro da dichiarare.
+    ReportStatus(app, L"Avviato: " + targets[index].label);
 }
 
 // Chiede alla shell il contenuto di un sottomenu e lo copia nel nostro albero.

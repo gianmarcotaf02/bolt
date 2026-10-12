@@ -27,6 +27,8 @@ add_executable(Bolt WIN32
     src/shell_new.h
     src/shell_preview.cpp
     src/shell_preview.h
+    src/shell_sendto.cpp
+    src/shell_sendto.h
     src/dir_stats.cpp
     src/dir_stats.h
     src/file_ops.cpp
