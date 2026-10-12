@@ -3099,13 +3099,29 @@ Rect ContextMenuRowRect(const AppState& app, const Layout& layout, int index)
 // Tiene la finestra del menu dentro i limiti e ci tiene dentro la voce scelta:
 // l'Invio esegue quello che si vede, quindi la selezione non deve poter uscire
 // dal pannello.
-void ContextMenuClampWindow(AppState& app, const Layout& layout)
+void ContextMenuClampWindow(AppState& app, const Layout& layout, bool followSelection = true)
 {
     ContextMenu& menu = app.contextMenu;
     const int total = static_cast<int>(menu.items.size());
     if (total == 0)
     {
         menu.firstItem = 0;
+        return;
+    }
+
+    // La rotella scorre la finestra SENZA trascinarsi dietro la scelta: la voce
+    // sotto il puntatore e' scelta dal sovrappasso, e obbligarla a restare
+    // visibile faceva resistire il menu alla rotella stessa. Per le frecce
+    // l'opposto e' vero, e la voce scelta non deve poter uscire dal pannello.
+    if (!followSelection)
+    {
+        const int capacity = (std::max)(1, ContextMenuVisibleCount(app, layout, 0));
+        menu.firstItem =
+            (std::max)(0, (std::min)(menu.firstItem, (std::max)(0, total - capacity)));
+
+        if (menu.selected >= 0 &&
+            (menu.selected < menu.firstItem || menu.selected >= ContextMenuLastVisible(app, layout)))
+            menu.selected = -1;   // l'Invio esegue quello che si vede, o niente
         return;
     }
 
@@ -3584,8 +3600,7 @@ void ContextMenuMove(AppState& app, const Layout& layout, int delta)
     ContextMenuClampWindow(app, layout);
 }
 
-// Porta la scelta alla prima o all'ultima voce eseguibile. Da quando il menu
-// puo' scorrere, arrivare in fondo a frecce sono venti pressioni.
+// Porta la scelta alla prima o all'ultima voce eseguibile.
 void ContextMenuJump(AppState& app, const Layout& layout, bool toFirst)
 {
     ContextMenu& menu = app.contextMenu;
@@ -4303,7 +4318,7 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
                 {
                     const int steps = static_cast<int>(GET_WHEEL_DELTA_WPARAM(wparam)) / WHEEL_DELTA;
                     app->contextMenu.firstItem -= steps;
-                    ContextMenuClampWindow(*app, layout);
+                    ContextMenuClampWindow(*app, layout, /*followSelection=*/false);
                     return 0;
                 }
 
