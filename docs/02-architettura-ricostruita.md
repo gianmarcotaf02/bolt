@@ -1186,3 +1186,30 @@ solo, invece di quattro assegnazioni ripetute: era il posto dove la riga mancava
 Vale anche per l'ordinamento e per il filtro, che spostano le righe allo stesso
 modo: li' l'indice sbagliato resta finche' il puntatore non si muove, ed e'
 transitorio — dichiarato, non nascosto.
+
+### 7.36 La lista disegnava fuori dal suo rettangolo
+
+**Trovato dall'autore, guardando una cattura della griglia raggruppata.** In cima
+alla finestra, sopra la barra delle schede e il percorso, c'erano quattro icone di
+file: celle della griglia disegnate **fuori dalla lista**.
+
+La lista saltava le righe interamente fuori dal riquadro — `row.y < list.y - row.h`
+— e quella condizione e' vera finche' le righe sono alte uguale. Una cella di
+griglia e' alta quanto una miniatura, quindi "una riga sopra il bordo" sono cento
+sessanta pixel disegnati sopra il titolo. Il controllo non tagliava: **saltava**.
+
+Adesso e' il **scissor** a ritagliare, attorno alla sola chiamata che disegna la
+lista. Una cella a meta' si vede a meta', che e' quello che deve succedere quando si
+scorre. Il difetto c'era anche prima delle bande di gruppo — bastava uno scorrimento
+non multiplo dell'altezza della cella, e le frecce lo producevano — ma le bande lo
+hanno reso la norma invece dell'eccezione.
+
+**Il prezzo, dichiarato.** I quadrilateri si accumulano in un batch solo, quindi il
+ritaglio obbliga a chiuderlo e riaprirlo: **tre disegni per fotogramma invece di
+uno**. E' poco, ma non e' piu' quello che c'era scritto, e la riga va corretta dove
+stava scritta.
+
+**La lezione.** Un difetto di *ritaglio* non si vede in una cattura di una lista
+allineata: si vede solo scorrendo, e solo se si guarda il bordo invece del centro.
+E' la stessa cosa di §7 (le due barre del titolo): il banco di prova guardava dove
+il difetto non c'era. Qui e' bastato che l'autore guardasse la finestra intera.

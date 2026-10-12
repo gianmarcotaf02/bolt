@@ -433,8 +433,10 @@ Tre regole che ne derivano:
 
 ## 8. Architettura in breve
 
-**Un solo array di texture** (1024 px, **6 strati**), **un quad batcher**, **una
-draw call per frame**.
+**Un solo array di texture** (1024 px, **6 strati**), **un quad batcher**, **tre
+draw call per frame**: due in piu' sono il prezzo del ritaglio della lista (il
+batch va chiuso e riaperto attorno al `glScissor`, o le celle della griglia escono
+dal riquadro e finiscono sopra la barra del titolo — `docs/02` §7.36).
 
 | strato | contenuto |
 |---|---|
@@ -475,7 +477,7 @@ rettangolo ha bordi continui a qualunque dimensione.
 
 - `docs/04-roadmap.md` — le milestone, con le caselle spuntate e i difetti aperti.
 - `docs/05-stato-e-prossimi-passi.md` — dove si è arrivati, cosa resta, le trappole.
-- `docs/02-architettura-ricostruita.md` — l'architettura e i **trentacinque** difetti
+- `docs/02-architettura-ricostruita.md` — l'architettura e i **trentasei** difetti
   trovati e risolti, §7.
 - `docs/03-spec-funzionale.md` — la spec ricostruita dall'originale: 1124 chiavi,
   319 comandi, 35 token di tema, 23 colonne.
