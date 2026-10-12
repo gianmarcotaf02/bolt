@@ -68,52 +68,21 @@ In ordine di valore, non di facilità.
 3. **Trascinare fuori dalle cartelle di spazio dei nomi** — oggi è rifiutato con un
    messaggio e la ragione è scritta (§7.25): l'oggetto dati si costruisce dai nomi.
    Con i PIDL che ormai si hanno in mano si può fare.
-5. **Colonne ridimensionabili e filtri per colonna** — nel riferimento ci sono
+4. **Colonne ridimensionabili e filtri per colonna** — nel riferimento ci sono
    entrambi: le intestazioni hanno un'icona di filtro e i bordi si trascinano. Qui
    le colonne sono frazioni fisse della larghezza.
-6. **`InspectorHideGrid`** — la sola chiave di M8 che resta senza risposta: cosa sia
+5. **`InspectorHideGrid`** — la sola chiave di M8 che resta senza risposta: cosa sia
    la griglia dell'inspector non è ricostruito, e non si inventa.
-7. **Il resto di M5c e M5d** — raggruppamento in griglia, `HoverToSelect`,
+6. **Il resto di M5c e M5d** — raggruppamento in griglia, `HoverToSelect`,
    `UnderlineOnHover`, `ShowTooltips`.
-8. **Drag&drop e albero dei tab** (`TabDropMarker_*`, `CloseInTree`).
-9. **Il costo dell'interrogazione della shell** — la prima apertura dopo l'avvio
+7. **Drag&drop e albero dei tab** (`TabDropMarker_*`, `CloseInTree`).
+8. **Il costo dell'interrogazione della shell** — la prima apertura dopo l'avvio
    costa ~350 ms e in regime ~65 ms, con **22 handle di kernel** per apertura dentro
    le estensioni. Da decidere: chiedere la shell su richiesta invece che a ogni
    tasto destro. Vedi `docs/04-roadmap.md`, sezione M7.
-10. **Spezzare `main.cpp`** — **7.527 righe** e dieci moduli: il confine c'è, ma il
-    file che lo contiene resta il collo di bottiglia dichiarato fin dall'inizio.
+9. **Spezzare `main.cpp`** — **7.748 righe** e undici moduli: il confine c'è, ma il
+   file che lo contiene resta il collo di bottiglia dichiarato fin dall'inizio.
 
-3. **Colonne ridimensionabili e filtri per colonna** — nel riferimento ci sono
-   entrambi: le intestazioni hanno un'icona di filtro e i bordi si trascinano. Qui
-   le colonne sono frazioni fisse della larghezza.
-4. **Trascinare fuori dalle cartelle di spazio dei nomi** — oggi è rifiutato con un
-   messaggio, e la ragione è scritta (`docs/02` §7.25): l'oggetto dati si costruisce
-   dai nomi. Con i PIDL che ormai si hanno in mano si può fare, ed è il passo che
-   chiude il cerchio.
-2. **Il costo dell'interrogazione della shell** — la prima apertura dopo l'avvio
-   costa ~350 ms e le estensioni moderne di Windows 11 compaiono solo dalla
-   seconda; in regime sono ~65 ms e **22 handle di kernel** per apertura, dentro
-   le estensioni. Da decidere: chiedere la shell su richiesta, invece che a ogni
-   tasto destro. Vedi `docs/04-roadmap.md`, sezione M7.
-3. **Drag&drop in ingresso e in uscita** con descrizione. In ingresso è
-   `RegisterDragDrop` + `IDropTarget`; in uscita `IDataObject`. **Attenzione:**
-   un trascinamento OLE non si riesce a simulare come si simula un clic, quindi
-   va progettato in modo da poter essere verificato a pezzi. Per la metà del
-   lavoro serve qualcosa come `tools/send-mouse.ps1`, che ora esiste.
-4. **Il browsing dello spazio dei nomi** — è il prerequisito vero del ripristino
-   dal cestino: la nostra navigazione è basata sui percorsi, il cestino è fatto di
-   PIDL. Senza questo, il ripristino sarebbe un imballaggio sopra una funzione che
-   manca. Vedi `docs/04-roadmap.md`, sezione M7.
-5. **M8 — inspector completo** — proprietà estese (`PROPSYS`), anteprima immagine
-   con zoom, visualizzatore di testo con minimap e numeri di riga.
-6. **M9 — configurazione e temi** — **vincolata da `docs/06`**: niente file di
-   impostazioni, tutto in memoria. Restano la mappa tasti sui 319 comandi e i 35
-   token di tema.
-7. **Raggruppamento in griglia** e **ridimensionamento continuo** della cella.
-8. **Il resto di M5d** — `HoverToSelect`, `UnderlineOnHover` e `ShowTooltips`,
-   più le altre chiavi di interazione dello spec. Vedi `docs/04-roadmap.md`.
-9. **Spezzare `main.cpp`** — ~5.300 righe e otto moduli: il confine c'è, ma il
-   file che lo contiene è diventato il collo di bottiglia.
 
 ---
 
