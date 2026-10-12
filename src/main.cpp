@@ -646,13 +646,13 @@ const FileProperties& PropertiesOf(AppState& app, const std::wstring& path)
 
         PropVariantInit(&value);
         if (SUCCEEDED(store->GetValue(PKEY_Image_HorizontalSize, &value)) &&
-            SUCCEEDED(VariantToUInt32(value, &number)))
+            SUCCEEDED(PropVariantToUInt32(value, &number)))
             properties.imageWidth = number;
         PropVariantClear(&value);
 
         PropVariantInit(&value);
         if (SUCCEEDED(store->GetValue(PKEY_Image_VerticalSize, &value)) &&
-            SUCCEEDED(VariantToUInt32(value, &number)))
+            SUCCEEDED(PropVariantToUInt32(value, &number)))
             properties.imageHeight = number;
         PropVariantClear(&value);
 

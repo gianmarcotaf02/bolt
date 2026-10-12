@@ -59,6 +59,9 @@ std::string ToUtf8(const std::wstring& text)
 // La dimensione e la data come le da' la shell: `GetDetailsEx` e' quello che usa
 // la lista di Esplora risorse per riempire le colonne, quindi la data di una voce
 // del cestino e' quella che il cestino mostra — la data di eliminazione.
+// VARIANT e non PROPVARIANT: qui e' `IShellFolder2::GetDetailsEx` a scrivere, e
+// scrive un VARIANT. Piu' sotto, per le proprieta' che legge `IPropertyStore`, il
+// tipo e' l'altro — sono due strade diverse con due tipi diversi.
 uint64_t DetailBytes(IShellFolder2* folder, PCUITEMID_CHILD child, const PROPERTYKEY& key)
 {
     VARIANT value{};
