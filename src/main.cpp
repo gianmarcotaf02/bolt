@@ -3134,6 +3134,10 @@ int ContextMenuVisibleCount(const AppState& app, const Layout& layout, int depth
     return count;
 }
 
+// I due si chiamano a vicenda: il pannello di un sottomenu si ancora alla riga
+// della voce che lo apre, e la riga si misura dentro il pannello.
+Rect ContextMenuRowRect(const AppState& app, const Layout& layout, int depth, int index);
+
 Rect ContextMenuPanel(const AppState& app, const Layout& layout, int depth)
 {
     const float scale     = layout.scale;
@@ -4716,12 +4720,14 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
                 const Layout layout = ComputeLayout(*app);
 
                 // Con il menu aperto la rotella scorre il menu: e' l'unica cosa
-                // su cui si sta agendo, e la lista sotto e' coperta.
+                // su cui si sta agendo, e la lista sotto e' coperta. Scorre il
+                // livello su cui si sta agendo, che e' il piu' profondo aperto.
                 if (app->contextMenu.open)
                 {
+                    const int depth = ActiveDepth(app->contextMenu);
                     const int steps = static_cast<int>(GET_WHEEL_DELTA_WPARAM(wparam)) / WHEEL_DELTA;
-                    app->contextMenu.firstItem -= steps;
-                    ContextMenuClampWindow(*app, layout, /*followSelection=*/false);
+                    app->contextMenu.levels[static_cast<size_t>(depth)].firstItem -= steps;
+                    ContextMenuClampWindow(*app, layout, depth, /*followSelection=*/false);
                     return 0;
                 }
 
@@ -4803,17 +4809,7 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
                 if (app->contextMenu.open)
                 {
                     const Layout layout = ComputeLayout(*app);
-                    app->contextMenu.selected = -1;
-                    for (int i = app->contextMenu.firstItem;
-                         i < ContextMenuLastVisible(*app, layout); ++i)
-                    {
-                        if (!app->contextMenu.items[static_cast<size_t>(i)].separator &&
-                            ContextMenuRowRect(*app, layout, i).Contains(x, y))
-                        {
-                            app->contextMenu.selected = i;
-                            break;
-                        }
-                    }
+                    ContextMenuHover(*app, layout, x, y);
                     app->hovered = -1;
                     return 0;
                 }
@@ -5042,7 +5038,12 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
                 {
                     switch (wparam)
                     {
-                        case VK_ESCAPE: ContextMenuClose(*app); break;
+                        // Esc e freccia sinistra risalgono di un livello: dal
+                        // primo livello chiudono il menu. E' l'unico modo di
+                        // uscire da un sottomenu senza eseguire niente.
+                        case VK_ESCAPE:
+                        case VK_LEFT:   ContextMenuRaiseLevel(*app, layout); break;
+                        case VK_RIGHT:  ContextMenuDescend(*app, layout);    break;
                         case VK_RETURN: ContextMenuActivate(*app); break;
                         case VK_UP:     ContextMenuMove(*app, layout, -1); break;
                         case VK_DOWN:   ContextMenuMove(*app, layout, 1);  break;
