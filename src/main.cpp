@@ -2585,16 +2585,9 @@ void DrawStatusBar(AppState& app, const Layout& layout)
     const Theme& t = app.theme;
     const float scale = layout.scale;
 
-    char status[200];
-    std::snprintf(status, sizeof(status),
-                  "%zu items, %zu selected   |   %.0f fps   |   %.0f quads   |   %d icons, %d previews   |   %d stats jobs   |   Enter opens, F5 refreshes",
-                  app.entries.size(), app.selection.size(), static_cast<double>(app.framesPerSecond),
-                  static_cast<double>(app.renderer.QuadCount()),
-                  app.icons.IconCount(), app.previews.ReadyCount(),
-                  app.stats.ActiveJobs());
-    // Un esito recente prende il posto delle statistiche. Chi ha appena premuto
-    // un tasto guarda li' per sapere com'e' andata, e le statistiche non
-    // rispondono alla sua domanda.
+    // Un esito recente prende il posto di tutto il resto. Chi ha appena premuto un
+    // tasto guarda li' per sapere com'e' andata, e i numeri non rispondono alla sua
+    // domanda.
     const bool showingResult = !app.statusMessage.empty() &&
                                NowSeconds() - app.statusMessageTime < 4.0;
     if (showingResult)
@@ -2604,7 +2597,66 @@ void DrawStatusBar(AppState& app, const Layout& layout)
         return;
     }
 
-    app.smallFont.Draw(r, 12.0f * scale, layout.statusBar.y + 4.0f * scale, status, t.textDim, scale);
+    // A sinistra quante cose ci sono e quante sono scelte; a destra dove si e' nella
+    // lista, come si sta guardando, e quanto e' ingrandita. Erano contatori del
+    // motore — fotogrammi, quadrilateri, lavori in corso — che servono a chi scrive
+    // il programma e non a chi lo usa: adesso stanno dietro `BOLT_DEV_HUD=1`.
+    char counts[96];
+    std::snprintf(counts, sizeof(counts), "%zu items", app.entries.size());
+    app.smallFont.Draw(r, 12.0f * scale, layout.statusBar.y + 4.0f * scale, counts, t.textDim, scale);
+
+    if (!app.selection.empty())
+    {
+        char chosen[96];
+        std::snprintf(chosen, sizeof(chosen), "%zu selected", app.selection.size());
+        const float x = 12.0f * scale + app.smallFont.Measure(counts, scale) + 16.0f * scale;
+        app.smallFont.Draw(r, x, layout.statusBar.y + 4.0f * scale, chosen, t.text, scale);
+    }
+
+    if (DevHudEnabled())
+    {
+        char dev[192];
+        std::snprintf(dev, sizeof(dev), "%.0f fps | %.0f quads | %d icons, %d previews | %d jobs",
+                      static_cast<double>(app.framesPerSecond),
+                      static_cast<double>(app.renderer.QuadCount()), app.icons.IconCount(),
+                      app.previews.ReadyCount(), app.stats.ActiveJobs());
+        const float x = 12.0f * scale + app.font.Measure("0000 items", scale) +
+                        app.smallFont.Measure("000 selected", scale) + 40.0f * scale;
+        app.smallFont.Draw(r, x, layout.statusBar.y + 4.0f * scale, dev, t.textDim, scale);
+    }
+
+    // A destra, al contrario: la posizione nella lista. Il conto e' fra le voci
+    // **visibili** — i gruppi aggiungono righe che non sono voci, e un filtro ne
+    // toglie — ed e' quello che serve a orientarsi.
+    int visible = 0;
+    int position = 0;
+    for (const Row& row : app.rows)
+    {
+        if (row.header)
+            continue;
+        ++visible;
+        const Entry& entry = app.entries[static_cast<size_t>(row.entry)];
+        if (position == 0 && entry.wideName == app.cursor)
+            position = visible;
+    }
+
+    std::string right;
+    if (position > 0)
+        right = std::to_string(position) + " / " + std::to_string(visible);
+
+    const char* view = (app.viewMode == ViewMode::Details) ? "Details"
+                     : (app.viewMode == ViewMode::Tiles)   ? "Tiles"
+                                                           : "Icons";
+    if (!right.empty())
+        right += "   |   ";
+    right += view;
+    right += "   |   ";
+    right += std::to_string(static_cast<int>(app.zoom * 100.0f / (app.dpiScale > 0.0f ? app.dpiScale : 1.0f)));
+    right += "%";
+
+    const float rightWidth = app.smallFont.Measure(right, scale);
+    app.smallFont.Draw(r, layout.statusBar.right() - rightWidth - 14.0f * scale,
+                       layout.statusBar.y + 4.0f * scale, right, t.textDim, scale);
 }
 
 // --- command palette: registry ----------------------------------------------
@@ -5772,16 +5824,17 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
                 {
                     LoadDirectory(*app, crumb->path);
                 }
-                else if (const ClickTarget* header = HitTest(*app, x, y, ClickTarget::Kind::SidebarHeader))
+                else if (const ClickTarget* section = HitTest(*app, x, y,
+                                                             ClickTarget::Kind::SidebarHeader))
                 {
                     // Ricordare la sezione chiusa per nome e non per posizione: le
                     // righe si spostano quando i segnalibri cambiano, e una sezione
                     // chiusa non deve riaprirsi da sola perche' ne e' arrivata
                     // un'altra sopra.
-                    if (app->collapsedSections.count(header->label) != 0)
-                        app->collapsedSections.erase(header->label);
+                    if (app->collapsedSections.count(section->label) != 0)
+                        app->collapsedSections.erase(section->label);
                     else
-                        app->collapsedSections.insert(header->label);
+                        app->collapsedSections.insert(section->label);
                 }
                 else if (const ClickTarget* place = HitTest(*app, x, y, ClickTarget::Kind::Place))
                 {

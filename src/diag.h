@@ -17,6 +17,11 @@
 // Vero se il registro e' acceso.
 bool DiagEnabled();
 
+// Vero se si vogliono i contatori del motore nella barra di stato (`BOLT_DEV_HUD=1`):
+// fotogrammi, quadrilateri, lavori. Servono a chi scrive il programma, non a chi lo
+// usa, e di default non si vedono.
+bool DevHudEnabled();
+
 // Aggiunge una riga al registro. Le righe si accumulano e si riscrivono tutte
 // insieme: aprendo in append a ogni riga il file restava incompleto.
 void DiagLog(const std::string& line);

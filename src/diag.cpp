@@ -12,6 +12,16 @@ bool DiagEnabled()
     return enabled;
 }
 
+bool DevHudEnabled()
+{
+    static const bool enabled = []()
+    {
+        wchar_t value[8]{};
+        return GetEnvironmentVariableW(L"BOLT_DEV_HUD", value, 8) > 0;
+    }();
+    return enabled;
+}
+
 void DiagLog(const std::string& line)
 {
     if (!DiagEnabled())
