@@ -202,6 +202,16 @@ std::wstring ParsingNameOf(REFKNOWNFOLDERID id)
     return out;
 }
 
+std::wstring QuickAccessName()
+{
+    // Il CLSID non e' fra i FOLDERID_ documentati, ma la sua chiave in
+    // `HKCR\CLSID` c'e', e il nome localizzato pure: si legge da li' invece di
+    // scrivere l'identificatore a mano nel codice.
+    const GUID quickAccess = {
+        0x679f85cb, 0x0220, 0x4080, {0xb2, 0x9b, 0x55, 0x40, 0xcc, 0x05, 0xaa, 0xb6}};
+    return ParsingNameOf(quickAccess);
+}
+
 std::wstring ParentOf(const std::wstring& location)
 {
     PIDLIST_ABSOLUTE pidl = nullptr;

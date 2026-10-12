@@ -127,6 +127,11 @@ struct Place
 {
     std::string  label;
     std::wstring path;
+
+    // Per i volumi: quanto e' pieno, e quanto resta in lettere. Vuoti per tutto
+    // il resto — una cartella non ha un'occupazione da mostrare.
+    float       usedFraction = 0.0f;
+    std::string freeText;
 };
 
 // Rectangles recorded while drawing, so input handling can hit test them without
@@ -381,6 +386,16 @@ struct AppState
     std::vector<Entry> entries;
     std::vector<Place> places;
     std::vector<ClickTarget> clickTargets;
+
+    // --- barra laterale ------------------------------------------------------
+    //
+    // Quattro elenchi, non uno: i fissaggi della shell, i segnalibri (che sono
+    // nostri e stanno in memoria sola, vedi `docs/06`), i volumi e le cartelle
+    // standard. Sono cose di natura diversa e si mostrano in sezioni diverse; la
+    // barra laterale le disegna in quest'ordine.
+    std::vector<Place> quickAccess;
+    std::vector<Place> volumes;
+    std::unordered_set<std::string> collapsedSections;
 
     std::vector<Tab> tabs;
     int              activeTab = 0;
@@ -1340,11 +1355,84 @@ void CloseTab(AppState& app, int index)
     }
 }
 
+// I fissaggi della shell: "Accesso rapido" di Esplora risorse, che e' una cartella
+// dello spazio dei nomi come le altre. Si legge adesso e si rilegge a ogni
+// aggiornamento, perche' l'utente puo' averci appena messo qualcosa.
+//
+// Di suo questo elenco puo' contenere cartelle che l'utente ha scelto, quindi e'
+// fatto di nomi *suoi*: nelle prove si fotografa la barra laterale **sotto** questa
+// sezione. Vedi `docs/05`.
+void BuildQuickAccess(AppState& app)
+{
+    app.quickAccess.clear();
+
+    const std::wstring location = ShellLocation::QuickAccessName();
+    if (location.empty())
+        return;
+
+    std::string error;
+    for (const ShellLocation::Item& item : ShellLocation::Read(location, &error))
+    {
+        if (item.location.empty())
+            continue;
+        Place place;
+        place.label = ToUtf8(item.name);
+        place.path  = item.location;
+        app.quickAccess.push_back(std::move(place));
+    }
+}
+
+// I volumi, con quanto sono pieni. La shell il nome di un volume lo sa scrivere —
+// "Windows (C:)" — e la capacita' la da' il sistema: sono due chiamate, e si fanno
+// quando si aggiorna la vista, non a ogni fotogramma.
+void RefreshVolumes(AppState& app)
+{
+    app.volumes.clear();
+
+    wchar_t letters[512]{};
+    if (GetLogicalDriveStringsW(511, letters) == 0)
+        return;
+
+    for (const wchar_t* letter = letters; *letter != L'\0'; letter += wcslen(letter) + 1)
+    {
+        const UINT type = GetDriveTypeW(letter);
+        // Un lettore senza disco non ha niente da mostrare, e una barra vuota
+        // accanto a un'icona racconta una cosa che non c'e'.
+        if (type != DRIVE_FIXED && type != DRIVE_REMOVABLE && type != DRIVE_REMOTE)
+            continue;
+
+        Place place;
+        place.path = letter;
+
+        SHFILEINFOW info{};
+        if (SHGetFileInfoW(letter, 0, &info, sizeof(info), SHGFI_DISPLAYNAME) != 0 &&
+            info.szDisplayName[0] != L'\0')
+            place.label = ToUtf8(info.szDisplayName);
+        else
+            place.label = ToUtf8(letter);
+
+        ULARGE_INTEGER available{};
+        ULARGE_INTEGER total{};
+        if (GetDiskFreeSpaceExW(letter, &available, &total, nullptr) &&
+            total.QuadPart > 0)
+        {
+            place.usedFraction = 1.0f -
+                static_cast<float>(static_cast<double>(available.QuadPart) /
+                                   static_cast<double>(total.QuadPart));
+            place.freeText = HumanBytes(available.QuadPart);
+        }
+        app.volumes.push_back(std::move(place));
+    }
+}
+
 void BuildPlaces(AppState& app)
 {
-    // Il cestino sta in fondo e non in ordine alfabetico: non e' una cartella in
-    // cui si tiene roba, e' dove si va a prendere quello che si e' buttato.
-    // Aggiungerlo qui e' tutto quello che serve — si apre come una cartella
+    BuildQuickAccess(app);
+    RefreshVolumes(app);
+
+    // Il cestino sta fra le cartelle standard e non in ordine alfabetico: non e' una
+    // cartella in cui si tiene roba, e' dove si va a prendere quello che si e'
+    // buttato. Aggiungerlo qui e' tutto quello che serve — si apre come una cartella
     // qualunque, perche' una cartella dello spazio dei nomi e' una cartella.
     {
         const std::wstring bin = ShellLocation::ParsingNameOf(FOLDERID_RecycleBinFolder);

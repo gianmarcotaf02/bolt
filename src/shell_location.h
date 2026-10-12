@@ -46,6 +46,10 @@ std::wstring DisplayName(const std::wstring& location);
 // scritto dentro il nostro codice.
 std::wstring ParsingNameOf(REFKNOWNFOLDERID id);
 
+// L'"Accesso rapido" di Esplora risorse: la cartella di spazio dei nomi in cui la
+// shell tiene quello che l'utente ha fissato.
+std::wstring QuickAccessName();
+
 // La posizione che contiene |location|. Vuoto se non c'e' — o se la shell non la
 // sa nominare: senza un nome non si potrebbe navigare.
 std::wstring ParentOf(const std::wstring& location);
