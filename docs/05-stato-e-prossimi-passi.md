@@ -4,7 +4,7 @@ Documento di lavoro, non di progetto: serve a riprendere senza rileggere la
 conversazione. Aggiornarlo è l'ultima cosa da fare prima di una pausa lunga o di
 una compattazione del contesto.
 
-Ultimo aggiornamento: dopo i sottomenu del menu contestuale.
+Ultimo aggiornamento: dopo "Nuovo file >" e i sottomenu del menu contestuale.
 
 ---
 
@@ -20,7 +20,7 @@ Ultimo aggiornamento: dopo i sottomenu del menu contestuale.
 | M5c — modalità di visualizzazione | 🟡 manca il raggruppamento in griglia |
 | M5d — sovrappasso del mouse | 🟡 evidenzia righe e celle; mancano `HoverToSelect`, `UnderlineOnHover`, `ShowTooltips` |
 | M6 — tab, barra del titolo, palette, GoTo | 🟡 fatti tab, titolo, palette, GoTo; mancano quick access pinnato, drag&drop e albero dei tab |
-| M7 — operazioni su file | 🟡 copia, sposta, rinomina, cestino, clipboard interoperabile, **menu contestuale a più livelli** con Proprietà di Windows, le **voci di primo livello della shell**, il **menu della cartella** sul fondo e i **sottomenu delle estensioni**. Mancano drag&drop, `Nuovo >`/`Invia a >` nostri e il ripristino dal cestino |
+| M7 — operazioni su file | 🟡 copia, sposta, rinomina, cestino, clipboard interoperabile, **menu contestuale a più livelli** con Proprietà di Windows, le **voci di primo livello della shell**, il **menu della cartella** sul fondo, i **sottomenu delle estensioni** e **`Nuovo file >`** (tipi dal registro, creazione con contenuto). Mancano drag&drop, `Invia a >` e il ripristino dal cestino |
 | M8 — inspector completo | ⬜ |
 | M9 — configurazione e temi | ⬜ **vincolata**: niente file di impostazioni, vedi `docs/06` |
 | M10 — backend D3D11 | ⬜ |
@@ -55,13 +55,12 @@ Ordinato per quanto morde.
 
 In ordine di valore, non di facilità.
 
-1. **`Nuovo >` e `Invia a >`, fatti da noi** — sono le due voci che si cercano per
-   prime, e le uniche che non si possono chiedere alla shell: i suoi sottomenu si
-   leggono ma non si eseguono (`docs/02` §7.19). Le fonti sono note e
-   verificabili: le chiavi `ShellNew` del registro per `Nuovo >`, la cartella
-   SendTo per `Invia a >`. Il componente sa già annidare, quindi è lavoro di
-   contenuto, non di architettura — e si verifica creando un file e uno zip
-   **dentro la sandbox**.
+1. **`Invia a >`, fatto da noi** — la cartella SendTo è una cartella vera, quindi
+   si enumera e si esegue con `ShellExecute` passando i percorsi scelti come
+   argomenti: è quello che fa la shell, e si verifica creando uno zip **dentro la
+   sandbox** col comando "Cartella compressa". `Nuovo file >` è già fatto (vedi
+   `docs/04-roadmap.md`, sezione M7): stessa forma, e il componente sa già
+   annidare.
 2. **Il costo dell'interrogazione della shell** — la prima apertura dopo l'avvio
    costa ~350 ms e le estensioni moderne di Windows 11 compaiono solo dalla
    seconda; in regime sono ~65 ms e **22 handle di kernel** per apertura, dentro
@@ -217,6 +216,13 @@ Windows 11 si registrano solo dalla seconda apertura, quindi la stessa voce sta 
 un indice diverso fra il primo e il secondo tasto destro. Contare le frecce con un
 numero fisso sbaglia voce; per una voce precisa si legge il registro diagnostico
 dell'apertura in corso, e si naviga con `Fine` e le frecce.
+
+**Una cattura a dimensione intera inganna sulle cose piccole.** Il campo di
+rinomina sul posto (un riquadro scuro con un cursore di **un pixel**) non si
+vedeva nella cattura della finestra, e per due volte ho concluso che la rinomina
+non fosse partita. Ingrandendo la riga con `PIL` — `crop(...).resize(..., NEAREST)`
+— il riquadro e il cursore sono evidenti. Prima di dire "non c'è", si ingrandisce
+la zona: vale per i cursori, i bordi di un pixel e i separatori.
 
 **`tools/send-keys.ps1`** esiste perché l'escaping di PowerShell dentro bash
 mangiava i caratteri e i tasti non arrivavano: uno script su file è l'unico modo
