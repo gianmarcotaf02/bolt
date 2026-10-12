@@ -19,15 +19,14 @@ void DiagLog(const std::string& line)
 
     static std::string buffer;
     buffer += line;
-    buffer += "
-";
+    buffer += "\r\n";
 
     wchar_t modulePath[MAX_PATH]{};
     if (GetModuleFileNameW(nullptr, modulePath, MAX_PATH) == 0)
         return;
 
     std::wstring file = modulePath;
-    const size_t slash = file.find_last_of(L'\');
+    const size_t slash = file.find_last_of(L'\\');
     file = (slash == std::wstring::npos) ? L"bolt-diag.log"
                                          : file.substr(0, slash + 1) + L"bolt-diag.log";
 
