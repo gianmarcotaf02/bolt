@@ -2889,8 +2889,7 @@ void DrawInspector(AppState& app, const Layout& layout)
         if (!volume.freeText.empty())
         {
             char free[96];
-            std::snprintf(free, sizeof(free), "%s free of %s (%d%%)",
-                          volume.freeText.c_str(), volume.totalText.c_str(),
+            std::snprintf(free, sizeof(free), "%s free (%d%% used)", volume.freeText.c_str(),
                           static_cast<int>(volume.usedFraction * 100.0f));
             rows.push_back({"Space", free, false});
         }
@@ -2900,7 +2899,12 @@ void DrawInspector(AppState& app, const Layout& layout)
     // guardando. Si taglia davanti.
     rows.push_back({"Path", ToUtf8(full), false});
 
-    rows.push_back({"Ext", entry.extension.empty() ? "—" : entry.extension, false});
+    // "Ext" solo per quello che un'estensione ce l'ha: una riga con l'etichetta e
+    // niente accanto occupa lo spazio di una che direbbe qualcosa. E il trattino
+    // lungo che c'era prima non era nemmeno un carattere che l'atlante conosceva:
+    // a schermo si vedeva un buco, non un trattino.
+    if (!entry.extension.empty())
+        rows.push_back({"Ext", entry.extension, false});
 
     for (const Row& row : rows)
     {

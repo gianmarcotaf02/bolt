@@ -20,7 +20,10 @@ constexpr uint32_t kLastLatin1  = 0x00FF;
 
 // E i pochi simboli che l'interfaccia disegna: le frecce della barra strumenti, la
 // stella dei segnalibri, i puntini di sospensione, i separatori.
-constexpr wchar_t kExtraChars[] = L"\u2190\u2192\u2191\u2193\u21BB\u2605\u2606\u2026\u00B7\u2022";
+constexpr wchar_t kExtraChars[] =
+    L"\u2190\u2192\u2191\u2193\u21BB\u2605\u2606"      // frecce, stella piena e vuota
+    L"\u2026\u00B7\u2022"                            // puntini, separatori
+    L"\u2013\u2014\u2018\u2019\u201C\u201D";       // trattini e virgolette tipografiche
 
 // Transparent gutter around every glyph cell. Without it, a quad sampled with
 // GL_LINEAR at anything other than an exact texel centre drags in the edge of the
