@@ -3463,6 +3463,32 @@ void ShellMenuRelease(ContextMenu& menu)
     }
 }
 
+// I sottomenu che la shell popola **da sé** — "Nuovo", "Invia a", "Dare accesso
+// a" — e che da qui non si possono eseguire: la shell consegna i comandi di
+// quei sottomenu alla finestra del menu, e noi una finestra di menu non
+// l'abbiamo. Offrirli sarebbe offrire voci che non fanno niente.
+//
+// Il confronto è per verbo canonico. Una voce senza verbo viene trattata come
+// della shell: non si può sapere di chi è, e la prudenza costa una voce, non un
+// comando che finge di riuscire.
+bool IsShellOwnSubmenuVerb(const wchar_t* verb)
+{
+    if (verb[0] == L'\0')
+        return true;
+
+    static const wchar_t* const kShellOwn[] = {
+        L"New",      L"Windows.Share", L"Windows.SendTo", L"SendTo",
+        L"View",     L"Arrange",       L"Arrangement",    L"Sort",
+        L"Group",    L"Layout",        L"Background",     L"Customize",
+    };
+    for (const wchar_t* own : kShellOwn)
+    {
+        if (SameWord(verb, own))
+            return true;
+    }
+    return false;
+}
+
 // Legge le voci di un menu della shell — separatori compresi — e le traduce nel
 // nostro elenco. Vale per il menu della selezione, per quello del fondo della
 // cartella, e un livello alla volta per un sottomenu.
@@ -3520,6 +3546,15 @@ void ReadShellMenu(IContextMenu* shell, HMENU handle, bool folderBackground,
             // decidere cosa popolare.
             if (basic.hSubMenu != nullptr)
             {
+                // Che sia di un'estensione o della shell decide se la voce si
+                // potra' eseguire: vedi IsShellOwnSubmenuVerb.
+                if (!haveVerb || IsShellOwnSubmenuVerb(verb))
+                {
+                    DiagLog("  saltata (sottomenu della shell, non eseguibile): '" +
+                            item.label + "'");
+                    ++(*outSkipped);
+                    continue;
+                }
                 item.command       = 0;
                 item.shellSubmenu  = basic.hSubMenu;
                 item.shellPosition = i;
