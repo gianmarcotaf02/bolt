@@ -12,6 +12,19 @@ out/
 analysis/
 sessione.html
 
+# --- Mappa del repository: derivata, non sorgente ---
+#
+# graphify-out/ contiene graph.json, graph.html, GRAPH_REPORT.md, la cache degli
+# estrattori e .graphify_python. Sono tutti rigenerabili dall'albero dei sorgenti:
+# per il solo codice bastano `graphify extract . --code-only` e `graphify update .`,
+# senza chiavi API.
+#
+# Due ragioni per non versionarla. La prima: .graphify_python contiene il percorso
+# assoluto dell'interprete sulla macchina che l'ha generata, cioe` un percorso
+# personale dentro un repository pubblico. La seconda: la cache cambia a ogni run,
+# quindi ogni aggiornamento della mappa diventerebbe rumore nei commit.
+graphify-out/
+
 # File di lavoro dell'IDE
 *.user
 *.suo
