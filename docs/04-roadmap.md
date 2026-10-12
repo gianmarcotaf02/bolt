@@ -491,6 +491,9 @@ a gruppi, invece di scriverne tre.
       quel valore avvia un'applicazione invece di creare un file
       (`msaccess.exe /NEWDB 1`, `Wab.exe /CreateContact "%1"`), e imitarlo
       significherebbe eseguire righe di registro arbitrarie
+- [ ] la rinomina della voce nuova mette il cursore **in fondo** al nome; Esplora
+      risorse seleziona la parte senza estensione, così si scrive sopra senza
+      cancellare il `.txt` — sulla voce nuova la selezione è già comoda
 - [x] il menu della **cartella**, quando non c'è selezione, cioè il tasto destro
       sul fondo della lista: è il menu della *vista*, chiesto con
       `IShellFolder::CreateViewObject(IID_IContextMenu)`, **non** quello della
@@ -605,8 +608,21 @@ aprire (§7.21 di `docs/02`); il secondo si accetta in tutte e due le forme.
 
 **I modelli col valore `Command` restano fuori.** Quel valore non crea un file:
 avvia un programma. La lettura del registro, quando serve, costa **meno di un
-millisecondo** (misurata: 0,7 ms per 18 modelli) e avviene alla prima apertura del
+millisecondo** (misurata: 0,7 ms per 20 modelli) e avviene alla prima apertura del
 sottomenu, non a ogni tasto destro.
+
+Due note sull'elenco, perché sono differenze misurate rispetto al menu della
+shell e non difetti noti:
+
+- *"Documento di testo" la shell lo conosce da sé.* Nessuna delle 37 chiavi
+  `ShellNew` di questa macchina nomina `.txt`, eppure Esplora risorse lo offre. La
+  voce si aggiunge a mano, con l'etichetta chiesta a `SHGetFileInfo` (la stessa
+  fonte della colonna "Tipo", quindi tradotta). Un `.txt` vuoto è esattamente
+  quello che si vuole.
+- *"Immagine bitmap" invece non si aggiunge.* Quella la shell la crea con un
+  contenuto suo che il registro non dichiara: la nostra sarebbe un file di zero
+  byte con l'estensione `.bmp`, cioè un'immagine che nessun programma apre.
+  Meglio nessuna voce di una voce che non funziona.
 
 **Quattro costi misurati** (registro: `BOLT_DIAG_SHELL_MENU=1` → `shell-menu.log`):
 
