@@ -433,10 +433,17 @@ Tre regole che ne derivano:
 
 ## 8. Architettura in breve
 
-**Un solo array di texture** (1024 px, **6 strati**), **un quad batcher**, **tre
-draw call per frame**: due in piu' sono il prezzo del ritaglio della lista (il
-batch va chiuso e riaperto attorno al `glScissor`, o le celle della griglia escono
-dal riquadro e finiscono sopra la barra del titolo — `docs/02` §7.36).
+**Un solo array di texture** (1024 px, **6 strati**), **un quad batcher**, **cinque
+draw call per frame**: quattro in piu' sono il prezzo dei due ritagli (lista e
+visualizzatore di testo), perche' il batch va chiuso e riaperto attorno al
+`glScissor`, o le celle della griglia e le righe di testo escono dal riquadro e
+finiscono sopra le barre (`docs/02` §7.36 e §7.37).
+
+**Debito dichiarato:** il posto giusto per un ritaglio e' il **quad**, non la
+chiamata di disegno — un rettangolo di ritaglio per primitiva, valutato nello
+shader, riporterebbe il fotogramma a un disegno solo e renderebbe il ritaglio una
+proprieta' di chi disegna invece che dell'ordine in cui si disegna. Finche' non
+c'e', ogni area ritagliata costa due disegni.
 
 | strato | contenuto |
 |---|---|
@@ -477,7 +484,7 @@ rettangolo ha bordi continui a qualunque dimensione.
 
 - `docs/04-roadmap.md` — le milestone, con le caselle spuntate e i difetti aperti.
 - `docs/05-stato-e-prossimi-passi.md` — dove si è arrivati, cosa resta, le trappole.
-- `docs/02-architettura-ricostruita.md` — l'architettura e i **trentasei** difetti
+- `docs/02-architettura-ricostruita.md` — l'architettura e i **trentasette** difetti
   trovati e risolti, §7.
 - `docs/03-spec-funzionale.md` — la spec ricostruita dall'originale: 1124 chiavi,
   319 comandi, 35 token di tema, 23 colonne.

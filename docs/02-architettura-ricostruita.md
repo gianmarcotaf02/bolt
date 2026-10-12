@@ -1218,3 +1218,32 @@ titolo), dove `GetClientRect` tagliava via la barra di sistema: il banco di prov
 guardava dove il difetto non c'era. Qui e' bastato che l'autore guardasse la
 finestra intera — ed e' il motivo per cui le catture di verifica si fanno sul
 riquadro **intero** e solo la privacy autorizza a ritagliare.
+
+### 7.37 Il limite scritto al contrario, e la fascia che usciva dal riquadro
+
+**Trovato dall'autore, guardando la minimap.** Nel visualizzatore di testo, la
+fascia che segna la parte visibile usciva dal suo riquadro e finiva **sopra** il
+pannello, sempre piu' su; e l'area del testo sembrava vuota.
+
+Una riga sola:
+
+    app.textScroll = (std::min)((std::max)(0.0f, content - text.h), app.textScroll);
+
+Il `max(0, ...)` era applicato al **limite massimo** invece che allo scorrimento.
+Quel `min` limita solo in alto: scorrendo la rotella **verso l'alto** oltre l'inizio,
+`textScroll` diventava negativo e li' restava. Con lo scorrimento negativo le righe
+di testo venivano spinte verso il basso fino a sparire, e la fascia della minimap —
+`scroll / content * altezza` — saliva sopra il riquadro. Adesso i limiti sono due,
+nell'ordine giusto: `max(0, min(scroll, content - h))`.
+
+**La stessa lezione di §7.36, applicata al testo.** Guardando il testo scorso si e'
+visto che le righe si disegnavano **sopra la testata** `UTF-8 ... righe`: la prima
+riga comincia apposta una riga prima di quella visibile (cosi' quella a meta' si
+vede a meta'), e senza ritaglio finiva sopra. Vale anche li': un `continue` non e'
+un ritaglio, e il ritaglio e' un `glScissor` sull'area del testo.
+
+**E il primo tentativo di ritaglio era stretto.** Ritagliando sul solo rettangolo
+del testo i **numeri di riga** sparivano: stanno nella gutter, a sinistra. Un
+ritaglio stretto e' un difetto quanto uno largo, e si vede solo guardando — la
+lezione e' sempre la stessa e vale la pena ripeterla: dopo una correzione si
+rimisura il bordo attorno alla correzione.
