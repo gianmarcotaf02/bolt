@@ -4023,7 +4023,7 @@ void ContextMenuActivate(AppState& app)
 
         CMINVOKECOMMANDINFOEX info{};
         info.cbSize  = sizeof(info);
-        info.fMask   = CMIC_MASK_UNICODE | CMIC_MASK_ASYNCOK;
+        info.fMask   = CMIC_MASK_UNICODE | CMIC_MASK_FLAG_NO_UI;
         info.hwnd    = app.window;
         info.lpVerb  = MAKEINTRESOURCEA(static_cast<WORD>(offset));
         info.lpVerbW = MAKEINTRESOURCEW(static_cast<WORD>(offset));
