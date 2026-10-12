@@ -123,9 +123,34 @@ bool ReadData(HKEY key, std::vector<BYTE>* out)
 {
     DWORD type  = 0;
     DWORD bytes = 0;
-    if (RegQueryValueExW(key, L"Data", nullptr, &type, nullptr, &bytes) != ERROR_SUCCESS)
+    if (RegQueryValueExW(key, L"Data", nullptr, &type, nullptr, &bytes) != ERROR_SUCCESS ||
+        bytes == 0)
         return false;
-    if (type != REG_BINARY || bytes == 0)
+
+    // `Data` e' documentato come binario, ma il registro usa anche la stringa:
+    // il modello di `.rtf` e' `{\rtf1}` scritto come `REG_SZ`, e i suoi sette byte
+    // sono esattamente il contenuto del file nuovo. Si prendono i byte della
+    // stringa, senza il terminatore — quello non fa parte del file.
+    if (type == REG_SZ || type == REG_EXPAND_SZ)
+    {
+        std::wstring text(bytes / sizeof(wchar_t), L'\0');
+        if (RegQueryValueExW(key, L"Data", nullptr, nullptr, reinterpret_cast<BYTE*>(text.data()),
+                             &bytes) != ERROR_SUCCESS)
+            return false;
+        text.resize(wcslen(text.c_str()));
+        if (text.empty())
+            return false;
+
+        const int needed = WideCharToMultiByte(CP_ACP, 0, text.c_str(),
+                                               static_cast<int>(text.size()), nullptr, 0, nullptr,
+                                               nullptr);
+        out->assign(static_cast<size_t>(needed), 0);
+        WideCharToMultiByte(CP_ACP, 0, text.c_str(), static_cast<int>(text.size()),
+                            reinterpret_cast<char*>(out->data()), needed, nullptr, nullptr);
+        return !out->empty();
+    }
+
+    if (type != REG_BINARY)
         return false;
 
     out->assign(bytes, 0);
