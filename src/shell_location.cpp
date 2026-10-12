@@ -4,6 +4,7 @@
 #include <shlobj.h>
 #include <shlwapi.h>
 
+#include <propkey.h>
 #include <propvarutil.h>
 
 namespace ShellLocation
@@ -34,7 +35,7 @@ uint64_t DetailBytes(IShellFolder2* folder, PCUITEMID_CHILD child, const PROPERT
         return 0;
 
     ULONGLONG bytes = 0;
-    const bool ok = SUCCEEDED(VariantToUInt64(&value, &bytes));
+    const bool ok = SUCCEEDED(VariantToUInt64(value, &bytes));
     VariantClear(&value);
     return ok ? static_cast<uint64_t>(bytes) : 0;
 }
@@ -47,7 +48,7 @@ bool DetailTime(IShellFolder2* folder, PCUITEMID_CHILD child, const PROPERTYKEY&
         return false;
 
     FILETIME time{};
-    const bool ok = SUCCEEDED(VariantToFileTime(&value, PSTF_UTC, &time));
+    const bool ok = SUCCEEDED(VariantToFileTime(value, PSTF_UTC, &time));
     VariantClear(&value);
     if (ok)
         *out = time;
