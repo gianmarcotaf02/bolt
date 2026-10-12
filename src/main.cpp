@@ -3294,8 +3294,16 @@ bool SameWord(const wchar_t* a, const wchar_t* b)
 // verbo canonico e non per etichetta, perche' l'etichetta e' tradotta e il verbo
 // no. "Apri con" (openas) NON e' fra questi: e' proprio uno dei motivi per cui
 // la shell viene interrogata.
-bool IsOwnShellVerb(const wchar_t* verb)
+//
+// Sul menu della CARTELLA l'elenco e' piu' corto, e non per svogliatezza: la'
+// il nostro menu non ha ne' "Apri" ne' "Proprieta'", quindi quelli della shell
+// sono un guadagno e non un doppione. Resta fuori solo cio' che c'e' in tutti e
+// due, cioe' l'incolla.
+bool IsOwnShellVerb(const wchar_t* verb, bool folderBackground)
 {
+    if (folderBackground)
+        return SameWord(verb, L"paste");
+
     static const wchar_t* const kOwn[] = {
         L"open", L"cut", L"copy", L"paste", L"delete", L"rename", L"properties",
     };
@@ -3327,7 +3335,7 @@ void ShellMenuRelease(ContextMenu& menu)
 // Chiede alla shell il menu della selezione e ne copia le voci utilizzabili.
 // L'IContextMenu esce da qui perche' serve ancora al momento dell'esecuzione: la
 // shell non accetta un verbo senza l'oggetto da cui e' uscito.
-bool BuildShellItems(HWND owner, const std::vector<std::wstring>& paths,
+bool BuildShellItems(HWND owner, const std::vector<std::wstring>& paths, bool folderBackground,
                      IContextMenu** outMenu, HMENU* outHandle,
                      std::vector<ContextMenuItem>* out, int* outSkipped)
 {
@@ -3402,7 +3410,7 @@ bool BuildShellItems(HWND owner, const std::vector<std::wstring>& paths,
                     const bool haveVerb = SUCCEEDED(shell->GetCommandString(
                         offset, GCS_VERBW, nullptr, reinterpret_cast<LPSTR>(verb), 128));
 
-                    if (haveVerb && IsOwnShellVerb(verb))
+                    if (haveVerb && IsOwnShellVerb(verb, folderBackground))
                         continue;
 
                     wchar_t text[256]{};
@@ -3492,19 +3500,31 @@ bool BuildShellItems(HWND owner, const std::vector<std::wstring>& paths,
 // quello che non lo e'.
 void AppendShellItems(AppState& app, ContextMenu& menu)
 {
-    const std::vector<std::wstring> paths = SelectedPaths(app);
+    std::vector<std::wstring> paths = SelectedPaths(app);
+
+    // Nel vuoto il contesto della shell e' **la cartella aperta**: il menu che si
+    // apre col tasto destro sul fondo parla della cartella, non di un file. Sono
+    // gli stessi verbi su un altro oggetto, ed e' da li' che arrivano "Apri in
+    // Terminale", "Condividi" e la finestra delle proprieta' della cartella.
+    const bool folderBackground = paths.empty();
+    if (folderBackground)
+    {
+        if (app.directory.empty())
+            return;
+        paths.push_back(app.directory);
+    }
 
     const double started = NowSeconds();
     std::vector<ContextMenuItem> items;
     IContextMenu* shell    = nullptr;
     HMENU handle           = nullptr;
     int skipped            = 0;
-    BuildShellItems(app.window, paths, &shell, &handle, &items, &skipped);
+    BuildShellItems(app.window, paths, folderBackground, &shell, &handle, &items, &skipped);
     const double elapsed = (NowSeconds() - started) * 1000.0;
 
-    DiagLog("--- " + DiagClock() + " " + std::to_string(paths.size()) + " percorsi, " +
-            std::to_string(items.size()) + " voci, " + std::to_string(skipped) +
-            " saltate, " + std::to_string(elapsed) + " ms");
+    DiagLog("--- " + DiagClock() + (folderBackground ? " sfondo," : " selezione,") + " " +
+            std::to_string(paths.size()) + " percorsi, " + std::to_string(items.size()) +
+            " voci, " + std::to_string(skipped) + " saltate, " + std::to_string(elapsed) + " ms");
 
     ShellMenuRelease(menu);
     if (shell == nullptr)
@@ -3512,9 +3532,12 @@ void AppendShellItems(AppState& app, ContextMenu& menu)
 
     menu.shell     = shell;
     menu.shellMenu = handle;
-    menu.items.push_back({"", 0, /*separator=*/true});
     for (ContextMenuItem& item : items)
         menu.items.push_back(std::move(item));
+    // Il separatore va DOPO il blocco: chi lo innesta ci mette il proprio davanti,
+    // e in testa a un menu che comincia con la shell sarebbe stato un separatore
+    // orfano.
+    menu.items.push_back({"", 0, /*separator=*/true});
 }
 
 void ContextMenuClose(AppState& app)
@@ -3559,8 +3582,14 @@ void BuildContextMenu(AppState& app, float x, float y)
         // I verbi della shell stanno dopo i nostri: i nostri sono quelli che si
         // usano davvero, e non devono scendere sotto una lista lunga quanto le
         // estensioni installate su questa macchina.
-        AppendShellItems(app, menu);
         menu.items.push_back({"", 0, true});
+        AppendShellItems(app, menu);
+    }
+    else
+    {
+        // Col tasto destro sul fondo, invece, la shell apre il menu: quello e' il
+        // contesto di cio' su cui si e' cliccato.
+        AppendShellItems(app, menu);
     }
 
     menu.items.push_back({count > 0 ? "Incolla qui" : "Incolla", CmdPaste});
