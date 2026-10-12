@@ -1,0 +1,188 @@
+{
+  "src/dir_stats.cpp": {
+    "mtime": 1791717222.6490355,
+    "seen": 1791796881.81776,
+    "ast_hash": "da7e8b1b352a520b39427205bdd61013",
+    "semantic_hash": "da7e8b1b352a520b39427205bdd61013"
+  },
+  "src/dir_stats.h": {
+    "mtime": 1791717222.6490355,
+    "seen": 1791796881.8177664,
+    "ast_hash": "b32a90823b6170cdd96cf97a71d7c48b",
+    "semantic_hash": "b32a90823b6170cdd96cf97a71d7c48b"
+  },
+  "src/file_ops.cpp": {
+    "mtime": 1791761589.3625648,
+    "seen": 1791796881.8177693,
+    "ast_hash": "6da4c7385f8686ce7f4db9c580906e07",
+    "semantic_hash": "6da4c7385f8686ce7f4db9c580906e07"
+  },
+  "src/file_ops.h": {
+    "mtime": 1791761593.7625902,
+    "seen": 1791796881.817771,
+    "ast_hash": "a9ba7a6840d648c89c1fa27e46d2af06",
+    "semantic_hash": "a9ba7a6840d648c89c1fa27e46d2af06"
+  },
+  "src/font_atlas.cpp": {
+    "mtime": 1791726773.8620882,
+    "seen": 1791796881.8177729,
+    "ast_hash": "84b83485f33e8fc43e0e6849459d2473",
+    "semantic_hash": "84b83485f33e8fc43e0e6849459d2473"
+  },
+  "src/font_atlas.h": {
+    "mtime": 1791658072.406595,
+    "seen": 1791796881.8177745,
+    "ast_hash": "eb52d7496ebd60fa733591e1c82213b7",
+    "semantic_hash": "eb52d7496ebd60fa733591e1c82213b7"
+  },
+  "src/gl_loader.cpp": {
+    "mtime": 1791726652.767516,
+    "seen": 1791796881.8177764,
+    "ast_hash": "3fc779adb6d90ce694e7a6997f31ceba",
+    "semantic_hash": "3fc779adb6d90ce694e7a6997f31ceba"
+  },
+  "src/gl_loader.h": {
+    "mtime": 1791726652.7598236,
+    "seen": 1791796881.817778,
+    "ast_hash": "c44e5a68ca2fbe6328f0ad8e05d61658",
+    "semantic_hash": "c44e5a68ca2fbe6328f0ad8e05d61658"
+  },
+  "src/main.cpp": {
+    "mtime": 1791763200.7664967,
+    "seen": 1791796881.8177803,
+    "ast_hash": "10994b5fc6d9924229d5c14f74942eb1",
+    "semantic_hash": "10994b5fc6d9924229d5c14f74942eb1"
+  },
+  "src/resource.h": {
+    "mtime": 1791752833.6701522,
+    "seen": 1791796881.8177817,
+    "ast_hash": "9a6f9865acba0f83ce681f020e0abe64",
+    "semantic_hash": "9a6f9865acba0f83ce681f020e0abe64"
+  },
+  "src/shell_icons.cpp": {
+    "mtime": 1791657890.7026553,
+    "seen": 1791796881.8177834,
+    "ast_hash": "a7dfbefe84e0a7b8b6d5630b8e666abc",
+    "semantic_hash": "a7dfbefe84e0a7b8b6d5630b8e666abc"
+  },
+  "src/shell_icons.h": {
+    "mtime": 1791657821.254458,
+    "seen": 1791796881.817785,
+    "ast_hash": "d5a27e428da59742d7926e2ccc3f8043",
+    "semantic_hash": "d5a27e428da59742d7926e2ccc3f8043"
+  },
+  "src/shell_preview.cpp": {
+    "mtime": 1791659259.30741,
+    "seen": 1791796881.817787,
+    "ast_hash": "87f2984b1bd7776e28ca3df90887604e",
+    "semantic_hash": "87f2984b1bd7776e28ca3df90887604e"
+  },
+  "src/shell_preview.h": {
+    "mtime": 1791659259.30741,
+    "seen": 1791796881.8177888,
+    "ast_hash": "dc2c6df3a3fae18e310c48bc1297d078",
+    "semantic_hash": "dc2c6df3a3fae18e310c48bc1297d078"
+  },
+  "src/ui_renderer.cpp": {
+    "mtime": 1791726693.1440048,
+    "seen": 1791796881.8177907,
+    "ast_hash": "61cfd2f35a75a19caf0b05f54f7fceb5",
+    "semantic_hash": "61cfd2f35a75a19caf0b05f54f7fceb5"
+  },
+  "src/ui_renderer.h": {
+    "mtime": 1791726681.7456243,
+    "seen": 1791796881.8177922,
+    "ast_hash": "1bd754a2c5ca3ed963fd303bda099119",
+    "semantic_hash": "1bd754a2c5ca3ed963fd303bda099119"
+  },
+  "tools/capture-window.ps1": {
+    "mtime": 1791761982.863722,
+    "seen": 1791796881.817794,
+    "ast_hash": "c63c41e8cdaa43956e373202de4a44c3",
+    "semantic_hash": "c63c41e8cdaa43956e373202de4a44c3"
+  },
+  "tools/make-test-sandbox.ps1": {
+    "mtime": 1791763022.8677344,
+    "seen": 1791796881.817796,
+    "ast_hash": "688af140b95a7fffd1f8c607a485a1ba",
+    "semantic_hash": "688af140b95a7fffd1f8c607a485a1ba"
+  },
+  "tools/send-keys.ps1": {
+    "mtime": 1791761646.9966893,
+    "seen": 1791796881.8177977,
+    "ast_hash": "4574903324e3562c80ace6697fd7991b",
+    "semantic_hash": "4574903324e3562c80ace6697fd7991b"
+  },
+  "tools/setup-reverse-toolchain.ps1": {
+    "mtime": 1791649149.6752577,
+    "seen": 1791796881.8177993,
+    "ast_hash": "a696741f75b6f9e3da81e9a69b545995",
+    "semantic_hash": "a696741f75b6f9e3da81e9a69b545995"
+  },
+  "AGENTS.md": {
+    "mtime": 1791763032.8468158,
+    "seen": 1791796881.8178012,
+    "ast_hash": "aa32db89a9b827575fe585f8ab0a090c",
+    "semantic_hash": "aa32db89a9b827575fe585f8ab0a090c"
+  },
+  "CMakeLists.txt": {
+    "mtime": 1791762060.303246,
+    "seen": 1791796881.8178027,
+    "ast_hash": "8b2397a1ffd12f6184b204f13a5d59c0",
+    "semantic_hash": "8b2397a1ffd12f6184b204f13a5d59c0"
+  },
+  "README.md": {
+    "mtime": 1791763286.5469472,
+    "seen": 1791796881.8178089,
+    "ast_hash": "2b680fb9ad3f89c3bc7b461f839ed17e",
+    "semantic_hash": "2b680fb9ad3f89c3bc7b461f839ed17e"
+  },
+  "brand/logo-brief.md": {
+    "mtime": 1791752975.929303,
+    "seen": 1791796881.8178108,
+    "ast_hash": "3ed6d390dd7dee4c896376b5503258fe",
+    "semantic_hash": "3ed6d390dd7dee4c896376b5503258fe"
+  },
+  "docs/00-metodologia.md": {
+    "mtime": 1791751794.777209,
+    "seen": 1791796881.8178124,
+    "ast_hash": "90f36a7cdab0b16ec33f907a75b7b72b",
+    "semantic_hash": "90f36a7cdab0b16ec33f907a75b7b72b"
+  },
+  "docs/01-analisi-binario.md": {
+    "mtime": 1791654314.8036835,
+    "seen": 1791796881.8178144,
+    "ast_hash": "919941a9edc42598ec64523e0335b527",
+    "semantic_hash": "919941a9edc42598ec64523e0335b527"
+  },
+  "docs/02-architettura-ricostruita.md": {
+    "mtime": 1791762098.4091299,
+    "seen": 1791796881.817816,
+    "ast_hash": "1c3aa4ea75c2e897abdf89fd6ce763a9",
+    "semantic_hash": "1c3aa4ea75c2e897abdf89fd6ce763a9"
+  },
+  "docs/03-spec-funzionale.md": {
+    "mtime": 1791654306.5107253,
+    "seen": 1791796881.817818,
+    "ast_hash": "d66137d9a70f1be1b6027548b11d08ad",
+    "semantic_hash": "d66137d9a70f1be1b6027548b11d08ad"
+  },
+  "docs/04-roadmap.md": {
+    "mtime": 1791763279.1998906,
+    "seen": 1791796881.8178196,
+    "ast_hash": "954c853818f012389ad41220bec3e349",
+    "semantic_hash": "954c853818f012389ad41220bec3e349"
+  },
+  "docs/05-stato-e-prossimi-passi.md": {
+    "mtime": 1791763347.5480874,
+    "seen": 1791796881.8178213,
+    "ast_hash": "828c0a2c25e1b9bbee818d099a44fd59",
+    "semantic_hash": "828c0a2c25e1b9bbee818d099a44fd59"
+  },
+  "docs/06-privacy.md": {
+    "mtime": 1791762957.050019,
+    "seen": 1791796881.8178232,
+    "ast_hash": "e99af1a121cebac93a5b28534aca240c",
+    "semantic_hash": "e99af1a121cebac93a5b28534aca240c"
+  }
+}
