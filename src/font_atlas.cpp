@@ -258,6 +258,12 @@ const FontAtlas::Glyph* FontAtlas::Find(uint32_t codepoint) const
     return it == glyphs_.end() ? nullptr : &it->second;
 }
 
+float FontAtlas::MeasureOne(uint32_t codepoint, float scale) const
+{
+    const Glyph* glyph = Find(codepoint);
+    return ((glyph != nullptr) ? glyph->advance : lineHeight_ * 0.5f) * scale;
+}
+
 namespace Utf8
 {
 

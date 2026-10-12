@@ -4425,7 +4425,7 @@ void BuildContextMenu(AppState& app, float x, float y)
         menu.items.push_back({"Elimina", CmdDelete, false, namespaced});
         menu.items.push_back({"Elimina definitivamente", CmdDeletePermanent, false, namespaced});
         menu.items.push_back({"", 0, true});
-        menu.items.push_back({"Proprieta'", kContextProperties, false, namespaced});
+        menu.items.push_back({"Proprietà", kContextProperties, false, namespaced});
 
         // I verbi della shell stanno dopo i nostri: i nostri sono quelli che si
         // usano davvero, e non devono scendere sotto una lista lunga quanto le
@@ -4889,7 +4889,7 @@ void ContextMenuActivate(AppState& app)
         if (paths.empty())
             ReportStatus(app, L"Niente su cui aprire le proprieta'.");
         else if (ShowProperties(app.window, paths) == 0)
-            ReportStatus(app, L"Proprieta' non disponibili per la selezione.");
+            ReportStatus(app, L"Proprietà non disponibili per la selezione.");
         return;
     }
 

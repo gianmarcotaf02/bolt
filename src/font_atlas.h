@@ -60,6 +60,10 @@ public:
     // Width of |text| at |scale|, in UI pixels.
     float Measure(const std::string& text, float scale) const;
 
+    // La larghezza di un solo carattere: chi tronca un testo ha bisogno di
+    // misurarne uno alla volta, senza spezzare le sequenze.
+    float MeasureOne(uint32_t codepoint, float scale) const;
+
     // Queues one quad per glyph. |x|, |y| name the top-left corner of the line box.
     void Draw(UIRenderer& renderer, float x, float y, const std::string& text, Color color, float scale) const;
 
