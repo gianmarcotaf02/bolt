@@ -3584,6 +3584,28 @@ void ContextMenuMove(AppState& app, const Layout& layout, int delta)
     ContextMenuClampWindow(app, layout);
 }
 
+// Porta la scelta alla prima o all'ultima voce eseguibile. Da quando il menu
+// puo' scorrere, arrivare in fondo a frecce sono venti pressioni.
+void ContextMenuJump(AppState& app, const Layout& layout, bool toFirst)
+{
+    ContextMenu& menu = app.contextMenu;
+    const int count = static_cast<int>(menu.items.size());
+    if (count == 0)
+        return;
+
+    const int step = toFirst ? 1 : -1;
+    int index = toFirst ? -1 : count;
+    for (int i = 0; i < count; ++i)
+    {
+        index = (index + step + count * 2) % count;
+        const ContextMenuItem& item = menu.items[static_cast<size_t>(index)];
+        if (!item.separator && !item.disabled)
+            break;
+    }
+    menu.selected = index;
+    ContextMenuClampWindow(app, layout);
+}
+
 // Apre la finestra delle proprieta' di Windows sulla selezione: la stessa che
 // apre Esplora risorse, quindi schede, permessi, versioni e anteprime sono quelli
 // del sistema e non una nostra imitazione. Restituisce quante ne ha aperte.
@@ -4596,9 +4618,16 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
                         case VK_RETURN: ContextMenuActivate(*app); break;
                         case VK_UP:     ContextMenuMove(*app, layout, -1); break;
                         case VK_DOWN:   ContextMenuMove(*app, layout, 1);  break;
-                        case VK_HOME:   ContextMenuMove(*app, layout, 1);  break;
-                        case VK_NEXT:   ContextMenuMove(*app, layout, 3);  break;
-                        case VK_PRIOR:  ContextMenuMove(*app, layout, -3); break;
+                        // In un menu che scorre, PagSu e PagGiu' scorrono di una
+                        // schermata e Home/Fine vanno agli estremi: e' quello che
+                        // fanno in ogni menu, e con venti voci la differenza si
+                        // sente.
+                        case VK_NEXT:   ContextMenuMove(*app, layout, 5);  break;
+                        case VK_PRIOR:  ContextMenuMove(*app, layout, -5); break;
+                        case VK_HOME:
+                        case VK_END:
+                            ContextMenuJump(*app, layout, wparam == VK_HOME);
+                            break;
                         default: break;
                     }
                     return 0;
