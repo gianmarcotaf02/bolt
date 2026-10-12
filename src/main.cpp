@@ -4079,6 +4079,11 @@ void DoPaste(AppState& app)
     const float scroll = app.scroll;
     std::wstring error;
     std::vector<std::wstring> created;
+    // Nel registro, perche' una volta un incolla e' partito senza che si riuscisse a
+    // capire da quale gesto: senza una riga, l'unica traccia era un messaggio di
+    // stato che dura quattro secondi.
+    DiagLog("  incolla: " + std::to_string(paths.size()) + " percorsi, " +
+            (cut ? "tagliati" : "copiati") + ", in " + ToUtf8(LeafName(app.directory)));
     const FileOps::Result result = cut ? FileOps::Move(app.window, paths, app.directory, &created, &error)
                                        : FileOps::Copy(app.window, paths, app.directory, &created, &error);
 
@@ -7460,8 +7465,9 @@ void Drop(HWND window, const std::vector<std::wstring>& sources, const DragDrop:
 
     DiagLog("  esito della caduta: " + std::string(discard ? "eliminazione"
                                                            : (move ? "spostamento" : "copia")) +
-            " di " + std::to_string(sources.size()) + " elementi, prodotti " +
-            std::to_string(created.size()));
+            " di " + std::to_string(sources.size()) + " elementi" +
+            (discard ? std::string()
+                     : ", prodotti " + std::to_string(created.size())));
     ReportStatus(*app, (discard ? L"Buttati via " : (move ? L"Spostati " : L"Copiati ")) +
                            std::to_wstring(sources.size()) +
                            (discard ? L" elementi nel cestino"
