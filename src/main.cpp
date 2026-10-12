@@ -397,6 +397,11 @@ struct AppState
     std::vector<Place> volumes;
     std::unordered_set<std::string> collapsedSections;
 
+    // Dove punta un collegamento, per percorso. Si risolve una volta per file: la
+    // risoluzione apre il collegamento, e una riga si disegna sessanta volte al
+    // secondo.
+    std::unordered_map<std::wstring, std::wstring> shortcutTargets;
+
     std::vector<Tab> tabs;
     int              activeTab = 0;
     bool             sidebarVisible = true;
@@ -602,6 +607,69 @@ uint64_t FileTimeToUint64(const FILETIME& fileTime)
 
 // Truncates |text| with a trailing ellipsis so it cannot spill into the next
 // column. The renderer has no scissor rectangle, so fitting has to happen here.
+// Dove punta un collegamento. Un ".lnk" da solo non dice cosa apre, e il bersaglio
+// accanto al nome e' quello che si vuole sapere prima di aprirlo: e' quello che fa
+// File Pilot, ed e' l'unica informazione del collegamento che serva davvero.
+//
+// La lettura apre il file, quindi si fa una volta per percorso e si tiene: la riga
+// si disegna a ogni fotogramma.
+const std::wstring& ShortcutTarget(AppState& app, const Entry& entry)
+{
+    static const std::wstring empty;
+
+    if (entry.extension != "lnk" || !entry.location.empty())
+        return empty;   // fuori da una cartella normale un collegamento non si risolve
+
+    // Il percorso: qui la voce e' per forza di una cartella normale, quindi il nome
+    // dentro la cartella aperta e' tutto quello che serve.
+    const std::wstring path = JoinPath(app.directory, entry.wideName);
+    const auto cached = app.shortcutTargets.find(path);
+    if (cached != app.shortcutTargets.end())
+        return cached->second;
+
+    std::wstring target;
+    IShellLinkW* link = nullptr;
+    if (SUCCEEDED(CoCreateInstance(CLSID_ShellLink, nullptr, CLSCTX_INPROC_SERVER,
+                                   IID_IShellLinkW, reinterpret_cast<void**>(&link))) &&
+        link != nullptr)
+    {
+        IPersistFile* file = nullptr;
+        if (SUCCEEDED(link->QueryInterface(IID_IPersistFile, reinterpret_cast<void**>(&file))) &&
+            file != nullptr)
+        {
+            if (SUCCEEDED(file->Load(path.c_str(), STGM_READ)))
+            {
+                wchar_t buffer[MAX_PATH]{};
+                if (SUCCEEDED(link->GetPath(buffer, MAX_PATH, nullptr, SLGP_RAWPATH)))
+                    target = buffer;
+
+                // Un collegamento non punta sempre a un file: puo' puntare a una
+                // cartella dello spazio dei nomi, e allora l'identificatore e' il
+                // PIDL, non un percorso.
+                if (target.empty())
+                {
+                    PIDLIST_ABSOLUTE pidl = nullptr;
+                    if (SUCCEEDED(link->GetIDList(&pidl)) && pidl != nullptr)
+                    {
+                        PWSTR name = nullptr;
+                        if (SUCCEEDED(SHGetNameFromIDList(pidl, SIGDN_NORMALDISPLAY, &name)) &&
+                            name != nullptr)
+                        {
+                            target = name;
+                            CoTaskMemFree(name);
+                        }
+                        CoTaskMemFree(pidl);
+                    }
+                }
+            }
+            file->Release();
+        }
+        link->Release();
+    }
+
+    return app.shortcutTargets.emplace(path, std::move(target)).first->second;
+}
+
 std::string FitText(const FontAtlas& font, const std::string& text, float scale, float maxWidth)
 {
     if (maxWidth <= 0.0f || text.empty())
@@ -1431,19 +1499,6 @@ void BuildPlaces(AppState& app)
     BuildQuickAccess(app);
     RefreshVolumes(app);
 
-    // Il cestino sta fra le cartelle standard e non in ordine alfabetico: non e' una
-    // cartella in cui si tiene roba, e' dove si va a prendere quello che si e'
-    // buttato. Aggiungerlo qui e' tutto quello che serve — si apre come una cartella
-    // qualunque, perche' una cartella dello spazio dei nomi e' una cartella.
-    {
-        const std::wstring bin = ShellLocation::ParsingNameOf(FOLDERID_RecycleBinFolder);
-        if (!bin.empty())
-        {
-            const std::wstring name = ShellLocation::DisplayName(bin);
-            app.places.push_back(Place{ToUtf8(name.empty() ? std::wstring(L"Recycle Bin") : name), bin});
-        }
-    }
-
     struct Known { KNOWNFOLDERID id; const char* label; };
     const Known known[] = {
         {FOLDERID_Profile,   "Home"},
@@ -1462,6 +1517,20 @@ void BuildPlaces(AppState& app)
         {
             app.places.push_back(Place{item.label, path});
             CoTaskMemFree(path);
+        }
+    }
+
+    // Il cestino va **in fondo**, e non per ordine alfabetico: non e' una cartella in
+    // cui si tiene roba, e' dove si va a prendere quello che si e' buttato. Si apre
+    // come una cartella qualunque, perche' una cartella dello spazio dei nomi e' una
+    // cartella.
+    {
+        const std::wstring bin = ShellLocation::ParsingNameOf(FOLDERID_RecycleBinFolder);
+        if (!bin.empty())
+        {
+            const std::wstring name = ShellLocation::DisplayName(bin);
+            app.places.push_back(
+                Place{ToUtf8(name.empty() ? std::wstring(L"Recycle Bin") : name), bin});
         }
     }
 }
@@ -1812,7 +1881,7 @@ void DrawSidebar(AppState& app, const Layout& layout)
     for (size_t i = 0; i < rows.size(); ++i)
     {
         const SidebarRow& item = rows[i];
-        const float rowHeight = (item.header ? 24.0f : (item.volume ? 40.0f : 26.0f)) * scale;
+        const float rowHeight = (item.header ? 24.0f : (item.volume ? 46.0f : 26.0f)) * scale;
         const Rect row{layout.sidebar.x + 5.0f * scale, y, layout.sidebar.w - 10.0f * scale,
                        rowHeight};
 
@@ -1861,7 +1930,7 @@ void DrawSidebar(AppState& app, const Layout& layout)
             // Barra di occupazione e spazio libero: due informazioni in un posto
             // solo, come le mostra Esplora risorse. La barra si colora quando il
             // disco e' quasi pieno, perche' e' quello il momento in cui la si guarda.
-            const Rect track{row.x + 30.0f * scale, row.y + 24.0f * scale,
+            const Rect track{row.x + 30.0f * scale, row.y + 26.0f * scale,
                              row.w - 42.0f * scale, 4.0f * scale};
             r.FillRect(track, Color::FromHex(0x2A2D34), 2.0f * scale);
             const Color fill = item.usedFraction > 0.9f ? Color::FromHex(0xE06C5A)
@@ -1869,7 +1938,7 @@ void DrawSidebar(AppState& app, const Layout& layout)
             r.FillRect(Rect{track.x, track.y, track.w * (std::min)(1.0f, item.usedFraction),
                             track.h},
                        fill, 2.0f * scale);
-            app.smallFont.Draw(r, row.x + 30.0f * scale, row.y + 28.0f * scale,
+            app.smallFont.Draw(r, row.x + 30.0f * scale, row.y + 31.0f * scale,
                                item.freeText + " free", t.textDim, scale);
         }
 
@@ -2371,7 +2440,29 @@ void DrawList(AppState& app, const Layout& layout, const float* columnX)
         }
         else
         {
-            app.font.Draw(r, nameX, textY, FitText(app.font, entry.name, scale, nameMax), t.text, scale);
+            const std::string shown = FitText(app.font, entry.name, scale, nameMax);
+            app.font.Draw(r, nameX, textY, shown, t.text, scale);
+
+            // Il bersaglio di un collegamento, dopo il nome e in tono spento: sta
+            // nella stessa colonna, quindi prende lo spazio che resta — e se non ne
+            // resta abbastanza non si scrive, invece di scrivere tre lettere e un
+            // puntino.
+            const std::wstring& linkTarget = ShortcutTarget(app, entry);
+            if (!linkTarget.empty())
+            {
+                const float used = app.font.Measure(shown, scale);
+                const float from = nameX + used + 14.0f * scale;
+                const float room = columnX[1] - from - 8.0f * scale;
+                if (room > 60.0f * scale)
+                {
+                    const std::string text = ToUtf8(linkTarget);
+                    const float arrowWidth = app.font.Measure("> ", scale);
+                    app.font.Draw(r, from, textY, "> ", t.textDim, scale);
+                    app.font.Draw(r, from + arrowWidth, textY,
+                                  FitText(app.font, text, scale, room - arrowWidth), t.textDim,
+                                  scale);
+                }
+            }
         }
 
         const float typeMax = columnX[2] - columnX[1] - 12.0f * scale;
