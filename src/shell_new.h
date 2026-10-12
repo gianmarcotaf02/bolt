@@ -15,8 +15,13 @@
 // arrivano tradotti senza avere le traduzioni dentro il nostro eseguibile.
 //
 // La creazione non passa da qui: la fa `FileOps::NewItem`, cioe' la shell, che
-// applica da sola i valori della chiave — file modello, byte, comando. Questo
-// modulo legge soltanto i nomi.
+// sceglie il nome definitivo, e poi il contenuto lo scrive chi legge il modello
+// — vedi `Template::Source`. Questo modulo legge nomi e contenuti.
+//
+// I modelli col valore `Command` sono **esclusi**: quel valore avvia
+// un'applicazione invece di creare un file ("msaccess.exe /NEWDB 1", "Wab.exe
+// /CreateContact \"%1\""), e imitarlo significherebbe eseguire righe di registro
+// arbitrarie per creare un file. Vedi `docs/04-roadmap.md`.
 // ---------------------------------------------------------------------------
 #pragma once
 
@@ -27,9 +32,24 @@ namespace ShellNew
 {
 struct Template
 {
+    // Da dove viene il contenuto della voce nuova. Il vuoto lo lascia la shell;
+    // gli altri due li scriviamo noi, perche' `IFileOperation::NewItem` senza un
+    // modello crea un file di zero byte — e **uno zip di zero byte non e' uno
+    // zip**. Vedi `docs/04-roadmap.md`, sezione M7.
+    enum class Source
+    {
+        Empty,         // "NullFile": un file vuoto
+        TemplateFile,  // "FileName": copia di un file modello
+        Data,          // "Data": i byte scritti nella chiave
+    };
+
     std::wstring label;         // "Documento di testo"
     std::wstring extension;     // ".txt"
     std::wstring suggestedName; // "Nuovo documento di testo.txt"
+
+    Source            source = Source::Empty;
+    std::wstring      templatePath;  // per TemplateFile: il file da copiare
+    std::vector<BYTE> data;          // per Data: i byte
 };
 
 // L'elenco, in ordine di etichetta. Si legge una volta sola — il registro non
