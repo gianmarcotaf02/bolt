@@ -159,7 +159,8 @@ struct ClickTarget
 {
     enum class Kind
     {
-        Column, Breadcrumb, NavButton, Place, SidebarHeader, Row, GroupHeader, GroupMode,
+        Column, ColumnEdge, ColumnFilter, ColumnFilterRow, Breadcrumb, NavButton, Place,
+        SidebarHeader, Row, GroupHeader, GroupMode,
         Menu, Tab, TabClose, TabNew,
         WindowMinimize, WindowMaximize, WindowClose,
         MenuRow, MenuHeader,
@@ -406,6 +407,38 @@ struct TextRow
     size_t length = 0;
 };
 
+// Le colonne della vista a dettagli. `fraction` e' la distanza del bordo sinistro
+// dalla larghezza dell'elenco: e' una frazione e non una misura in pixel perche'
+// cosi' la vista si stringe e si allarga senza che le colonne si accavallino.
+//
+// La frazione si puo' cambiare — si trascina il bordo, come in Esplora risorse — e
+// quindi il valore vivo sta in `AppState`, non qui: qui c'e' solo quello di
+// partenza, che e' anche quello a cui torna un doppio clic sul bordo.
+struct ColumnDef
+{
+    const char* label;
+    SortColumn  sort;
+    float       fraction;   // of the list width, measured from its left edge
+    bool        filterable; // se questa colonna offre il filtro per valori
+};
+
+// Name, then the columns a directory entry already knows, then the three that
+// depend on the recursive statistics and arrive progressively.
+const ColumnDef kColumns[] = {
+    {"Name",     SortColumn::Name,     0.00f, false},
+    {"Type",     SortColumn::Type,     0.38f, true},
+    {"Modified", SortColumn::Modified, 0.57f, true},
+    {"Folders",  SortColumn::Folders,  0.71f, true},
+    {"Files",    SortColumn::Files,    0.80f, true},
+    {"Size",     SortColumn::Size,     0.88f, true},
+};
+constexpr int kColumnCount = static_cast<int>(sizeof(kColumns) / sizeof(kColumns[0]));
+
+// Quanto e' larga una colonna quando la si trascina: sotto questa misura le
+// intestazioni non si leggono, e trascinare oltre vorrebbe dire cancellare una
+// colonna invece di stringerla.
+constexpr float kMinColumnWidth = 44.0f;
+
 struct AppState
 {
     // Il contesto di disegno della finestra, per poter disegnare un fotogramma
@@ -541,6 +574,29 @@ struct AppState
     // Il percorso del cestino, che non e' una cartella come le altre: tenerlo qui
     // evita di richiederlo alla shell a ogni movimento del mouse durante una caduta.
     std::wstring recycleBinPath;
+
+    // --- colonne (larghezza e filtri per valore) -----------------------------
+    //
+    // La larghezza e' viva e sta qui: `kColumns` da' quella di partenza. Il filtro
+    // per colonna e' un **elenco di valori tolti**, non di valori tenuti: una
+    // colonna appena aperta non filtra niente, e questo si legge dalla sua lista
+    // vuota senza doverla confrontare con quella dei valori possibili.
+    struct ColumnState
+    {
+        float                 fraction = 0.0f;
+        std::set<std::wstring> excluded;
+    };
+    std::array<ColumnState, kColumnCount> columns{};
+
+    int          columnDrag = -1;          // bordo trascinato in questo momento
+    float        columnDragStartX = 0.0f;
+    float        columnDragStartFraction = 0.0f;
+
+    // Il pannello dei valori: aperto su una colonna, con i valori che aveva
+    // quando e' stato aperto — si ricalcolano all'apertura, non a ogni fotogramma,
+    // perche' contarli vuol dire scorrere tutte le voci.
+    int                                     columnPanel = -1;
+    std::vector<std::pair<std::wstring, int>> columnPanelValues;
 
     // --- operazioni su file (M7) -------------------------------------------
     //
@@ -2229,24 +2285,13 @@ void DrawSidebar(AppState& app, const Layout& layout)
     }
 }
 
-struct ColumnDef
+// La larghezza di partenza e' quella di `kColumns`. Si chiama una volta, quando
+// l'applicazione nasce: dopo, la larghezza e' quella che l'utente ha scelto.
+void InitColumns(AppState& app)
 {
-    const char* label;
-    SortColumn  sort;
-    float       fraction;   // of the list width, measured from its left edge
-};
-
-// Name, then the columns a directory entry already knows, then the three that
-// depend on the recursive statistics and arrive progressively.
-const ColumnDef kColumns[] = {
-    {"Name",     SortColumn::Name,     0.00f},
-    {"Type",     SortColumn::Type,     0.38f},
-    {"Modified", SortColumn::Modified, 0.57f},
-    {"Folders",  SortColumn::Folders,  0.71f},
-    {"Files",    SortColumn::Files,    0.80f},
-    {"Size",     SortColumn::Size,     0.88f},
-};
-constexpr int kColumnCount = static_cast<int>(sizeof(kColumns) / sizeof(kColumns[0]));
+    for (int i = 0; i < kColumnCount; ++i)
+        app.columns[i].fraction = kColumns[i].fraction;
+}
 
 void DrawHeader(AppState& app, const Layout& layout, float* columnX)
 {
@@ -2265,7 +2310,7 @@ void DrawHeader(AppState& app, const Layout& layout, float* columnX)
 
     for (int i = 0; i < kColumnCount; ++i)
     {
-        const float x = layout.header.x + 10.0f * scale + layout.header.w * kColumns[i].fraction;
+        const float x = layout.header.x + 10.0f * scale + layout.header.w * app.columns[i].fraction;
         columnX[i] = x;
 
         const bool sorted = (app.sortColumn == kColumns[i].sort);
@@ -2285,13 +2330,27 @@ void DrawHeader(AppState& app, const Layout& layout, float* columnX)
         }
 
         const float width = (i < kColumnCount - 1)
-            ? layout.header.w * (kColumns[i + 1].fraction - kColumns[i].fraction)
-            : layout.header.w * (1.0f - kColumns[i].fraction);
+            ? layout.header.w * (app.columns[i + 1].fraction - app.columns[i].fraction)
+            : layout.header.w * (1.0f - app.columns[i].fraction);
         ClickTarget target;
         target.rect = Rect{x - 10.0f * scale, layout.header.y, width, layout.header.h};
         target.kind = ClickTarget::Kind::Column;
         target.index = i;
         app.clickTargets.push_back(target);
+
+        // Il bordo, che si trascina. Sta a **sinistra** del nome della colonna: cosi'
+        // il clic sul nome resta un clic per ordinare, e la striscia di presa non
+        // copre niente che non sia gia' una zona morta.
+        if (i > 0)
+        {
+            const float edge = layout.header.x + layout.header.w * app.columns[i].fraction;
+            ClickTarget grip;
+            grip.rect = Rect{edge - 3.0f * scale, layout.header.y, 6.0f * scale,
+                             layout.header.h};
+            grip.kind = ClickTarget::Kind::ColumnEdge;
+            grip.index = i;
+            app.clickTargets.push_back(grip);
+        }
     }
 
     r.FillRect(Rect{layout.header.x, layout.header.bottom() - 1.0f, layout.header.w, 1.0f}, t.separator);
@@ -6550,6 +6609,24 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
         }
 
         case WM_MOUSEMOVE:
+            // Il trascinamento di un bordo: la colonna cresce e la vicina si
+            // stringe, e nessuna delle due scende sotto la larghezza leggibile.
+            if (app != nullptr && app->columnDrag > 0)
+            {
+                const Layout layout = ComputeLayout(*app);
+                const float x = static_cast<float>(GET_X_LPARAM(lparam));
+                const int index = app->columnDrag;
+                const float moved = app->columnDragStartFraction +
+                                    (x - app->columnDragStartX) / (std::max)(1.0f, layout.header.w);
+                const float minimum = kMinColumnWidth * layout.scale /
+                                      (std::max)(1.0f, layout.header.w);
+                const float left  = app->columns[index - 1].fraction + minimum;
+                const float right = (index + 1 < kColumnCount ? app->columns[index + 1].fraction
+                                                              : 1.0f) - minimum;
+                app->columns[index].fraction = (std::min)(right, (std::max)(left, moved));
+                InvalidateRect(window, nullptr, FALSE);
+                return 0;
+            }
             if (app != nullptr)
             {
                 const float x = static_cast<float>(GET_X_LPARAM(lparam));
@@ -6679,6 +6756,18 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
             {
                 const float x = static_cast<float>(GET_X_LPARAM(lparam));
                 const float y = static_cast<float>(GET_Y_LPARAM(lparam));
+
+                // Un bordo d'intestazione si prende e si trascina. La presa viene
+                // prima di tutto il resto: mentre si trascina, la lista sotto non
+                // deve rispondere ai clic.
+                if (const ClickTarget* edge = HitTest(*app, x, y, ClickTarget::Kind::ColumnEdge))
+                {
+                    app->columnDrag = edge->index;
+                    app->columnDragStartX = x;
+                    app->columnDragStartFraction = app->columns[edge->index].fraction;
+                    SetCapture(window);
+                    return 0;
+                }
 
                 const bool ctrl  = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
                 const bool shift = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
@@ -6848,6 +6937,12 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
             return 0;
 
         case WM_LBUTTONUP:
+            if (app != nullptr && app->columnDrag > 0)
+            {
+                app->columnDrag = -1;
+                ReleaseCapture();
+                return 0;
+            }
             if (app != nullptr)
             {
                 app->dragArmed = false;
@@ -6856,6 +6951,19 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
             return 0;
 
         case WM_LBUTTONDBLCLK:
+            // Doppio clic su un bordo: la colonna torna come era nata. E' il modo di
+            // disfare un trascinamento senza doverlo indovinare a rovescio.
+            if (app != nullptr)
+            {
+                const float x = static_cast<float>(GET_X_LPARAM(lparam));
+                const float y = static_cast<float>(GET_Y_LPARAM(lparam));
+                if (const ClickTarget* edge = HitTest(*app, x, y, ClickTarget::Kind::ColumnEdge))
+                {
+                    app->columns[edge->index].fraction = kColumns[edge->index].fraction;
+                    InvalidateRect(window, nullptr, FALSE);
+                    return 0;
+                }
+            }
             if (app != nullptr)
             {
                 const float x = static_cast<float>(GET_X_LPARAM(lparam));
@@ -7210,6 +7318,22 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
             break;
 
         case WM_SETCURSOR:
+            // Su un bordo d'intestazione il puntatore dice che li' si trascina: senza
+            // questo, la striscia di presa esiste e non si vede.
+            if (app != nullptr && LOWORD(lparam) == HTCLIENT)
+            {
+                POINT point{};
+                GetCursorPos(&point);
+                ScreenToClient(window, &point);
+                const Layout layout = ComputeLayout(*app);
+                if (layout.header.Contains(static_cast<float>(point.x), static_cast<float>(point.y)) &&
+                    HitTest(*app, static_cast<float>(point.x), static_cast<float>(point.y),
+                            ClickTarget::Kind::ColumnEdge) != nullptr)
+                {
+                    SetCursor(LoadCursorW(nullptr, IDC_SIZEWE));
+                    return TRUE;
+                }
+            }
             SetCursor(LoadCursorW(nullptr, IDC_ARROW));
             return TRUE;
 
@@ -7697,6 +7821,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, LPWSTR, int)
     app.dpiScale = (dpi > 0) ? static_cast<float>(dpi) / 96.0f : 1.0f;
     app.zoom = app.dpiScale;
 
+    InitColumns(app);
     BuildPlaces(app);
     app.window = window;
 
