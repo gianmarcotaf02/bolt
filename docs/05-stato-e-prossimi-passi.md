@@ -4,7 +4,7 @@ Documento di lavoro, non di progetto: serve a riprendere senza rileggere la
 conversazione. Aggiornarlo è l'ultima cosa da fare prima di una pausa lunga o di
 una compattazione del contesto.
 
-Ultimo aggiornamento: dopo i verbi della shell nel menu contestuale.
+Ultimo aggiornamento: dopo il menu della cartella e i verbi della shell.
 
 ---
 
@@ -20,7 +20,7 @@ Ultimo aggiornamento: dopo i verbi della shell nel menu contestuale.
 | M5c — modalità di visualizzazione | 🟡 manca il raggruppamento in griglia |
 | M5d — sovrappasso del mouse | 🟡 evidenzia righe e celle; mancano `HoverToSelect`, `UnderlineOnHover`, `ShowTooltips` |
 | M6 — tab, barra del titolo, palette, GoTo | 🟡 fatti tab, titolo, palette, GoTo; mancano quick access pinnato, drag&drop e albero dei tab |
-| M7 — operazioni su file | 🟡 copia, sposta, rinomina, cestino, clipboard interoperabile, **menu contestuale** con Proprietà di Windows e le **voci di primo livello della shell**. Mancano drag&drop, i sottomenu della shell e il ripristino dal cestino |
+| M7 — operazioni su file | 🟡 copia, sposta, rinomina, cestino, clipboard interoperabile, **menu contestuale** con Proprietà di Windows, le **voci di primo livello della shell** e il **menu della cartella** sul fondo. Mancano drag&drop, i sottomenu della shell e il ripristino dal cestino |
 | M8 — inspector completo | ⬜ |
 | M9 — configurazione e temi | ⬜ **vincolata**: niente file di impostazioni, vedi `docs/06` |
 | M10 — backend D3D11 | ⬜ |
@@ -55,14 +55,15 @@ Ordinato per quanto morde.
 
 In ordine di valore, non di facilità.
 
-1. **I sottomenu del menu contestuale** — `Invia a`, `7-Zip`, `WinRAR`,
-   "Dare accesso a", "Includi nella raccolta": sono quattro o cinque voci su
-   venti quelle che restano fuori. Le voci di primo livello della shell ci sono
-   già (`IContextMenu` → `QueryContextMenu` → `InvokeCommand`), quindi è il
-   completamento naturale di ciò che c'è: serve che il componente sappia
-   annidare — e che i sottomenu si facciano popolare da
-   `IContextMenu2::HandleMenuMsg(WM_INITMENUPOPUP)`, che è la parte davvero
-   complicata.
+1. **I sottomenu del menu contestuale** — `Invia a`, `Nuovo`, `Dare accesso a`,
+   `7-Zip`, `WinRAR`: sono quattro o cinque voci su venti quelle che restano
+   fuori. Le voci di primo livello della shell ci sono già (`IContextMenu` →
+   `QueryContextMenu` → `InvokeCommand`) e anche il menu della cartella, quindi è
+   il completamento naturale di ciò che c'è: serve che il componente sappia
+   **annidare** — geometria, sovrappasso, clic e frecce su un secondo pannello a
+   destra — e che i sottomenu si facciano popolare da
+   `IContextMenu2::HandleMenuMsg(WM_INITMENUPOPUP)`, perché il contenuto di un
+   sottomenu della shell non esiste prima di quel messaggio.
 2. **Il costo dell'interrogazione della shell** — la prima apertura dopo l'avvio
    costa ~350 ms e le estensioni moderne di Windows 11 compaiono solo dalla
    seconda; in regime sono ~65 ms e **22 handle di kernel** per apertura, dentro
@@ -236,6 +237,28 @@ entrambe ha prodotto un menu che si rifiutava di scorrere sotto il puntatore. E
 una prova che non distingue il caso rotto dal caso giusto non è una prova: il
 menu straripava di **una** voce, quindi la rotella toccava il tetto comunque. La
 finestra è stata ridotta a 460 px per rendere la misura decidibile.
+
+**Scegliere una voce col puntatore è un bersaglio mobile.** Il menu contestuale
+non ha la stessa altezza a ogni apertura: dalla seconda in poi arrivano le
+estensioni moderne di Windows 11, quindi le voci sotto il puntatore scendono di
+due righe. Un clic a coordinate fisse ha sbagliato voce, e la cattura sembrava
+dire che il comando non era partito. Per scegliere una voce precisa si apre il
+menu e si usa la **tastiera** (`Fine`, poi tante `giù` quante servono): è
+deterministico e non dipende dalla geometria.
+
+**Una sonda che cerca per titolo trova anche la finestra dell'applicazione.**
+Il titolo di Bolt contiene il percorso della cartella aperta, quindi la ricerca
+di `sandbox` ha trovato due finestre — la nostra e il dialogo delle proprietà — e
+il `WM_CLOSE` di pulizia le ha chiuse **entrambe**: l'applicazione è morta
+durante una prova, e per un momento è sembrato che fosse il dialogo a
+ucciderla. `tools/find-window.ps1` ora salta la classe `BoltWindow`.
+
+**`GetWindowTextW` con `CharSet` sbagliato tronca i titoli alla prima lettera.**
+Una enumerazione di finestre restituiva `B`, `N`, `_`, `M`, `D`: sembrava che il
+processo avesse sette finestre senza nome, e invece il marshalling ANSI leggeva a
+sedici bit una stringa scritta a sedici bit. Il difetto era nello strumento, come
+il §7.14: prima di dichiarare che una finestra non esiste, si verifica che la
+sonda la sappia leggere.
 
 ---
 

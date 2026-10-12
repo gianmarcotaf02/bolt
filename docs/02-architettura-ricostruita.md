@@ -654,3 +654,27 @@ La prima prova non era decidibile, e vale la pena dirlo: con il menu più alto
 della finestra di **una sola** voce, la rotella toccava il tetto comunque e non si
 distinguerà mai il caso rotto dal caso giusto. Il banco di prova ha dovuto
 cambiare forma, non la misura.
+
+### 7.18 Il menu della cartella sbagliata — plausibile e pericoloso
+
+Col tasto destro sul fondo della lista il contesto giusto è la **vista**: la
+cartella come contenitore, il cui menu è `Vista`, `Ordina per`, `Nuovo`,
+`Incolla`, `Proprietà`. La shell lo espone con
+`IShellFolder::CreateViewObject(IID_IContextMenu)`.
+
+Il primo tentativo ha usato la strada già scritta per i file —
+`GetUIObjectOf(IID_IContextMenu)` — passandole il percorso della cartella. La
+chiamata **riesce**: la cartella è a sua volta un elemento dentro la propria
+cartella padre, quindi la shell risponde con il menu della cartella *come
+elemento*. Un menu che si apre, si legge e sembra giusto.
+
+A leggerlo, però, c'erano `Taglia`, `Copia` ed `Elimina` sulla cartella aperta.
+Un `Elimina` a destra di un fondo non è quello che si aspetta nessuno, e la voce
+era a un clic di distanza in ogni tasto destro sbagliato.
+
+Non c'era nessun errore da nessuna parte: nessun `HRESULT` fallito, nessuna
+stringa vuota, nessun codice di uscita. La differenza fra i due contesti è una
+scelta dell'API, e l'unico modo di accorgersene è **guardare le voci restituite**
+— cioè il registro diagnostico, che le stampa tutte. Il difetto successivo, se
+non ci fosse stato il registro, sarebbe stato un `Elimina` che cancella la
+cartella sotto gli occhi dell'utente.
