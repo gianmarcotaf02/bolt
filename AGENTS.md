@@ -110,14 +110,18 @@ Se il grafo manca o è vecchio — **su un clone nuovo manca sempre**, perché n
 versionato (§10):
 
 ```bash
-graphify update .                # dopo una modifica ai sorgenti: solo i file
-                                 # cambiati, senza LLM. Non tocca la semantica.
-graphify extract . --code-only   # prima volta su un clone, o ricostruzione
-                                 # completa del solo codice, senza chiavi API
+# Primo avvio su un clone: ~6 secondi in tutto, nessuna chiave API.
+graphify extract . --code-only      # AST dei soli sorgenti (~3,5 s su questo repo)
+graphify cluster-only . --no-label  # comunità e report (~2,2 s)
+
+# Dopo una modifica ai sorgenti, tutti i giorni:
+graphify update .                   # solo i file cambiati, senza LLM
 ```
 
-Per le modifiche a documenti e immagini l'aggiornamento è la skill, in chat:
-`/graphify --update`.
+`cluster-only` **senza** `--no-label` prova a nominare le comunità con un modello
+(nel test: una chiamata `claude -p`), quindi costa token e tempo per una comodità
+che non serve a navigare. I nomi curati si rifanno quando servono davvero, con la
+skill in chat — `/graphify`, o `/graphify --update` per documenti e immagini.
 
 ### Perché
 
