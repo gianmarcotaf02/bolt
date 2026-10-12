@@ -655,7 +655,39 @@ della finestra di **una sola** voce, la rotella toccava il tetto comunque e non 
 distinguerà mai il caso rotto dal caso giusto. Il banco di prova ha dovuto
 cambiare forma, non la misura.
 
-### 7.18 Il menu della cartella sbagliata — plausibile e pericoloso
+### 7.19 Il sottomenu che risponde `S_OK` e non fa niente
+
+Il menu contestuale sa annidare, e i sottomenu della shell si aprono e si
+leggono: `Nuovo` ne ha venti, `Invia a` undici. Chiamando `InvokeCommand` su una
+loro voce si riceve per`S_OK` — e non succede niente.
+
+Sospetti provati, uno per uno: la maschera dei flag (`CMIC_MASK_FLAG_NO_UI`
+spento, `CMIC_MASK_ASYNCOK` acceso — identico), l'identificativo (giusto: è
+l'offset dall'inizio della banda riservata, lo stesso che esegue `Proprietà` e
+`Copia come percorso`), e la via documentata per i sottomenu — `WM_COMMAND`
+consegnato all'`IContextMenu3` — che su questo sistema non esiste
+(`QueryInterface` rifiuta).
+
+Poi il confronto che risolve: **il sottomenu di 7-Zip, che è di un'estensione,
+esegue eccome** — apre il suo dialogo, verificato trovando la sua `#32770` fra le
+finestre del sistema. Quindi la distinzione non è fra voci radice e voci
+annidate: è fra i sottomenu che l'estensione si disegna e i sottomenu che la
+shell **popola da sé**. I secondi la shell li consegna alla finestra del menu, e
+noi una finestra di menu non l'abbiamo — l'HMENU lo leggiamo e basta, non lo
+mostriamo mai.
+
+La conclusione non è "ritentare": è che quelle voci **non si offrono**. Un elenco
+che risponde `S_OK` e non fa niente è peggio di un elenco che manca, perché
+l'utente conclude che il comando non serve a niente, non che non è partito. Il
+filtro è per verbo canonico (`New`, `Windows.Share`, e le voci senza verbo, che
+non si possono attribuire), e tiene i sottomenu delle estensioni.
+
+**Il difetto vero era il silenzio, non il limite.** `InvokeCommand` che riesce e
+non fa niente non è distinguibile da un comando che ha funzionato: l'unico modo di
+accorgersene è guardare l'effetto sul disco, e per vederlo sono state necessarie
+due prove — una che non produce niente (`documenti.zip` che non compare) e una
+che produce qualcosa (la finestra di 7-Zip). Una sola delle due non avrebbe
+distinto "non si può" da "non ho guardato".
 
 Col tasto destro sul fondo della lista il contesto giusto è la **vista**: la
 cartella come contenitore, il cui menu è `Vista`, `Ordina per`, `Nuovo`,
