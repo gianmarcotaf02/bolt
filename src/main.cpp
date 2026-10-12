@@ -343,6 +343,10 @@ struct ContextMenu
 
 struct AppState
 {
+    // Il contesto di disegno della finestra, per poter disegnare un fotogramma
+    // anche fuori dal ciclo principale (vedi `RenderFrame`).
+    HDC deviceContext = nullptr;
+
     UIRenderer      renderer;
     FontAtlas       font;
     // Testo secondario: intestazioni, etichette, barra di stato. Rasterizzato
@@ -4715,6 +4719,38 @@ void DrawFrame(AppState& app, const Layout& layout)
     ContextMenuDraw(app, layout);
 }
 
+// Un fotogramma, disegnato adesso.
+//
+// Il ciclo principale disegna appena puo', ma durante un trascinamento che nasce
+// da qui il ciclo e' fermo dentro `DoDragDrop`: la finestra resta com'e' e
+// l'evidenziazione della destinazione non comparirebbe mai. Il ciclo modale di OLE
+// i messaggi li consegna — e' l'unico motivo per cui la finestra resta viva — e
+// quindi basta disegnare quando la destinazione cambia (vedi `DragDrop::Highlight`).
+//
+// E' l'unico posto in cui si disegna fuori dal ciclo, e ci si arriva solo da un
+// callback di OLE, cioe' mai dentro un fotogramma gia' in corso.
+void RenderFrame(AppState& app)
+{
+    if (app.deviceContext == nullptr || app.viewportWidth <= 0 || app.viewportHeight <= 0)
+        return;
+
+    glViewport(0, 0, app.viewportWidth, app.viewportHeight);
+    glClearColor(0.106f, 0.110f, 0.122f, 1.0f);
+    glClear(GL_COLOR_BUFFER_BIT);
+
+    // Le anteprime pronte si caricano prima del fotogramma che le disegna: e' il
+    // solo punto in cui l'atlante viene toccato, e gira sul thread che possiede il
+    // contesto OpenGL.
+    app.previews.Pump();
+
+    app.renderer.Begin(app.viewportWidth, app.viewportHeight);
+    app.renderer.ReserveQuads(app.entries.size() * 8 + 512);
+    DrawFrame(app, ComputeLayout(app));
+    app.renderer.End();
+
+    SwapBuffers(app.deviceContext);
+}
+
 // --- input -----------------------------------------------------------------
 const ClickTarget* HitTest(const AppState& app, float x, float y, ClickTarget::Kind kind)
 {
@@ -5955,8 +5991,19 @@ void Highlight(HWND window, const std::wstring& target, bool ontoRow)
     AppState* app = reinterpret_cast<AppState*>(GetWindowLongPtrW(window, GWLP_USERDATA));
     if (app == nullptr)
         return;
+
+    const std::wstring previous = app->dropTarget;
+    const bool previousRow      = app->dropTargetIsRow;
+
     app->dropTarget      = target;
     app->dropTargetIsRow = ontoRow && !target.empty();
+
+    // L'evidenziazione va vista ADESSO: se il trascinamento e' nato da qui, il
+    // ciclo principale e' fermo dentro `DoDragDrop`, e senza questo disegno la
+    // riga non si accenderebbe mai. Solo quando cambia: `DragOver` arriva a ogni
+    // movimento del mouse, e un fotogramma per movimento sarebbe lavoro sprecato.
+    if (app->dropTarget != previous || app->dropTargetIsRow != previousRow)
+        RenderFrame(*app);
 }
 
 void Drop(HWND window, const std::vector<std::wstring>& sources, const std::wstring& target,
@@ -6181,6 +6228,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, LPWSTR, int)
     app.activeTab = 0;
     LoadDirectory(app, initialDirectory);
 
+    app.deviceContext = dc;
     SetWindowLongPtrW(window, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(&app));
 
     // Da qui in poi la finestra accetta file trascinati da fuori. Se il sistema
@@ -6244,21 +6292,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, LPWSTR, int)
             app.lastViewRebuild   = now;
         }
 
-        glViewport(0, 0, app.viewportWidth, app.viewportHeight);
-        glClearColor(0.106f, 0.110f, 0.122f, 1.0f);
-        glClear(GL_COLOR_BUFFER_BIT);
-
-        // Upload any thumbnail that finished decoding on the worker before the
-        // frame that is about to draw it. This is the only place the atlas is
-        // touched, and it runs on the thread that owns the GL context.
-        app.previews.Pump();
-
-        app.renderer.Begin(app.viewportWidth, app.viewportHeight);
-        app.renderer.ReserveQuads(app.entries.size() * 8 + 512);
-        DrawFrame(app, ComputeLayout(app));
-        app.renderer.End();
-
-        SwapBuffers(dc);
+        RenderFrame(app);
     }
 
     SetWindowLongPtrW(window, GWLP_USERDATA, 0);
