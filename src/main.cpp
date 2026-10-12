@@ -2884,35 +2884,61 @@ void DoNewFolder(AppState& app)
 // modello crea un file di **zero byte**: e uno zip di zero byte non e' uno zip,
 // un .docx di zero byte non si apre. Il contenuto lo dice il registro, e lo
 // scriviamo qui.
-void FillNewItemContent(const ShellNew::Template& model, const std::wstring& path, bool* complete)
+//
+// I modelli di Office, per esempio, sono registrati con un **guscio vuoto** nella
+// loro cartella VFS (`WORD.DOCX` e' un file di zero byte su disco): il contenuto
+// vero lo produce il provider di Office, che da fuori non si raggiunge. Il file
+// nuovo nasce vuoto anche a noi, e allora lo si dice — un .docx che Word rifiuta
+// di aprire, senza una parola, e' peggio di un .docx che non c'e'.
+void FillNewItemContent(AppState& app, const ShellNew::Template& model,
+                        const std::wstring& path)
 {
-    *complete = true;
     if (model.source == ShellNew::Template::Source::Empty)
         return;
 
     if (model.source == ShellNew::Template::Source::TemplateFile)
     {
         // Copia, invece di leggere e riscrivere: il modello puo' essere grande
-        // (un .docx lo e'), e questa e' una copia di file sola.
+        // (un .pub sono sessanta kilobyte), e questa e' una copia di file sola.
         if (!CopyFileW(model.templatePath.c_str(), path.c_str(), FALSE))
-            *complete = false;
-        return;
+        {
+            ReportStatus(app, L"Il modello di questo tipo non si e' potuto copiare: "
+                              L"il file e' stato creato vuoto.");
+            return;
+        }
     }
-
-    HANDLE file = CreateFileW(path.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS,
-                              FILE_ATTRIBUTE_NORMAL, nullptr);
-    if (file == INVALID_HANDLE_VALUE)
+    else
     {
-        *complete = false;
-        return;
+        HANDLE file = CreateFileW(path.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS,
+                                  FILE_ATTRIBUTE_NORMAL, nullptr);
+        if (file == INVALID_HANDLE_VALUE)
+        {
+            ReportStatus(app, L"Il file e' stato creato, ma il contenuto del modello no.");
+            return;
+        }
+
+        DWORD written = 0;
+        const bool wrote =
+            WriteFile(file, model.data.data(), static_cast<DWORD>(model.data.size()), &written,
+                      nullptr) != FALSE &&
+            written == model.data.size();
+        CloseHandle(file);
+        if (!wrote)
+        {
+            ReportStatus(app, L"Il file e' stato creato, ma il contenuto del modello no.");
+            return;
+        }
     }
 
-    DWORD written = 0;
-    if (!WriteFile(file, model.data.data(), static_cast<DWORD>(model.data.size()), &written,
-                   nullptr) ||
-        written != model.data.size())
-        *complete = false;
-    CloseHandle(file);
+    // Il modello c'era ma era vuoto: il file e' nato vuoto, e chi lo apre lo deve
+    // sapere adesso e non quando l'applicazione gli dira' che e' danneggiato.
+    WIN32_FILE_ATTRIBUTE_DATA info{};
+    if (GetFileAttributesExW(path.c_str(), GetFileExInfoStandard, &info) &&
+        info.nFileSizeHigh == 0 && info.nFileSizeLow == 0)
+    {
+        ReportStatus(app, L"Il modello di questo tipo e' vuoto: " + LeafName(path) +
+                              L" e' stato creato vuoto.");
+    }
 }
 
 // Crea una voce nuova dal modello |index| del registro, col meccanismo del
@@ -2940,8 +2966,7 @@ void CreateNewItem(AppState& app, size_t index)
 
     const std::wstring path = created.empty() ? JoinPath(app.directory, wanted)
                                               : created.front();
-    bool complete = true;
-    FillNewItemContent(templates[index], path, &complete);
+    FillNewItemContent(app, templates[index], path);
 
     const std::wstring name = LeafName(path);
     std::unordered_set<std::wstring> keep;
@@ -2951,11 +2976,6 @@ void CreateNewItem(AppState& app, size_t index)
     // Creare e rinominare sono un'azione sola, come per la cartella: chi crea
     // vuole dare un nome, non guardare un altro "Nuovo documento di testo".
     BeginRename(app);
-
-    // Il file c'e' ma senza il contenuto del modello: un .zip vuoto non e' uno
-    // zip, e chi lo apre lo scoprirebbe da solo. Meglio dirlo adesso.
-    if (!complete)
-        ReportStatus(app, L"Creato senza il contenuto del modello: " + name);
 }
 
 // --- menu execution ---------------------------------------------------------
