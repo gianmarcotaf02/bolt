@@ -645,10 +645,14 @@ std::vector<Entry> ReadNamespaceDirectory(const std::wstring& directory, std::st
         entry.extension   = item.extension;
         entry.location    = item.location;
 
+        // Un tempo a zero non e' il 1601: e' "la shell non lo sa". Scriverlo come
+        // data faceva comparire `1601-01-01` in ogni riga di "Questo PC", che e'
+        // una data vera solo per chi guarda il calendario di Windows.
+        const bool dated = item.modified.dwLowDateTime != 0 || item.modified.dwHighDateTime != 0;
         entry.typeText     = ShellTypeName(entry.extension, entry.isDirectory);
         entry.sizeText     = entry.isDirectory ? "" : HumanBytes(entry.bytes);
-        entry.modifiedText = FormatFileTime(entry.modified, /*withTime=*/false);
-        entry.modifiedFull = FormatFileTime(entry.modified, /*withTime=*/true);
+        entry.modifiedText = dated ? FormatFileTime(entry.modified, /*withTime=*/false) : "";
+        entry.modifiedFull = dated ? FormatFileTime(entry.modified, /*withTime=*/true) : "";
         entries.push_back(std::move(entry));
     }
     return entries;
@@ -1599,7 +1603,10 @@ void DrawToolbar(AppState& app, const Layout& layout, const std::wstring& displa
         ClickTarget target;
         target.rect  = chip;
         target.kind  = ClickTarget::Kind::Breadcrumb;
-        target.path  = accumulated;
+        // In una cartella dello spazio dei nomi la briciola e' il nome che la
+        // shell le da', che non e' una posizione: cliccarla deve riportare li', non
+        // cercare una cartella chiamata "Cestino".
+        target.path  = ShellLocation::IsNamespace(app.directory) ? app.directory : accumulated;
         app.clickTargets.push_back(target);
 
         if (!segment.empty())
