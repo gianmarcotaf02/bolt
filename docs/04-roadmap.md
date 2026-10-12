@@ -467,13 +467,13 @@ a gruppi, invece di scriverne tre.
       contenuto, con separatori e navigazione da tastiera; la riga sotto il
       puntatore viene preselezionata
 - [x] Proprietà, che apre la finestra vera di Windows via `ShellExecuteEx`
-- [ ] ripristino dal cestino — **bloccato da una scelta strutturale**, vedi sotto
-- [ ] drag&drop in ingresso e in uscita con descrizione
 - [x] le voci di **primo livello** della shell dentro il menu contestuale (Apri con,
       le voci delle estensioni installate), dopo i nostri comandi e dopo un
       separatore. La strada è quella del binario originale —
       `IShellFolder::GetUIObjectOf` → `IContextMenu` → `QueryContextMenu` →
       `GetCommandString(GCS_VERBW)` → `InvokeCommand`: vedi sotto
+- [ ] ripristino dal cestino — **bloccato da una scelta strutturale**, vedi sotto
+- [ ] drag&drop in ingresso e in uscita con descrizione
 - [ ] i **sottomenu** del menu della shell: `Invia a`, `7-Zip`, `WinRAR`,
       "Dare accesso a", "Includi nella raccolta" restano fuori, e sono quattro o
       cinque voci su venti. È il pezzo che manca perché il menu coincida con
@@ -538,7 +538,7 @@ non le esegue, ma la voce resta leggibile.
 | prima apertura dopo l'avvio | ~350 ms | le DLL delle estensioni si caricano in-process |
 | regime | ~65 ms | il costo di interrogare i gestori registrati, a ogni tasto destro |
 | handle di kernel | +22 per apertura | dentro le estensioni: i nostri oggetti USER non crescono |
-| estensioni moderne Win11 | dalla **seconda** apertura | `windows.storage` registra le proprie voci al secondo giro |
+| estensioni moderne Win11 | dalla **seconda** apertura | le voci dei gestori moderni (`Apri nel Terminale`, `Apri con Code`) si registrano solo al secondo giro |
 
 Gli ultimi due sono limiti dichiarati, non risolti: il primo non dipende da noi,
 il secondo è una scelta da fare (chiedere la shell **su richiesta** invece che a

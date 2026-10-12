@@ -115,7 +115,9 @@ Le **shader** si leggono dalla sorgente (`REA_SHADER_DIR`), quindi una modifica 
 `src/shaders/*` non richiede ricompilare.
 
 `analysis/tmp/` raccoglie i riscontri: `qualita-prima-dopo.png`,
-`viste-tiles.png`, `m5-*.png`, `m6-*.png`, `m3-progress.png`.
+`viste-tiles.png`, `m5-*.png`, `m6-*.png`, `m3-progress.png`, `menu-*.png` (i
+verbi della shell: menu aperto, fondo del menu, rotella, finestra ridotta
+a 460 px).
 
 ---
 
