@@ -604,8 +604,9 @@ si dichiara all'utente invece di consegnargli un `.docx` che Word rifiuta di
 aprire (§7.21 di `docs/02`); il secondo si accetta in tutte e due le forme.
 
 **I modelli col valore `Command` restano fuori.** Quel valore non crea un file:
-avvia un programma. Restano fuori anche i 35 ms di lettura del registro, che
-avvengono alla prima apertura del sottomenu e non a ogni tasto destro.
+avvia un programma. La lettura del registro, quando serve, costa **meno di un
+millisecondo** (misurata: 0,7 ms per 18 modelli) e avviene alla prima apertura del
+sottomenu, non a ogni tasto destro.
 
 **Quattro costi misurati** (registro: `BOLT_DIAG_SHELL_MENU=1` → `shell-menu.log`):
 

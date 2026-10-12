@@ -712,3 +712,68 @@ accorgersene è guardare l'effetto sul disco, e per vederlo sono state necessari
 due prove — una che non produce niente (`documenti.zip` che non compare) e una
 che produce qualcosa (la finestra di 7-Zip). Una sola delle due non avrebbe
 distinto "non si può" da "non ho guardato".
+
+### 7.20 Il menu in inglese accanto a tutto il resto in italiano
+
+Le etichette del menu "Nuovo" sono stringhe **indirette**: il registro non
+contiene "Cartella compressa", contiene
+
+```
+@C:\WINDOWS\system32\zipfldr.dll,-10194
+```
+
+cioè "il numero 10194 dentro la risorsa di quella DLL", tradotto nella lingua
+dell'utente. La prima versione le risolveva con `RegLoadMUIString`, che è la
+funzione di advapi32 nata per questo e non avrebbe aggiunto nessuna libreria. Il
+risultato, guardato a schermo:
+
+```
+Archivio WinRAR          Archive WinRAR
+Compressed (zipped) Folder
+Rich Text Format
+Shortcut
+Library Folder
+```
+
+Metà menu in inglese, metà in italiano. La causa misurata: `RegLoadMUIString`
+sulla stessa stringa restituisce **errore 87**, `ERROR_INVALID_PARAMETER`, e il
+codice ripiegava sull'unico valore disponibile, cioè il nome registrato dal
+vendor, che è in inglese.
+
+`SHLoadIndirectString` (shlwapi) restituisce `Nuova cartella compressa`. È la
+funzione che usa la shell, quindi i nomi adesso sono quelli che si vedono in
+Esplora risorse. Il costo è una libreria in più nel link, e la ragione sta in una
+riga: `RegLoadMUIString` non risolve queste stringhe.
+
+Questo difetto non si vede né leggendo il codice — chiamare `RegLoadMUIString` è
+corretto — né controllando che il menu si apra: si vede solo **leggendo le
+etichette una per una**, in una lingua che si sa riconoscere.
+
+### 7.21 Il file nuovo che nasceva vuoto, in silenzio
+
+`Nuova cartella compressa` produce un `.zip`. La prima versione creava il file
+con `IFileOperation::NewItem` e nient'altro: `S_OK`, nel posto giusto, col nome
+giusto (`Nuova cartella compressa.zip`) — e **zero byte**. Un file che il
+sistema dichiara creato, che compare nella lista, e che nessun programma riesce ad
+aprire.
+
+La causa: `NewItem` senza un modello crea un file vuoto, e i dati del modello
+(`Data`, `FileName`, `NullFile`) li applica chi li legge. Per il `.zip` sono 22
+byte scritti nel registro, per il `.docx` è una copia, per il `.rtf` è la stringa
+`{\rtf1}`. Adesso li legge `src/shell_new.cpp` e li scrive `FillNewItemContent`.
+
+Verificato contando i byte e aprendo il file: lo zip è di **22 byte** e `unzip -l`
+lo legge come archivio valido vuoto; il `.xlsx` è di **6.111 byte**, cioè la copia
+del modello di Office.
+
+**Il secondo strato, trovato misurando i modelli.** I modelli di Office e di
+LibreOffice *sono* gusci di zero byte su disco: `WORD.DOCX` nella cartella VFS di
+Office è un file vuoto, e il contenuto vero lo produce il provider di Office, che
+da fuori non si raggiunge. Quindi la copia "riesce" e il risultato è un `.docx` di
+zero byte, che Word rifiuta di aprire.
+
+La copia riuscita non è un errore, ma l'utente non deve scoprirlo aprendo il
+file: adesso, se il file creato è di zero byte e un modello c'era, la barra di
+stato lo dice — *"Il modello di questo tipo è vuoto: … è stato creato vuoto"*.
+Un'azione che riesce producendo qualcosa di inutilizzabile va dichiarata come
+un'azione che fallisce.
