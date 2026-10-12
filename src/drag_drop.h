@@ -49,7 +49,7 @@ IDataObject* DataObjectFor(const std::vector<std::wstring>& paths);
 // sono percorsi: il nome di una voce del cestino e' il percorso del file dentro
 // `$Recycle.Bin`, quindi trascinare quel nome significa trascinare un altro file.
 // Da un PIDL invece la shell sa risalire all'oggetto vero. Il chiamante lo rilascia.
-IDataObject* DataObjectForPidls(const std::vector<const BYTE*>& pidls);
+IDataObject* DataObjectForPidls(HWND owner, const std::vector<const BYTE*>& pidls);
 
 // Trascina |paths| fuori dalla finestra. |effect| riceve quello che la
 // destinazione ha dichiarato: `DROPEFFECT_NONE` se non e' successo niente.

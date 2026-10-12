@@ -432,18 +432,22 @@ IDataObject* DataObjectFor(const std::vector<std::wstring>& paths)
     return data;
 }
 
-IDataObject* DataObjectForPidls(const std::vector<const BYTE*>& pidls)
+IDataObject* DataObjectForPidls(HWND owner, const std::vector<const BYTE*>& pidls)
 {
     if (pidls.empty())
         return nullptr;
 
-    // La cartella genitore si ricava dal primo: e' quello che fa anche la versione
-    // per percorsi, e per la shell un oggetto dati nasce sempre da un genitore e
-    // dai suoi figli.
-    PIDLIST_ABSOLUTE folder = ILClone(reinterpret_cast<PCUIDLIST_ABSOLUTE>(pidls.front()));
-    if (folder == nullptr)
+    // L'oggetto dati lo chiede **la cartella che possiede le voci**, non lo
+    // costruisce questo modulo: e' la stessa scelta del menu contestuale, e per la
+    // stessa ragione. Un oggetto dati montato a mano — `SHCreateDataObject` con un
+    // genitore ricavato dal PIDL — viene accettato dalla destinazione, che dichiara
+    // perfino "copia", e poi non copia niente: il cestino non e' una cartella come
+    // le altre, e chi lo sa e' la shell.
+    IShellFolder* parent = nullptr;
+    if (FAILED(SHBindToParent(reinterpret_cast<PCUIDLIST_ABSOLUTE>(pidls.front()),
+                              IID_IShellFolder, reinterpret_cast<void**>(&parent), nullptr)) ||
+        parent == nullptr)
         return nullptr;
-    ILRemoveLastID(folder);
 
     std::vector<PCUITEMID_CHILD> children;
     children.reserve(pidls.size());
@@ -451,9 +455,9 @@ IDataObject* DataObjectForPidls(const std::vector<const BYTE*>& pidls)
         children.push_back(ILFindLastID(reinterpret_cast<PCUIDLIST_ABSOLUTE>(pidl)));
 
     IDataObject* data = nullptr;
-    SHCreateDataObject(folder, static_cast<UINT>(children.size()), children.data(), nullptr,
-                       IID_IDataObject, reinterpret_cast<void**>(&data));
-    CoTaskMemFree(folder);
+    parent->GetUIObjectOf(owner, static_cast<UINT>(children.size()), children.data(),
+                          IID_IDataObject, nullptr, reinterpret_cast<void**>(&data));
+    parent->Release();
     return data;
 }
 

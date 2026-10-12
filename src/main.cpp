@@ -6600,10 +6600,16 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
                             const std::vector<const BYTE*> pidls = SelectedPidls(*app);
                             dragged = pidls.size();
                             app->draggingNamespaceItems = true;
-                            if (IDataObject* data = DragDrop::DataObjectForPidls(pidls))
+                            if (IDataObject* data = DragDrop::DataObjectForPidls(window, pidls))
                             {
                                 DragDrop::DragOutData(window, data, pidls.size(), &effect);
                                 data->Release();
+                            }
+                            else
+                            {
+                                ReportStatus(*app, L"La shell non sa preparare queste voci per il "
+                                                   L"trascinamento: si gestiscono col menu "
+                                                   L"contestuale.");
                             }
                             app->draggingNamespaceItems = false;
                         }
