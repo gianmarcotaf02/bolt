@@ -94,23 +94,36 @@ artefatto derivato: si rigenera, non si scrive a mano.
 interroga il grafo.**
 
 ```bash
-graphify query "chi decide il layout della lista?"     # contesto ampio
-graphify query "..." --dfs                             # traccia un percorso
+graphify query "chi decide il layout della lista?"     # contesto ampio (BFS)
+graphify query "..." --dfs --budget 1500              # traccia un percorso
 graphify path "AppState" "UIRenderer"                  # cammino più breve
-graphify explain "GroupMenu"                           # spiegazione di un nodo
+graphify explain "GroupMenu"                           # un nodo e i suoi vicini
+graphify affected "AppState" --depth 2                 # chi tocca questo nodo
+graphify god-nodes --top 10                            # i nodi di smistamento
 ```
+
+`path` e `explain` vogliono l'**id completo** del nodo quando l'etichetta è
+ambigua (`src_ui_renderer_uirenderer`, non `UIRenderer`): se rispondono
+`Ambiguous:`, riprova con l'id che ti stampano.
 
 Se il grafo manca o è vecchio:
 
 ```bash
-graphify .            # prima volta: ricostruzione completa
-graphify . --update   # solo i file nuovi o cambiati
+graphify update .                # dopo una modifica ai sorgenti: solo i file
+                                 # cambiati, senza LLM. Non tocca la semantica.
+graphify extract . --code-only   # ricostruzione completa del solo codice,
+                                 # senza chiavi API
 ```
+
+Per le modifiche a documenti e immagini l'aggiornamento è la skill, in chat:
+`/graphify --update`.
 
 ### Perché
 
 - `src/main.cpp` è **~4.300 righe**. Leggerlo per intero per rispondere a «dove sta
   X?» costa decine di migliaia di token e dà comunque una vista parziale.
+- Una query restituisce **etichetta, file, riga e comunità** di ogni nodo: è
+  l'indice di cui altrimenti ricostruiresti a mano con `rg`.
 - Il grafo contiene già gli archi che una lettura per file non mostra: `AppState`
   tocca 154 nodi e collega 23 comunità, `WindowProc()` ne collega 51. Quelle
   relazioni non si vedono restando dentro un file.
