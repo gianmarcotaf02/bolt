@@ -524,6 +524,14 @@ struct AppState
     // lasciarli. |dropTargetIsRow| distingue una riga dal fondo della lista.
     std::wstring dropTarget;
     bool         dropTargetIsRow = false;
+    // Se la destinazione e' una voce del riquadro di navigazione, qual e'. Il
+    // riquadro non si evidenzia confrontando percorsi come fa l'elenco: due voci
+    // possono puntare alla stessa cartella, e quella accesa e' **quella sotto il
+    // puntatore**.
+    int          dropTargetSidebarRow = -1;
+    // Il percorso del cestino, che non e' una cartella come le altre: tenerlo qui
+    // evita di richiederlo alla shell a ogni movimento del mouse durante una caduta.
+    std::wstring recycleBinPath;
 
     // --- operazioni su file (M7) -------------------------------------------
     //
@@ -1730,6 +1738,7 @@ void BuildPlaces(AppState& app)
     // cartella.
     {
         const std::wstring bin = ShellLocation::ParsingNameOf(FOLDERID_RecycleBinFolder);
+        app.recycleBinPath = bin;
         if (!bin.empty())
         {
             const std::wstring name = ShellLocation::DisplayName(bin);
@@ -2165,6 +2174,12 @@ void DrawSidebar(AppState& app, const Layout& layout)
         else if (static_cast<int>(i) == app.hoveredPlace)
             r.FillRect(row, t.rowHover, 4.0f * scale);
 
+        // La voce su cui e' in corso una caduta: lo stesso tratteggio delle righe,
+        // perche' e' la stessa cosa detta in un altro posto.
+        if (static_cast<int>(i) == app.dropTargetSidebarRow)
+            r.Draw(UIDraw::DashedBorder(row, t.accent, 2.0f * scale, 6.0f * scale, 4.0f * scale,
+                                        4.0f * scale));
+
         // L'icona di un volume e' quella che la shell da' all'unita': un disco, non
         // una cartella. Le altre voci sono cartelle.
         const ShellIconAtlas::IconUV* uv = app.icons.GetFor("", true);
@@ -2523,7 +2538,7 @@ void DrawList(AppState& app, const Layout& layout, const float* columnX)
     // l'area, perche' li' sotto non c'e' nessuna riga da tratteggiare. Il
     // tratteggio e' lo stesso della riga, cosi' le due destinazioni si leggono
     // come la stessa cosa detta in due punti diversi.
-    if (!app.dropTarget.empty() && !app.dropTargetIsRow)
+    if (!app.dropTarget.empty() && !app.dropTargetIsRow && app.dropTargetSidebarRow < 0)
         r.Draw(UIDraw::DashedBorder(layout.list.Inset(1.0f, 1.0f), t.accent, 2.0f * scale,
                                     6.0f * scale, 4.0f * scale, 6.0f * scale));
 
@@ -7313,14 +7328,31 @@ double NowSeconds()
 namespace DragDrop
 {
 
-std::wstring TargetAt(HWND window, POINT client, bool* ontoRow)
+DragDrop::Target TargetAt(HWND window, POINT client)
 {
+    DragDrop::Target target;
     AppState* app = reinterpret_cast<AppState*>(GetWindowLongPtrW(window, GWLP_USERDATA));
     if (app == nullptr)
-        return std::wstring();
+        return target;
 
     const float x = static_cast<float>(client.x);
     const float y = static_cast<float>(client.y);
+
+    // Il riquadro di navigazione. Le sue righe sono gia' bersagli di clic, quindi la
+    // geometria la sa `HitTest`: rifarla qui vorrebbe dire sbagliarla appena una
+    // sezione si chiude.
+    if (const ClickTarget* place = HitTest(*app, x, y, ClickTarget::Kind::Place))
+    {
+        target.path       = place->path;
+        target.sidebarRow = place->index;
+        if (!app->recycleBinPath.empty() && place->path == app->recycleBinPath)
+            target.verb = DragDrop::DropVerb::Discard;
+        else if (!ShellLocation::IsNamespace(place->path))
+            target.verb = DragDrop::DropVerb::DropInto;
+        // "Questo PC", o un'altra cartella di spazio dei nomi: non si sa dove
+        // mettere i file. Rifiutare e' meglio che promettere e non fare.
+        return target;
+    }
 
     if (const ClickTarget* row = HitTest(*app, x, y, ClickTarget::Kind::Row))
     {
@@ -7329,28 +7361,28 @@ std::wstring TargetAt(HWND window, POINT client, bool* ontoRow)
         {
             // Sopra un file la destinazione e' la cartella che lo contiene, come
             // in Esplora risorse: li' un file non riceve niente, ma la lista si'.
-            if (ontoRow != nullptr)
-                *ontoRow = false;
-            return app->directory;
+            target.path = app->directory;
+            target.verb = DragDrop::DropVerb::DropInto;
+            return target;
         }
-        if (ontoRow != nullptr)
-            *ontoRow = true;
         // Una cartella va aperta per lasciarci qualcosa dentro: la riga mostra il
         // nome, la destinazione e' il percorso.
-        return JoinPath(app->directory, entry.wideName);
+        target.path    = JoinPath(app->directory, entry.wideName);
+        target.verb    = DragDrop::DropVerb::DropInto;
+        target.ontoRow = true;
+        return target;
     }
 
     const Layout layout = ComputeLayout(*app);
     if (layout.list.Contains(x, y))
     {
-        if (ontoRow != nullptr)
-            *ontoRow = false;
-        return app->directory;
+        target.path = app->directory;
+        target.verb = DragDrop::DropVerb::DropInto;
     }
-    return std::wstring();   // fuori dalla lista non si lascia cadere niente
+    return target;   // fuori dalla lista non si lascia cadere niente
 }
 
-void Highlight(HWND window, const std::wstring& target, bool ontoRow)
+void Highlight(HWND window, const DragDrop::Target& target)
 {
     AppState* app = reinterpret_cast<AppState*>(GetWindowLongPtrW(window, GWLP_USERDATA));
     if (app == nullptr)
@@ -7358,19 +7390,22 @@ void Highlight(HWND window, const std::wstring& target, bool ontoRow)
 
     const std::wstring previous = app->dropTarget;
     const bool previousRow      = app->dropTargetIsRow;
+    const int  previousSidebar  = app->dropTargetSidebarRow;
 
-    app->dropTarget      = target;
-    app->dropTargetIsRow = ontoRow && !target.empty();
+    app->dropTarget           = target.path;
+    app->dropTargetIsRow      = target.ontoRow && !target.Empty();
+    app->dropTargetSidebarRow = target.Empty() ? -1 : target.sidebarRow;
 
     // L'evidenziazione va vista ADESSO: se il trascinamento e' nato da qui, il
     // ciclo principale e' fermo dentro `DoDragDrop`, e senza questo disegno la
     // riga non si accenderebbe mai. Solo quando cambia: `DragOver` arriva a ogni
     // movimento del mouse, e un fotogramma per movimento sarebbe lavoro sprecato.
-    if (app->dropTarget != previous || app->dropTargetIsRow != previousRow)
+    if (app->dropTarget != previous || app->dropTargetIsRow != previousRow ||
+        app->dropTargetSidebarRow != previousSidebar)
         RenderFrame(*app);
 }
 
-void Drop(HWND window, const std::vector<std::wstring>& sources, const std::wstring& target,
+void Drop(HWND window, const std::vector<std::wstring>& sources, const DragDrop::Target& target,
           bool move)
 {
     AppState* app = reinterpret_cast<AppState*>(GetWindowLongPtrW(window, GWLP_USERDATA));
@@ -7380,16 +7415,21 @@ void Drop(HWND window, const std::vector<std::wstring>& sources, const std::wstr
     const float scroll = app->scroll;
     std::wstring error;
     std::vector<std::wstring> created;
+    const bool discard = target.verb == DragDrop::DropVerb::Discard;
     const FileOps::Result result =
-        move ? FileOps::Move(window, sources, target, &created, &error)
-             : FileOps::Copy(window, sources, target, &created, &error);
+        discard ? FileOps::Delete(window, sources, /*permanently=*/false, &error)
+                : (move ? FileOps::Move(window, sources, target.path, &created, &error)
+                        : FileOps::Copy(window, sources, target.path, &created, &error));
 
     if (result == FileOps::Result::Cancelled)
         return;
 
     if (result == FileOps::Result::Failed)
     {
-        ReportStatus(*app, (move ? L"Spostamento non riuscito: " : L"Copia non riuscita: ") + error);
+        ReportStatus(*app, (discard ? L"Eliminazione non riuscita: "
+                                    : (move ? L"Spostamento non riuscito: "
+                                            : L"Copia non riuscita: ")) +
+                               error);
         return;
     }
 
@@ -7399,7 +7439,7 @@ void Drop(HWND window, const std::vector<std::wstring>& sources, const std::wstr
     // altrove non si vede e non si potrebbe evidenziare.
     std::unordered_set<std::wstring> keep;
     std::wstring landed;
-    if (_wcsicmp(target.c_str(), app->directory.c_str()) == 0)
+    if (!discard && _wcsicmp(target.path.c_str(), app->directory.c_str()) == 0)
     {
         for (const std::wstring& path : created)
         {
@@ -7411,8 +7451,10 @@ void Drop(HWND window, const std::vector<std::wstring>& sources, const std::wstr
     }
     ReloadKeeping(*app, keep, landed, scroll);
 
-    ReportStatus(*app, (move ? L"Spostati " : L"Copiati ") + std::to_wstring(sources.size()) +
-                           L" elementi in " + LeafName(target));
+    ReportStatus(*app, (discard ? L"Buttati via " : (move ? L"Spostati " : L"Copiati ")) +
+                           std::to_wstring(sources.size()) +
+                           (discard ? L" elementi nel cestino"
+                                    : L" elementi in " + LeafName(target.path)));
 }
 
 } // namespace DragDrop
