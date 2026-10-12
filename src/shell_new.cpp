@@ -1,6 +1,7 @@
 #include "shell_new.h"
 
 #include <windows.h>
+#include <shellapi.h>
 #include <shlwapi.h>
 
 #include <algorithm>
