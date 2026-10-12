@@ -119,6 +119,20 @@ std::wstring ResolveTemplatePath(const std::wstring& value)
     return std::wstring(directory) + L"\\ShellNew\\" + value;
 }
 
+// Il nome del tipo di un'estensione, tradotto: e' la stessa fonte con cui la
+// lista riempie la colonna "Tipo", quindi "Documento di testo" e' lo stesso
+// testo nei due posti. `USEFILEATTRIBUTES` chiede il nome SENZA toccare il disco:
+// il file non esiste, e non deve esistere.
+std::wstring TypeNameOf(const std::wstring& extension)
+{
+    SHFILEINFOW info{};
+    const std::wstring probe = L"nuovo" + extension;
+    if (SHGetFileInfoW(probe.c_str(), FILE_ATTRIBUTE_NORMAL, &info, sizeof(info),
+                       SHGFI_TYPENAME | SHGFI_USEFILEATTRIBUTES) == 0)
+        return std::wstring();
+    return info.szTypeName;
+}
+
 bool ReadData(HKEY key, std::vector<BYTE>* out)
 {
     DWORD type  = 0;
@@ -274,6 +288,30 @@ std::vector<Template> ReadAll()
         RegCloseKey(extKey);
     }
     RegCloseKey(classes);
+
+    // Due tipi che la shell conosce **da sé e non registra**: "Documento di testo"
+    // e "Immagine bitmap" stanno nel menu "Nuovo" di Esplora risorse, ma nessuna
+    // chiave `ShellNew` di questa macchina li nomina — sono 37, e `.txt` e `.bmp`
+    // non ci sono. Senza queste due voci il menu perderebbe proprio il tipo che si
+    // crea piu' spesso.
+    for (const wchar_t* extension : {L".txt", L".bmp"})
+    {
+        const std::wstring label = TypeNameOf(extension);
+        if (label.empty())
+            continue;
+
+        Template item;
+        item.label         = label;
+        item.extension     = extension;
+        item.source        = Template::Source::Empty;   // un file vuoto
+        item.suggestedName = SuggestName(label, item.extension);
+
+        bool duplicate = false;
+        for (const Template& existing : out)
+            duplicate = duplicate || existing.suggestedName == item.suggestedName;
+        if (!duplicate)
+            out.push_back(std::move(item));
+    }
 
     // Ordine di etichetta: il registro non ne ha uno, e un menu che cambia ordine
     // a ogni avvio non si impara.
