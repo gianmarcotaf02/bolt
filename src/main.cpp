@@ -2880,8 +2880,7 @@ void DoNewFolder(AppState& app)
 }
 
 // Crea una voce nuova dal modello |index| del registro, col meccanismo del
-// sistema: il nome definitivo lo sceglie la shell ("Nuovo documento di
-testo.txt",
+// sistema: il nome definitivo lo sceglie la shell ("Nuovo documento di testo.txt",
 // e "(2)" se esiste gia'), il contenuto lo mette `IFileOperation::NewItem`
 // applicando i dati `ShellNew` dell'estensione.
 void CreateNewItem(AppState& app, size_t index)
