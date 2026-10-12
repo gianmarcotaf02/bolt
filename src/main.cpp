@@ -3162,20 +3162,39 @@ void DrawInspector(AppState& app, const Layout& layout)
     // che sceglie lei, e sono tradotti.
     struct Row { std::string label; std::string value; bool growing; };
     std::vector<Row> rows;
-    rows.push_back({"Type", entry.typeText, false});
+
+    // Una voce di una cartella di spazio dei nomi — un file riciclato — la descrive
+    // **la shell**, con le sue colonne: tipo, dimensione, date, percorso originale,
+    // data di eliminazione, attributi, proprietario. Sono le stesse informazioni che
+    // darebbero le righe qui sotto, piu' quelle che solo il cestino sa. Mostrarle
+    // tutte e due riempirebbe il pannello di righe ripetute, quindi per queste voci
+    // si usa la vista della shell e basta.
+    const bool shellColumns = !entry.pidl.empty();
+    if (shellColumns)
+    {
+        for (const ShellLocation::Column& column : ShellLocation::Columns(entry.pidl))
+        {
+            if (rows.size() >= 11)
+                break;   // oltre, le righe uscirebbero dal pannello
+            rows.push_back({ToUtf8(column.title), ToUtf8(column.value), false});
+        }
+    }
+
+    if (!shellColumns)
+        rows.push_back({"Type", entry.typeText, false});
     if (volume.isVolume)
     {
         if (!volume.totalText.empty())
             rows.push_back({"Size", volume.totalText, false});
     }
-    else if (entry.isDirectory)
+    else if (!shellColumns && entry.isDirectory)
     {
         const bool growing = hasStats && stats.partial;
         rows.push_back({"Size",    hasStats ? HumanBytes(stats.logicalBytes) : "counting...", growing});
         rows.push_back({"Folders", hasStats ? HumanCount(stats.folders) : "--", growing});
         rows.push_back({"Files",   hasStats ? HumanCount(stats.files) : "--", growing});
     }
-    else
+    else if (!shellColumns)
     {
         rows.push_back({"Size", entry.sizeText, false});
     }
@@ -3186,12 +3205,15 @@ void DrawInspector(AppState& app, const Layout& layout)
     const auto dated = [](const FILETIME& time) {
         return time.dwLowDateTime != 0 || time.dwHighDateTime != 0;
     };
-    if (dated(entry.created))
-        rows.push_back({"Created", FormatFileTime(entry.created, /*withTime=*/true), false});
-    if (dated(entry.modified))
-        rows.push_back({"Modified", entry.modifiedFull, false});
-    if (dated(entry.accessed))
-        rows.push_back({"Accessed", FormatFileTime(entry.accessed, /*withTime=*/true), false});
+    if (!shellColumns)
+    {
+        if (dated(entry.created))
+            rows.push_back({"Created", FormatFileTime(entry.created, /*withTime=*/true), false});
+        if (dated(entry.modified))
+            rows.push_back({"Modified", entry.modifiedFull, false});
+        if (dated(entry.accessed))
+            rows.push_back({"Accessed", FormatFileTime(entry.accessed, /*withTime=*/true), false});
+    }
 
     // Le proprieta' che il file system non dice: le dimensioni di un'immagine le sa
     // il gestore di quel tipo, e le risponde la shell.
@@ -3215,20 +3237,6 @@ void DrawInspector(AppState& app, const Layout& layout)
             std::snprintf(free, sizeof(free), "%s free (%d%% used)", volume.freeText.c_str(),
                           static_cast<int>(volume.usedFraction * 100.0f));
             rows.push_back({"Space", free, false});
-        }
-    }
-
-    // Le colonne che la **shell** ha per questa voce, con i suoi nomi. Per un file
-    // riciclato sono "Posizione originale" e "Data eliminazione": non sono proprieta'
-    // di sistema (`propkey.h` non le ha) e quindi non si chiedono come le altre — si
-    // chiedono alla cartella che le ha, e sono le stesse che si vedono nel cestino.
-    if (!entry.pidl.empty())
-    {
-        for (const ShellLocation::Column& column : ShellLocation::Columns(entry.pidl))
-        {
-            if (rows.size() > 14)
-                break;   // oltre, le righe uscirebbero dal pannello
-            rows.push_back({ToUtf8(column.title), ToUtf8(column.value), false});
         }
     }
 
