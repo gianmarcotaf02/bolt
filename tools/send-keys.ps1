@@ -67,6 +67,8 @@ switch ($Action) {
     'f2'     { [BoltKeys]::Key(0x71) }
     'down'   { [BoltKeys]::Key(0x28) }
     'up'     { [BoltKeys]::Key(0x26) }
+    'left'   { [BoltKeys]::Key(0x25) }
+    'right'  { [BoltKeys]::Key(0x27) }
     # Tasto Menu: apre il menu contestuale sulla riga del cursore.
     'apps'   { [BoltKeys]::Key(0x5D) }
     'home'   { [BoltKeys]::Key(0x24) }
