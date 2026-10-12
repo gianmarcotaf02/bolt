@@ -464,6 +464,10 @@ struct AppState
     // Le righe come si vedono, e con che misura sono state calcolate: si rifanno solo
     // quando la misura cambia, perche' su un file lungo rifarle a ogni fotogramma
     // sarebbe lavoro sprecato.
+    // Dove sta il visualizzatore, in coordinate cliente: la rotella deve sapere se il
+    // puntatore e' sopra il testo o sopra la lista, e il rettangolo lo conosce solo il
+    // disegno.
+    Rect  textViewerRect{};
     std::vector<TextRow> textRows;
     bool  textRowsDirty = true;
     float textRowsWidth = 0.0f;
@@ -2742,6 +2746,245 @@ void DrawList(AppState& app, const Layout& layout, const float* columnX)
     }
 }
 
+// --- visualizzatore di testo (M8) -------------------------------------------
+//
+// Tre passi, e ognuno ha una ragione: il **documento** si legge quando la voce
+// scelta cambia (e' l'unica cosa in memoria che riguarda il contenuto di un file, e
+// vive quanto la selezione: `docs/06`); le **righe come si vedono** si calcolano una
+// volta per misura, perche' con l'andare a capo acceso una riga logica puo' essere
+// piu' righe di schermo e rifarlo a ogni fotogramma sarebbe lavoro sprecato; il
+// **disegno** legge solo quello che sta dentro la finestra.
+
+void EnsureTextDocument(AppState& app)
+{
+    const int cursorIndex = CursorIndex(app);
+    std::wstring path;
+    if (cursorIndex >= 0)
+    {
+        const Entry& entry = app.entries[static_cast<size_t>(cursorIndex)];
+        // Solo per i file che stanno su un percorso: un nome di spazio dei nomi non
+        // si apre come testo.
+        if (!entry.isDirectory && entry.location.empty())
+            path = JoinPath(app.directory, entry.wideName);
+    }
+
+    if (path == app.textDocumentPath)
+        return;   // gia' letto, o gia' saputo che non c'e' niente da leggere
+
+    app.textDocumentPath = path;
+    app.textDocument     = path.empty() ? TextView::Document{} : TextView::Load(path);
+    app.textScroll       = 0.0f;
+    app.textRowsDirty    = true;
+}
+
+void LayoutTextRows(AppState& app, const FontAtlas& font, float width, float textScale)
+{
+    if (!app.textRowsDirty && app.textRowsWidth == width && app.textRowsZoom == textScale)
+        return;
+
+    app.textRows.clear();
+    app.textRowsWidth = width;
+    app.textRowsZoom  = textScale;
+    app.textRowsDirty = false;
+    app.textLongest   = 0;
+
+    const std::vector<std::string>& lines = app.textDocument.lines;
+    for (size_t index = 0; index < lines.size(); ++index)
+    {
+        const std::string& line = lines[index];
+        app.textLongest = (std::max)(app.textLongest, line.size());
+
+        if (!app.textWrap || line.empty())
+        {
+            app.textRows.push_back(TextRow{index, 0, line.size()});
+            continue;
+        }
+
+        // Andare a capo: si cammina la riga e si taglia dove non ci sta piu'. Il
+        // taglio cade fra due caratteri, come tutti i tagli di testo di questo
+        // programma, e va avanti anche quando una parola da sola non ci sta.
+        size_t start = 0;
+        float used = 0.0f;
+        for (size_t i = 0; i < line.size(); i = Utf8::Next(line, i))
+        {
+            const float advance = font.MeasureOne(Utf8::At(line, i, nullptr), textScale);
+            if (used + advance > width && i > start)
+            {
+                app.textRows.push_back(TextRow{index, start, i - start});
+                start = i;
+                used = 0.0f;
+            }
+            used += advance;
+        }
+        app.textRows.push_back(TextRow{index, start, line.size() - start});
+    }
+}
+
+// Un carattere come stringa UTF-8: `FontAtlas::Draw` vuole una stringa, e costruirla
+// con `substr` per ogni lettera di ogni riga visibile sarebbe un'allocazione per
+// lettera. Le stringhe corte non toccano l'heap, quindi questa non costa niente.
+std::string OneChar(uint32_t codepoint)
+{
+    std::string text;
+    if (codepoint < 0x80)
+    {
+        text.push_back(static_cast<char>(codepoint));
+    }
+    else if (codepoint < 0x800)
+    {
+        text.push_back(static_cast<char>(0xC0 | (codepoint >> 6)));
+        text.push_back(static_cast<char>(0x80 | (codepoint & 0x3F)));
+    }
+    else if (codepoint < 0x10000)
+    {
+        text.push_back(static_cast<char>(0xE0 | (codepoint >> 12)));
+        text.push_back(static_cast<char>(0x80 | ((codepoint >> 6) & 0x3F)));
+        text.push_back(static_cast<char>(0x80 | (codepoint & 0x3F)));
+    }
+    else
+    {
+        text.push_back(static_cast<char>(0xF0 | (codepoint >> 18)));
+        text.push_back(static_cast<char>(0x80 | ((codepoint >> 12) & 0x3F)));
+        text.push_back(static_cast<char>(0x80 | ((codepoint >> 6) & 0x3F)));
+        text.push_back(static_cast<char>(0x80 | (codepoint & 0x3F)));
+    }
+    return text;
+}
+
+// Una riga di testo, con gli spazi visibili se accesi: un punto dove c'e' uno spazio,
+// una freccia dove c'e' una tabulazione. E' l'unico modo di vedere *cosa* c'e' dove
+// sembra non esserci niente, ed e' quello per cui esiste `InspectorShowWhitespace`.
+void DrawTextRow(UIRenderer& r, const FontAtlas& font, const std::string& line, const TextRow& row,
+                 float x, float y, float scale, bool whitespace, Color color, float maxWidth)
+{
+    const float space = font.MeasureOne(' ', scale);
+    const float limit = x + maxWidth;
+
+    float penX = x;
+    int column = 0;
+    for (size_t i = row.offset; i < row.offset + row.length; i = Utf8::Next(line, i))
+    {
+        const uint32_t codepoint = Utf8::At(line, i, nullptr);
+
+        if (codepoint == '\t')
+        {
+            // La tabulazione porta alla colonna successiva multipla di quattro: si
+            // calcola quanto manca, invece di disegnarne sempre quattro.
+            const int stop = (column / 4 + 1) * 4;
+            if (whitespace && penX + space <= limit)
+                font.Draw(r, penX, y, "\u2192", Color::FromHex(0x555B66), scale);
+            penX = x + space * static_cast<float>(stop);
+            column = stop;
+            if (penX > limit)
+                break;
+            continue;
+        }
+
+        const float advance = font.MeasureOne(codepoint, scale);
+        if (penX + advance > limit)
+            break;   // fuori dal pannello: si smette, invece di disegnare sopra altro
+
+        if (codepoint == ' ' && whitespace)
+            font.Draw(r, penX, y, "\u00B7", Color::FromHex(0x555B66), scale);
+        else
+            font.Draw(r, penX, y, OneChar(codepoint), color, scale);
+
+        penX += advance;
+        ++column;
+    }
+}
+
+void DrawTextViewer(AppState& app, const Layout& layout, const Rect& area)
+{
+    UIRenderer& r = app.renderer;
+    const Theme& t = app.theme;
+    const float scale = layout.scale;
+    const FontAtlas& font = (app.monoFontOk ? app.monoFont : app.smallFont);
+    const TextView::Document& document = app.textDocument;
+
+    // La riga di stato: la codifica, quante righe, con che terminatori. Sono le tre
+    // cose che si vogliono sapere di un file di testo prima di leggerlo, e la codifica
+    // e' quella che l'originale chiama `PanelInspector_TextEncodingUTF8`.
+    char header[160];
+    std::snprintf(header, sizeof(header), "%s   %zu lines%s%s",
+                  TextView::EncodingName(document.encoding), document.lines.size(),
+                  document.endings.empty() ? "" : "   ", document.endings.c_str());
+    app.smallFont.Draw(r, area.x, area.y, header, t.textDim, scale);
+    if (document.truncated)
+        app.smallFont.Draw(r, area.x + app.smallFont.Measure(header, scale) + 12.0f * scale, area.y,
+                           "(first 1 MB)", t.textDim, scale);
+
+    const float top = area.y + 18.0f * scale;
+    const Rect body{area.x, top, area.w, area.bottom() - top};
+    if (body.h < 40.0f * scale || document.lines.empty())
+        return;
+
+    const float gutter = app.textLineNumbers ? 40.0f * scale : 0.0f;
+    const float minimapWidth = app.textMinimap ? (std::min)(58.0f * scale, body.w * 0.25f) : 0.0f;
+    const Rect text{body.x + gutter, body.y, body.w - gutter - minimapWidth, body.h};
+
+    const float textScale = scale * app.textZoom;
+    LayoutTextRows(app, font, text.w, textScale);
+
+    const float lineHeight = font.LineHeight() * textScale;
+    const float content = static_cast<float>(app.textRows.size()) * lineHeight;
+    app.textScroll = (std::min)((std::max)(0.0f, content - text.h), app.textScroll);
+
+    const int first = (std::max)(0, static_cast<int>(app.textScroll / lineHeight) - 1);
+    const int last = (std::min)(static_cast<int>(app.textRows.size()),
+                                first + static_cast<int>(text.h / lineHeight) + 3);
+    for (int row = first; row < last; ++row)
+    {
+        const TextRow& item = app.textRows[static_cast<size_t>(row)];
+        const float y = text.y + static_cast<float>(row) * lineHeight - app.textScroll;
+
+        // Il numero si scrive solo dove comincia una riga *logica*: quando una riga va
+        // a capo, le sue continuazioni appartengono alla stessa riga.
+        if (app.textLineNumbers && item.offset == 0)
+        {
+            const std::string number = std::to_string(item.line + 1);
+            app.smallFont.Draw(r, body.x + gutter - app.smallFont.Measure(number, scale) - 10.0f * scale,
+                               y, number, t.textDim, scale);
+        }
+
+        DrawTextRow(r, font, document.lines[item.line], item, text.x, y, textScale,
+                    app.textShowWhitespace, t.text, text.w);
+    }
+
+    // La minimap: una barra per riga di schermo, lunga quanto la riga piu' lunga che
+    // ci sta dentro, e la parte che si sta guardando evidenziata. Serve a orientarsi in
+    // un file lungo, che e' l'unica cosa che chiede di essere guardata cosi'.
+    if (app.textMinimap && minimapWidth > 0.0f && app.textLongest > 0)
+    {
+        const Rect map{text.right() + 10.0f * scale, body.y, minimapWidth - 10.0f * scale, body.h};
+        const int bands = (std::max)(1, static_cast<int>(map.h));
+        const double rows = static_cast<double>(app.textRows.size());
+        for (int band = 0; band < bands; ++band)
+        {
+            const size_t from = static_cast<size_t>(static_cast<double>(band) / bands * rows);
+            const size_t to = (std::max)(from + 1, static_cast<size_t>(
+                                                       static_cast<double>(band + 1) / bands * rows));
+            size_t longest = 0;
+            for (size_t i = from; i < to && i < app.textRows.size(); ++i)
+                longest = (std::max)(longest, app.textRows[i].length);
+            if (longest == 0)
+                continue;
+            const float fraction =
+                (std::min)(1.0f, static_cast<float>(longest) / static_cast<float>(app.textLongest));
+            r.FillRect(Rect{map.x, map.y + static_cast<float>(band), map.w * fraction, 1.0f},
+                       t.textDim.WithAlpha(0.45f));
+        }
+
+        if (content > text.h && content > 0.0f)
+        {
+            const float visibleTop = app.textScroll / content * map.h;
+            const float visibleHeight = (std::min)(map.h, text.h / content * map.h);
+            r.FillRect(Rect{map.x, map.y + visibleTop, map.w, visibleHeight},
+                       t.accent.WithAlpha(0.18f));
+        }
+    }
+}
+
 void DrawInspector(AppState& app, const Layout& layout)
 {
     UIRenderer& r = app.renderer;
@@ -2757,6 +3000,10 @@ void DrawInspector(AppState& app, const Layout& layout)
     float y = layout.inspector.y + 13.0f * scale;
     app.smallFont.Draw(r, layout.inspector.x + 14.0f * scale, y, "INSPECTOR", t.textDim, scale);
     y += 24.0f * scale;
+
+    // Il documento del visualizzatore, se ce n'e' uno da leggere: la lettura avviene
+    // qui e non a ogni fotogramma, perche' cambia solo quando cambia la voce scelta.
+    EnsureTextDocument(app);
 
     const int selectedCount = static_cast<int>(app.selection.size());
     const int cursorIndex = CursorIndex(app);
@@ -2857,7 +3104,9 @@ void DrawInspector(AppState& app, const Layout& layout)
     const ShellPreviewCache::State previewState =
         app.previews.Query(EntryLocation(app, entry), entry.extension, &preview);
 
-    if (previewState == ShellPreviewCache::State::Ready)
+    // Per un file di testo la miniatura della shell e' un'icona di documento: lo
+    // spazio serve al testo, che e' l'anteprima vera.
+    if (previewState == ShellPreviewCache::State::Ready && !app.textDocument.isText)
     {
         // A ready thumbnail gets the width of the panel and pushes the name
         // underneath it: this is the one place large enough to be worth looking at.
@@ -2995,6 +3244,22 @@ void DrawInspector(AppState& app, const Layout& layout)
             r.FillRect(Rect{valueX, y + 15.0f * scale, width, 1.0f}, t.textDim);
         }
         y += 20.0f * scale;
+    }
+
+    // Il testo del file, sotto i metadati: i metadati restano la prima cosa da
+    // leggere, e il testo prende lo spazio che avanza. Se non ne avanza abbastanza non
+    // si mostra niente, invece di mostrare tre righe in un buco.
+    app.textViewerRect = Rect{};
+    if (app.textDocument.isText)
+    {
+        const Rect remaining{layout.inspector.x + 14.0f * scale, y,
+                             layout.inspector.w - 28.0f * scale,
+                             layout.inspector.bottom() - y - 12.0f * scale};
+        if (remaining.h > 70.0f * scale)
+        {
+            app.textViewerRect = remaining;
+            DrawTextViewer(app, layout, remaining);
+        }
     }
 
     // Qui c'era un riquadro tratteggiato "Drop files here (not wired up yet)",
@@ -6026,9 +6291,29 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
                     return 0;
                 }
 
+                const float steps = static_cast<float>(GET_WHEEL_DELTA_WPARAM(wparam)) / WHEEL_DELTA;
+
+                // Sopra il testo la rotella scorre il testo, e con Ctrl lo ingrandisce:
+                // e' il gesto di chi sta leggendo, ed e' l'unico modo di arrivare in
+                // fondo a un file lungo senza toccare la lista sotto.
+                POINT pointer{GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam)};
+                ScreenToClient(window, &pointer);
+                if (app->textDocument.isText &&
+                    app->textViewerRect.Contains(static_cast<float>(pointer.x), static_cast<float>(pointer.y)))
+                {
+                    if ((GetKeyState(VK_CONTROL) & 0x8000) != 0)
+                        RunCommand(*app, steps > 0.0f ? CmdTextZoomIn : CmdTextZoomOut);
+                    else
+                    {
+                        const float lineHeight = (app->monoFontOk ? app->monoFont : app->smallFont)
+                                                     .LineHeight() * layout.scale * app->textZoom;
+                        app->textScroll -= steps * 3.0f * lineHeight;
+                    }
+                    return 0;
+                }
+
                 const ViewMetrics metrics = ComputeViewMetrics(*app, layout);
                 const float stride = metrics.grid ? metrics.cellHeight : metrics.rowHeight;
-                const float steps = static_cast<float>(GET_WHEEL_DELTA_WPARAM(wparam)) / WHEEL_DELTA;
                 ScrollBy(*app, layout, -steps * 3.0f * stride);
             }
             return 0;
