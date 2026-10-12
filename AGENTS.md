@@ -363,6 +363,7 @@ rettangolo ha bordi continui a qualunque dimensione.
 | `src/font_atlas.*` | atlante di glifi GDI → strato dell'array; ClearType ridotto a copertura in scala di grigi, con gutter fra le celle |
 | `src/shell_icons.*` | icone di sistema → strato 1 |
 | `src/shell_new.*` | i modelli del menu "Nuovo": chiavi `ShellNew` del registro, etichette risolte con `SHLoadIndirectString` |
+| `src/shell_sendto.*` | le destinazioni di "Invia a": la cartella SendTo, letta a ogni apertura |
 | `src/shell_preview.*` | anteprime via `IShellItemImageFactory` → strato 2, worker MTA |
 | `src/dir_stats.*` | statistiche ricorsive: job, profili di volume, budget di tempo riprendibile |
 | `src/file_ops.*` | copia, sposta, rinomina, cestino via `IFileOperation`; clipboard `CF_HDROP` |
@@ -375,7 +376,7 @@ rettangolo ha bordi continui a qualunque dimensione.
 
 - `docs/04-roadmap.md` — le milestone, con le caselle spuntate e i difetti aperti.
 - `docs/05-stato-e-prossimi-passi.md` — dove si è arrivati, cosa resta, le trappole.
-- `docs/02-architettura-ricostruita.md` — l'architettura e i **ventuno** difetti
+- `docs/02-architettura-ricostruita.md` — l'architettura e i **ventidue** difetti
   trovati e risolti, §7.
 - `docs/03-spec-funzionale.md` — la spec ricostruita dall'originale: 1124 chiavi,
   319 comandi, 35 token di tema, 23 colonne.

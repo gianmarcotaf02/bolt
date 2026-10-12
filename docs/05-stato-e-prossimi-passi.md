@@ -20,7 +20,9 @@ Ultimo aggiornamento: dopo "Nuovo file >" e i sottomenu del menu contestuale.
 | M5c — modalità di visualizzazione | 🟡 manca il raggruppamento in griglia |
 | M5d — sovrappasso del mouse | 🟡 evidenzia righe e celle; mancano `HoverToSelect`, `UnderlineOnHover`, `ShowTooltips` |
 | M6 — tab, barra del titolo, palette, GoTo | 🟡 fatti tab, titolo, palette, GoTo; mancano quick access pinnato, drag&drop e albero dei tab |
-| M7 — operazioni su file | 🟡 copia, sposta, rinomina, cestino, clipboard interoperabile, **menu contestuale a più livelli** con Proprietà di Windows, le **voci di primo livello della shell**, il **menu della cartella** sul fondo, i **sottomenu delle estensioni** e **`Nuovo file >`** (tipi dal registro, creazione con contenuto). Mancano drag&drop, `Invia a >` e il ripristino dal cestino |
+| M7 — operazioni su file | 🟡 copia, sposta, rinomina, cestino, clipboard interoperabile, **menu contestuale a più livelli** con Proprietà di Windows, le **voci di primo livello della shell**, il **menu della cartella** sul fondo, i **sottomenu delle estensioni**, **`Nuovo file >`** (tipi dal registro, creazione con
+contenuto) e **`Invia a >`** (destinazioni della cartella SendTo, eseguite lasciandoci
+cadere sopra la selezione). Mancano drag&drop e il ripristino dal cestino |
 | M8 — inspector completo | ⬜ |
 | M9 — configurazione e temi | ⬜ **vincolata**: niente file di impostazioni, vedi `docs/06` |
 | M10 — backend D3D11 | ⬜ |
@@ -55,12 +57,11 @@ Ordinato per quanto morde.
 
 In ordine di valore, non di facilità.
 
-1. **`Invia a >`, fatto da noi** — la cartella SendTo è una cartella vera, quindi
-   si enumera e si esegue con `ShellExecute` passando i percorsi scelti come
-   argomenti: è quello che fa la shell, e si verifica creando uno zip **dentro la
-   sandbox** col comando "Cartella compressa". `Nuovo file >` è già fatto (vedi
-   `docs/04-roadmap.md`, sezione M7): stessa forma, e il componente sa già
-   annidare.
+1. **Drag&drop, dentro e fuori** — adesso che il bersaglio di caduta e l'oggetto
+   dati della selezione si sanno costruire (`SHCreateDataObject` +
+   `IDropTarget::Drop`, vedi `docs/02` §7.22), il pezzo che manca è l'altra metà:
+   `IDropTarget` sulla nostra finestra e `IDataObject` per il trascinamento verso
+   fuori. È l'ultimo pezzo grosso delle operazioni su file.
 2. **Il costo dell'interrogazione della shell** — la prima apertura dopo l'avvio
    costa ~350 ms e le estensioni moderne di Windows 11 compaiono solo dalla
    seconda; in regime sono ~65 ms e **22 handle di kernel** per apertura, dentro
@@ -216,6 +217,14 @@ Windows 11 si registrano solo dalla seconda apertura, quindi la stessa voce sta 
 un indice diverso fra il primo e il secondo tasto destro. Contare le frecce con un
 numero fisso sbaglia voce; per una voce precisa si legge il registro diagnostico
 dell'apertura in corso, e si naviga con `Fine` e le frecce.
+
+**Un comando che risponde "fatto" non ha fatto niente.** Due volte, in due
+punti diversi: il sottomenu della shell che risponde `S_OK` senza eseguire nulla
+(`docs/02` §7.19) e la voce di "Invia a" che `ShellExecuteEx` "avvia" senza darle
+niente da fare (§7.22). In tutti e due i casi l'errore non è nel codice — la
+chiamata è quella documentata — ma nella **premessa**: si presume che l'esito
+riportato corrisponda a qualcosa di osservabile. L'unico modo di accorgersene è
+guardare il risultato sul disco e contare i byte.
 
 **Una cattura a dimensione intera inganna sulle cose piccole.** Il campo di
 rinomina sul posto (un riquadro scuro con un cursore di **un pixel**) non si

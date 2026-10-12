@@ -777,3 +777,53 @@ file: adesso, se il file creato è di zero byte e un modello c'era, la barra di
 stato lo dice — *"Il modello di questo tipo è vuoto: … è stato creato vuoto"*.
 Un'azione che riesce producendo qualcosa di inutilizzabile va dichiarata come
 un'azione che fallisce.
+
+### 7.22 Il comando che risponde `TRUE` e non fa niente
+
+`Invia a >` di Bolt legge la cartella SendTo e per ogni voce fa quello che
+sembra ovvio: la avvia, con i percorsi scelti come argomenti.
+
+```cpp
+ShellExecuteExW(&info);   // lpFile = la voce, lpParameters = i percorsi scelti
+```
+
+Il risultato misurato, sul banco di prova, su una voce che in Esplora risorse
+funziona tutti i giorni:
+
+```
+invio a voce 0: avviata          ← ShellExecuteEx ha restituito TRUE
+nessun file creato               ← e non è successo niente
+```
+
+Nessun errore, nessun file, nessuna finestra. La peggiore delle risposte: una che
+dichiara riuscito quello che non è avvenuto, e che quindi non si cerca.
+
+La causa sta nel registro, e si legge in due valori:
+
+| valore | dice |
+|---|---|
+| `.ZFSendToTarget` → il tipo della voce | la voce **non è un programma**: è un file che contiene un CLSID |
+| `...\ShellEx\DropHandler` sul CLSID | quel CLSID si aspetta i file **lasciati cadere**, non una riga di comando |
+| `NoOpen` sul CLSID | *"Drag Files onto this icon to compress them"* |
+
+Cioè: avviare la voce è la domanda sbagliata. La voce è un **bersaglio di
+caduta**, e i file glieli deve mettere qualcuno: `ShellExecuteEx` la "apre" e le
+lascia le mani vuote.
+
+**La correzione** è fare quello che farebbe il mouse: prendere il bersaglio di
+caduta della voce (`IShellFolder::GetUIObjectOf` con `IID_IDropTarget`),
+costruire l'oggetto dati della selezione (`SHCreateDataObject` dai PIDL dei
+percorsi scelti) e lasciarlo cadere con `DragEnter` + `Drop` e
+`DROPEFFECT_COPY`. La stessa voce poi produce `relazione.zip` di 218 byte dentro
+la sandbox, con i file selezionati dentro.
+
+**Il difetto non è nel codice, è nella premessa.** `ShellExecuteEx` su una voce
+SendTo è il modo documentato, ed è corretto per le voci che sono collegamenti a
+programmi — quelle funzionano davvero così. Ma metà della cartella SendTo non è
+fatta di programmi, e per quelle il successo dichiarato è una bugia. Non si vede
+leggendo il codice né guardando il menu: si vede **solo provando a eseguire una
+voce** e contando i byte che ne escono. È la seconda volta che il tema si presenta
+— la prima è il sottomenu della shell che risponde `S_OK` e non fa niente (§7.19) —
+e la lezione è la stessa: per la shell, "ho eseguito il comando" e "è successo
+qualcosa" sono due cose diverse, e l'unica delle due che si può verificare è la
+seconda.
