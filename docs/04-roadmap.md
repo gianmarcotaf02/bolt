@@ -484,9 +484,10 @@ a gruppi, invece di scriverne tre.
       nome definitivo (e il `(2)` dei conflitti). Il **contenuto** però lo
       scriviamo noi: `NewItem` senza un modello crea un file di zero byte, e uno
       zip di zero byte non è uno zip. Vedi sotto
-- [ ] `Invia a >`, fatto da noi: la cartella SendTo è una cartella, quindi si
-      enumera e si esegue con `ShellExecute` passando i percorsi scelti come
-      argomenti — è quello che fa la shell
+- [x] `Invia a >`, fatto da noi: la cartella SendTo è una cartella vera, quindi si
+      legge (`%APPDATA%\Microsoft\Windows\SendTo`, 11 voci su questa macchina in
+      0,3 ms) e si esegue **lasciandoci cadere sopra la selezione**, che è quello che
+      fa la shell. Non con `ShellExecuteEx`: vedi §7.22 di `docs/02`
 - [ ] i modelli col valore **`Command`** restano fuori dal menu `Nuovo file`:
       quel valore avvia un'applicazione invece di creare un file
       (`msaccess.exe /NEWDB 1`, `Wab.exe /CreateContact "%1"`), e imitarlo
@@ -610,6 +611,40 @@ aprire (§7.21 di `docs/02`); il secondo si accetta in tutte e due le forme.
 avvia un programma. La lettura del registro, quando serve, costa **meno di un
 millisecondo** (misurata: 0,7 ms per 20 modelli) e avviene alla prima apertura del
 sottomenu, non a ogni tasto destro.
+
+### Il menu "Invia a", fatto da noi — *Ricostruito*
+
+Qui la fonte non è nascosta come le chiavi `ShellNew`: **"Invia a" è una cartella
+vera**, `%APPDATA%\Microsoft\Windows\SendTo`, e un file lì dentro è una
+ destinazione. Si legge a ogni apertura, non una volta sola come il registro,
+perché chi ci mette dentro un collegamento nuovo si aspetta di vederlo; il costo è
+una `FindFirstFile` su una manciata di file — misurato: **0,25–0,32 ms** per 11
+voci. L'etichetta è il nome del file senza estensione, come in Esplora risorse,
+quindi si possono vedere due lingue nella stessa lista: i file sono stati creati
+in momenti e installazioni diverse, e la shell mostra gli stessi nomi.
+
+**Eseguirla, invece, non è avviarla.** La voce "cartella compressa" della cartella
+SendTo non è un programma: è un file `.ZFSendToTarget` che contiene un CLSID, e il
+suo handler è registrato come `DropHandler` — il registro lo dice con le parole
+*"Drag Files onto this icon to compress them"*. `ShellExecuteEx` su quella voce
+restituisce `TRUE` e non fa niente: nessun errore, nessun file, che è la peggiore
+delle risposte possibili (§7.22 di `docs/02`).
+
+Si fa quindi quello che farebbe il mouse: si prende il **bersaglio di caduta**
+della voce (`IShellFolder::GetUIObjectOf` con `IID_IDropTarget`) e gli si lascia
+cadere sopra la selezione, come `IDataObject` costruito con `SHCreateDataObject`
+dai PIDL dei percorsi scelti. `DROPEFFECT_COPY`, perché "invia a" manda una copia e
+non porta via l'originale. Vale per tutte le voci della cartella, compresi i
+collegamenti ai programmi, che si aprono con i file ricevuti. Verificato da capo a
+fondo: la voce che comprime ha prodotto **`relazione.zip` dentro la sandbox** (218
+byte, con `relazione.txt` dentro), e la barra di stato ha scritto *"Avviato:
+…"*.
+
+"Avviato" e non "fatto", perché la destinazione comprime, copia o apre una
+finestra sua e il suo esito non è nostro da dichiarare; se invece la voce non
+accetta i file, lo dice.
+
+**Quattro costi misurati** (registro: `BOLT_DIAG_SHELL_MENU=1` → `shell-menu.log`):
 
 Due note sull'elenco, perché sono differenze misurate rispetto al menu della
 shell e non difetti noti:
