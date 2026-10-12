@@ -4158,10 +4158,13 @@ void ContextMenuActivate(AppState& app)
     }
 
     // Una voce di "Nuovo file": la posizione nella banda e' l'indice del modello
-    // letto dal registro.
+    // letto dal registro. Il menu si chiude come per ogni altra voce: senza questo
+    // resterebbe aperto sopra la rinomina che parte subito dopo.
     if (chosen->command >= kNewItemCmdFirst && chosen->command < kNewItemCmdLast)
     {
-        CreateNewItem(app, static_cast<size_t>(chosen->command - kNewItemCmdFirst));
+        const size_t model = static_cast<size_t>(chosen->command - kNewItemCmdFirst);
+        ContextMenuClose(app);
+        CreateNewItem(app, model);
         return;
     }
 
