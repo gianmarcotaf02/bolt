@@ -46,9 +46,11 @@
 #include <windowsx.h>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdio>
 #include <cwctype>
+#include <set>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
