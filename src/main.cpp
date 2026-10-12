@@ -325,6 +325,10 @@ struct ContextMenu
     // l'HMENU resta appeso a ogni tasto destro.
     HMENU         shellMenu = nullptr;
     IContextMenu* shell     = nullptr;
+    // Il menu e' stato chiesto per il fondo della cartella invece che per una
+    // selezione: serve a filtrare i verbi quando si legge un sottomenu, perche'
+    // allora la lettura avviene molto dopo averlo deciso.
+    bool shellIsBackground = false;
 };
 
 struct AppState
@@ -3047,6 +3051,25 @@ const ContextMenuItem* LevelItem(const ContextMenu& menu, int depth, int index)
     return &(*items)[static_cast<size_t>(index)];
 }
 
+// Come LevelItem, ma per chi deve SCRIVERE nella voce: il contenuto di un
+// sottomenu della shell si copia dentro `children` alla prima apertura.
+ContextMenuItem* LevelItemMutable(ContextMenu& menu, int depth, int index)
+{
+    std::vector<ContextMenuItem>* items = &menu.items;
+    for (int i = 0; i < depth; ++i)
+    {
+        if (i >= static_cast<int>(menu.openPath.size()))
+            return nullptr;
+        const int parent = menu.openPath[static_cast<size_t>(i)];
+        if (parent < 0 || parent >= static_cast<int>(items->size()))
+            return nullptr;
+        items = &(*items)[static_cast<size_t>(parent)].children;
+    }
+    if (index < 0 || index >= static_cast<int>(items->size()))
+        return nullptr;
+    return &(*items)[static_cast<size_t>(index)];
+}
+
 // La voce ha qualcosa dentro? Vale anche per un sottomenu della shell **non
 // ancora letto**: il suo contenuto non esiste prima di aprirlo, e chiederlo per
 // tutti a ogni tasto destro costerebbe quanto interrogare la shell dieci volte.
@@ -3679,10 +3702,16 @@ void AppendShellItems(AppState& app, ContextMenu& menu)
 
 void ContextMenuClose(AppState& app)
 {
-    app.contextMenu.open = false;
-    app.contextMenu.selected = -1;
-    app.contextMenu.items.clear();
-    ShellMenuRelease(app.contextMenu);
+    ContextMenu& menu = app.contextMenu;
+    menu.open = false;
+    // I livelli non si svuotano: restano uno solo, vuoto. Un array vuoto
+    // significherebbe che il livello 0 non esiste, e ogni funzione di geometria
+    // lo indicizza.
+    menu.openPath.clear();
+    menu.levels.assign(1, ContextMenuLevel{});
+    menu.items.clear();
+    menu.shellIsBackground = false;
+    ShellMenuRelease(menu);
 }
 
 void BuildContextMenu(AppState& app, float x, float y)
@@ -3691,8 +3720,9 @@ void BuildContextMenu(AppState& app, float x, float y)
     menu.items.clear();
     menu.x = x;
     menu.y = y;
-    menu.selected = -1;
-    menu.firstItem = 0;
+    menu.openPath.clear();
+    menu.levels.assign(1, ContextMenuLevel{});
+    menu.shellIsBackground = false;
 
     const size_t count = app.selection.size();
     menu.subtitle = count == 0 ? std::string("niente selezionato")
@@ -3741,7 +3771,9 @@ void BuildContextMenu(AppState& app, float x, float y)
 void ContextMenuMove(AppState& app, const Layout& layout, int delta)
 {
     ContextMenu& menu = app.contextMenu;
-    const int count = static_cast<int>(menu.items.size());
+    const int depth = ActiveDepth(menu);
+    ContextMenuLevel& level = menu.levels[static_cast<size_t>(depth)];
+    const int count = LevelCount(menu, depth);
     if (count == 0 || delta == 0)
         return;
 
@@ -3752,25 +3784,27 @@ void ContextMenuMove(AppState& app, const Layout& layout, int delta)
     //
     // Le frecce saltano i separatori e le voci spente: fermarcisi sopra non vuol
     // dire niente e l'Invio non avrebbe nulla da eseguire.
-    int index = menu.selected < 0 ? (delta > 0 ? -1 : count) : menu.selected;
+    int index = level.selected < 0 ? (delta > 0 ? -1 : count) : level.selected;
     for (int step = 0; step < count; ++step)
     {
         index = (index + delta + count * 2) % count;
-        const ContextMenuItem& item = menu.items[static_cast<size_t>(index)];
-        if (!item.separator && !item.disabled)
+        const ContextMenuItem* item = LevelItem(menu, depth, index);
+        if (item != nullptr && !item->separator && !item->disabled)
             break;
     }
-    menu.selected = index;
+    level.selected = index;
 
     // Se la voce scelta sta fuori dal pannello, il menu scivola di quel tanto.
-    ContextMenuClampWindow(app, layout);
+    ContextMenuClampWindow(app, layout, depth);
 }
 
 // Porta la scelta alla prima o all'ultima voce eseguibile.
 void ContextMenuJump(AppState& app, const Layout& layout, bool toFirst)
 {
     ContextMenu& menu = app.contextMenu;
-    const int count = static_cast<int>(menu.items.size());
+    const int depth = ActiveDepth(menu);
+    ContextMenuLevel& level = menu.levels[static_cast<size_t>(depth)];
+    const int count = LevelCount(menu, depth);
     if (count == 0)
         return;
 
@@ -3779,12 +3813,12 @@ void ContextMenuJump(AppState& app, const Layout& layout, bool toFirst)
     for (int i = 0; i < count; ++i)
     {
         index = (index + step + count * 2) % count;
-        const ContextMenuItem& item = menu.items[static_cast<size_t>(index)];
-        if (!item.separator && !item.disabled)
+        const ContextMenuItem* item = LevelItem(menu, depth, index);
+        if (item != nullptr && !item->separator && !item->disabled)
             break;
     }
-    menu.selected = index;
-    ContextMenuClampWindow(app, layout);
+    level.selected = index;
+    ContextMenuClampWindow(app, layout, depth);
 }
 
 // Apre la finestra delle proprieta' di Windows sulla selezione: la stessa che
