@@ -27,6 +27,7 @@
 #include "shell_location.h"
 #include "shell_new.h"
 #include "shell_preview.h"
+#include "text_view.h"
 #include "shell_sendto.h"
 #include "ui_renderer.h"
 
@@ -218,6 +219,8 @@ enum CommandId
     CmdGoUp, CmdBack, CmdForward, CmdRefresh, CmdOpenExplorer, CmdOpenConsole, CmdRecalcStats,
     CmdGoTo,
     CmdToggleSidebar, CmdZoomIn, CmdZoomOut, CmdZoomReset, CmdToggleDetails,
+    CmdTextWhitespace, CmdTextLineNumbers, CmdTextMinimap, CmdTextWrap, CmdTextZoomIn,
+    CmdTextZoomOut,
     CmdViewDetails, CmdViewList, CmdViewTiles, CmdViewIcons,
     CmdSortName, CmdSortType, CmdSortModified, CmdSortFolders, CmdSortFiles,
     CmdSortSize, CmdSortDirection,
@@ -381,6 +384,16 @@ struct FileProperties
     uint32_t imageHeight = 0;
 };
 
+// Una riga **come si vede**: una riga di testo, o un pezzo di essa quando l'andare
+// a capo e' acceso. `offset` e' la posizione nel testo della riga logica, e vale
+// zero solo sulla prima: e' cosi' che il numero di riga sa dove scriversi.
+struct TextRow
+{
+    size_t line = 0;
+    size_t offset = 0;
+    size_t length = 0;
+};
+
 struct AppState
 {
     // Il contesto di disegno della finestra, per poter disegnare un fotogramma
@@ -421,6 +434,31 @@ struct AppState
     // Le proprieta' che il file system non dice (le dimensioni di un'immagine, per
     // esempio): anche queste si leggono una volta per percorso.
     std::unordered_map<std::wstring, FileProperties> fileProperties;
+
+    // --- visualizzatore di testo (M8) ---------------------------------------
+    //
+    // Il documento si legge quando cambia la voce scelta e si tiene finche' quella
+    // voce resta scelta. E' l'unica cosa in memoria che riguarda il *contenuto* di un
+    // file: vive quanto la selezione, e non va da nessuna parte (`docs/06`).
+    TextView::Document textDocument;
+    std::wstring       textDocumentPath;
+    float              textScroll = 0.0f;
+    float              textZoom   = 1.0f;
+
+    // Le opzioni, con i nomi della tabella delle chiavi dell'originale.
+    bool textShowWhitespace = false;   // InspectorShowWhitespace
+    bool textLineNumbers    = true;    // InspectorHideLineNumbers, al contrario
+    bool textMinimap        = true;    // InspectorHideMinimap, al contrario
+    bool textWrap           = false;   // InspectorWordWrap
+
+    // Le righe come si vedono, e con che misura sono state calcolate: si rifanno solo
+    // quando la misura cambia, perche' su un file lungo rifarle a ogni fotogramma
+    // sarebbe lavoro sprecato.
+    std::vector<TextRow> textRows;
+    bool  textRowsDirty = true;
+    float textRowsWidth = 0.0f;
+    float textRowsZoom  = 0.0f;
+    size_t textLongest  = 0;           // la riga piu' lunga, per la minimap
 
     std::vector<Tab> tabs;
     int              activeTab = 0;
@@ -3072,6 +3110,16 @@ const CommandDef kCommandTable[] = {
     {"View",    "View: icons",                 CmdViewIcons},
     {"View",    "Toggle sidebar",              CmdToggleSidebar},
     {"View",    "Zoom in",                     CmdZoomIn},
+    // Le opzioni del visualizzatore di testo. Nella tabella delle chiavi
+    // dell'originale sono `InspectorShowWhitespace`, `InspectorHideLineNumbers`,
+    // `InspectorHideMinimap`, `InspectorWordWrap`, `InspectorZoomLevel`: le stesse
+    // cose, con i nomi che ha scelto chi le ha scritte la' dentro.
+    {"Inspector", "Text: show whitespace",       CmdTextWhitespace},
+    {"Inspector", "Text: toggle line numbers",   CmdTextLineNumbers},
+    {"Inspector", "Text: toggle minimap",        CmdTextMinimap},
+    {"Inspector", "Text: toggle word wrap",      CmdTextWrap},
+    {"Inspector", "Text: zoom in",               CmdTextZoomIn},
+    {"Inspector", "Text: zoom out",              CmdTextZoomOut},
     {"View",    "Zoom out",                    CmdZoomOut},
     {"View",    "Reset zoom",                  CmdZoomReset},
     {"View",    "Toggle command details",      CmdToggleDetails},
@@ -3870,6 +3918,25 @@ void RunCommand(AppState& app, int command)
 
         case CmdToggleSidebar: app.sidebarVisible = !app.sidebarVisible; break;
         case CmdZoomIn:    app.zoom = (std::min)(2.0f, app.zoom + 0.1f); break;
+
+        // Le quattro opzioni del visualizzatore. Cambiano il disegno del testo, non
+        // la lista: la riga da rifare e' quella delle righe visibili, e si rifa' da
+        // sola perche' il calcolo si accorge che l'andare a capo e' cambiato.
+        case CmdTextWhitespace:  app.textShowWhitespace = !app.textShowWhitespace; break;
+        case CmdTextLineNumbers: app.textLineNumbers = !app.textLineNumbers; break;
+        case CmdTextMinimap:     app.textMinimap = !app.textMinimap; break;
+        case CmdTextWrap:
+            app.textWrap = !app.textWrap;
+            app.textRowsDirty = true;
+            break;
+        case CmdTextZoomIn:
+            app.textZoom = (std::min)(2.4f, app.textZoom + 0.15f);
+            app.textRowsDirty = true;
+            break;
+        case CmdTextZoomOut:
+            app.textZoom = (std::max)(0.6f, app.textZoom - 0.15f);
+            app.textRowsDirty = true;
+            break;
         case CmdZoomOut:   app.zoom = (std::max)(0.6f, app.zoom - 0.1f); break;
         case CmdZoomReset: app.zoom = app.dpiScale; break;
         case CmdToggleDetails: app.palette.detailed = !app.palette.detailed; break;
