@@ -4527,7 +4527,15 @@ void ContextMenuActivate(AppState& app)
 
         // Un'azione che fallisce in silenzio e' peggio di una che non parte.
         if (FAILED(hr))
+        {
             ReportStatus(app, L"Il comando della shell non e' partito.");
+            return;
+        }
+
+        // Un verbo della shell puo' aver cambiato la cartella: "Ripristina" toglie la
+        // voce dal cestino, "Estrai qui" aggiunge dei file. La vista si rifa', e la
+        // selezione si tiene per nome: quello che non c'e' piu' sparisce da solo.
+        ReloadKeeping(app, app.selection, app.cursor, app.scroll);
         return;
     }
 
@@ -5384,6 +5392,18 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
                     if (farX > thresholdX || farY > thresholdY)
                     {
                         app->dragArmed = false;   // si parte una volta sola
+
+                        // Fuori da una cartella che non e' un percorso non si
+                        // trascina: l'oggetto dati si costruisce dai nomi, e il nome
+                        // di una voce del cestino e' il percorso del file dentro
+                        // `$Recycle.Bin`. Si trascinerebbe *quel* file, che non e'
+                        // quello che si vede.
+                        if (ShellLocation::IsNamespace(app->directory))
+                        {
+                            ReportStatus(*app, L"Da qui non si trascina: le voci si gestiscono "
+                                               L"col menu contestuale.");
+                            return 0;
+                        }
 
                         const std::vector<std::wstring> paths = SelectedPaths(*app);
                         DWORD effect = DROPEFFECT_NONE;
