@@ -25,7 +25,8 @@ contenuto), **`Invia a >`** (destinazioni della cartella SendTo, eseguite lascia
 cadere sopra la selezione), **drag&drop dentro e fuori** con OLE e la **navigazione
 nello spazio dei nomi** col **ripristino dal cestino** e il **trascinamento sul
 riquadro di navigazione** (che sul cestino è il gesto per buttare via, non una
-copia). Mancano le cartelle riciclate (che si ripristinano, non si aprono) |
+copia). Mancano le cartelle riciclate (che si ripristinano, non si aprono) e il
+trascinamento **fuori** dal cestino, che resta un limite dichiarato |
 | M8 — inspector | ✅ metadati, proprietà `PROPSYS`, conteggio per tipo, **visualizzatore di testo** (righe, minimap, spazi visibili, andare a capo, ingrandimento, codifica) e **anteprima immagine** decodificata con adattamento e ingrandimento. Le voci di spazio dei nomi mostrano le colonne della shell (percorso originale, data di eliminazione). Unica chiave non ricostruita: `InspectorHideGrid` |
 | M9 — configurazione e temi | ⬜ **vincolata**: niente file di impostazioni, vedi `docs/06` |
 | M10 — backend D3D11 | ⬜ |
@@ -65,9 +66,10 @@ In ordine di valore, non di facilità.
    comandi e i 35 token di tema.
 2. **M10 — backend D3D11** — l'ultima milestone del piano; il renderer è già
    dietro `ui_renderer.*`, quindi è un secondo backend, non una riscrittura.
-3. **Trascinare fuori dalle cartelle di spazio dei nomi** — oggi è rifiutato con un
-   messaggio e la ragione è scritta (§7.25): l'oggetto dati si costruisce dai nomi.
-   Con i PIDL che ormai si hanno in mano si può fare.
+3. **Il trascinamento fuori dal cestino** — l'oggetto dati adesso c'è e le voci
+   normali escono davvero, ma una voce **riciclata** non viene presa (la
+   destinazione dichiara "copia" e non copia). La causa non è ricostruita: §7.34 di
+   `docs/02`. Se non si trova, resta un limite dichiarato.
 4. **Colonne ridimensionabili e filtri per colonna** — nel riferimento ci sono
    entrambi: le intestazioni hanno un'icona di filtro e i bordi si trascinano. Qui
    le colonne sono frazioni fisse della larghezza.
@@ -80,7 +82,7 @@ In ordine di valore, non di facilità.
    costa ~350 ms e in regime ~65 ms, con **22 handle di kernel** per apertura dentro
    le estensioni. Da decidere: chiedere la shell su richiesta invece che a ogni
    tasto destro. Vedi `docs/04-roadmap.md`, sezione M7.
-9. **Spezzare `main.cpp`** — **7.748 righe** e undici moduli: il confine c'è, ma il
+9. **Spezzare `main.cpp`** — **7.790 righe** e undici moduli: il confine c'è, ma il
    file che lo contiene resta il collo di bottiglia dichiarato fin dall'inizio.
 
 

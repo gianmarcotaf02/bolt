@@ -331,6 +331,10 @@ Costano tempo, sembrano bug dell'applicazione e non lo sono. Vedi anche §5 di
   tasti non partono mai: sembra che l'applicazione ignori l'input. Per questo
   esiste `tools/send-keys.ps1`: uno script su file è l'unico modo affidabile di
   ripetere una prova.
+- **Se `window-rect.ps1` risponde `0x0`, la finestra non c'è (ancora).** Il
+  rettangolo calcolato da quel valore è l'angolo dello schermo, e `capture-rect.ps1`
+  salva quello: è successo, e la cattura è stata buttata senza guardarla. La
+  dimensione si controlla **prima** di catturare, non dopo.
 - **`send-mouse.ps1` vuole coordinate CLIENTE, `drag-mouse.ps1` coordinate
   SCHERMO**, e la ragione è scritta in testa a ciascuno: un clic si ripete anche se
   la finestra si sposta, un trascinamento attraversa due finestre e le coordinate
@@ -471,7 +475,7 @@ rettangolo ha bordi continui a qualunque dimensione.
 
 - `docs/04-roadmap.md` — le milestone, con le caselle spuntate e i difetti aperti.
 - `docs/05-stato-e-prossimi-passi.md` — dove si è arrivati, cosa resta, le trappole.
-- `docs/02-architettura-ricostruita.md` — l'architettura e i **trentatré** difetti
+- `docs/02-architettura-ricostruita.md` — l'architettura e i **trentaquattro** difetti
   trovati e risolti, §7.
 - `docs/03-spec-funzionale.md` — la spec ricostruita dall'originale: 1124 chiavi,
   319 comandi, 35 token di tema, 23 colonne.

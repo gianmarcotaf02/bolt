@@ -1146,3 +1146,25 @@ messaggio di stato dura quattro secondi e io l'ho fotografato trenta secondi dop
 registro diagnostico non c'era, e senza di lui l'unica ipotesi era "l'operazione e'
 fallita in silenzio". Con una riga di registro, `esito della caduta: spostamento di 1
 elementi, prodotti 1`, la stessa domanda ha avuto risposta in un minuto.
+
+### 7.34 L'oggetto dati montato a mano viene accettato e non fa niente
+
+Togliere il rifiuto al trascinamento fuori dalle cartelle di spazio dei nomi ha
+richiesto un oggetto dati: le voci li' non hanno un percorso, quindi si portano come
+**PIDL**. La prima versione lo costruiva a mano, con `SHCreateDataObject` e un
+genitore ricavato dal PIDL togliendone l'ultimo elemento. Sembra ragionevole, e la
+destinazione lo **accetta**: Esplora risorse risponde `DROPEFFECT_COPY`, il registro
+scrive "effetto restituito 1", e non copia niente. L'esito dichiarato — quello che
+la destinazione scrive nell'oggetto, `CFSTR_PERFORMEDDROPEFFECT` — dice `0`, cioe'
+"non ho fatto niente".
+
+La lezione e' la stessa del menu contestuale, in un altro posto: **l'oggetto dati lo
+chiede la cartella che possiede le voci**, con `IShellFolder::GetUIObjectOf`, invece
+di montarlo. Il cestino non e' una cartella come le altre, e chi lo sa e' la shell.
+
+**Limite dichiarato.** Con l'oggetto chiesto alla cartella, il trascinamento fuori
+funziona per le voci di una cartella **normale**: verificato con una prova di
+controllo, un file trascinato dalla sandbox a una finestra di Esplora risorse arriva
+davvero. Per una voce **riciclata** invece la destinazione dichiara ancora `COPY` e
+non arriva niente: il cestino, per la shell, e' un'altra cosa anche da questo lato, e
+la causa **non e' stata ricostruita**. Non si dichiara risolto.

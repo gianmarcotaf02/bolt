@@ -536,6 +536,12 @@ a gruppi, invece di scriverne tre.
       rifarla. E la destinazione non è sempre una cartella: sul **cestino** il verbo
       è *buttare via*, non *mettere dentro* — non si copia nel cestino, e Ctrl non
       trasforma il gesto in una copia. Vedi §7.33 di `docs/02`
+- [x] **trascinare *fuori* da una cartella di spazio dei nomi**: le voci portano
+      l'oggetto dati della shell invece di un nome, e l'oggetto lo chiede **la
+      cartella che le possiede** — montarlo a mano lo faceva accettare e non fare
+      niente (§7.34 di `docs/02`). Verificato per una cartella normale; **per una
+      voce riciclata la destinazione dichiara "copia" e non copia**: limite
+      dichiarato, non risolto
 - [x] **navigazione nello spazio dei nomi** e **ripristino dal cestino**: il
       cestino è un collegamento nella barra laterale, si apre come una cartella,
       e "Ripristina" è il verbo della shell sulla voce — che esiste solo se alla
