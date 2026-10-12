@@ -534,6 +534,10 @@ struct AppState
     // il suo messaggio copre quello piu' preciso della caduta — "Buttati via N
     // elementi nel cestino" diventava "Spostati N elementi".
     bool         dropReported = false;
+    // Un trascinamento che parte da una cartella di spazio dei nomi: le voci non
+    // hanno un percorso, quindi non si possono "mettere dentro" un'altra cartella
+    // nostra. Fuori si trascinano benissimo, dentro no — e il puntatore lo dice.
+    bool         draggingNamespaceItems = false;
     // Il percorso del cestino, che non e' una cartella come le altre: tenerlo qui
     // evita di richiederlo alla shell a ogni movimento del mouse durante una caduta.
     std::wstring recycleBinPath;
@@ -6582,26 +6586,35 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
                     {
                         app->dragArmed = false;   // si parte una volta sola
 
-                        // Fuori da una cartella che non e' un percorso non si
-                        // trascina: l'oggetto dati si costruisce dai nomi, e il nome
-                        // di una voce del cestino e' il percorso del file dentro
-                        // `$Recycle.Bin`. Si trascinerebbe *quel* file, che non e'
-                        // quello che si vede.
-                        if (ShellLocation::IsNamespace(app->directory))
-                        {
-                            ReportStatus(*app, L"Da qui non si trascina: le voci si gestiscono "
-                                               L"col menu contestuale.");
-                            return 0;
-                        }
-
                         const std::vector<std::wstring> paths = SelectedPaths(*app);
                         DWORD effect = DROPEFFECT_NONE;
+                        size_t dragged = paths.size();
                         app->dropReported = false;
-                        DragDrop::DragOut(window, paths, &effect);
+
+                        // Da una cartella che non e' un percorso si trascina
+                        // **l'oggetto della shell**, non un nome: il nome di una voce
+                        // del cestino e' il percorso del file dentro `$Recycle.Bin`, e
+                        // trascinare quello significherebbe trascinare un altro file.
+                        if (ShellLocation::IsNamespace(app->directory))
+                        {
+                            const std::vector<const BYTE*> pidls = SelectedPidls(*app);
+                            dragged = pidls.size();
+                            app->draggingNamespaceItems = true;
+                            if (IDataObject* data = DragDrop::DataObjectForPidls(pidls))
+                            {
+                                DragDrop::DragOutData(window, data, pidls.size(), &effect);
+                                data->Release();
+                            }
+                            app->draggingNamespaceItems = false;
+                        }
+                        else
+                        {
+                            DragDrop::DragOut(window, paths, &effect);
+                        }
 
                         // Spostati davvero: gli originali non ci sono piu' e la
                         // vista li sta ancora mostrando.
-                        if ((effect & DROPEFFECT_MOVE) != 0 && !paths.empty())
+                        if ((effect & DROPEFFECT_MOVE) != 0 && dragged > 0)
                         {
                             ReloadKeeping(*app, /*keep=*/{}, /*preferCursor=*/{}, app->scroll);
                             // Il messaggio lo da' chi ha eseguito la caduta, se e'
@@ -6611,7 +6624,7 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
                             // solo se la destinazione era un'altra applicazione,
                             // che non ha modo di dirlo.
                             if (!app->dropReported)
-                                ReportStatus(*app, L"Spostati " + std::to_wstring(paths.size()) +
+                                ReportStatus(*app, L"Spostati " + std::to_wstring(dragged) +
                                                        L" elementi");
                         }
                         return 0;
@@ -7355,6 +7368,13 @@ DragDrop::Target TargetAt(HWND window, POINT client)
 
     const float x = static_cast<float>(client.x);
     const float y = static_cast<float>(client.y);
+
+    // Un trascinamento nato da una cartella di spazio dei nomi porta oggetti della
+    // shell, che non hanno un percorso: metterli "dentro" una cartella nostra non e'
+    // una cosa che sappiamo fare. Si trascinano fuori, verso un'altra applicazione,
+    // che di quegli oggetti sa cosa fare.
+    if (app->draggingNamespaceItems)
+        return target;
 
     // Il riquadro di navigazione. Le sue righe sono gia' bersagli di clic, quindi la
     // geometria la sa `HitTest`: rifarla qui vorrebbe dire sbagliarla appena una
