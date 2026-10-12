@@ -1209,7 +1209,12 @@ ritaglio obbliga a chiuderlo e riaprirlo: **tre disegni per fotogramma invece di
 uno**. E' poco, ma non e' piu' quello che c'era scritto, e la riga va corretta dove
 stava scritta.
 
-**La lezione.** Un difetto di *ritaglio* non si vede in una cattura di una lista
-allineata: si vede solo scorrendo, e solo se si guarda il bordo invece del centro.
-E' la stessa cosa di §7 (le due barre del titolo): il banco di prova guardava dove
-il difetto non c'era. Qui e' bastato che l'autore guardasse la finestra intera.
+**La lezione, e perche' le mie catture non l'avevano visto.** Un difetto di
+*ritaglio* non si vede in una lista allineata: si vede scorrendo, e guardando il
+bordo invece del centro. Io avevo fotografato la griglia **non scorsa** — dove le
+celle stanno dentro — e le catture scorse le avevo **ritagliate sulla lista**, che
+e' esattamente la regione del difetto. E' la stessa cosa di §7 (le due barre del
+titolo), dove `GetClientRect` tagliava via la barra di sistema: il banco di prova
+guardava dove il difetto non c'era. Qui e' bastato che l'autore guardasse la
+finestra intera — ed e' il motivo per cui le catture di verifica si fanno sul
+riquadro **intero** e solo la privacy autorizza a ritagliare.
