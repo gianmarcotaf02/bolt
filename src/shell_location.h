@@ -57,11 +57,23 @@ std::wstring ParentOf(const std::wstring& location);
 struct Item
 {
     std::wstring name;      // come si vede nella lista
-    std::wstring location;  // nome assoluto: per navigarci, e per i verbi della shell
+    std::wstring location;  // nome assoluto, per navigarci
     std::string  extension; // minuscola, senza punto
     uint64_t     bytes = 0;
     FILETIME     modified{};
     bool         isDirectory = false;
+
+    // L'identita' vera della voce. Per una voce di spazio dei nomi una stringa non
+    // basta: il "nome assoluto" di un file nel cestino e' il percorso del file
+    // dentro `$Recycle.Bin`, che e' **un'altra voce** — il file vero, non quello
+    // riciclato — e la shell, se le si chiede il menu di quel nome, risponde col
+    // menu di quel file. Senza il PIDL, "Ripristina" non esiste.
+    std::vector<BYTE> pidl;
+
+    // Vero se |location| porta alla stessa voce, e non a un'altra: e' quello che
+    // rende una cartella apribile. Per un'unita' si'; per una cartella dentro il
+    // cestino no, per la ragione di sopra.
+    bool navigable = false;
 };
 
 // Le voci della cartella. Vuoto con |error| pieno se non si apre: una cartella che

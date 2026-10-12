@@ -301,6 +301,25 @@ std::vector<Item> Read(const std::wstring& location, std::string* error)
             CoTaskMemFree(absolute);
         }
 
+        // Il PIDL, copiato: la lista se lo porta dietro, e serve a chiedere alla
+        // shell i verbi *di questa voce* — e' cosi' che si ripristina dal cestino.
+        if (absolute != nullptr)
+        {
+            const size_t size = ILGetSize(absolute);
+            item.pidl.assign(reinterpret_cast<const BYTE*>(absolute),
+                             reinterpret_cast<const BYTE*>(absolute) + size);
+
+            // E il nome torna su questa voce, o su un'altra?
+            PIDLIST_ABSOLUTE reparsed = nullptr;
+            if (!item.location.empty() &&
+                SUCCEEDED(SHParseDisplayName(item.location.c_str(), nullptr, &reparsed, 0, nullptr)) &&
+                reparsed != nullptr)
+            {
+                item.navigable = ILIsEqual(absolute, reparsed) != FALSE;
+                CoTaskMemFree(reparsed);
+            }
+        }
+
         item.name = item.name.empty() ? item.location : item.name;
         item.extension = [&item]() {
             const size_t dot = item.name.rfind(L'.');

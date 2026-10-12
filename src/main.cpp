@@ -110,6 +110,17 @@ struct Entry
     // chiedere alla shell di ripristinarla. Vuoto per le voci normali, che il
     // percorso ce l'hanno gia' dalla cartella aperta.
     std::wstring location;
+
+    // Il PIDL, per le stesse voci: e' l'identita' che la shell riconosce. Il nome
+    // di un file nel cestino e' il percorso del file dentro `$Recycle.Bin`, che e'
+    // un'altra voce — chiederle il menu di quel nome da' il menu di *quel* file, e
+    // "Ripristina" sparisce.
+    std::vector<BYTE> pidl;
+
+    // Vero se aprirla porta dove dice il suo nome. Le voci normali si'; un'unita'
+    // dentro "Questo PC" si'; una cartella dentro il cestino no: li' il nome e' il
+    // percorso del file riciclato, e aprirlo mostrerebbe il blob, non la cartella.
+    bool navigable = true;
 };
 
 struct Place
@@ -644,6 +655,8 @@ std::vector<Entry> ReadNamespaceDirectory(const std::wstring& directory, std::st
         entry.modified    = item.modified;
         entry.extension   = item.extension;
         entry.location    = item.location;
+        entry.pidl        = item.pidl;
+        entry.navigable   = item.navigable;
 
         // Un tempo a zero non e' il 1601: e' "la shell non lo sa". Scriverlo come
         // data faceva comparire `1601-01-01` in ogni riga di "Questo PC", che e'
@@ -2773,6 +2786,24 @@ void ReportStatus(AppState& app, const std::wstring& message)
 {
     app.statusMessage     = message;
     app.statusMessageTime = NowSeconds();
+}
+
+// La selezione come PIDL, nello stesso ordine dei percorsi. Le voci normali non ne
+// hanno uno, e va bene: per quelle il percorso basta ed e' la forma che le
+// operazioni su file si aspettano. Le voci di spazio dei nomi invece il PIDL ce
+// l'hanno per forza, ed e' l'unico modo di chiedere alla shell il loro menu.
+std::vector<const BYTE*> SelectedPidls(const AppState& app)
+{
+    std::vector<const BYTE*> pidls;
+    for (const Row& row : app.rows)
+    {
+        if (row.header)
+            continue;
+        const Entry& entry = app.entries[static_cast<size_t>(row.entry)];
+        if (app.selection.count(entry.wideName) != 0 && !entry.pidl.empty())
+            pidls.push_back(entry.pidl.data());
+    }
+    return pidls;
 }
 
 // I comandi che agiscono su un **percorso** non valgono dove un percorso non c'e':
@@ -5013,9 +5044,16 @@ void ActivateSelection(AppState& app)
 
     const Entry& entry = app.entries[static_cast<size_t>(cursorIndex)];
     const std::wstring full = EntryLocation(app, entry);
-    if (entry.isDirectory)
+    if (entry.isDirectory && entry.navigable)
     {
         LoadDirectory(app, full);
+    }
+    else if (entry.isDirectory)
+    {
+        // Dentro il cestino il nome di una cartella e' il percorso del file
+        // riciclato: aprirlo mostrerebbe il blob, non quello che si vede. Li' una
+        // cartella si ripristina.
+        ReportStatus(app, L"\"" + entry.wideName + L"\" non si apre da qui: si ripristina.");
     }
     else if (!entry.location.empty())
     {
