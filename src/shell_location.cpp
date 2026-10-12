@@ -288,7 +288,7 @@ std::vector<Column> Columns(const std::vector<BYTE>& pidl)
                 break;
 
             wchar_t titleText[256]{};
-            if (FAILED(StrRetToBufW(&title.str, nullptr, titleText, 256)) || titleText[0] == L' ')
+            if (FAILED(StrRetToBufW(&title.str, nullptr, titleText, 256)) || titleText[0] == L'\0')
                 break;
 
             // Il nome della voce lo si mostra gia': ripeterlo in una riga "Name" e'
@@ -301,7 +301,7 @@ std::vector<Column> Columns(const std::vector<BYTE>& pidl)
                 continue;
 
             wchar_t valueText[512]{};
-            if (FAILED(StrRetToBufW(&details.str, child, valueText, 512)) || valueText[0] == L' ')
+            if (FAILED(StrRetToBufW(&details.str, child, valueText, 512)) || valueText[0] == L'\0')
                 continue;
 
             Column column;

@@ -3158,7 +3158,9 @@ void DrawInspector(AppState& app, const Layout& layout)
         hasStats = app.stats.TryGet(full, &stats);
     }
 
-    struct Row { const char* label; std::string value; bool growing; };
+    // L'etichetta non e' per forza una costante: le colonne della shell hanno i nomi
+    // che sceglie lei, e sono tradotti.
+    struct Row { std::string label; std::string value; bool growing; };
     std::vector<Row> rows;
     rows.push_back({"Type", entry.typeText, false});
     if (volume.isVolume)
@@ -3216,6 +3218,20 @@ void DrawInspector(AppState& app, const Layout& layout)
         }
     }
 
+    // Le colonne che la **shell** ha per questa voce, con i suoi nomi. Per un file
+    // riciclato sono "Posizione originale" e "Data eliminazione": non sono proprieta'
+    // di sistema (`propkey.h` non le ha) e quindi non si chiedono come le altre — si
+    // chiedono alla cartella che le ha, e sono le stesse che si vedono nel cestino.
+    if (!entry.pidl.empty())
+    {
+        for (const ShellLocation::Column& column : ShellLocation::Columns(entry.pidl))
+        {
+            if (rows.size() > 14)
+                break;   // oltre, le righe uscirebbero dal pannello
+            rows.push_back({ToUtf8(column.title), ToUtf8(column.value), false});
+        }
+    }
+
     // Il percorso: e' la riga che si copia, e l'unica che dice *dove* si sta
     // guardando. Si taglia davanti.
     rows.push_back({"Path", ToUtf8(full), false});
@@ -3229,12 +3245,17 @@ void DrawInspector(AppState& app, const Layout& layout)
 
     for (const Row& row : rows)
     {
-        app.smallFont.Draw(r, layout.inspector.x + 14.0f * scale, y, row.label, t.textDim, scale);
+        // L'etichetta si tronca alla colonna che ha: una colonna della shell puo'
+        // chiamarsi "Posizione originale" e finire sopra il valore.
+        const float labelX = layout.inspector.x + 14.0f * scale;
+        app.smallFont.Draw(r, labelX, y,
+                           FitText(app.smallFont, row.label, scale, 74.0f * scale), t.textDim,
+                           scale);
         const float valueX = layout.inspector.x + 96.0f * scale;
         const float valueMax = layout.inspector.right() - valueX - 14.0f * scale;
         // Un percorso si taglia davanti, tutto il resto dietro: le due cose che si
         // vogliono sapere sono "dove finisce" e "cosa c'e' scritto".
-        const std::string shown = (_stricmp(row.label, "Path") == 0)
+        const std::string shown = (row.label == "Path")
                                       ? FitTextTail(app.smallFont, row.value, scale, valueMax)
                                       : FitText(app.smallFont, row.value, scale, valueMax);
         app.smallFont.Draw(r, valueX, y, shown, t.text, scale);
