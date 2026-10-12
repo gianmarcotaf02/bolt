@@ -2832,13 +2832,21 @@ void DrawInspector(AppState& app, const Layout& layout)
         y += 46.0f * scale;
     }
 
+    // Un **volume** non e' una cartella: le sue dimensioni sono la capacita' del
+    // disco, non la somma di quello che c'e' dentro, e le statistiche ricorsive li'
+    // non hanno niente da camminare. Prima si chiedeva lo stesso il conto, e per un
+    // disco l'inspector rispondeva "0 B, 0 cartelle, 0 file": un numero falso detto
+    // con sicurezza, che e' peggio di nessun numero.
+    const std::wstring full = EntryLocation(app, entry);
+    const VolumeInfo volume = VolumeOf(full);
+    const bool fromNamespace = !entry.location.empty();
+
     // Folder numbers, if the panel is counting them. Asking here covers the
     // selected row even when it has scrolled out of view.
     DirStats stats;
     bool hasStats = false;
-    if (entry.isDirectory)
+    if (entry.isDirectory && !volume.isVolume && !fromNamespace)
     {
-        const std::wstring full = JoinPath(app.directory, entry.wideName);
         app.stats.Request(full);
         hasStats = app.stats.TryGet(full, &stats);
     }
@@ -2846,7 +2854,12 @@ void DrawInspector(AppState& app, const Layout& layout)
     struct Row { const char* label; std::string value; bool growing; };
     std::vector<Row> rows;
     rows.push_back({"Type", entry.typeText, false});
-    if (entry.isDirectory)
+    if (volume.isVolume)
+    {
+        if (!volume.totalText.empty())
+            rows.push_back({"Size", volume.totalText, false});
+    }
+    else if (entry.isDirectory)
     {
         const bool growing = hasStats && stats.partial;
         rows.push_back({"Size",    hasStats ? HumanBytes(stats.logicalBytes) : "counting...", growing});
@@ -2858,19 +2871,21 @@ void DrawInspector(AppState& app, const Layout& layout)
         rows.push_back({"Size", entry.sizeText, false});
     }
     // Le date che il file system da' e che non si vedevano: la creazione e l'ultimo
-    // accesso. Un tempo a zero non e' il 1601, e' "non lo so": la riga non si mette.
+    // accesso. Un tempo a zero non e' il 1601, e' "non lo so": la riga non si mette,
+    // e vale anche per la modifica — un volume non ne ha una, e una riga con
+    // l'etichetta e niente accanto non dice niente.
     const auto dated = [](const FILETIME& time) {
         return time.dwLowDateTime != 0 || time.dwHighDateTime != 0;
     };
     if (dated(entry.created))
         rows.push_back({"Created", FormatFileTime(entry.created, /*withTime=*/true), false});
-    rows.push_back({"Modified", entry.modifiedFull, false});
+    if (dated(entry.modified))
+        rows.push_back({"Modified", entry.modifiedFull, false});
     if (dated(entry.accessed))
         rows.push_back({"Accessed", FormatFileTime(entry.accessed, /*withTime=*/true), false});
 
     // Le proprieta' che il file system non dice: le dimensioni di un'immagine le sa
     // il gestore di quel tipo, e le risponde la shell.
-    const std::wstring full = EntryLocation(app, entry);
     const FileProperties& properties = PropertiesOf(app, full);
     if (properties.imageWidth > 0 && properties.imageHeight > 0)
     {
@@ -2881,7 +2896,6 @@ void DrawInspector(AppState& app, const Layout& layout)
 
     // Un volume: il file system e lo spazio. Sono proprieta' del volume, non del
     // file che ci sta sopra, e si chiedono al sistema.
-    const VolumeInfo volume = VolumeOf(full);
     if (volume.isVolume)
     {
         if (!volume.fileSystem.empty())
