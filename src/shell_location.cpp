@@ -68,13 +68,43 @@ std::wstring DisplayName(const std::wstring& location)
     if (FAILED(SHParseDisplayName(location.c_str(), nullptr, &pidl, 0, nullptr)) || pidl == nullptr)
         return std::wstring();
 
-    PWSTR name = nullptr;
+    // Il nome lo da' la cartella che la contiene, come per ogni voce di ogni
+    // elenco: `SHGDN_NORMAL` sul genitore. Chiederlo all'oggetto con
+    // `SIGDN_NORMALDISPLAY` su "Questo PC" restituisce il nome del computer — che
+    // non e' quello che si vuole leggere in una briciola, ed e' il nome di una
+    // macchina, non un'informazione da mostrare in giro.
     std::wstring out;
-    if (SUCCEEDED(SHGetNameFromIDList(pidl, SIGDN_NORMALDISPLAY, &name)) && name != nullptr)
+    PIDLIST_ABSOLUTE up = ILClone(pidl);
+    if (up != nullptr && ILRemoveLastID(up))
     {
-        out = name;
-        CoTaskMemFree(name);
+        IShellFolder* parent = nullptr;
+        if (SUCCEEDED(SHBindToObject(nullptr, up, nullptr, IID_IShellFolder,
+                                     reinterpret_cast<void**>(&parent))) &&
+            parent != nullptr)
+        {
+            PCUITEMID_CHILD child = ILFindLastID(pidl);
+            STRRET strret{};
+            wchar_t buffer[512]{};
+            if (SUCCEEDED(parent->GetDisplayNameOf(child, SHGDN_NORMAL, &strret)) &&
+                SUCCEEDED(StrRetToBufW(&strret, child, buffer, 512)))
+                out = buffer;
+            parent->Release();
+        }
     }
+    if (up != nullptr)
+        CoTaskMemFree(up);
+
+    // Ripiego, se il genitore non risponde: il nome che l'oggetto da' di se'.
+    if (out.empty())
+    {
+        PWSTR name = nullptr;
+        if (SUCCEEDED(SHGetNameFromIDList(pidl, SIGDN_NORMALDISPLAY, &name)) && name != nullptr)
+        {
+            out = name;
+            CoTaskMemFree(name);
+        }
+    }
+
     CoTaskMemFree(pidl);
     return out;
 }
