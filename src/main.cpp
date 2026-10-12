@@ -2081,7 +2081,7 @@ void DrawList(AppState& app, const Layout& layout, const float* columnX)
         }
 
         const float textY = TextY(layout, row, app.font);
-        const std::wstring fullPath = JoinPath(app.directory, entry.wideName);
+        const std::wstring fullPath = EntryLocation(app, entry);
 
         // Numeric columns are right aligned so the digits line up down the
         // column, and underlined while the number is still growing.
@@ -2141,7 +2141,9 @@ void DrawList(AppState& app, const Layout& layout, const float* columnX)
         // Files answer immediately; folders are answered by the statistics
         // service, which fills them in progressively. Requesting here means only
         // rows that are actually on screen get counted.
-        if (entry.isDirectory)
+        // Sopra una cartella che non e' un percorso non c'e' niente da contare: le
+        // statistiche ricorsive camminano il file system, e li' non ce n'e' uno.
+        if (entry.isDirectory && entry.location.empty())
         {
             app.stats.Request(fullPath);
 
@@ -3940,13 +3942,34 @@ void BuildContextMenu(AppState& app, float x, float y)
     // Il menu si adatta al contesto: nel vuoto restano solo le voci che valgono
     // per la cartella, perche' offrire "Rinomina" senza niente da rinominare e'
     // promettere qualcosa che non si puo' mantenere.
+    // In una cartella che non e' un percorso — il cestino — le voci che agiscono su
+    // un percorso si spengono invece di sparire: la loro assenza non spiegherebbe
+    // niente, e un comando che dice "qui non si puo'" lo dice solo dopo essere
+    // stato scelto. Spente, si vede che li' non valgono.
+    const bool namespaced = ShellLocation::IsNamespace(app.directory);
+
+    // Li' dentro "Apri" vale per le cartelle (una cartella nel cestino si apre) e
+    // non per i file: un file nel cestino non si apre, si ripristina.
+    bool cursorIsFile = false;
+    if (namespaced && count > 0)
+    {
+        for (const Entry& entry : app.entries)
+        {
+            if (entry.wideName == app.cursor)
+            {
+                cursorIsFile = !entry.isDirectory;
+                break;
+            }
+        }
+    }
+
     if (count > 0)
     {
-        menu.items.push_back({"Apri", kContextOpen});
-        menu.items.push_back({"Apri in Esplora risorse", CmdOpenExplorer});
+        menu.items.push_back({"Apri", kContextOpen, false, namespaced && cursorIsFile});
+        menu.items.push_back({"Apri in Esplora risorse", CmdOpenExplorer, false, namespaced});
         menu.items.push_back({"", 0, /*separator=*/true});
-        menu.items.push_back({"Taglia", CmdCut});
-        menu.items.push_back({"Copia", CmdCopy});
+        menu.items.push_back({"Taglia", CmdCut, false, namespaced});
+        menu.items.push_back({"Copia", CmdCopy, false, namespaced});
 
         // "Invia a" qui e non in fondo: e' dove sta in Esplora risorse, subito
         // dopo il blocco Taglia/Copia, e li' la mano lo cerca.
@@ -3955,14 +3978,15 @@ void BuildContextMenu(AppState& app, float x, float y)
             ContextMenuItem sendTo;
             sendTo.label      = "Invia a";
             sendTo.lazySendTo = true;
+            sendTo.disabled   = namespaced;
             menu.items.push_back(std::move(sendTo));
         }
         menu.items.push_back({"", 0, true});
-        menu.items.push_back({"Rinomina", CmdRename});
-        menu.items.push_back({"Elimina", CmdDelete});
-        menu.items.push_back({"Elimina definitivamente", CmdDeletePermanent});
+        menu.items.push_back({"Rinomina", CmdRename, false, namespaced});
+        menu.items.push_back({"Elimina", CmdDelete, false, namespaced});
+        menu.items.push_back({"Elimina definitivamente", CmdDeletePermanent, false, namespaced});
         menu.items.push_back({"", 0, true});
-        menu.items.push_back({"Proprieta'", kContextProperties});
+        menu.items.push_back({"Proprieta'", kContextProperties, false, namespaced});
 
         // I verbi della shell stanno dopo i nostri: i nostri sono quelli che si
         // usano davvero, e non devono scendere sotto una lista lunga quanto le
@@ -3977,8 +4001,8 @@ void BuildContextMenu(AppState& app, float x, float y)
         AppendShellItems(app, menu);
     }
 
-    menu.items.push_back({count > 0 ? "Incolla qui" : "Incolla", CmdPaste});
-    menu.items.push_back({"Nuova cartella", CmdNewFolder});
+    menu.items.push_back({count > 0 ? "Incolla qui" : "Incolla", CmdPaste, false, namespaced});
+    menu.items.push_back({"Nuova cartella", CmdNewFolder, false, namespaced});
 
     // "Nuovo file": i tipi che Windows sa creare, dal registro. Se il registro non
     // ne ha nessuno la voce non si mette, perche' un sottomenu vuoto non si spiega.
@@ -3987,12 +4011,13 @@ void BuildContextMenu(AppState& app, float x, float y)
         ContextMenuItem newFile;
         newFile.label       = "Nuovo file";
         newFile.lazyNewFile = true;
+        newFile.disabled    = namespaced;
         menu.items.push_back(std::move(newFile));
     }
 
     menu.items.push_back({"", 0, true});
     menu.items.push_back({"Aggiorna", CmdRefresh});
-    menu.items.push_back({"Apri un terminale qui", CmdOpenConsole});
+    menu.items.push_back({"Apri un terminale qui", CmdOpenConsole, false, namespaced});
 
     menu.open = true;
 }
