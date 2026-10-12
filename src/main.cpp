@@ -37,6 +37,9 @@
 // CMINVOKECOMMANDINFOEX sta in shobjidl.h, non in shlobj.h: serve per eseguire
 // una voce del menu della shell.
 #include <shobjidl.h>
+// Dopo windows.h, come vuole la SDK: le PROPERTYKEY si appoggiano ai tipi di
+// sistema. Serve per le proprieta' che il file system non dice.
+#include <propkey.h>
 #include <windowsx.h>
 
 #include <algorithm>
@@ -103,6 +106,8 @@ struct Entry
     uint64_t     bytes = 0;
     bool         isDirectory = false;
     FILETIME     modified{};
+    FILETIME     created{};      // creazione e ultimo accesso: le da' FindFirstFile,
+    FILETIME     accessed{};     // e servono all'inspector come la modifica
     bool         readable = true;
 
     // Il nome assoluto, quando la voce viene da una cartella che **non e' un
@@ -402,6 +407,10 @@ struct AppState
     // secondo.
     std::unordered_map<std::wstring, std::wstring> shortcutTargets;
 
+    // Le proprieta' che il file system non dice (le dimensioni di un'immagine, per
+    // esempio): anche queste si leggono una volta per percorso.
+    std::unordered_map<std::wstring, FileProperties> fileProperties;
+
     std::vector<Tab> tabs;
     int              activeTab = 0;
     bool             sidebarVisible = true;
@@ -608,6 +617,83 @@ uint64_t FileTimeToUint64(const FILETIME& fileTime)
 
 // Truncates |text| with a trailing ellipsis so it cannot spill into the next
 // column. The renderer has no scissor rectangle, so fitting has to happen here.
+// Le proprieta' che il file system non dice. Le dimensioni di un'immagine stanno
+// nell'intestazione del file e le sa il gestore di quel tipo: e' quello che
+// risponde `IPropertyStore`, ed e' la stessa fonte da cui Windows riempie le
+// colonne. Si legge una volta per percorso e si tiene.
+struct FileProperties
+{
+    uint32_t imageWidth = 0;
+    uint32_t imageHeight = 0;
+};
+
+const FileProperties& PropertiesOf(AppState& app, const std::wstring& path)
+{
+    const auto cached = app.fileProperties.find(path);
+    if (cached != app.fileProperties.end())
+        return cached->second;
+
+    FileProperties properties;
+    IPropertyStore* store = nullptr;
+    if (SUCCEEDED(SHGetPropertyStoreFromParsingName(path.c_str(), nullptr, GPS_DEFAULT,
+                                                    IID_IPropertyStore,
+                                                    reinterpret_cast<void**>(&store))) &&
+        store != nullptr)
+    {
+        PROPVARIANT value;
+        PropVariantInit(&value);
+        if (SUCCEEDED(store->GetValue(PKEY_Image_HorizontalSize, &value)))
+            VariantToUInt32(value, &properties.imageWidth);
+        PropVariantClear(&value);
+
+        PropVariantInit(&value);
+        if (SUCCEEDED(store->GetValue(PKEY_Image_VerticalSize, &value)))
+            VariantToUInt32(value, &properties.imageHeight);
+        PropVariantClear(&value);
+
+        store->Release();
+    }
+
+    return app.fileProperties.emplace(path, properties).first->second;
+}
+
+// Un volume: il file system e lo spazio. Non sono proprieta' del **file** ma del
+// volume che lo contiene, e il posto giusto per chiederle e' il sistema — lo dice
+// anche `docs/03`: l'occupazione dei volumi si ottiene con `GetDiskFreeSpaceExW`
+// per ogni volume.
+struct VolumeInfo
+{
+    bool        isVolume = false;
+    std::string fileSystem;
+    std::string freeText;
+    std::string totalText;
+    float       usedFraction = 0.0f;
+};
+
+VolumeInfo VolumeOf(const std::wstring& location)
+{
+    VolumeInfo info;
+    if (location.empty() || GetDriveTypeW(location.c_str()) == DRIVE_UNKNOWN)
+        return info;   // non e' una radice di volume
+    info.isVolume = true;
+
+    wchar_t fileSystem[64]{};
+    if (GetVolumeInformationW(location.c_str(), nullptr, 0, nullptr, nullptr, nullptr, fileSystem,
+                              64) != FALSE)
+        info.fileSystem = ToUtf8(fileSystem);
+
+    ULARGE_INTEGER available{};
+    ULARGE_INTEGER total{};
+    if (GetDiskFreeSpaceExW(location.c_str(), &available, &total, nullptr) && total.QuadPart > 0)
+    {
+        info.freeText  = HumanBytes(available.QuadPart);
+        info.totalText = HumanBytes(total.QuadPart);
+        info.usedFraction = 1.0f - static_cast<float>(static_cast<double>(available.QuadPart) /
+                                                     static_cast<double>(total.QuadPart));
+    }
+    return info;
+}
+
 // Dove punta un collegamento. Un ".lnk" da solo non dice cosa apre, e il bersaglio
 // accanto al nome e' quello che si vuole sapere prima di aprirlo: e' quello che fa
 // File Pilot, ed e' l'unica informazione del collegamento che serva davvero.
@@ -741,6 +827,8 @@ std::vector<Entry> ReadNamespaceDirectory(const std::wstring& directory, std::st
         entry.isDirectory = item.isDirectory;
         entry.bytes       = item.bytes;
         entry.modified    = item.modified;
+        entry.created     = item.created;
+        entry.accessed    = item.accessed;
         entry.extension   = item.extension;
         entry.location    = item.location;
         entry.pidl        = item.pidl;
@@ -802,6 +890,8 @@ std::vector<Entry> ReadDirectory(const std::wstring& directory, std::string* err
         entry.isDirectory = (data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
         entry.bytes       = (static_cast<uint64_t>(data.nFileSizeHigh) << 32) | data.nFileSizeLow;
         entry.modified    = data.ftLastWriteTime;
+        entry.created     = data.ftCreationTime;
+        entry.accessed    = data.ftLastAccessTime;
 
         const size_t dot = entry.name.rfind('.');
         if (!entry.isDirectory && dot != std::string::npos && dot + 1 < entry.name.size())

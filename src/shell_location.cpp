@@ -367,6 +367,8 @@ std::vector<Item> Read(const std::wstring& location, std::string* error)
         {
             item.bytes = DetailBytes(folder2, child, PKEY_Size);
             DetailTime(folder2, child, PKEY_DateModified, &item.modified);
+            DetailTime(folder2, child, PKEY_DateCreated, &item.created);
+            DetailTime(folder2, child, PKEY_DateAccessed, &item.accessed);
         }
 
         items.push_back(std::move(item));

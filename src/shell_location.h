@@ -65,6 +65,8 @@ struct Item
     std::string  extension; // minuscola, senza punto
     uint64_t     bytes = 0;
     FILETIME     modified{};
+    FILETIME     created{};
+    FILETIME     accessed{};
     bool         isDirectory = false;
 
     // L'identita' vera della voce. Per una voce di spazio dei nomi una stringa non
