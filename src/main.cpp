@@ -241,6 +241,7 @@ enum CommandId
     CmdSortSize, CmdSortDirection,
     CmdGroupNone, CmdGroupName, CmdGroupDate, CmdGroupSize, CmdGroupCount, CmdGroupVolume,
     CmdFocusFilter, CmdClearFilter, CmdScrollTop, CmdScrollBottom,
+    CmdToggleHoverToSelect, CmdToggleUnderlineOnHover, CmdToggleTooltips,
     CmdToggleBookmark, CmdClearBookmarks, CmdClearRecents,
     // Operazioni su file (M7).
     CmdCopy, CmdCut, CmdPaste, CmdDelete, CmdDeletePermanent, CmdRename, CmdNewFolder,
@@ -626,6 +627,23 @@ struct AppState
     double       statusMessageTime = 0.0;
 
     int   hovered  = -1;
+    // Quando il puntatore si e' fermato sulla riga, e dove si trova. Servono a due
+    // chiavi dello spec: `HoverToSelect` seleziona dopo una pausa, `ShowTooltips`
+    // aspetta la stessa pausa prima di mostrare qualcosa. Una selezione o un
+    // suggerimento a ogni movimento del mouse renderebbero l'elenco illeggibile.
+    double hoverStart      = 0.0;
+    float  pointerX        = 0.0f;
+    float  pointerY        = 0.0f;
+
+    // --- interazione (M5d) ---------------------------------------------------
+    //
+    // Tre chiavi dello spec. Nell'originale sono **impostazioni**, quindi non sono
+    // comportamento predefinito: qui si accendono dalla palette. I valori di
+    // partenza dell'originale non sono ricostruiti, e questi si dichiarano —
+    // i suggerimenti accesi, gli altri due spenti.
+    bool hoverToSelect    = false;
+    bool underlineOnHover = false;
+    bool showTooltips     = true;
     float scroll   = 0.0f;
     float zoom     = 1.0f;
     float dpiScale = 1.0f;
@@ -2556,6 +2574,76 @@ void DrawHeader(AppState& app, const Layout& layout, float* columnX)
 // The filter box sits under the list, the way the reference application puts it.
 // It is the only text entry in the window, so it owns the keyboard whenever the
 // filter is active.
+// `ShowTooltips`: il nome per esteso e due righe di contesto, vicino al puntatore.
+//
+// Compare **dopo una pausa**, come i suggerimenti del sistema: il conto riparte
+// quando il puntatore si muove, quindi chi sta scorrendo l'elenco non se li vede
+// passare davanti. Non e' un menu: non prende clic, e non si puo' navigare.
+void DrawTooltip(AppState& app, const Layout& layout)
+{
+    if (!app.showTooltips || app.hovered < 0 || app.columnDrag >= 0 || OpenMenu(app) != nullptr ||
+        app.contextMenu.open)
+        return;
+    if (NowSeconds() - app.hoverStart < 0.55)
+        return;
+
+    const Entry& entry = app.entries[static_cast<size_t>(app.hovered)];
+    const float scale = layout.scale;
+    const float pad = 9.0f * scale;
+
+    std::vector<std::string> lines;
+    lines.push_back(entry.name);
+    std::string second = entry.typeText;
+    if (!entry.modifiedText.empty())
+        second += "   " + entry.modifiedText;
+    if (!entry.isDirectory && !entry.sizeText.empty())
+        second += "   " + entry.sizeText;
+    if (!second.empty())
+        lines.push_back(second);
+    if (entry.isDirectory)
+    {
+        DirStats stats;
+        if (app.stats.TryGet(JoinPath(app.directory, entry.wideName), &stats) && !stats.partial)
+            lines.push_back(HumanCount(stats.folders) + " cartelle   " +
+                            HumanCount(stats.files) + " file   " +
+                            HumanBytes(stats.logicalBytes));
+    }
+
+    float width = 0.0f;
+    for (size_t i = 0; i < lines.size(); ++i)
+    {
+        const float measured = i == 0 ? app.font.Measure(lines[i], scale)
+                                      : app.smallFont.Measure(lines[i], scale);
+        width = (std::max)(width, measured);
+    }
+    const float height = app.font.LineHeight() * scale + 3.0f * scale +
+                         static_cast<float>(lines.size() - 1) * app.smallFont.LineHeight() * scale +
+                         pad * 2.0f;
+
+    float x = app.pointerX + 16.0f * scale;
+    float y = app.pointerY + 20.0f * scale;
+    x = (std::min)(x, static_cast<float>(app.viewportWidth) - width - pad * 2.0f - 8.0f * scale);
+    y = (std::min)(y, static_cast<float>(app.viewportHeight) - height - 8.0f * scale);
+    const Rect box{(std::max)(8.0f * scale, x), (std::max)(8.0f * scale, y),
+                   width + pad * 2.0f, height};
+
+    UIRenderer& r = app.renderer;
+    const Theme& t = app.theme;
+    r.Draw(UIDraw::Shadow(Rect{box.x + 2.0f * scale, box.y + 4.0f * scale, box.w, box.h},
+                          Color{0.0f, 0.0f, 0.0f, 0.45f}, 16.0f * scale, 6.0f * scale));
+    r.Draw(UIDraw::Fill(box, t.panelBg, 6.0f * scale));
+    r.Draw(UIDraw::Border(box, t.panelBorder, 1.0f, 6.0f * scale));
+
+    float textY = box.y + pad;
+    app.font.Draw(r, box.x + pad, textY, lines[0], t.text, scale);
+    textY += app.font.LineHeight() * scale + 3.0f * scale;
+    for (size_t i = 1; i < lines.size(); ++i)
+    {
+        app.smallFont.Draw(r, box.x + pad, textY, lines[i], t.textDim, scale);
+        textY += app.smallFont.LineHeight() * scale;
+    }
+}
+
 void DrawFilterBar(AppState& app, const Layout& layout)
 {
     UIRenderer& r = app.renderer;
@@ -2780,12 +2868,23 @@ void DrawEntryCell(AppState& app, const Layout& layout, const ViewMetrics& metri
     const std::vector<std::string> lines =
         WrapName(app.font, entry.name, scale, card.w - 8.0f * scale, 2);
     float textY = labelTop;
+    float lastX = card.x;
+    float lastWidth = 0.0f;
     for (const std::string& line : lines)
     {
         const float width = app.font.Measure(line, scale);
-        app.font.Draw(r, card.x + (card.w - width) * 0.5f, textY, line, t.text, scale);
+        lastX = card.x + (card.w - width) * 0.5f;
+        lastWidth = width;
+        app.font.Draw(r, lastX, textY, line, t.text, scale);
         textY += lineHeight;
     }
+
+    // La sottolineatura va sotto l'ultima riga del nome, che e' l'ultima che si
+    // legge: sotto la prima sarebbe sotto una riga di testo che continua.
+    if (app.underlineOnHover && view.entry == app.hovered && !lines.empty())
+        r.FillRect(Rect{lastX, textY - lineHeight + app.font.LineHeight() * scale - 1.0f * scale,
+                        lastWidth, 1.0f * scale},
+                   t.text);
 }
 
 void DrawList(AppState& app, const Layout& layout, const float* columnX)
@@ -2974,6 +3073,14 @@ void DrawList(AppState& app, const Layout& layout, const float* columnX)
         {
             const std::string shown = FitText(app.font, entry.name, scale, nameMax);
             app.font.Draw(r, nameX, textY, shown, t.text, scale);
+
+            // `UnderlineOnHover`: la sottolineatura sta **sotto il nome**, e sotto
+            // quello visibile quando il nome e' troncato — una riga lunga quanto
+            // una parola che non c'e' sarebbe una bugia.
+            if (app.underlineOnHover && view.entry == app.hovered)
+                r.FillRect(Rect{nameX, textY + app.font.LineHeight() * scale - 1.0f * scale,
+                                app.font.Measure(shown, scale), 1.0f * scale},
+                           t.text);
 
             // Il bersaglio di un collegamento, dopo il nome e in tono spento: sta
             // nella stessa colonna, quindi prende lo spazio che resta — e se non ne
@@ -3815,6 +3922,9 @@ const CommandDef kCommandTable[] = {
     {"View",    "View: tiles",                 CmdViewTiles},
     {"View",    "View: icons",                 CmdViewIcons},
     {"View",    "Toggle sidebar",              CmdToggleSidebar},
+    {"View",    "Hover to select",              CmdToggleHoverToSelect},
+    {"View",    "Underline on hover",           CmdToggleUnderlineOnHover},
+    {"View",    "Show tooltips",                CmdToggleTooltips},
     {"View",    "Zoom in",                     CmdZoomIn},
     // Le opzioni del visualizzatore di testo. Nella tabella delle chiavi
     // dell'originale sono `InspectorShowWhitespace`, `InspectorHideLineNumbers`,
@@ -4665,6 +4775,9 @@ void RunCommand(AppState& app, int command)
             break;
 
         case CmdToggleSidebar: app.sidebarVisible = !app.sidebarVisible; break;
+        case CmdToggleHoverToSelect:    app.hoverToSelect    = !app.hoverToSelect; break;
+        case CmdToggleUnderlineOnHover: app.underlineOnHover = !app.underlineOnHover; break;
+        case CmdToggleTooltips:         app.showTooltips     = !app.showTooltips; break;
         case CmdZoomIn:    app.zoom = (std::min)(2.0f, app.zoom + 0.1f); break;
 
         // Le quattro opzioni del visualizzatore. Cambiano il disegno del testo, non
@@ -6349,6 +6462,9 @@ void DrawFrame(AppState& app, const Layout& layout)
     // disegna per ultimo: e' l'unico che deve coprire la lista.
     GroupMenuDraw(app, layout, app.columnMenu);
     ContextMenuDraw(app, layout);
+
+    // Il suggerimento viene dopo tutto, ma non prende clic: non e' un menu.
+    DrawTooltip(app, layout);
 }
 
 // Un fotogramma, disegnato adesso.
@@ -6863,6 +6979,20 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
         }
 
         case WM_MOUSEMOVE:
+            // Il tempo del sovrappasso riparte quando il puntatore si muove: fermo
+            // sulla stessa riga, il conto scorre; in movimento, no.
+            if (app != nullptr)
+            {
+                const float mx = static_cast<float>(GET_X_LPARAM(lparam));
+                const float my = static_cast<float>(GET_Y_LPARAM(lparam));
+                if (std::fabs(mx - app->pointerX) > 2.0f || std::fabs(my - app->pointerY) > 2.0f)
+                {
+                    app->hoverStart = NowSeconds();
+                    app->pointerX   = mx;
+                    app->pointerY   = my;
+                }
+            }
+
             // Il trascinamento di un bordo: la colonna cresce e la vicina si
             // stringe, e nessuna delle due scende sotto la larghezza leggibile.
             if (app != nullptr && app->columnDrag > 0)
@@ -6994,10 +7124,13 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
                 else if (HitTest(*app, x, y, ClickTarget::Kind::WindowMaximize)) app->hoveredChrome = 3;
                 else if (HitTest(*app, x, y, ClickTarget::Kind::WindowClose))    app->hoveredChrome = 4;
 
+                const int wasHovered = app->hovered;
                 if (const ClickTarget* tab = HitTest(*app, x, y, ClickTarget::Kind::Tab))
                     app->hoveredTab = tab->index;
                 else if (const ClickTarget* row = HitTest(*app, x, y, ClickTarget::Kind::Row))
                     app->hovered = row->index;
+                if (app->hovered != wasHovered)
+                    app->hoverStart = NowSeconds();
                 else if (const ClickTarget* place = HitTest(*app, x, y, ClickTarget::Kind::Place))
                     app->hoveredPlace = place->index;
                 else if (const ClickTarget* header = HitTest(*app, x, y, ClickTarget::Kind::SidebarHeader))
@@ -8169,6 +8302,22 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, LPWSTR, int)
             RebuildView(app);
             app.viewStatsRevision = statsRevision;
             app.lastViewRebuild   = now;
+        }
+
+        // `HoverToSelect`: fermandosi su una riga la si seleziona, dopo una pausa
+        // breve. Non mentre si trascina e non con un menu aperto: sono gesti che
+        // stanno usando il puntatore per un'altra cosa.
+        if (app.hoverToSelect && app.hovered >= 0 && !app.dragArmed &&
+            OpenMenu(app) == nullptr && !app.contextMenu.open &&
+            now - app.hoverStart > 0.35 && !app.renameActive)
+        {
+            const Entry& entry = app.entries[static_cast<size_t>(app.hovered)];
+            if (app.selection.count(entry.wideName) == 0 || app.cursor != entry.wideName)
+            {
+                app.selection.clear();
+                app.selection.insert(entry.wideName);
+                app.cursor = entry.wideName;
+            }
         }
 
         RenderFrame(app);
