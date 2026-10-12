@@ -474,13 +474,16 @@ a gruppi, invece di scriverne tre.
       `GetCommandString(GCS_VERBW)` → `InvokeCommand`: vedi sotto
 - [ ] ripristino dal cestino — **bloccato da una scelta strutturale**, vedi sotto
 - [ ] drag&drop in ingresso e in uscita con descrizione
-- [ ] i **sottomenu** del menu della shell: `Invia a`, `7-Zip`, `WinRAR`,
-      "Dare accesso a", "Includi nella raccolta" restano fuori, e sono quattro o
-      cinque voci su venti. È il pezzo che manca perché il menu coincida con
-      quello di Esplora risorse
-- [ ] il menu della **cartella** (niente selezionato): nel vuoto le voci della
-      shell non si chiedono affatto, quindi `Nuovo >` e i verbi del contesto
-      cartella non ci sono
+- [ ] i **sottomenu** del menu della shell: `Invia a`, `Nuovo`, `Dare accesso a`,
+      `7-Zip`, `WinRAR` restano fuori, e sono quattro o cinque voci su venti. È il
+      pezzo che manca perché il menu coincida con quello di Esplora risorse — e
+      finché manca, `Nuovo >` (bmp, txt, zip) non c'è
+- [x] il menu della **cartella**, quando non c'è selezione, cioè il tasto destro
+      sul fondo della lista: è il menu della *vista*, chiesto con
+      `IShellFolder::CreateViewObject(IID_IContextMenu)`, **non** quello della
+      cartella come elemento. Il clic destro sul fondo azzera la selezione, come
+      in Esplora risorse, e da lì arrivano `Proprietà`, `Apri nel Terminale`,
+      `Apri con …` e le voci delle estensioni
 - [ ] dialogo di progressione con annullamento proprio
 
 ### Il menu contestuale non è un `GroupMenu` — *Scelta*
@@ -531,12 +534,21 @@ proprio uno dei motivi per cui la shell viene interrogata.
 è una ragione per nascondere che quel verbo esiste: le frecce le saltano e l'Invio
 non le esegue, ma la voce resta leggibile.
 
+**Il fondo della cartella è un altro contesto, e chiederlo male non dà errore.**
+Con niente selezionato il menu della vista si chiede con
+`CreateViewObject(IID_IContextMenu)`; chiedere invece la cartella *come elemento*
+(`GetUIObjectOf`) restituisce un menu plausibile e pericoloso: `Taglia`, `Copia`,
+`Elimina` **sulla cartella aperta**. Il registro l'ha mostrato — sei voci con
+`cut`, `copy`, `delete` che nessuno si aspetta a destra di un fondo. Vedi §7.18 di
+`docs/02`.
+
 **Quattro costi misurati** (registro: `BOLT_DIAG_SHELL_MENU=1` → `shell-menu.log`):
 
 | misura | valore | lettura |
 |---|---|---|
 | prima apertura dopo l'avvio | ~350 ms | le DLL delle estensioni si caricano in-process |
 | regime | ~65 ms | il costo di interrogare i gestori registrati, a ogni tasto destro |
+| fondo della cartella | ~220 ms la prima volta | `CreateViewObject` carica un altro giro di gestori |
 | handle di kernel | +22 per apertura | dentro le estensioni: i nostri oggetti USER non crescono |
 | estensioni moderne Win11 | dalla **seconda** apertura | le voci dei gestori moderni (`Apri nel Terminale`, `Apri con Code`) si registrano solo al secondo giro |
 
