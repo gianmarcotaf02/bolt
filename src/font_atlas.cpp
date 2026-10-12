@@ -8,8 +8,19 @@
 
 namespace {
 
-constexpr int kFirstChar = 32;    // space
+constexpr int kFirstChar = 32;    // spazio
 constexpr int kLastChar  = 126;   // tilde
+
+// Il blocco latino-1: gli accenti delle lingue vicine, che nei nomi dei file
+// italiani si vedono tutti i giorni. Si rasterizza tutto il blocco invece di
+// elencare le lettere una per una: sono 96 caratteri, costano una manciata di
+// celle, e nessuno deve ricordarsi di aggiungere la "u" accentata.
+constexpr uint32_t kFirstLatin1 = 0x00A0;
+constexpr uint32_t kLastLatin1  = 0x00FF;
+
+// E i pochi simboli che l'interfaccia disegna: le frecce della barra strumenti, la
+// stella dei segnalibri, i puntini di sospensione, i separatori.
+constexpr wchar_t kExtraChars[] = L"\u2190\u2192\u2191\u2193\u21BB\u2605\u2606\u2026\u00B7\u2022";
 
 // Transparent gutter around every glyph cell. Without it, a quad sampled with
 // GL_LINEAR at anything other than an exact texel centre drags in the edge of the
@@ -124,11 +135,22 @@ bool FontAtlas::Build(UIRenderer& renderer, const wchar_t* faceName, int pixelHe
     ascent_     = static_cast<float>(metrics.tmAscent);
     lineHeight_ = static_cast<float>(cellHeight);
 
+    // Quali caratteri: ASCII, latino-1, e l'elenco dei simboli.
+    std::vector<uint32_t> characters;
+    characters.reserve((kLastChar - kFirstChar + 1) + (kLastLatin1 - kFirstLatin1 + 1) + 16);
+    for (uint32_t c = kFirstChar; c <= static_cast<uint32_t>(kLastChar); ++c)
+        characters.push_back(c);
+    for (uint32_t c = kFirstLatin1; c <= kLastLatin1; ++c)
+        characters.push_back(c);
+    for (const wchar_t c : kExtraChars)
+        characters.push_back(static_cast<uint32_t>(c));
+
     int cellWidth = 1;
-    for (int c = kFirstChar; c <= kLastChar; ++c)
+    for (const uint32_t codepoint : characters)
     {
+        const wchar_t wide = static_cast<wchar_t>(codepoint);
         SIZE size{};
-        GetTextExtentPoint32W(measuring, reinterpret_cast<LPCWSTR>(&c), 1, &size);
+        GetTextExtentPoint32W(measuring, &wide, 1, &size);
         cellWidth = (std::max)(cellWidth, static_cast<int>(size.cx));
     }
     cellWidth += 1;   // one pixel of slack so overhangs are not clipped
@@ -138,7 +160,7 @@ bool FontAtlas::Build(UIRenderer& renderer, const wchar_t* faceName, int pixelHe
     DeleteDC(measuring);
 
     // --- lay the glyph grid out and rasterise it ---------------------------
-    const int glyphCount = kLastChar - kFirstChar + 1;
+    const int glyphCount = static_cast<int>(characters.size());
     const int columns    = static_cast<int>(std::ceil(std::sqrt(static_cast<double>(glyphCount))));
     const int rows       = (glyphCount + columns - 1) / columns;
 
@@ -179,14 +201,13 @@ bool FontAtlas::Build(UIRenderer& renderer, const wchar_t* faceName, int pixelHe
     SetBkMode(dib.dc, TRANSPARENT);
     SetTextColor(dib.dc, RGB(255, 255, 255));
 
-    for (int c = kFirstChar; c <= kLastChar; ++c)
+    for (size_t index = 0; index < characters.size(); ++index)
     {
-        const int index = c - kFirstChar;
-        const int cellX = (index % columns) * slotWidth  + kGlyphPadding;
-        const int cellY = (index / columns) * slotHeight + kGlyphPadding;
+        const int cellX = (static_cast<int>(index) % columns) * slotWidth  + kGlyphPadding;
+        const int cellY = (static_cast<int>(index) / columns) * slotHeight + kGlyphPadding;
 
         RECT cell{cellX, cellY, cellX + cellWidth, cellY + cellHeight};
-        wchar_t character = static_cast<wchar_t>(c);
+        const wchar_t character = static_cast<wchar_t>(characters[index]);
         DrawTextW(dib.dc, &character, 1, &cell, DT_LEFT | DT_TOP | DT_NOPREFIX | DT_SINGLELINE);
 
         SIZE size{};
@@ -200,7 +221,7 @@ bool FontAtlas::Build(UIRenderer& renderer, const wchar_t* faceName, int pixelHe
         glyph.v1      = static_cast<float>(cellY + cellHeight) / normalise;
         glyph.advance = static_cast<float>(size.cx);
         glyph.width   = static_cast<float>(size.cx);
-        glyphs_.emplace(static_cast<char>(c), glyph);
+        glyphs_.emplace(characters[index], glyph);
     }
 
     SelectObject(dib.dc, previousDraw);
@@ -231,18 +252,64 @@ bool FontAtlas::Build(UIRenderer& renderer, const wchar_t* faceName, int pixelHe
     return true;
 }
 
-const FontAtlas::Glyph* FontAtlas::Find(char c) const
+const FontAtlas::Glyph* FontAtlas::Find(uint32_t codepoint) const
 {
-    const auto it = glyphs_.find(c);
+    const auto it = glyphs_.find(codepoint);
     return it == glyphs_.end() ? nullptr : &it->second;
 }
+
+namespace Utf8
+{
+
+size_t Length(const std::string& text, size_t index)
+{
+    if (index >= text.size())
+        return 0;
+
+    const unsigned char lead = static_cast<unsigned char>(text[index]);
+    size_t length = 1;
+    if ((lead & 0x80u) == 0x00u)      length = 1;
+    else if ((lead & 0xE0u) == 0xC0u) length = 2;
+    else if ((lead & 0xF0u) == 0xE0u) length = 3;
+    else if ((lead & 0xF8u) == 0xF0u) length = 4;
+    else                              return 1;   // byte di continuazione orfano
+
+    // Una sequenza tronca si legge per quello che c'e': meglio un carattere
+    // sbagliato in fondo a un nome che un indice fuori dalla stringa.
+    return (index + length <= text.size()) ? length : (text.size() - index);
+}
+
+size_t Next(const std::string& text, size_t index)
+{
+    return index + Length(text, index);
+}
+
+uint32_t At(const std::string& text, size_t index, size_t* length)
+{
+    const size_t size = Length(text, index);
+    if (length != nullptr)
+        *length = size;
+    if (size == 0)
+        return 0;
+
+    const unsigned char lead = static_cast<unsigned char>(text[index]);
+    if (size == 1)
+        return lead;
+
+    uint32_t codepoint = lead & (0xFFu >> (size + 1));
+    for (size_t i = 1; i < size; ++i)
+        codepoint = (codepoint << 6) | (static_cast<unsigned char>(text[index + i]) & 0x3Fu);
+    return codepoint;
+}
+
+} // namespace Utf8
 
 float FontAtlas::Measure(const std::string& text, float scale) const
 {
     float width = 0.0f;
-    for (const char c : text)
+    for (size_t i = 0; i < text.size(); i = Utf8::Next(text, i))
     {
-        const Glyph* glyph = Find(c);
+        const Glyph* glyph = Find(Utf8::At(text, i, nullptr));
         if (glyph != nullptr)
             width += glyph->advance;
         else
@@ -254,9 +321,10 @@ float FontAtlas::Measure(const std::string& text, float scale) const
 void FontAtlas::Draw(UIRenderer& renderer, float x, float y, const std::string& text, Color color, float scale) const
 {
     float penX = x;
-    for (const char c : text)
+    for (size_t i = 0; i < text.size(); i = Utf8::Next(text, i))
     {
-        const Glyph* glyph = Find(c);
+        const uint32_t codepoint = Utf8::At(text, i, nullptr);
+        const Glyph* glyph = Find(codepoint);
         if (glyph == nullptr)
         {
             penX += lineHeight_ * 0.5f * scale;
@@ -264,7 +332,7 @@ void FontAtlas::Draw(UIRenderer& renderer, float x, float y, const std::string& 
         }
 
         // Space and other blank glyphs have no ink; advance the pen only.
-        if (c != ' ')
+        if (codepoint != ' ')
         {
             const float atlas = static_cast<float>(textureLayerSize_);
             // Snap the origin to whole pixels. The pen itself stays fractional so
