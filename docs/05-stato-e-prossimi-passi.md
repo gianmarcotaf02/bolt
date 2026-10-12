@@ -17,7 +17,7 @@ Ultimo aggiornamento: dopo dragUltimo aggiornamento: dopo "Nuovo file >" e "Invi
 | M2b — navigazione | ✅ |
 | M3 — statistiche di cartella | 🟡 mancano byte allocati e invalidazione da `ReadDirectoryChangesW` |
 | M5 — filtro, ordinamento, raggruppamento, selezione | ✅ |
-| M5c — modalità di visualizzazione | 🟡 manca il raggruppamento in griglia |
+| M5c — modalità di visualizzazione | 🟡 quattro viste, celle di altezza derivata, raggruppamento in griglia e nell'elenco; manca il ridimensionamento continuo della cella |
 | M5d — sovrappasso del mouse | 🟡 evidenzia righe e celle, con `HoverToSelect`, `UnderlineOnHover` e `ShowTooltips` (tre chiavi, accese dalla palette); mancano `ActOnPress`, `SingleClick`, `DoubleClickToParent`, `ShowCheckboxes` |
 | M5b — colonne | ✅ ridimensionabili col mouse, con filtri per valore nelle intestazioni |
 | M6 — tab, barra del titolo, palette, GoTo | 🟡 fatti tab, titolo, palette, GoTo, **barra laterale a sezioni** (fissaggi, segnalibri, volumi, cartelle standard) e **pulsanti di navigazione**; mancano drag&drop e albero dei tab |
@@ -73,14 +73,10 @@ In ordine di valore, non di facilità.
    `docs/02`. Se non si trova, resta un limite dichiarato.
 4. **`InspectorHideGrid`** — la sola chiave di M8 che resta senza risposta: cosa sia
    la griglia dell'inspector non è ricostruito, e non si inventa.
-5. **Il raggruppamento in griglia** (M5c) — è l'ultimo pezzo grosso di M5, e non
-   una riga di codice: la griglia impagina le celle **per indice**, e una banda a
-   piena larghezza spezza il flusso, quindi serve un impaginatore che dia una
-   geometria a ogni riga e la stessa geometria a chi disegna, a chi colpisce col
-   mouse e a chi si muove con le frecce. Le tre cose oggi la calcolano ognuna per
-   sé, ed è per questo che va fatto con lo spazio di riverificare tutto.
-   Restano anche, di M5d, `ActOnPress`, `SingleClick`, `SingleClickFoldersOnly`,
-   `DoubleClickToParent` e `ShowCheckboxes`.
+5. **Il resto di M5** — il ridimensionamento continuo della cella (la scala fra
+   `Icons` e `Tiles`) e le chiavi di comportamento del clic: `ActOnPress`,
+   `SingleClick`, `SingleClickFoldersOnly`, `DoubleClickToParent`,
+   `ShowCheckboxes`.
 6. **Drag&drop e albero dei tab** (`TabDropMarker_*`, `CloseInTree`).
 7. **Il costo dell'interrogazione della shell** — la prima apertura dopo l'avvio
    costa ~350 ms e in regime ~65 ms, con **22 handle di kernel** per apertura dentro

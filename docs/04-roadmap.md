@@ -298,8 +298,8 @@ quelle sono la stessa impaginazione a una scala diversa.
 - [x] `Ctrl`+`1`/`2`/`3`/`4`, più i quattro comandi nella palette
 - [x] secondo corpo di glifi a 13 px per il testo secondario (vedi §7.12 di
       `docs/02`), su un quarto layer dell'array di texture
-- [ ] raggruppamento in griglia: richiede un impaginatore a flusso con bande a
-      piena larghezza; al momento la griglia lo disattiva e lo dichiara
+- [x] **raggruppamento in griglia**: le bande di gruppo stanno anche fra le celle,
+      a piena larghezza, e la riga di celle sotto di loro ricomincia da sinistra
 - [ ] ridimensionamento continuo della cella (la scala fra `Icons` e `Tiles`)
 
 ### Perché le celle sono alte quanto dicono di essere — *Ricostruito*
@@ -310,10 +310,29 @@ l'altezza si **deriva** da icona più etichetta, e nel disegno la dimensione
 dell'icona viene comunque ridotta se lo spazio sopra l'etichetta non basta. Un
 numero derivato non può entrare in disaccordo con le sue parti.
 
+### Perché la geometria si calcola una volta — *Ricostruito*
+
+La griglia impaginava le celle **per indice**: `indice % colonne` e `indice /
+colonne`. È una formula che vale finché ogni riga ha la stessa altezza, e una banda
+di gruppo a piena larghezza la rompe: la banda prende una riga intera, e sotto di
+lei il conto delle colonne riparte da zero.
+
+La formula è stata sostituita da una **geometria calcolata una volta**
+(`GridRects`): un rettangolo per ogni riga della vista, senza lo scorrimento
+dentro, rifatto solo quando cambia qualcosa da cui dipende (le righe, la larghezza
+dell'elenco, la vista, il raggruppamento, l'ingrandimento). La usano tutti:
+chi disegna, chi colpisce col mouse — che riceve il rettangolo *disegnato*, quindi
+segue per costruzione — chi scorre per sapere quanto è alto il contenuto, e chi
+tiene il cursore in vista con le frecce.
+
+Tre conti separati che devono coincidere prima o poi non coincidono; uno solo non
+può sbagliare. Ed è anche il motivo per cui il lavoro è stato fatto in un giro
+suo: sotto le dita c'erano il disegno, il clic, la rotella e la tastiera.
+
 ### Cosa manca di questa passata
 
-Il **raggruppamento in griglia**, che richiede un impaginatore a flusso, e il
-**ridimensionamento continuo** della cella. Il secondo corpo di glifi è fatto.
+Il **ridimensionamento continuo** della cella, cioè la scala fra `Icons` e
+`Tiles`. Il secondo corpo di glifi è fatto.
 
 ---
 
