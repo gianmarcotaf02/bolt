@@ -474,10 +474,17 @@ a gruppi, invece di scriverne tre.
       `GetCommandString(GCS_VERBW)` → `InvokeCommand`: vedi sotto
 - [ ] ripristino dal cestino — **bloccato da una scelta strutturale**, vedi sotto
 - [ ] drag&drop in ingresso e in uscita con descrizione
-- [ ] i **sottomenu** del menu della shell: `Invia a`, `Nuovo`, `Dare accesso a`,
-      `7-Zip`, `WinRAR` restano fuori, e sono quattro o cinque voci su venti. È il
-      pezzo che manca perché il menu coincida con quello di Esplora risorse — e
-      finché manca, `Nuovo >` (bmp, txt, zip) non c'è
+- [x] il menu contestuale sa **annidare**: pannelli a destra del pannello padre,
+      che si aprono col sovrappasso o con la freccia destra, scorrono, si
+      richiudono con `Esc` e con la freccia sinistra, e portano il `>` sulle voci
+      che ne hanno uno. I sottomenu delle **estensioni** (`7-Zip`, `WinRAR`) si
+      aprono e si eseguono: verificato vedendo comparire il dialogo di 7-Zip
+- [ ] i sottomenu **della shell** (`Nuovo`, `Invia a`, `Dare accesso a`) non si
+      possono eseguire da qui, quindi non si offrono: la shell consegna i loro
+      comandi alla finestra del menu, e noi una finestra di menu non l'abbiamo.
+      Vanno rifatti **nostri**, dalle stesse fonti che usa la shell: `Nuovo >`
+      dalle chiavi `ShellNew` del registro, `Invia a >` dalla cartella SendTo.
+      Vedi `docs/02` §7.19
 - [x] il menu della **cartella**, quando non c'è selezione, cioè il tasto destro
       sul fondo della lista: è il menu della *vista*, chiesto con
       `IShellFolder::CreateViewObject(IID_IContextMenu)`, **non** quello della
@@ -541,6 +548,17 @@ Con niente selezionato il menu della vista si chiede con
 `Elimina` **sulla cartella aperta**. Il registro l'ha mostrato — sei voci con
 `cut`, `copy`, `delete` che nessuno si aspetta a destra di un fondo. Vedi §7.18 di
 `docs/02`.
+
+**I sottomenu hanno due proprietari, e solo uno si può servire.** Un sottomenu di
+un'**estensione** è disegnato da lei e i suoi comandi si eseguono con
+`InvokeCommand`, come le voci radice: verificato col dialogo di 7-Zip. Un
+sottomenu che la shell **popola da sé** (`Nuovo`, `Invia a`, `Dare accesso a`) si
+legge benissimo — `Nuovo` ne ha venti — ma l'esecuzione risponde `S_OK` e non fa
+niente, perché la shell consegna quei comandi alla finestra del menu.
+
+Quindi: il componente annida, i sottomenu delle estensioni si offrono, quelli
+della shell si filtrano per verbo canonico. Vedi `docs/02` §7.19. Un elenco che
+risponde `S_OK` e non fa niente è peggio di un elenco che manca.
 
 **Quattro costi misurati** (registro: `BOLT_DIAG_SHELL_MENU=1` → `shell-menu.log`):
 

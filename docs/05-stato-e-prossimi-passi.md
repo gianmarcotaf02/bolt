@@ -4,7 +4,7 @@ Documento di lavoro, non di progetto: serve a riprendere senza rileggere la
 conversazione. Aggiornarlo è l'ultima cosa da fare prima di una pausa lunga o di
 una compattazione del contesto.
 
-Ultimo aggiornamento: dopo il menu della cartella e i verbi della shell.
+Ultimo aggiornamento: dopo i sottomenu del menu contestuale.
 
 ---
 
@@ -20,7 +20,7 @@ Ultimo aggiornamento: dopo il menu della cartella e i verbi della shell.
 | M5c — modalità di visualizzazione | 🟡 manca il raggruppamento in griglia |
 | M5d — sovrappasso del mouse | 🟡 evidenzia righe e celle; mancano `HoverToSelect`, `UnderlineOnHover`, `ShowTooltips` |
 | M6 — tab, barra del titolo, palette, GoTo | 🟡 fatti tab, titolo, palette, GoTo; mancano quick access pinnato, drag&drop e albero dei tab |
-| M7 — operazioni su file | 🟡 copia, sposta, rinomina, cestino, clipboard interoperabile, **menu contestuale** con Proprietà di Windows, le **voci di primo livello della shell** e il **menu della cartella** sul fondo. Mancano drag&drop, i sottomenu della shell e il ripristino dal cestino |
+| M7 — operazioni su file | 🟡 copia, sposta, rinomina, cestino, clipboard interoperabile, **menu contestuale a più livelli** con Proprietà di Windows, le **voci di primo livello della shell**, il **menu della cartella** sul fondo e i **sottomenu delle estensioni**. Mancano drag&drop, `Nuovo >`/`Invia a >` nostri e il ripristino dal cestino |
 | M8 — inspector completo | ⬜ |
 | M9 — configurazione e temi | ⬜ **vincolata**: niente file di impostazioni, vedi `docs/06` |
 | M10 — backend D3D11 | ⬜ |
@@ -55,15 +55,13 @@ Ordinato per quanto morde.
 
 In ordine di valore, non di facilità.
 
-1. **I sottomenu del menu contestuale** — `Invia a`, `Nuovo`, `Dare accesso a`,
-   `7-Zip`, `WinRAR`: sono quattro o cinque voci su venti quelle che restano
-   fuori. Le voci di primo livello della shell ci sono già (`IContextMenu` →
-   `QueryContextMenu` → `InvokeCommand`) e anche il menu della cartella, quindi è
-   il completamento naturale di ciò che c'è: serve che il componente sappia
-   **annidare** — geometria, sovrappasso, clic e frecce su un secondo pannello a
-   destra — e che i sottomenu si facciano popolare da
-   `IContextMenu2::HandleMenuMsg(WM_INITMENUPOPUP)`, perché il contenuto di un
-   sottomenu della shell non esiste prima di quel messaggio.
+1. **`Nuovo >` e `Invia a >`, fatti da noi** — sono le due voci che si cercano per
+   prime, e le uniche che non si possono chiedere alla shell: i suoi sottomenu si
+   leggono ma non si eseguono (`docs/02` §7.19). Le fonti sono note e
+   verificabili: le chiavi `ShellNew` del registro per `Nuovo >`, la cartella
+   SendTo per `Invia a >`. Il componente sa già annidare, quindi è lavoro di
+   contenuto, non di architettura — e si verifica creando un file e uno zip
+   **dentro la sandbox**.
 2. **Il costo dell'interrogazione della shell** — la prima apertura dopo l'avvio
    costa ~350 ms e le estensioni moderne di Windows 11 compaiono solo dalla
    seconda; in regime sono ~65 ms e **22 handle di kernel** per apertura, dentro
@@ -207,6 +205,18 @@ ripristino dal cestino sembra una casella da spuntare e non lo è: il cestino no
 ha un percorso, e invocare il verbo sbagliato fra quelli del suo menu contestuale
 significa **cancellare davvero**. Il blocco vero è il browsing dello spazio dei
 nomi. Vedi `docs/04-roadmap.md`, sezione M7.
+
+**Una voce che risponde `S_OK` può non fare niente.** L'esecuzione di una voce
+di un sottomenu della shell restituisce successo e non produce nulla: per
+accorgersene bisogna guardare l'**effetto**, e servono due prove — una che non
+deve produrre niente e una che deve produrre qualcosa. La seconda dice se lo
+strumento sa vedere. Vedi §7.19 di `docs/02`.
+
+**Il numero di voci di un menu non è una costante.** Le estensioni moderne di
+Windows 11 si registrano solo dalla seconda apertura, quindi la stessa voce sta a
+un indice diverso fra il primo e il secondo tasto destro. Contare le frecce con un
+numero fisso sbaglia voce; per una voce precisa si legge il registro diagnostico
+dell'apertura in corso, e si naviga con `Fine` e le frecce.
 
 **`tools/send-keys.ps1`** esiste perché l'escaping di PowerShell dentro bash
 mangiava i caratteri e i tasti non arrivavano: uno script su file è l'unico modo
