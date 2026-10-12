@@ -290,12 +290,17 @@ std::vector<Template> ReadAll()
     }
     RegCloseKey(classes);
 
-    // Due tipi che la shell conosce **da sé e non registra**: "Documento di testo"
-    // e "Immagine bitmap" stanno nel menu "Nuovo" di Esplora risorse, ma nessuna
-    // chiave `ShellNew` di questa macchina li nomina — sono 37, e `.txt` e `.bmp`
-    // non ci sono. Senza queste due voci il menu perderebbe proprio il tipo che si
-    // crea piu' spesso.
-    for (const wchar_t* extension : {L".txt", L".bmp"})
+    // Un tipo che la shell conosce **da sé e non registra**: "Documento di testo"
+    // sta nel menu "Nuovo" di Esplora risorse, ma nessuna delle 37 chiavi
+    // `ShellNew` di questa macchina lo nomina. Senza questa voce il menu perderebbe
+    // il tipo che si crea piu' spesso, e un .txt vuoto e' esattamente cio' che
+    // serve.
+    //
+    // L'immagine bitmap NON si aggiunge, e per una ragione: la shell la crea con un
+    // contenuto suo (non c'e' nessuna chiave che lo dica), quindi la nostra
+    // sarebbe un file di zero byte con l'estensione .bmp — un'immagine che nessun
+    // programma apre. Meglio nessuna voce di una voce che non funziona.
+    for (const wchar_t* extension : {L".txt"})
     {
         const std::wstring label = TypeNameOf(extension);
         if (label.empty())
