@@ -3080,12 +3080,17 @@ void BuildContextMenu(AppState& app, float x, float y)
 void ContextMenuMove(ContextMenu& menu, int delta)
 {
     const int count = static_cast<int>(menu.items.size());
-    if (count == 0)
+    if (count == 0 || delta == 0)
         return;
 
+    // Niente e' selezionato all'apertura, e la prima freccia deve scegliere la
+    // PRIMA voce. Partendo da 0 l'incremento del ciclo salterebbe proprio quella
+    // e la selezione comincerebbe dalla seconda: l'errore era invisibile con la
+    // prima voce separata da un separatore e non con le altre.
+    //
     // Le frecce saltano i separatori: fermarcisi sopra non vuol dire niente e
     // l'Invio non avrebbe nulla da eseguire.
-    int index = menu.selected < 0 ? (delta > 0 ? 0 : count - 1) : menu.selected;
+    int index = menu.selected < 0 ? (delta > 0 ? -1 : count) : menu.selected;
     for (int step = 0; step < count; ++step)
     {
         index = (index + delta + count * 2) % count;
