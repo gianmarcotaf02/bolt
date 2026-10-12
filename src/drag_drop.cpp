@@ -225,6 +225,16 @@ public:
         const DWORD negotiated = *effect;
         *effect = DROPEFFECT_NONE;
 
+        // Se non avevamo promesso niente — dentro se stesso, o dove i file sono
+        // gia' — non si fa niente. Senza questo controllo l'effetto "vietato"
+        // diventava una **copia**, e un gesto annullato lasciava un file in piu'.
+        if ((negotiated & (DROPEFFECT_COPY | DROPEFFECT_MOVE | DROPEFFECT_LINK)) == 0)
+        {
+            sources.clear();
+            Highlight(window, L"", false);
+            return S_OK;
+        }
+
         std::vector<std::wstring> paths = sources;
         if (paths.empty())
             ReadPaths(data, &paths);
