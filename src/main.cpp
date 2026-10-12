@@ -5743,9 +5743,21 @@ void ContextMenuClose(AppState& app)
     ShellMenuRelease(menu);
 }
 
+// Quanti handle di kernel ha in mano il processo. Serve a distinguere un costo da
+// una perdita: un'estensione che si carica una volta e' un costo, un handle che
+// non torna piu' giu' e' una perdita, e le due cose si vedono uguali contando le
+// aperture del menu.
+static DWORD OpenHandleCount()
+{
+    DWORD count = 0;
+    GetProcessHandleCount(GetCurrentProcess(), &count);
+    return count;
+}
+
 void BuildContextMenu(AppState& app, float x, float y)
 {
     ContextMenu& menu = app.contextMenu;
+    const DWORD handlesStart = OpenHandleCount();
     menu.items.clear();
     menu.x = x;
     menu.y = y;
@@ -5792,6 +5804,8 @@ void BuildContextMenu(AppState& app, float x, float y)
 
         // "Invia a" qui e non in fondo: e' dove sta in Esplora risorse, subito
         // dopo il blocco Taglia/Copia, e li' la mano lo cerca.
+        DiagLog("  handle: prima di 'Invia a' +" +
+                std::to_string(OpenHandleCount() - handlesStart));
         if (!ShellSendTo::Targets().empty())
         {
             ContextMenuItem sendTo;
@@ -5825,6 +5839,8 @@ void BuildContextMenu(AppState& app, float x, float y)
 
     // "Nuovo file": i tipi che Windows sa creare, dal registro. Se il registro non
     // ne ha nessuno la voce non si mette, perche' un sottomenu vuoto non si spiega.
+    DiagLog("  handle: dopo 'Invia a' e i verbi +" +
+            std::to_string(OpenHandleCount() - handlesStart));
     if (!ShellNew::Templates().empty())
     {
         ContextMenuItem newFile;
@@ -5838,6 +5854,8 @@ void BuildContextMenu(AppState& app, float x, float y)
     menu.items.push_back({"Aggiorna", CmdRefresh});
     menu.items.push_back({"Apri un terminale qui", CmdOpenConsole, false, namespaced});
 
+    DiagLog("  handle: dopo 'Nuovo file' +" +
+            std::to_string(OpenHandleCount() - handlesStart));
     menu.open = true;
 }
 
