@@ -7421,11 +7421,18 @@ void Drop(HWND window, const std::vector<std::wstring>& sources, const DragDrop:
                 : (move ? FileOps::Move(window, sources, target.path, &created, &error)
                         : FileOps::Copy(window, sources, target.path, &created, &error));
 
+    // Un annullamento non e' un guasto, ma non e' nemmeno "fatto": un gesto che
+    // finisce senza dire niente e' indistinguibile da un difetto, e chi ha appena
+    // mollato un file deve poter sapere che non e' successo niente.
     if (result == FileOps::Result::Cancelled)
+    {
+        ReportStatus(*app, discard ? L"Eliminazione annullata" : L"Operazione annullata");
         return;
+    }
 
     if (result == FileOps::Result::Failed)
     {
+        DiagLog("  caduta non riuscita: " + ToUtf8(error));
         ReportStatus(*app, (discard ? L"Eliminazione non riuscita: "
                                     : (move ? L"Spostamento non riuscito: "
                                             : L"Copia non riuscita: ")) +
@@ -7451,6 +7458,10 @@ void Drop(HWND window, const std::vector<std::wstring>& sources, const DragDrop:
     }
     ReloadKeeping(*app, keep, landed, scroll);
 
+    DiagLog("  esito della caduta: " + std::string(discard ? "eliminazione"
+                                                           : (move ? "spostamento" : "copia")) +
+            " di " + std::to_string(sources.size()) + " elementi, prodotti " +
+            std::to_string(created.size()));
     ReportStatus(*app, (discard ? L"Buttati via " : (move ? L"Spostati " : L"Copiati ")) +
                            std::to_wstring(sources.size()) +
                            (discard ? L" elementi nel cestino"
