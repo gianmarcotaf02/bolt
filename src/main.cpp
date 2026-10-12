@@ -278,8 +278,16 @@ constexpr int kContextProperties = -2;
 struct ContextMenuItem
 {
     std::string label;
-    int         command   = 0;      // CommandId, oppure kContext*
+    // CommandId, kContext*, oppure un id della banda della shell: vedi
+    // kShellCmdFirst. La banda e' cosa distingue una voce nostra da una che
+    // appartiene alla shell e va eseguita da lei.
+    int         command   = 0;
     bool        separator = false;
+    // Una voce che esiste ma non si puo' eseguire adesso: la shell offre voci
+    // spente per una selezione mista o per un file che non sa gestire. Va
+    // mostrata spenta, non nascosta, perche' la sua presenza spiega cosa la
+    // shell saprebbe fare in un altro contesto.
+    bool        disabled  = false;
 };
 
 struct ContextMenu
@@ -289,6 +297,13 @@ struct ContextMenu
     int   selected = -1;
     std::string subtitle;
     std::vector<ContextMenuItem> items;
+
+    // La shell descrive il proprio menu in un HMENU che non mostriamo mai: serve
+    // per leggere le voci, e nei sottomenu anche per farsele popolare. Va tenuto
+    // vivo finche' l'IContextMenu e' vivo, e distrutto insieme a lui, o l'HMENU
+    // resta appeso a ogni tasto destro.
+    HMENU         shellMenu = nullptr;
+    IContextMenu* shell     = nullptr;
 };
 
 struct AppState
@@ -3029,11 +3044,358 @@ Rect ContextMenuRowRect(const AppState& app, const Layout& layout, int index)
     return Rect{panel.x + 4.0f * scale, top, panel.w - 8.0f * scale, height};
 }
 
+// --- verbi della shell nel menu contestuale ---------------------------------
+//
+// La shell sa fare cose che non sono nostre: "Apri con", "Invia a", i verbi
+// delle estensioni installate. Non si reimplementa niente: le si chiede
+// l'oggetto di interfaccia della selezione, le si fa descrivere il proprio menu
+// dentro un HMENU che non mostriamo mai, se ne leggono le voci e se ne esegue una
+// quando l'utente la sceglie. Il binario di File Pilot fa esattamente questo —
+// `Win_ContextMenuBuild`, `P_GetContextMenu`, `P_ContextMenuInvoke`, e la
+// stringa `GCS_VERBW` per leggere i verbi.
+
+// Gli id della shell vivono in una banda riservata: dentro quella banda un id e'
+// un indice per IContextMenu, fuori e' un nostro CommandId.
+constexpr int kShellCmdFirst = 0x6000;
+constexpr int kShellCmdLast  = 0x6FFF;
+
+// Registro diagnostico spento di default. Serve a LEGGERE cosa la shell offre su
+// questa macchina invece di dedurlo: le voci dipendono dalle estensioni
+// installate, quindi non sono le stesse su due computer. Si accende con
+// BOLT_DIAG_SHELL_MENU=1 e scrive shell-menu.log accanto all'eseguibile.
+bool DiagLogEnabled()
+{
+    static const bool enabled = []()
+    {
+        wchar_t value[8]{};
+        return GetEnvironmentVariableW(L"BOLT_DIAG_SHELL_MENU", value, 8) > 0;
+    }();
+    return enabled;
+}
+
+void DiagLog(const std::string& line)
+{
+    if (!DiagLogEnabled())
+        return;
+
+    wchar_t modulePath[MAX_PATH]{};
+    if (GetModuleFileNameW(nullptr, modulePath, MAX_PATH) == 0)
+        return;
+
+    std::wstring file = modulePath;
+    const size_t slash = file.find_last_of(L'\\');
+    file = (slash == std::wstring::npos) ? L"shell-menu.log"
+                                         : file.substr(0, slash + 1) + L"shell-menu.log";
+
+    // Il primo giro azzera il registro: un file che cresce a ogni tasto destro
+    // non si legge piu'.
+    static bool first = true;
+    HANDLE handle = CreateFileW(file.c_str(), FILE_APPEND_DATA | FILE_WRITE_DATA,
+                                FILE_SHARE_READ, nullptr,
+                                first ? CREATE_ALWAYS : OPEN_ALWAYS,
+                                FILE_ATTRIBUTE_NORMAL, nullptr);
+    first = false;
+    if (handle == INVALID_HANDLE_VALUE)
+        return;
+
+    const std::string text = line + "\r\n";
+    DWORD written = 0;
+    WriteFile(handle, text.data(), static_cast<DWORD>(text.size()), &written, nullptr);
+    CloseHandle(handle);
+}
+
+// L'atlante dei glifi copre il solo ASCII stampabile, quindi un'etichetta della
+// shell con un accento mostrerebbe un buco: si ripiega sull'ASCII, come fa gia'
+// "Proprieta'" scritto a mano.
+char FoldAccent(wchar_t c)
+{
+    switch (c)
+    {
+        case L'\u00e0': case L'\u00e1': case L'\u00e2': case L'\u00e3': case L'\u00e4': case L'\u00e5': return 'a';
+        case L'\u00c0': case L'\u00c1': case L'\u00c2': case L'\u00c3': case L'\u00c4': case L'\u00c5': return 'A';
+        case L'\u00e7': return 'c';
+        case L'\u00c7': return 'C';
+        case L'\u00e8': case L'\u00e9': case L'\u00ea': case L'\u00eb': return 'e';
+        case L'\u00c8': case L'\u00c9': case L'\u00ca': case L'\u00cb': return 'E';
+        case L'\u00ec': case L'\u00ed': case L'\u00ee': case L'\u00ef': return 'i';
+        case L'\u00cc': case L'\u00cd': case L'\u00ce': case L'\u00cf': return 'I';
+        case L'\u00f1': return 'n';
+        case L'\u00d1': return 'N';
+        case L'\u00f2': case L'\u00f3': case L'\u00f4': case L'\u00f5': case L'\u00f6': return 'o';
+        case L'\u00d2': case L'\u00d3': case L'\u00d4': case L'\u00d5': case L'\u00d6': return 'O';
+        case L'\u00f9': case L'\u00fa': case L'\u00fb': case L'\u00fc': return 'u';
+        case L'\u00d9': case L'\u00da': case L'\u00db': case L'\u00dc': return 'U';
+        case L'\u00fd': case L'\u00ff': return 'y';
+        default: break;
+    }
+    return '\0';
+}
+
+std::string ShellLabelToAscii(const std::wstring& text)
+{
+    std::string out;
+    out.reserve(text.size());
+    for (const wchar_t c : text)
+    {
+        if (c >= 32 && c < 127)
+        {
+            out.push_back(static_cast<char>(c));
+            continue;
+        }
+        const char folded = FoldAccent(c);
+        if (folded != '\0')
+            out.push_back(folded);
+    }
+    return out;
+}
+
+bool SameWord(const wchar_t* a, const wchar_t* b)
+{
+    while (*a != L'\0' && *b != L'\0')
+    {
+        if (towlower(*a) != towlower(*b))
+            return false;
+        ++a;
+        ++b;
+    }
+    return *a == *b;
+}
+
+// I verbi che il nostro menu gia' offre: ripeterli accanto ai nostri comandi
+// darebbe due "Taglia" e due "Proprieta'" nella stessa lista. Il confronto e' per
+// verbo canonico e non per etichetta, perche' l'etichetta e' tradotta e il verbo
+// no. "Apri con" (openas) NON e' fra questi: e' proprio uno dei motivi per cui
+// la shell viene interrogata.
+bool IsOwnShellVerb(const wchar_t* verb)
+{
+    static const wchar_t* const kOwn[] = {
+        L"open", L"cut", L"copy", L"paste", L"delete", L"rename", L"properties",
+    };
+    for (const wchar_t* own : kOwn)
+    {
+        if (SameWord(verb, own))
+            return true;
+    }
+    return false;
+}
+
+// Rilascia quello che la shell ci ha prestato. Va chiamato a ogni chiusura del
+// menu: un IContextMenu tenuto in vita e' una DLL di estensione che non si
+// scarica, e un HMENU mai distrutto e' una risorsa utente che cola.
+void ShellMenuRelease(ContextMenu& menu)
+{
+    if (menu.shell != nullptr)
+    {
+        menu.shell->Release();
+        menu.shell = nullptr;
+    }
+    if (menu.shellMenu != nullptr)
+    {
+        DestroyMenu(menu.shellMenu);
+        menu.shellMenu = nullptr;
+    }
+}
+
+// Chiede alla shell il menu della selezione e ne copia le voci utilizzabili.
+// L'IContextMenu esce da qui perche' serve ancora al momento dell'esecuzione: la
+// shell non accetta un verbo senza l'oggetto da cui e' uscito.
+bool BuildShellItems(HWND owner, const std::vector<std::wstring>& paths,
+                     IContextMenu** outMenu, HMENU* outHandle,
+                     std::vector<ContextMenuItem>* out, int* outSkipped)
+{
+    *outMenu    = nullptr;
+    *outHandle  = nullptr;
+    *outSkipped = 0;
+    if (paths.empty())
+        return false;
+
+    std::vector<PIDLIST_ABSOLUTE> pidls;
+    IShellFolder* parent = nullptr;
+
+    for (const std::wstring& path : paths)
+    {
+        PIDLIST_ABSOLUTE pidl = nullptr;
+        if (FAILED(SHParseDisplayName(path.c_str(), nullptr, &pidl, 0, nullptr)))
+            break;
+
+        // La lista mostra una cartella sola, quindi il padre di tutti i percorsi
+        // selezionati e' lo stesso: quello del primo.
+        if (parent == nullptr &&
+            FAILED(SHBindToParent(pidl, IID_IShellFolder, reinterpret_cast<void**>(&parent), nullptr)))
+        {
+            CoTaskMemFree(pidl);
+            break;
+        }
+        pidls.push_back(pidl);
+    }
+
+    if (parent != nullptr && !pidls.empty())
+    {
+        // GetUIObjectOf vuole i figli relativi alla cartella padre, e l'ultimo id
+        // di un pidl assoluto e' esattamente quello.
+        std::vector<PCUITEMID_CHILD> children;
+        children.reserve(pidls.size());
+        for (PIDLIST_ABSOLUTE pidl : pidls)
+            children.push_back(ILFindLastID(pidl));
+
+        IContextMenu* shell = nullptr;
+        if (SUCCEEDED(parent->GetUIObjectOf(owner, static_cast<UINT>(children.size()),
+                                            children.data(), IID_IContextMenu, nullptr,
+                                            reinterpret_cast<void**>(&shell))))
+        {
+            HMENU handle = CreatePopupMenu();
+            if (handle != nullptr &&
+                SUCCEEDED(shell->QueryContextMenu(handle, 0, kShellCmdFirst, kShellCmdLast,
+                                                  CMF_NORMAL)))
+            {
+                const int count = GetMenuItemCount(handle);
+                for (int i = 0; i < count; ++i)
+                {
+                    MENUITEMINFOW basic{};
+                    basic.cbSize = sizeof(basic);
+                    basic.fMask  = MIIM_FTYPE | MIIM_ID | MIIM_STATE | MIIM_SUBMENU;
+                    if (!GetMenuItemInfoW(handle, static_cast<UINT>(i), TRUE, &basic))
+                        continue;
+
+                    if ((basic.fType & MFT_SEPARATOR) != 0)
+                    {
+                        out->push_back({"", 0, /*separator=*/true});
+                        continue;
+                    }
+
+                    // Fuori banda la voce non si potrebbe eseguire: meglio non
+                    // offrirla che offrirla e non farla partire.
+                    if (basic.wID < kShellCmdFirst || basic.wID >= kShellCmdLast)
+                        continue;
+
+                    const UINT offset = static_cast<UINT>(basic.wID) - kShellCmdFirst;
+
+                    wchar_t verb[128]{};
+                    const bool haveVerb = SUCCEEDED(shell->GetCommandString(
+                        offset, GCS_VERBW, nullptr, reinterpret_cast<LPSTR>(verb), 128));
+
+                    if (haveVerb && IsOwnShellVerb(verb))
+                        continue;
+
+                    wchar_t text[256]{};
+                    MENUITEMINFOW detailed{};
+                    detailed.cbSize     = sizeof(detailed);
+                    detailed.fMask      = MIIM_STRING;
+                    detailed.dwTypeData = text;
+                    detailed.cch        = 255;
+                    const bool haveText =
+                        GetMenuItemInfoW(handle, static_cast<UINT>(i), TRUE, &detailed) != FALSE &&
+                        text[0] != L'\0';
+
+                    // I sottomenu sono il pezzo che manca ancora: "Invia a" e
+                    // "Apri con >" vivono li' dentro. Il limite e' dichiarato in
+                    // docs/04-roadmap.md, non nascosto qui.
+                    if (basic.hSubMenu != nullptr)
+                    {
+                        DiagLog("  saltata (sottomenu): '" + ShellLabelToAscii(text) + "'");
+                        ++(*outSkipped);
+                        continue;
+                    }
+
+                    ContextMenuItem item;
+                    item.label    = ShellLabelToAscii(text);
+                    item.command  = static_cast<int>(basic.wID);
+                    item.disabled = (basic.fState & (MFS_DISABLED | MFS_GRAYED)) != 0;
+
+                    // Le voci disegnate da chi le ha messe (ownerdraw) non
+                    // portano il testo nel menu: il ripiego e' il testo di aiuto,
+                    // che e' meglio del nome tecnico del verbo.
+                    if (item.label.empty())
+                    {
+                        wchar_t help[256]{};
+                        if (SUCCEEDED(shell->GetCommandString(offset, GCS_HELPTEXTW, nullptr,
+                                                              reinterpret_cast<LPSTR>(help), 256)))
+                            item.label = ShellLabelToAscii(help);
+                    }
+                    if (item.label.empty())
+                    {
+                        DiagLog("  saltata (senza etichetta): verbo '" + ShellLabelToAscii(verb) + "'");
+                        ++(*outSkipped);
+                        continue;
+                    }
+
+                    DiagLog("  voce: '" + item.label + "'" + (haveVerb ? " verbo '" : " verbo '?") +
+                            ShellLabelToAscii(verb) + "'" + (item.disabled ? " (spenta)" : ""));
+                    out->push_back(std::move(item));
+                }
+
+                // La shell apre e chiude con dei separatori suoi, che accanto ai
+                // nostri diventerebbero doppi; e togliendo le voci che offriamo
+                // gia' possono restarne due di fila.
+                std::vector<ContextMenuItem> cleaned;
+                for (ContextMenuItem& item : *out)
+                {
+                    if (item.separator && (cleaned.empty() || cleaned.back().separator))
+                        continue;
+                    cleaned.push_back(std::move(item));
+                }
+                while (!cleaned.empty() && cleaned.back().separator)
+                    cleaned.pop_back();
+                *out = std::move(cleaned);
+
+                if (!out->empty())
+                {
+                    *outMenu   = shell;
+                    *outHandle = handle;
+                    shell  = nullptr;
+                    handle = nullptr;
+                }
+            }
+
+            if (handle != nullptr)
+                DestroyMenu(handle);
+            if (shell != nullptr)
+                shell->Release();
+        }
+        parent->Release();
+    }
+
+    for (PIDLIST_ABSOLUTE pidl : pidls)
+        CoTaskMemFree(pidl);
+
+    return *outMenu != nullptr;
+}
+
+// Aggiunge al menu le voci della shell, se ce ne sono. Il blocco resta separato
+// dai nostri comandi: sono di un altro, e mescolarli farebbe sembrare nostro
+// quello che non lo e'.
+void AppendShellItems(AppState& app, ContextMenu& menu)
+{
+    const std::vector<std::wstring> paths = SelectedPaths(app);
+
+    const double started = NowSeconds();
+    std::vector<ContextMenuItem> items;
+    IContextMenu* shell    = nullptr;
+    HMENU handle           = nullptr;
+    int skipped            = 0;
+    BuildShellItems(app.window, paths, &shell, &handle, &items, &skipped);
+    const double elapsed = (NowSeconds() - started) * 1000.0;
+
+    DiagLog("--- " + std::to_string(paths.size()) + " percorsi, " + std::to_string(items.size()) +
+            " voci, " + std::to_string(skipped) + " saltate, " + std::to_string(elapsed) + " ms");
+
+    ShellMenuRelease(menu);
+    if (shell == nullptr)
+        return;
+
+    menu.shell     = shell;
+    menu.shellMenu = handle;
+    menu.items.push_back({"", 0, /*separator=*/true});
+    for (ContextMenuItem& item : items)
+        menu.items.push_back(std::move(item));
+}
+
 void ContextMenuClose(AppState& app)
 {
     app.contextMenu.open = false;
     app.contextMenu.selected = -1;
     app.contextMenu.items.clear();
+    ShellMenuRelease(app.contextMenu);
 }
 
 void BuildContextMenu(AppState& app, float x, float y)
@@ -3065,6 +3427,11 @@ void BuildContextMenu(AppState& app, float x, float y)
         menu.items.push_back({"Elimina definitivamente", CmdDeletePermanent});
         menu.items.push_back({"", 0, true});
         menu.items.push_back({"Proprieta'", kContextProperties});
+
+        // I verbi della shell stanno dopo i nostri: i nostri sono quelli che si
+        // usano davvero, e non devono scendere sotto una lista lunga quanto le
+        // estensioni installate su questa macchina.
+        AppendShellItems(app, menu);
         menu.items.push_back({"", 0, true});
     }
 
@@ -3088,13 +3455,14 @@ void ContextMenuMove(ContextMenu& menu, int delta)
     // e la selezione comincerebbe dalla seconda: l'errore era invisibile con la
     // prima voce separata da un separatore e non con le altre.
     //
-    // Le frecce saltano i separatori: fermarcisi sopra non vuol dire niente e
-    // l'Invio non avrebbe nulla da eseguire.
+    // Le frecce saltano i separatori e le voci spente: fermarcisi sopra non vuol
+    // dire niente e l'Invio non avrebbe nulla da eseguire.
     int index = menu.selected < 0 ? (delta > 0 ? -1 : count) : menu.selected;
     for (int step = 0; step < count; ++step)
     {
         index = (index + delta + count * 2) % count;
-        if (!menu.items[static_cast<size_t>(index)].separator)
+        const ContextMenuItem& item = menu.items[static_cast<size_t>(index)];
+        if (!item.separator && !item.disabled)
             break;
     }
     menu.selected = index;
@@ -3128,11 +3496,44 @@ void ContextMenuActivate(AppState& app)
         return;
 
     const ContextMenuItem item = app.contextMenu.items[static_cast<size_t>(index)];
-    if (item.separator)
+    if (item.separator || item.disabled)
         return;
 
     const std::vector<std::wstring> paths = SelectedPaths(app);
+
+    // Un id nella banda riservata appartiene alla shell, e l'IContextMenu serve
+    // ancora al momento dell'esecuzione: lo si prende prima di chiudere, perche'
+    // chiudere lo rilascia.
+    IContextMenu* shell  = app.contextMenu.shell;
+    const int     offset = item.command - kShellCmdFirst;
+    if (shell != nullptr)
+        shell->AddRef();
     ContextMenuClose(app);
+
+    if (item.command >= kShellCmdFirst)
+    {
+        if (shell == nullptr)
+        {
+            ReportStatus(app, L"Comando della shell non piu' disponibile.");
+            return;
+        }
+
+        CMINVOKECOMMANDINFOEXW info{};
+        info.cbSize  = sizeof(info);
+        info.fMask   = CMIC_MASK_UNICODE | CMIC_MASK_FLAG_NO_UI;
+        info.hwnd    = app.window;
+        info.lpVerb  = MAKEINTRESOURCEA(static_cast<WORD>(offset));
+        info.lpVerbW = MAKEINTRESOURCEW(static_cast<WORD>(offset));
+        info.nShow   = SW_SHOWNORMAL;
+
+        const HRESULT hr = shell->InvokeCommand(reinterpret_cast<LPCMINVOKECOMMANDINFO>(&info));
+        shell->Release();
+
+        // Un'azione che fallisce in silenzio e' peggio di una che non parte.
+        if (FAILED(hr))
+            ReportStatus(app, L"Il comando della shell non e' partito.");
+        return;
+    }
 
     if (item.command == kContextOpen)
     {
@@ -3184,11 +3585,11 @@ void ContextMenuDraw(AppState& app, const Layout& layout)
             continue;
         }
 
-        if (i == menu.selected)
+        if (i == menu.selected && !item.disabled)
             r.FillRect(row, t.rowHover, 4.0f * scale);
 
         app.font.Draw(r, row.x + 10.0f * scale, TextY(layout, row, app.font), item.label,
-                      t.text, scale);
+                      item.disabled ? t.textDim : t.text, scale);
     }
 
     app.smallFont.Draw(r, panel.x + 14.0f * scale, panel.bottom() - 17.0f * scale,
@@ -3620,6 +4021,22 @@ void EnsureSelectionVisible(AppState& app, const Layout& layout)
     else if (rect.bottom() > layout.list.bottom())
         app.scroll += rect.bottom() - layout.list.bottom();
     app.scroll = (std::max)(0.0f, app.scroll);
+}
+
+// Apre il menu contestuale da tastiera, ancorato alla riga del cursore. Il tasto
+// Menu — o Shift+F10, come in Esplora risorse — deve fare la stessa cosa del
+// tasto destro sul file scelto: senza mouse il menu resterebbe irraggiungibile.
+// Nel binario originale questa chiave esiste, `HK_ContextMenuOpen`.
+void OpenContextMenuAtCursor(AppState& app, const Layout& layout)
+{
+    const int cursorIndex = CursorIndex(app);
+    const int rowIndex    = (cursorIndex < 0) ? -1 : RowOfEntry(app, cursorIndex);
+    if (rowIndex < 0)
+        return;
+
+    const ViewMetrics metrics = ComputeViewMetrics(app, layout);
+    const Rect item = ItemRect(layout, metrics, rowIndex, app.scroll);
+    BuildContextMenu(app, item.x + 40.0f * layout.scale, item.y + item.h * 0.5f);
 }
 
 // --- window plumbing -------------------------------------------------------
@@ -4136,6 +4553,11 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
                         app->stats.ClearAll();
                         LoadDirectory(*app, app->directory);
                         break;
+                    case VK_APPS:
+                        // Il tasto Menu: aprire il menu contestuale e' l'unica
+                        // cosa che possa significare.
+                        OpenContextMenuAtCursor(*app, layout);
+                        break;
                     case VK_HOME:
                     {
                         app->scroll = 0.0f;
@@ -4284,6 +4706,14 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
             return 0;
 
         case WM_SYSKEYDOWN:
+            // Shift+F10 e' un tasto di sistema come Alt+freccia: F10 da solo
+            // attiva il menu della finestra, quindi non passa da WM_KEYDOWN.
+            if (app != nullptr && wparam == VK_F10 && (GetKeyState(VK_SHIFT) & 0x8000) != 0)
+            {
+                OpenContextMenuAtCursor(*app, ComputeLayout(*app));
+                return 0;
+            }
+
             // Alt+Left and Alt+Right arrive as system keys, not as ordinary ones,
             // because the window has a system menu.
             if (app != nullptr && wparam == VK_LEFT)
@@ -4311,6 +4741,10 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
             return 0;
 
         case WM_DESTROY:
+            // Uscendo con il menu aperto la shell ci ha prestato un oggetto che
+            // nessuno rilascerebbe piu'.
+            if (app != nullptr)
+                ContextMenuClose(*app);
             PostQuitMessage(0);
             return 0;
 
