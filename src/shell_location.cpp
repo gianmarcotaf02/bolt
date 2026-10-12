@@ -204,12 +204,21 @@ std::wstring ParsingNameOf(REFKNOWNFOLDERID id)
 
 std::wstring QuickAccessName()
 {
-    // Il CLSID non e' fra i FOLDERID_ documentati, ma la sua chiave in
-    // `HKCR\CLSID` c'e', e il nome localizzato pure: si legge da li' invece di
-    // scrivere l'identificatore a mano nel codice.
-    const GUID quickAccess = {
-        0x679f85cb, 0x0220, 0x4080, {0xb2, 0x9b, 0x55, 0x40, 0xcc, 0x05, 0xaa, 0xb6}};
-    return ParsingNameOf(quickAccess);
+    // **L'unico identificatore scritto nel codice**, e vale la pena dire perche'.
+    // "Accesso rapido" ha un CLSID e una chiave in `HKCR\CLSID`, ma **non** una voce
+    // in `FolderDescriptions`: `SHGetKnownFolderIDList` non lo conosce, e la strada
+    // che funziona per il cestino e per "Questo PC" qui restituisce vuoto.
+    const std::wstring location = L"::{679f85cb-0220-4080-b29b-5540cc05aab6}";
+
+    // Si verifica che la shell lo riconosca. Un nome di spazio dei nomi sbagliato
+    // non da' errore: da' una cartella **vuota**, che e' la forma di guasto peggiore
+    // — sembra che non ci sia niente da mostrare, invece di sembrare un guasto.
+    PIDLIST_ABSOLUTE pidl = nullptr;
+    if (FAILED(SHParseDisplayName(location.c_str(), nullptr, &pidl, 0, nullptr)) || pidl == nullptr)
+        return std::wstring();
+
+    CoTaskMemFree(pidl);
+    return location;
 }
 
 std::wstring ParentOf(const std::wstring& location)

@@ -1899,7 +1899,11 @@ void BuildSidebarRows(const AppState& app, std::vector<SidebarRow>* rows)
         }
     };
 
-    section("QUICK ACCESS", app.quickAccess);
+    // QUICK ACCESS si mostra solo se ha qualcosa dentro: una sezione vuota qui non
+    // vuol dire "non ne hai fissata nessuna", vuol dire che la cartella della shell
+    // non si e' letta — e una sezione vuota senza spiegazione non si capisce.
+    if (!app.quickAccess.empty())
+        section("QUICK ACCESS", app.quickAccess);
 
     std::vector<Place> marks;
     marks.reserve(app.bookmarks.size());
