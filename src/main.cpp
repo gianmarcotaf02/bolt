@@ -3347,37 +3347,66 @@ bool BuildShellItems(HWND owner, const std::vector<std::wstring>& paths, bool fo
 
     std::vector<PIDLIST_ABSOLUTE> pidls;
     IShellFolder* parent = nullptr;
+    IContextMenu* shell   = nullptr;
 
-    for (const std::wstring& path : paths)
+    // Il menu del FONDO della cartella non e' il menu della cartella come
+    // elemento, e la shell li tiene distinti. La differenza si vede: il secondo
+    // offre Taglia, Copia ed Elimina **sulla cartella stessa**, che a destra di
+    // un fondo non se li aspetta nessuno. Il fondo si chiede alla vista, con
+    // `CreateViewObject`; la cartella come elemento con `GetUIObjectOf`. Chiedere
+    // quello sbagliato non da' un errore: da' un menu plausibile e pericoloso.
+    if (folderBackground)
     {
         PIDLIST_ABSOLUTE pidl = nullptr;
-        if (FAILED(SHParseDisplayName(path.c_str(), nullptr, &pidl, 0, nullptr)))
-            break;
-
-        // La lista mostra una cartella sola, quindi il padre di tutti i percorsi
-        // selezionati e' lo stesso: quello del primo.
-        if (parent == nullptr &&
-            FAILED(SHBindToParent(pidl, IID_IShellFolder, reinterpret_cast<void**>(&parent), nullptr)))
+        if (SUCCEEDED(SHParseDisplayName(paths.front().c_str(), nullptr, &pidl, 0, nullptr)))
         {
+            IShellFolder* folder = nullptr;
+            if (SUCCEEDED(SHBindToObject(nullptr, pidl, nullptr, IID_IShellFolder,
+                                         reinterpret_cast<void**>(&folder))))
+            {
+                folder->CreateViewObject(owner, IID_IContextMenu,
+                                         reinterpret_cast<void**>(&shell));
+                folder->Release();
+            }
             CoTaskMemFree(pidl);
-            break;
         }
-        pidls.push_back(pidl);
+    }
+    else
+    {
+        for (const std::wstring& path : paths)
+        {
+            PIDLIST_ABSOLUTE pidl = nullptr;
+            if (FAILED(SHParseDisplayName(path.c_str(), nullptr, &pidl, 0, nullptr)))
+                break;
+
+            // La lista mostra una cartella sola, quindi il padre di tutti i percorsi
+            // selezionati e' lo stesso: quello del primo.
+            if (parent == nullptr &&
+                FAILED(SHBindToParent(pidl, IID_IShellFolder, reinterpret_cast<void**>(&parent), nullptr)))
+            {
+                CoTaskMemFree(pidl);
+                break;
+            }
+            pidls.push_back(pidl);
+        }
+
+        if (parent != nullptr && !pidls.empty())
+        {
+            // GetUIObjectOf vuole i figli relativi alla cartella padre, e l'ultimo id
+            // di un pidl assoluto e' esattamente quello.
+            std::vector<PCUITEMID_CHILD> children;
+            children.reserve(pidls.size());
+            for (PIDLIST_ABSOLUTE pidl : pidls)
+                children.push_back(ILFindLastID(pidl));
+
+            parent->GetUIObjectOf(owner, static_cast<UINT>(children.size()),
+                                  children.data(), IID_IContextMenu, nullptr,
+                                  reinterpret_cast<void**>(&shell));
+        }
     }
 
-    if (parent != nullptr && !pidls.empty())
+    if (shell != nullptr)
     {
-        // GetUIObjectOf vuole i figli relativi alla cartella padre, e l'ultimo id
-        // di un pidl assoluto e' esattamente quello.
-        std::vector<PCUITEMID_CHILD> children;
-        children.reserve(pidls.size());
-        for (PIDLIST_ABSOLUTE pidl : pidls)
-            children.push_back(ILFindLastID(pidl));
-
-        IContextMenu* shell = nullptr;
-        if (SUCCEEDED(parent->GetUIObjectOf(owner, static_cast<UINT>(children.size()),
-                                            children.data(), IID_IContextMenu, nullptr,
-                                            reinterpret_cast<void**>(&shell))))
         {
             HMENU handle = CreatePopupMenu();
             if (handle != nullptr &&
@@ -3486,7 +3515,8 @@ bool BuildShellItems(HWND owner, const std::vector<std::wstring>& paths, bool fo
             if (shell != nullptr)
                 shell->Release();
         }
-        parent->Release();
+        if (parent != nullptr)
+            parent->Release();
     }
 
     for (PIDLIST_ABSOLUTE pidl : pidls)
