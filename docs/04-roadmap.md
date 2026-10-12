@@ -493,6 +493,11 @@ a gruppi, invece di scriverne tre.
       Bolt in un'altra finestra, Ctrl copia / Shift sposta / stesso volume sposta,
       destinazione tratteggiata durante il gesto, e i casi vietati che non fanno
       niente invece di fare qualcosa di sbagliato (§7.23 e §7.24 di `docs/02`)
+- [x] **navigazione nello spazio dei nomi** e **ripristino dal cestino**: il
+      cestino è un collegamento nella barra laterale, si apre come una cartella,
+      e "Ripristina" è il verbo della shell sulla voce — che esiste solo se alla
+      shell si passa il **PIDL** e non il nome (§7.25 di `docs/02`). Le voci che
+      vogliono un percorso sono spente, e si vede
 - [ ] i modelli col valore **`Command`** restano fuori dal menu `Nuovo file`:
       quel valore avvia un'applicazione invece di creare un file
       (`msaccess.exe /NEWDB 1`, `Wab.exe /CreateContact "%1"`), e imitarlo
@@ -697,6 +702,50 @@ gesto**, rilascia) e `tools/explorer-side.ps1`:
 | `relazione.txt` da Esplora risorse al fondo della lista di Bolt | spostato, tratteggio sul bordo della lista |
 | `contratto.txt` da Bolt a Esplora risorse | spostato dalla shell, vista rifatta da sola |
 | un file sul fondo della **propria** cartella | rifiutato: nessun `(2)`, registro `esito dichiarato 0` |
+
+### Le cartelle che non sono percorsi — *Ricostruito*
+
+Il cestino e "Questo PC" non hanno un percorso: si raggiungono con un nome che
+comincia per `::`, e si aprono con `SHParseDisplayName`. Il CLSID non è scritto a
+mano nel codice — si chiede con `SHGetKnownFolderIDList` e
+`SHGetNameFromIDList` a chi lo sa.
+
+```cpp
+SHGetKnownFolderIDList(FOLDERID_RecycleBinFolder, ...)  → PIDL
+SHGetNameFromIDList(pidl, SIGDN_DESKTOPABSOLUTEPARSING) → "::{645FF040-…}"
+```
+
+Le voci si enumerano con `IShellFolder::EnumObjects` e diventano `Entry` normali,
+con le stesse funzioni di formattazione delle altre: **così lista, ordinamento,
+filtro e gruppi non hanno dovuto sapere niente** di nuovo. Da qui in poi una voce
+del cestino è una voce come le altre.
+
+Due cose non si potevano indovinare:
+
+- **il nome** di queste cartelle non lo sa l'oggetto. Per "Questo PC" risponde col
+  nome del computer; il nome vero sta in `HKCR\CLSID\{…}\LocalizedString`, la
+  stessa stringa indiretta delle etichette del menu "Nuovo" (§7.26 di `docs/02`);
+- **l'identità** di una voce è il suo PIDL, non il suo nome. Il nome di un file nel
+  cestino è il percorso del file *dentro* `$Recycle.Bin`: chiedendo il menu di quel
+  nome la shell risponde col menu di quel file, senza alcun errore (§7.25).
+
+**Cosa non si fa, e si vede.** Dentro una cartella di spazio dei nomi le voci che
+vogliono un percorso — Taglia, Copia, Rinomina, Elimina, Incolla, Nuova cartella,
+Nuovo file, Invia a, terminale, Proprietà — sono **spente** nel menu contestuale:
+li' le voci si gestiscono coi verbi della shell, che quegli oggetti li conoscono.
+Non si trascina fuori da li' (l'oggetto dati si costruisce dai nomi, e sarebbero i
+nomi sbagliati), e non si entra in una cartella riciclata: si ripristina.
+
+**Verificato** (con un file della sandbox messo nel cestino e poi filtrato):
+
+| prova | esito |
+|---|---|
+| "Questo PC" aperto dalla riga di comando | due unità, "Questo PC" in briciola e nel titolo della scheda |
+| entrare in un'unità da "Questo PC" | briciola `C: >` |
+| cestino dalla barra laterale | si apre, si chiama "Cestino", colonne Tipo e Data compilate |
+| menu contestuale su un file riciclato | **`Ripristina` verbo `undelete`**, e le nostre voci spente |
+| "Ripristina" eseguito | il file torna nella sandbox col contenuto intatto |
+| filtro attivo, poi F5 | il filtro resta e la lista resta filtrata (§7.28) |
 
 **Quattro costi misurati** (registro: `BOLT_DIAG=1` → `bolt-diag.log`):
 

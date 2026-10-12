@@ -48,6 +48,18 @@ Quindi valgono tutte queste:
 - Se una verifica richiede per forza dati reali, **si chiede**, e si spiega
   perché; non si decide da soli che quella volta è innocua.
 
+### Il cestino, in particolare
+
+Il cestino **è** una cartella di dati personali. Aprirlo per provarlo mostra i
+nomi di quello che è stato buttato da qualcuno, e una cattura li copia. Quindi:
+
+- per provarlo si mette nel cestino **un file della sandbox**, mai un file reale;
+- si restringe la lista col **filtro** a quel file, e solo dopo si fotografa;
+- la verifica di un ripristino si fa **contando i file nella sandbox**, non
+  guardando il cestino;
+- mai una cattura del cestino senza filtro. È già successo il 2026-10-12: due
+  catture, cancellate subito, e la lezione sta in `docs/05`.
+
 ---
 
 ## 1. Cos'è questo progetto
@@ -371,6 +383,7 @@ rettangolo ha bordi continui a qualunque dimensione.
 | `src/shell_icons.*` | icone di sistema → strato 1 |
 | `src/drag_drop.*` | trascinamento OLE: `IDropTarget` sulla finestra, `IDropSource` per portare fuori |
 | `src/diag.*` | registro diagnostico (`BOLT_DIAG=1` → `bolt-diag.log`) |
+| `src/shell_location.*` | le cartelle che non sono percorsi (cestino, Questo PC): enumerazione, nomi, PIDL |
 | `src/shell_new.*` | i modelli del menu "Nuovo": chiavi `ShellNew` del registro, etichette risolte con `SHLoadIndirectString` |
 | `src/shell_sendto.*` | le destinazioni di "Invia a": la cartella SendTo, letta a ogni apertura |
 | `src/shell_preview.*` | anteprime via `IShellItemImageFactory` → strato 2, worker MTA |
@@ -385,7 +398,7 @@ rettangolo ha bordi continui a qualunque dimensione.
 
 - `docs/04-roadmap.md` — le milestone, con le caselle spuntate e i difetti aperti.
 - `docs/05-stato-e-prossimi-passi.md` — dove si è arrivati, cosa resta, le trappole.
-- `docs/02-architettura-ricostruita.md` — l'architettura e i **ventiquattro** difetti
+- `docs/02-architettura-ricostruita.md` — l'architettura e i **ventotto** difetti
   trovati e risolti, §7.
 - `docs/03-spec-funzionale.md` — la spec ricostruita dall'originale: 1124 chiavi,
   319 comandi, 35 token di tema, 23 colonne.
