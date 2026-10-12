@@ -60,6 +60,21 @@ Ordinato per quanto morde.
 
 ## 3. Prossimi passi candidati
 
+**Tre numeri, che sono tre cose diverse e non vanno confusi.**
+
+- **Trentasette** difetti **trovati e risolti**: il registro è `docs/02` §7, uno per
+  uno, con sintomo, causa e correzione. È un cumulativo, non una lista di lavoro.
+- **Otto** cose **da fare**: la lista qui sotto.
+- I **limiti dichiarati**: cose che si è scelto di non fare, scritte dove vivono con
+  la ragione accanto (il tetto di 1 MB nella lettura dei testi, i modelli `ShellNew`
+  con valore `Command`, le 23 colonne della specifica contro le 6 fatte, il ritaglio
+  per-quad in `AGENTS.md` §8). Ogni volta che nei documenti c'è scritto "dichiarato",
+  vuol dire questo: non risolto, e detto.
+
+Qualche voce dei trentasette porta con sé un residuo dichiarato — §7.34 ha risolto
+l'oggetto dati ma la voce riciclata che non viene presa resta un limite — e il
+conteggio non lo nasconde: il residuo è scritto nella voce stessa.
+
 In ordine di valore, non di facilità.
 
 1. **M9 — configurazione e temi** — **vincolata da `docs/06`**: niente file di
