@@ -298,9 +298,6 @@ struct ContextMenuItem
     std::vector<ContextMenuItem> children;
     HMENU shellSubmenu  = nullptr;   // il sottomenu della shell, non ancora letto
     int   shellPosition = 0;         // dove sta la voce nel menu della shell
-    // La voce viene da un sottomenu della shell, e non dal menu radice: cambia il
-    // modo in cui si esegue. Vedi `InvokeNestedShellCommand`.
-    bool  shellNested   = false;
 };
 
 // Scelta e finestra di un livello del menu. Ce n'e' una per livello aperto.
@@ -3493,7 +3490,7 @@ bool IsShellOwnSubmenuVerb(const wchar_t* verb)
 // nostro elenco. Vale per il menu della selezione, per quello del fondo della
 // cartella, e un livello alla volta per un sottomenu.
 void ReadShellMenu(IContextMenu* shell, HMENU handle, bool folderBackground,
-                   std::vector<ContextMenuItem>* out, int* outSkipped, bool nested = false)
+                   std::vector<ContextMenuItem>* out, int* outSkipped)
 {
         const int count = GetMenuItemCount(handle);
         for (int i = 0; i < count; ++i)
@@ -3533,10 +3530,9 @@ void ReadShellMenu(IContextMenu* shell, HMENU handle, bool folderBackground,
             GetMenuItemInfoW(handle, static_cast<UINT>(i), TRUE, &detailed);
 
             ContextMenuItem item;
-            item.label       = ShellLabelToAscii(text);
-            item.command     = static_cast<int>(basic.wID);
-            item.disabled    = (basic.fState & (MFS_DISABLED | MFS_GRAYED)) != 0;
-            item.shellNested = nested;
+            item.label    = ShellLabelToAscii(text);
+            item.command  = static_cast<int>(basic.wID);
+            item.disabled = (basic.fState & (MFS_DISABLED | MFS_GRAYED)) != 0;
 
             // Un sottomenu si legge **quando si apre**, non adesso: il suo
             // contenuto non esiste prima di WM_INITMENUPOPUP, e chiederlo per
@@ -3915,8 +3911,7 @@ void FillShellSubmenu(AppState& app, ContextMenuItem& item)
 
     int skipped = 0;
     ReadShellMenu(app.contextMenu.shell, item.shellSubmenu,
-                  app.contextMenu.shellIsBackground, &item.children, &skipped,
-                  /*nested=*/true);
+                  app.contextMenu.shellIsBackground, &item.children, &skipped);
     DiagLog("    sottomenu di '" + item.label + "': " + std::to_string(item.children.size()) +
             " voci, " + std::to_string(skipped) + " saltate");
 }
@@ -3993,31 +3988,6 @@ void ContextMenuRaiseLevel(AppState& app)
         CloseSubmenusBelow(app.contextMenu, depth - 1);
 }
 
-// Esegue una voce che viene da un SOTTOMENU della shell.
-//
-// Le strade sono due e non sono intercambiabili. Una voce del menu radice si
-// esegue con `InvokeCommand`. Una voce di un sottomenu appartiene a un gestore
-// che la shell ha messo li' dentro — il menu "Nuovo" e' il caso tipico — e a quel
-// gestore il comando si consegna come `WM_COMMAND`: chiedendo l'esecuzione alla
-// radice si riceve `S_OK` e **non succede niente**, che e' peggio di un errore,
-// perche' sembra riuscito.
-//
-// Restituisce vero se il gestore ha accettato il comando.
-bool InvokeNestedShellCommand(IContextMenu* shell, int command, LRESULT* outResult)
-{
-    *outResult = 0;
-
-    IContextMenu3* menu3 = nullptr;
-    if (FAILED(shell->QueryInterface(IID_IContextMenu3, reinterpret_cast<void**>(&menu3))))
-        return false;
-
-    const HRESULT hr = menu3->HandleMenuMsg2(WM_COMMAND,
-                                             MAKEWPARAM(static_cast<WORD>(command), 0),
-                                             0, outResult);
-    menu3->Release();
-    return SUCCEEDED(hr);
-}
-
 void ContextMenuActivate(AppState& app)
 {
     ContextMenu& menu = app.contextMenu;
@@ -4064,21 +4034,7 @@ void ContextMenuActivate(AppState& app)
         info.lpVerbW = MAKEINTRESOURCEW(static_cast<WORD>(offset));
         info.nShow   = SW_SHOWNORMAL;
 
-        // La strada dipende da dove viene la voce, e sbagliarla non da' un errore:
-        // da' un comando che non fa niente.
-        HRESULT hr = E_FAIL;
-        if (item.shellNested)
-        {
-            LRESULT result = 0;
-            const bool accepted = InvokeNestedShellCommand(shell, item.command, &result);
-            DiagLog("  comando annidato id=" + std::to_string(item.command) +
-                    " accettato=" + (accepted ? std::string("si") : std::string("no")) +
-                    " risultato=" + std::to_string(result));
-            if (accepted)
-                hr = S_OK;
-        }
-        if (hr != S_OK)
-            hr = shell->InvokeCommand(reinterpret_cast<LPCMINVOKECOMMANDINFO>(&info));
+        const HRESULT hr = shell->InvokeCommand(reinterpret_cast<LPCMINVOKECOMMANDINFO>(&info));
         shell->Release();
 
         // Un'azione che fallisce in silenzio e' peggio di una che non parte.
