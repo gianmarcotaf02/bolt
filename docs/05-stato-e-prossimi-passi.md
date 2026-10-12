@@ -25,7 +25,7 @@ contenuto), **`Invia a >`** (destinazioni della cartella SendTo, eseguite lascia
 cadere sopra la selezione), **drag&drop dentro e fuori** con OLE e la **navigazione
 nello spazio dei nomi** col **ripristino dal cestino**. Mancano il trascinamento sul
 riquadro di navigazione e le cartelle riciclate (che si ripristinano, non si aprono) |
-| M8 — inspector | 🟡 metadati (creazione, modifica, accesso, percorso), proprietà `PROPSYS` (dimensioni immagine, file system e spazio dei volumi), conteggio per tipo sulla selezione multipla, anteprima; manca il **visualizzatore di testo** |
+| M8 — inspector | ✅ metadati (creazione, modifica, accesso, percorso), proprietà `PROPSYS` (dimensioni immagine, file system e spazio dei volumi), conteggio per tipo, e il **visualizzatore di testo** (righe, minimap, spazi visibili, andare a capo, ingrandimento, codifica e terminatori). Due voci dichiarate non fatte: zoom dell'anteprima immagine e le due etichette del cestino |
 | M9 — configurazione e temi | ⬜ **vincolata**: niente file di impostazioni, vedi `docs/06` |
 | M10 — backend D3D11 | ⬜ |
 
@@ -59,10 +59,10 @@ Ordinato per quanto morde.
 
 In ordine di valore, non di facilità.
 
-1. **Il visualizzatore di testo dell'inspector** — è il pezzo più grosso che resta
-   di M8: minimap, numeri di riga, spazi visibili, rilevamento della codifica e
-   conteggio righe (`docs/03` §5 elenca le chiavi). Con quello l'inspector è
-   completo.
+1. **M9 — configurazione e temi**, che è la milestone successiva, ma va ripensata:
+   `docs/06` vieta di scrivere impostazioni su disco, quindi i tre file JSON
+   dell'originale non si copiano. Restano i temi e le mappe tasti, tenute **in
+   memoria** e dichiarate per quello che sono.
 2. **Il riquadro di navigazione come destinazione di caduta** — si può lasciare
    cadere su una riga di cartella e sul fondo della lista, non sui collegamenti
    della barra laterale: il meccanismo c'è (`docs/02` §7.22), manca il bersaglio.

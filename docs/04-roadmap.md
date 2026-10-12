@@ -883,17 +883,57 @@ incollato un file al suo interno e essere risaliti mostra `0 | 1 | 5 B`.
 - [x] selezione multipla: conteggio per tipo ("3 Documento di testo, 2 Cartella di
       file, 1 Excel.CSV"), somma delle dimensioni, cartelle e file
 - [x] anteprima del file selezionato nella sua cella grande
-- [ ] **visualizzatore di testo** con minimap, numeri di riga, spazi visibili
-      (`InspectorShowWhitespace`, `InspectorHideLineNumbers`, `InspectorHideMinimap`,
-      `InspectorWordWrap`, `InspectorZoomLevel`, `InspectorHideGrid`)
-- [ ] rilevamento della codifica e conteggio righe
-- [ ] anteprima immagine con **zoom e adattamento** (adesso è la miniatura della
-      shell, non un'immagine ingrandibile)
+- [x] **visualizzatore di testo**: righe con numeri, **minimap** con la parte
+      visibile, **spazi visibili** (un punto per uno spazio, una freccia per una
+      tabulazione), andare a capo, ingrandimento, e la rotella che scorre il testo
+      (con Ctrl lo ingrandisce). `InspectorShowWhitespace`,
+      `InspectorHideLineNumbers`, `InspectorHideMinimap`, `InspectorWordWrap`,
+      `InspectorZoomLevel`
+- [x] rilevamento della codifica (UTF-8, UTF-8 con BOM, UTF-16 LE e BE, ANSI) e
+      conteggio delle righe, con i terminatori (`CRLF`, `LF`, `CR`, `misto`)
+- [ ] anteprima immagine con **zoom e adattamento** — dichiarata non fatta, e la
+      ragione è nel codice: la miniatura della shell vive in una cella da 128 px
+      dell'atlante, quindi ingrandirla mostrerebbe 128 px allargati. Serve una
+      texture sua, cioè una modifica al renderer, non all'inspector
 - [ ] le 20 etichette `PanelInspector_Label*` al completo: mancano percorso
       originale e data di eliminazione, che il cestino dà solo per colonna
 
 *Stima: 3 settimane.* Il rasterizzatore di font proprio dell'originale
 (`WinFontRasterizer.cpp`) resta fuori perimetro: GDI è sufficiente.
+
+### Il visualizzatore di testo — *Ricostruito*
+
+Un file di testo non è una cosa sola: può essere UTF-8 con o senza marcatore, UTF-16
+nei due versi, o "ANSI" — la codifica locale, che qui è latin-1. E può **non essere
+testo affatto**, che è il caso più importante da riconoscere: aprire un eseguibile
+come se fosse prosa riempirebbe il pannello di rumore, e sembrerebbe un difetto
+nostro.
+
+Quindi non si guarda l'estensione, si guarda il **contenuto**: si legge l'inizio del
+file, si decide la codifica (marcatore d'ordine, alternanza dei byte zero per
+l'UTF-16 senza marcatore, validità dell'UTF-8 e ripiego sulla codifica locale), e si
+rifiuta quello che ha più del 2% di caratteri di controllo. Verificato: un `.bin`
+non mostra nessun visualizzatore, e un `.txt` con dentro byte binari non lo
+mostrerebbe nemmeno.
+
+La riga di stato dice le tre cose che si vogliono sapere prima di leggere:
+`UTF-8   10 lines   CRLF`. I terminatori si **contano** e si dicono, perché un file
+con due convenzioni dentro è una cosa che si scopre dopo aprendolo con un editor
+vero — e la prima versione di prova l'ha dimostrato suo malgrado: dichiarava `misto`
+e aveva ragione, perché il file di prova era stato scritto con Python che traduce i
+terminatori da solo.
+
+**Un testo si legge in un carattere a spaziatura fissa**, e i quattro strati
+dell'atlante erano tutti occupati: il quinto è Consolas. Senza, le colonne non si
+allineano e un visualizzatore di testo serve a poco; se Consolas non c'è si ripiega
+sul carattere secondario, e le colonne non si allineano — cosa che vale la pena
+sapere, ed è scritta dove sta la decisione.
+
+Due limiti dichiarati: si legge **un megabyte** (una lettura sincrona più lunga
+bloccherebbe la finestra, e questo non è un editor), e oltre quello la testata lo
+dice. E le righe si impaginano **una volta per misura** — con l'andare a capo acceso
+una riga logica può essere più righe di schermo, e rifarlo a ogni fotogramma su un
+file lungo sarebbe lavoro sprecato.
 
 ### Le proprietà che il file system non dice — *Ricostruito*
 

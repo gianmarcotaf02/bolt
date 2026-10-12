@@ -395,8 +395,8 @@ Tre regole che ne derivano:
 
 ## 8. Architettura in breve
 
-**Un solo array di texture** (1024 px, 4 strati), **un quad batcher**, **una draw
-call per frame**.
+**Un solo array di texture** (1024 px, **5 strati**), **un quad batcher**, **una
+draw call per frame**.
 
 | strato | contenuto |
 |---|---|
@@ -404,6 +404,7 @@ call per frame**.
 | 1 | icone di sistema |
 | 2 | anteprime dei file (cella 128, cache 64) |
 | 3 | glifi secondari, 13 px |
+| 4 | glifi del testo, 14 px a spaziatura fissa (Consolas) |
 
 Le forme sono disegnate da uno shader **SDF** (`src/shaders/ui.frag`), quindi ogni
 rettangolo ha bordi continui a qualunque dimensione.
@@ -418,6 +419,7 @@ rettangolo ha bordi continui a qualunque dimensione.
 | `src/shell_icons.*` | icone di sistema → strato 1 |
 | `src/drag_drop.*` | trascinamento OLE: `IDropTarget` sulla finestra, `IDropSource` per portare fuori |
 | `src/diag.*` | registro diagnostico (`BOLT_DIAG=1` → `bolt-diag.log`) |
+| `src/text_view.*` | decodifica di un file di testo: codifica, righe, terminatori, rifiuto dei binari |
 | `src/shell_location.*` | le cartelle che non sono percorsi (cestino, Questo PC): enumerazione, nomi, PIDL |
 | `src/shell_new.*` | i modelli del menu "Nuovo": chiavi `ShellNew` del registro, etichette risolte con `SHLoadIndirectString` |
 | `src/shell_sendto.*` | le destinazioni di "Invia a": la cartella SendTo, letta a ogni apertura |
