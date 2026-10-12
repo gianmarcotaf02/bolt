@@ -59,14 +59,34 @@ Ordinato per quanto morde.
 
 In ordine di valore, non di facilità.
 
-1. **M9 — configurazione e temi**, che è la milestone successiva, ma va ripensata:
-   `docs/06` vieta di scrivere impostazioni su disco, quindi i tre file JSON
-   dell'originale non si copiano. Restano i temi e le mappe tasti, tenute **in
-   memoria** e dichiarate per quello che sono.
-2. **Il riquadro di navigazione come destinazione di caduta** — si può lasciare
-   cadere su una riga di cartella e sul fondo della lista, non sui collegamenti
-   della barra laterale: il meccanismo c'è (`docs/02` §7.22), manca il bersaglio.
-   Con quello, trascinare qualcosa **sul cestino** diventa il gesto per buttarlo via.
+1. **M9 — configurazione e temi** — **vincolata da `docs/06`**: niente file di
+   impostazioni, tutto in memoria e dichiarato. Restano la mappa tasti sui 319
+   comandi e i 35 token di tema.
+2. **M10 — backend D3D11** — l'ultima milestone del piano; il renderer è già
+   dietro `ui_renderer.*`, quindi è un secondo backend, non una riscrittura.
+3. **Il riquadro di navigazione come destinazione di caduta** — il meccanismo c'è
+   (`docs/02` §7.22), manca il bersaglio. Con quello, trascinare qualcosa sul
+   cestino diventa il gesto per buttarlo via.
+4. **Trascinare fuori dalle cartelle di spazio dei nomi** — oggi è rifiutato con un
+   messaggio e la ragione è scritta (§7.25): l'oggetto dati si costruisce dai nomi.
+   Con i PIDL che ormai si hanno in mano si può fare.
+5. **Colonne ridimensionabili e filtri per colonna** — nel riferimento ci sono
+   entrambi: le intestazioni hanno un'icona di filtro e i bordi si trascinano. Qui
+   le colonne sono frazioni fisse della larghezza.
+6. **Le due voci di M8 dichiarate non fatte**: lo zoom dell'anteprima immagine (la
+   cella dell'atlante è da 128 px, serve una texture sua) e le due etichette del
+   cestino (percorso originale e data di eliminazione: il cestino le dà per colonna,
+   non come proprietà di sistema).
+7. **Il resto di M5c e M5d** — raggruppamento in griglia, `HoverToSelect`,
+   `UnderlineOnHover`, `ShowTooltips`.
+8. **Drag&drop e albero dei tab** (`TabDropMarker_*`, `CloseInTree`).
+9. **Il costo dell'interrogazione della shell** — la prima apertura dopo l'avvio
+   costa ~350 ms e in regime ~65 ms, con **22 handle di kernel** per apertura dentro
+   le estensioni. Da decidere: chiedere la shell su richiesta invece che a ogni
+   tasto destro. Vedi `docs/04-roadmap.md`, sezione M7.
+10. **Spezzare `main.cpp`** — **7.527 righe** e dieci moduli: il confine c'è, ma il
+    file che lo contiene resta il collo di bottiglia dichiarato fin dall'inizio.
+
 3. **Colonne ridimensionabili e filtri per colonna** — nel riferimento ci sono
    entrambi: le intestazioni hanno un'icona di filtro e i bordi si trascinano. Qui
    le colonne sono frazioni fisse della larghezza.
