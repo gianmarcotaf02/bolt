@@ -19,6 +19,7 @@ Ultimo aggiornamento: dopo dragUltimo aggiornamento: dopo "Nuovo file >" e "Invi
 | M5 — filtro, ordinamento, raggruppamento, selezione | ✅ |
 | M5c — modalità di visualizzazione | 🟡 manca il raggruppamento in griglia |
 | M5d — sovrappasso del mouse | 🟡 evidenzia righe e celle; mancano `HoverToSelect`, `UnderlineOnHover`, `ShowTooltips` |
+| M5b — colonne | ✅ ridimensionabili col mouse, con filtri per valore nelle intestazioni |
 | M6 — tab, barra del titolo, palette, GoTo | 🟡 fatti tab, titolo, palette, GoTo, **barra laterale a sezioni** (fissaggi, segnalibri, volumi, cartelle standard) e **pulsanti di navigazione**; mancano drag&drop e albero dei tab |
 | M7 — operazioni su file | 🟡 copia, sposta, rinomina, cestino, clipboard interoperabile, **menu contestuale a più livelli** con Proprietà di Windows, le **voci di primo livello della shell**, il **menu della cartella** sul fondo, i **sottomenu delle estensioni**, **`Nuovo file >`** (tipi dal registro, creazione con
 contenuto), **`Invia a >`** (destinazioni della cartella SendTo, eseguite lasciandoci
@@ -70,19 +71,16 @@ In ordine di valore, non di facilità.
    normali escono davvero, ma una voce **riciclata** non viene presa (la
    destinazione dichiara "copia" e non copia). La causa non è ricostruita: §7.34 di
    `docs/02`. Se non si trova, resta un limite dichiarato.
-4. **Colonne ridimensionabili e filtri per colonna** — nel riferimento ci sono
-   entrambi: le intestazioni hanno un'icona di filtro e i bordi si trascinano. Qui
-   le colonne sono frazioni fisse della larghezza.
-5. **`InspectorHideGrid`** — la sola chiave di M8 che resta senza risposta: cosa sia
+4. **`InspectorHideGrid`** — la sola chiave di M8 che resta senza risposta: cosa sia
    la griglia dell'inspector non è ricostruito, e non si inventa.
-6. **Il resto di M5c e M5d** — raggruppamento in griglia, `HoverToSelect`,
+5. **Il resto di M5c e M5d** — raggruppamento in griglia, `HoverToSelect`,
    `UnderlineOnHover`, `ShowTooltips`.
-7. **Drag&drop e albero dei tab** (`TabDropMarker_*`, `CloseInTree`).
-8. **Il costo dell'interrogazione della shell** — la prima apertura dopo l'avvio
+6. **Drag&drop e albero dei tab** (`TabDropMarker_*`, `CloseInTree`).
+7. **Il costo dell'interrogazione della shell** — la prima apertura dopo l'avvio
    costa ~350 ms e in regime ~65 ms, con **22 handle di kernel** per apertura dentro
    le estensioni. Da decidere: chiedere la shell su richiesta invece che a ogni
    tasto destro. Vedi `docs/04-roadmap.md`, sezione M7.
-9. **Spezzare `main.cpp`** — **7.790 righe** e undici moduli: il confine c'è, ma il
+8. **Spezzare `main.cpp`** — **7.790 righe** e undici moduli: il confine c'è, ma il
    file che lo contiene resta il collo di bottiglia dichiarato fin dall'inizio.
 
 

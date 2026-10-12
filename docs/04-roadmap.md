@@ -394,8 +394,31 @@ ha dato il resto della lista, e vale la pena scrivere cosa si è preso e cosa no
 | pulsanti indietro/avanti/su/aggiorna a sinistra del percorso | fatti, con la stella dei segnalibri in più |
 | il bersaglio di un collegamento accanto al nome, in tono spento | fatto |
 | piè di pagina con posizione, modalità di vista e ingrandimento | fatto; i contatori del motore sono passati dietro `BOLT_DEV_HUD=1` |
-| icone di filtro nelle intestazioni delle colonne | non fatto |
-| colonne ridimensionabili col mouse | non fatto |
+| icone di filtro nelle intestazioni delle colonne | fatte: un imbuto di tre barre, acceso quando la colonna filtra |
+| colonne ridimensionabili col mouse | fatte: si trascina il bordo, il doppio clic lo riporta com'era |
+
+Le due voci sono state chiuse insieme, e le decisioni che non si vedono sono queste:
+
+- **il filtro per colonna è un elenco di valori *tolti*, non di valori tenuti.** Una
+  colonna appena aperta non filtra niente, e questo si legge dalla sua lista vuota
+  senza doverla confrontare con quella dei valori possibili.
+- **i valori si contano all'apertura del pannello e non si riordinano mai.**
+  Togliendone uno le caselle non devono saltare sotto il puntatore. Per la stessa
+  ragione l'ordine è per frequenza decrescente, che non cambia mentre si spunta.
+- **il pannello non si chiude quando si spunta.** Una lista di caselle si spunta a
+  più riprese: è tutto il motivo per cui è una lista e non un interruttore.
+- **la dimensione filtra per fasce** (`< 1 KB`, `< 1 MB`, …): un valore per file non
+  filtra niente. È l'unica colonna che non usa il valore mostrato, ed è dichiarato.
+- **il nome non ha il filtro**: ogni valore è distinto, e un elenco di cento nomi
+  non è un filtro. Il testo libero resta nella casella di sotto, che è un'altra cosa.
+- **larghi e filtri sono della vista, non della scheda** — come le colonne stesse. Il
+  filtro di testo invece è della scheda, e resta dov'era. È una scelta, non una
+  dimenticanza.
+- **i valori sono al massimo 40**: oltre, l'elenco non si legge più. Dichiarato nel
+  codice, dove si taglia.
+- righe e valori arrivano dal componente della palette, quindi il pannello scorre e
+  si filtra da tastiera senza codice nuovo: è il **secondo utilizzatore** che lo ha
+  fatto estrarre, e adesso ne ha un terzo.
 
 **La quarta voce della tabella era un difetto vero, trovato guardando.** Un
 collegamento mostrava `collegamento-prova.lnk` e basta: cosa apre lo sa solo la
