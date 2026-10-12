@@ -2976,9 +2976,6 @@ void CreateNewItem(AppState& app, size_t index)
     // Creare e rinominare sono un'azione sola, come per la cartella: chi crea
     // vuole dare un nome, non guardare un altro "Nuovo documento di testo".
     BeginRename(app);
-    DiagLog("  nuovo file: cursore='" + ShellLabelToAscii(app.cursor) + "' rinomina=" +
-            (app.renameActive ? "si" : "no") + " originale='" +
-            ShellLabelToAscii(app.renameOriginal) + "'");
 }
 
 // --- menu execution ---------------------------------------------------------
@@ -4168,6 +4165,9 @@ void ContextMenuActivate(AppState& app)
         const size_t model = static_cast<size_t>(chosen->command - kNewItemCmdFirst);
         ContextMenuClose(app);
         CreateNewItem(app, model);
+        DiagLog("  nuovo file: cursore='" + ShellLabelToAscii(app.cursor) + "' rinomina=" +
+                (app.renameActive ? "si" : "no") + " originale='" +
+                ShellLabelToAscii(app.renameOriginal) + "'");
         return;
     }
 
