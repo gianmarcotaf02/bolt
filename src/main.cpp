@@ -3842,16 +3842,121 @@ int ShowProperties(HWND owner, const std::vector<std::wstring>& paths)
     return launched;
 }
 
+// Chiede alla shell il contenuto di un sottomenu e lo copia nel nostro albero.
+//
+// Un sottomenu della shell **non ha contenuto** finche' non arriva
+// WM_INITMENUPOPUP: leggerlo prima vuol dire leggere un menu vuoto e concludere
+// che la voce non ha niente dentro. E il messaggio va mandato alla voce giusta,
+// perche' la shell decide COSA popolare in base alla posizione della voce nel
+// menu padre — "Invia a" di un file non e' quello di una cartella.
+void FillShellSubmenu(AppState& app, ContextMenuItem& item)
+{
+    if (item.shellSubmenu == nullptr || !item.children.empty())
+        return;
+    if (app.contextMenu.shell == nullptr)
+        return;
+
+    IContextMenu2* menu2 = nullptr;
+    if (SUCCEEDED(app.contextMenu.shell->QueryInterface(IID_IContextMenu2,
+                                                       reinterpret_cast<void**>(&menu2))))
+    {
+        menu2->HandleMenuMsg(WM_INITMENUPOPUP,
+                             reinterpret_cast<WPARAM>(item.shellSubmenu),
+                             static_cast<LPARAM>(item.shellPosition));
+        menu2->Release();
+    }
+
+    int skipped = 0;
+    ReadShellMenu(app.contextMenu.shell, item.shellSubmenu,
+                  app.contextMenu.shellIsBackground, &item.children, &skipped);
+    DiagLog("    sottomenu di '" + item.label + "': " + std::to_string(item.children.size()) +
+            " voci, " + std::to_string(skipped) + " saltate");
+}
+
+// Tiene i livelli da 0 a |depth| compreso e butta via quelli sotto.
+void CloseSubmenusBelow(ContextMenu& menu, int depth)
+{
+    const int wanted = depth + 1;
+    if (static_cast<int>(menu.levels.size()) <= wanted)
+        return;
+    menu.openPath.resize(static_cast<size_t>(depth));
+    menu.levels.resize(static_cast<size_t>(wanted));
+}
+
+// Apre il sottomenu della voce |index| del livello |depth|. Restituisce falso se
+// quella voce un sottomenu non ce l'ha, o se e' rimasto vuoto.
+bool OpenSubmenu(AppState& app, const Layout& layout, int depth, int index)
+{
+    ContextMenu& menu = app.contextMenu;
+    ContextMenuItem* item = LevelItemMutable(menu, depth, index);
+    if (item == nullptr || item->disabled || !HasSubmenu(*item))
+        return false;
+
+    FillShellSubmenu(app, *item);
+    if (item->children.empty())
+    {
+        // Un sottomenu che resta vuoto non si apre: si vedrebbe un pannello vuoto
+        // e non si capirebbe se e' colpa nostra o della shell.
+        DiagLog("  sottomenu vuoto: '" + item->label + "'");
+        return false;
+    }
+
+    menu.openPath.resize(static_cast<size_t>(depth) + 1);
+    menu.openPath[static_cast<size_t>(depth)] = index;
+    menu.levels.resize(static_cast<size_t>(depth) + 2);
+
+    // La scelta cade sulla prima voce eseguibile: subito dopo si sta li' con le
+    // frecce, e un sottomenu aperto senza niente scelto non dice dove si e'.
+    ContextMenuLevel& level = menu.levels.back();
+    level.selected  = -1;
+    level.firstItem = 0;
+
+    const int newDepth = static_cast<int>(menu.openPath.size());
+    const int count = LevelCount(menu, newDepth);
+    for (int i = 0; i < count; ++i)
+    {
+        const ContextMenuItem* child = LevelItem(menu, newDepth, i);
+        if (child != nullptr && !child->separator && !child->disabled)
+        {
+            level.selected = i;
+            break;
+        }
+    }
+    ContextMenuClampWindow(app, layout, newDepth);
+    return true;
+}
+
+// Esc e freccia sinistra: si risale di un livello, e solo dal primo livello si
+// chiude il menu. E' l'unico modo di uscire da un sottomenu senza eseguire
+// niente, ed e' quello che fanno tutti i menu.
+void ContextMenuRaiseLevel(AppState& app, const Layout& layout)
+{
+    const int depth = ActiveDepth(app.contextMenu);
+    if (depth == 0)
+        ContextMenuClose(app);
+    else
+        CloseSubmenusBelow(app.contextMenu, depth - 1);
+}
+
 void ContextMenuActivate(AppState& app)
 {
-    const int index = app.contextMenu.selected;
-    if (index < 0 || index >= static_cast<int>(app.contextMenu.items.size()))
+    ContextMenu& menu = app.contextMenu;
+    const int depth = ActiveDepth(menu);
+    const ContextMenuItem* chosen = LevelItem(menu, depth,
+                                              menu.levels[static_cast<size_t>(depth)].selected);
+    if (chosen == nullptr || chosen->separator || chosen->disabled)
         return;
 
-    const ContextMenuItem item = app.contextMenu.items[static_cast<size_t>(index)];
-    if (item.separator || item.disabled)
+    // Una voce con un sottomenu non esegue niente: lo apre, e ci si lavora
+    // dentro. E' l'Invio che scende, come nei menu di Windows.
+    if (HasSubmenu(*chosen))
+    {
+        OpenSubmenu(app, ComputeLayout(app), depth,
+                    menu.levels[static_cast<size_t>(depth)].selected);
         return;
+    }
 
+    const ContextMenuItem item = *chosen;
     const std::vector<std::wstring> paths = SelectedPaths(app);
 
     // Un id nella banda riservata appartiene alla shell, e l'IContextMenu serve
