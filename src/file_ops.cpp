@@ -390,6 +390,26 @@ Result CreateFolder(HWND owner, const std::wstring& parent, const std::wstring& 
         error);
 }
 
+Result NewItem(HWND owner, const std::wstring& parent, const std::wstring& name,
+               std::vector<std::wstring>* created, std::wstring* error)
+{
+    // Stessa strada di CreateFolder, con gli attributi di un file: il CONTENUTO
+    // non lo decidiamo noi, lo decide il meccanismo `ShellNew` dell'estensione —
+    // il file modello, i byte, o un file vuoto. Il nome definitivo e il "(2)" in
+    // caso di conflitto li sceglie la shell, e il sink ce li riporta.
+    return RunOperation(
+        owner, kBaseFlags, created,
+        [&](IFileOperation* operation, IFileOperationProgressSink* sink) -> HRESULT {
+            ComPtr<IShellItem> folder;
+            HRESULT hr = ShellItemFromPath(parent, &folder);
+            if (FAILED(hr))
+                return hr;
+            return operation->NewItem(folder.Get(), FILE_ATTRIBUTE_NORMAL, name.c_str(),
+                                      nullptr, sink);
+        },
+        error);
+}
+
 // --- clipboard -------------------------------------------------------------
 
 bool SetClipboardFiles(HWND owner, const std::vector<std::wstring>& paths, bool cut)

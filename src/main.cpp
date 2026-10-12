@@ -22,6 +22,7 @@
 #include "gl_loader.h"
 #include "resource.h"
 #include "shell_icons.h"
+#include "shell_new.h"
 #include "shell_preview.h"
 #include "ui_renderer.h"
 
@@ -298,6 +299,10 @@ struct ContextMenuItem
     std::vector<ContextMenuItem> children;
     HMENU shellSubmenu  = nullptr;   // il sottomenu della shell, non ancora letto
     int   shellPosition = 0;         // dove sta la voce nel menu della shell
+    // Un sottomenu nostro che si riempie alla prima apertura: i modelli di
+    // "Nuovo file" stanno nel registro, e leggerli costa qualche centinaio di
+    // aperture di chiave che non si devono pagare a ogni tasto destro.
+    bool  lazyNewFile   = false;
 };
 
 // Scelta e finestra di un livello del menu. Ce n'e' una per livello aperto.
@@ -3075,7 +3080,7 @@ ContextMenuItem* LevelItemMutable(ContextMenu& menu, int depth, int index)
 // tutti a ogni tasto destro costerebbe quanto interrogare la shell dieci volte.
 bool HasSubmenu(const ContextMenuItem& item)
 {
-    return item.shellSubmenu != nullptr || !item.children.empty();
+    return item.shellSubmenu != nullptr || !item.children.empty() || item.lazyNewFile;
 }
 
 int ActiveDepth(const ContextMenu& menu)
@@ -3286,6 +3291,11 @@ void ContextMenuClampWindow(AppState& app, const Layout& layout, int depth,
 // un indice per IContextMenu, fuori e' un nostro CommandId.
 constexpr int kShellCmdFirst = 0x6000;
 constexpr int kShellCmdLast  = 0x6FFF;
+
+// Le voci di "Nuovo file" hanno una banda loro, per lo stesso motivo: l'indice e'
+// la posizione del modello nell'elenco letto dal registro.
+constexpr int kNewItemCmdFirst = 0x7000;
+constexpr int kNewItemCmdLast  = 0x70FF;
 
 // Registro diagnostico spento di default. Serve a LEGGERE cosa la shell offre su
 // questa macchina invece di dedurlo: le voci dipendono dalle estensioni
@@ -3804,6 +3814,17 @@ void BuildContextMenu(AppState& app, float x, float y)
 
     menu.items.push_back({count > 0 ? "Incolla qui" : "Incolla", CmdPaste});
     menu.items.push_back({"Nuova cartella", CmdNewFolder});
+
+    // "Nuovo file": i tipi che Windows sa creare, dal registro. Se il registro non
+    // ne ha nessuno la voce non si mette, perche' un sottomenu vuoto non si spiega.
+    if (!ShellNew::Templates().empty())
+    {
+        ContextMenuItem newFile;
+        newFile.label       = "Nuovo file";
+        newFile.lazyNewFile = true;
+        menu.items.push_back(std::move(newFile));
+    }
+
     menu.items.push_back({"", 0, true});
     menu.items.push_back({"Aggiorna", CmdRefresh});
     menu.items.push_back({"Apri un terminale qui", CmdOpenConsole});
@@ -3885,6 +3906,34 @@ int ShowProperties(HWND owner, const std::vector<std::wstring>& paths)
     return launched;
 }
 
+// --- il menu "Nuovo file", che facciamo noi ---------------------------------
+//
+// La shell il proprio "Nuovo" lo popola in un sottomenu, e i comandi di quel
+// sottomenu non si possono eseguire da qui (vedi `IsShellOwnSubmenuVerb`), quindi
+// il menu "Nuovo file" se lo costruisce Bolt dalle stesse fonti che usa la shell:
+// le chiavi `ShellNew` del registro. Vedi `docs/04-roadmap.md`, sezione M7.
+
+// Riempie il sottomenu coi modelli del registro: un CommandId della banda per
+// ciascuno, che e' la sua posizione nell'elenco.
+void FillNewFileMenu(ContextMenuItem& item)
+{
+    const double started = NowSeconds();
+    const std::vector<ShellNew::Template>& templates = ShellNew::Templates();
+    const double elapsed = (NowSeconds() - started) * 1000.0;
+
+    for (size_t i = 0; i < templates.size(); ++i)
+    {
+        ContextMenuItem entry;
+        entry.label   = ShellLabelToAscii(templates[i].label);
+        entry.command = kNewItemCmdFirst + static_cast<int>(i);
+        item.children.push_back(std::move(entry));
+        DiagLog("    nuovo file: '" + item.children.back().label + "'");
+    }
+
+    DiagLog("  modelli di 'Nuovo file': " + std::to_string(templates.size()) + " voci, " +
+            std::to_string(elapsed) + " ms");
+}
+
 // Chiede alla shell il contenuto di un sottomenu e lo copia nel nostro albero.
 //
 // Un sottomenu della shell **non ha contenuto** finche' non arriva
@@ -3941,6 +3990,9 @@ bool OpenSubmenu(AppState& app, const Layout& layout, int depth, int index)
     if (static_cast<int>(menu.openPath.size()) > depth &&
         menu.openPath[static_cast<size_t>(depth)] == index)
         return true;
+
+    if (item->lazyNewFile && item->children.empty())
+        FillNewFileMenu(*item);
 
     FillShellSubmenu(app, *item);
     if (item->children.empty())
@@ -4003,6 +4055,14 @@ void ContextMenuActivate(AppState& app)
     {
         OpenSubmenu(app, ComputeLayout(app), depth,
                     menu.levels[static_cast<size_t>(depth)].selected);
+        return;
+    }
+
+    // Una voce di "Nuovo file": la posizione nella banda e' l'indice del modello
+    // letto dal registro.
+    if (chosen->command >= kNewItemCmdFirst && chosen->command < kNewItemCmdLast)
+    {
+        CreateNewItem(app, static_cast<size_t>(chosen->command - kNewItemCmdFirst));
         return;
     }
 
