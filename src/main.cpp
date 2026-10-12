@@ -276,6 +276,11 @@ struct GroupMenu
     bool         open      = false;
     bool         detailed  = false;
     bool         dirty     = true;
+    // Dove appoggiarlo. Vuoto: al centro, come la palette. Riempito: sotto
+    // quell'angolo, come il pannello dei valori di una colonna, che deve stare
+    // attaccato all'intestazione da cui e' nato.
+    Rect         anchor{};
+    bool         anchored  = false;
     std::wstring filter;
     std::string  title;
     std::string  placeholder;
@@ -586,7 +591,7 @@ struct AppState
     struct ColumnState
     {
         float                 fraction = 0.0f;
-        std::set<std::wstring> excluded;
+        std::set<std::string> excluded;
     };
     std::array<ColumnState, kColumnCount> columns{};
 
@@ -598,7 +603,8 @@ struct AppState
     // quando e' stato aperto — si ricalcolano all'apertura, non a ogni fotogramma,
     // perche' contarli vuol dire scorrere tutte le voci.
     int                                     columnPanel = -1;
-    std::vector<std::pair<std::wstring, int>> columnPanelValues;
+    std::vector<std::pair<std::string, int>> columnPanelValues;
+    GroupMenu                               columnMenu;
 
     // --- operazioni su file (M7) -------------------------------------------
     //
@@ -1229,6 +1235,82 @@ bool TermMatches(const Entry& entry, const std::wstring& term)
 }
 
 // Space separated terms, all of which must match. An empty filter matches all.
+bool FilterMatch(const Entry& entry, const std::wstring& filter);
+
+// Il valore di una colonna per una voce, **come si vede**: la stessa stringa che
+// disegna la cella. Un filtro che parla una lingua diversa da quella della colonna
+// e' un filtro che non si capisce.
+//
+// La dimensione fa eccezione ed e' dichiarata: un valore per file non filtra
+// niente, quindi li' il valore e' una **fascia** ("< 1 KB"), che e' quello che
+// chiede chi cerca "i file piccoli".
+std::string ColumnValueOf(const AppState& app, const Entry& entry, int column)
+{
+    switch (column)
+    {
+        case 1: return entry.typeText;
+        case 2: return entry.modifiedText.empty() ? std::string("--") : entry.modifiedText;
+        case 3:
+        case 4:
+        {
+            if (!entry.isDirectory || !entry.location.empty())
+                return "--";
+            DirStats stats;
+            if (!app.stats.TryGet(JoinPath(app.directory, entry.wideName), &stats))
+                return "--";
+            return HumanCount(column == 3 ? stats.folders : stats.files);
+        }
+        case 5:
+        {
+            uint64_t bytes = entry.bytes;
+            if (entry.isDirectory)
+            {
+                if (entry.location.empty())
+                {
+                    DirStats stats;
+                    if (!app.stats.TryGet(JoinPath(app.directory, entry.wideName), &stats))
+                        return "--";
+                    bytes = stats.logicalBytes;
+                }
+                else
+                {
+                    return "--";
+                }
+            }
+            if (bytes == 0)
+                return "0 B";
+            if (bytes < 1024ull)
+                return "< 1 KB";
+            if (bytes < 1024ull * 1024ull)
+                return "< 1 MB";
+            if (bytes < 1024ull * 1024ull * 1024ull)
+                return "< 1 GB";
+            return ">= 1 GB";
+        }
+        default: return std::string();
+    }
+}
+
+// Una colonna senza valori tolti non filtra niente, e le colonne si sommano: chi
+// cerca "documenti di testo modificati oggi" toglie valori in due colonne diverse.
+bool ColumnFiltersMatch(const AppState& app, const Entry& entry)
+{
+    for (int i = 0; i < kColumnCount; ++i)
+    {
+        if (app.columns[static_cast<size_t>(i)].excluded.empty())
+            continue;
+        const std::string value = ColumnValueOf(app, entry, i);
+        if (app.columns[static_cast<size_t>(i)].excluded.count(value) != 0)
+            return false;
+    }
+    return true;
+}
+
+bool EntryVisible(const AppState& app, const Entry& entry)
+{
+    return FilterMatch(entry, app.filter) && ColumnFiltersMatch(app, entry);
+}
+
 bool FilterMatch(const Entry& entry, const std::wstring& filter)
 {
     if (filter.empty())
@@ -1391,7 +1473,7 @@ void RebuildView(AppState& app)
     {
         for (int i = 0; i < static_cast<int>(app.entries.size()); ++i)
         {
-            if (FilterMatch(app.entries[static_cast<size_t>(i)], app.filter))
+            if (EntryVisible(app, app.entries[static_cast<size_t>(i)]))
                 app.rows.push_back(Row{false, i, -1});
         }
         app.matchCount = static_cast<int>(app.rows.size());
@@ -1436,7 +1518,7 @@ void RebuildView(AppState& app)
     for (int i = 0; i < static_cast<int>(app.entries.size()); ++i)
     {
         const Entry& entry = app.entries[static_cast<size_t>(i)];
-        if (!FilterMatch(entry, app.filter))
+        if (!EntryVisible(app, entry))
             continue;
 
         uint64_t bytes = entry.isDirectory ? 0 : entry.bytes;
@@ -2295,6 +2377,80 @@ void InitColumns(AppState& app)
         app.columns[i].fraction = kColumns[i].fraction;
 }
 
+void GroupMenuOpen(GroupMenu& menu, std::string title, std::string placeholder,
+                   std::vector<GroupMenuItem> items);
+
+// Il pannello dei valori di una colonna. I valori si contano **all'apertura** e
+// non si riordinano mai: togliendone uno, le caselle non devono saltare sotto il
+// puntatore. Per la stessa ragione l'ordine e' per frequenza decrescente, che non
+// cambia mentre si spunta.
+constexpr int kFilterAllId  = -1;
+constexpr int kFilterNoneId = -2;
+
+void BuildColumnMenu(AppState& app, int column)
+{
+    std::vector<std::pair<std::string, int>> counts;
+    std::unordered_map<std::string, int> index;
+    for (const Entry& entry : app.entries)
+    {
+        const std::string value = ColumnValueOf(app, entry, column);
+        if (value.empty())
+            continue;
+        auto found = index.find(value);
+        if (found == index.end())
+        {
+            index[value] = static_cast<int>(counts.size());
+            counts.push_back({value, 0});
+        }
+        counts[static_cast<size_t>(index[value])].second += 1;
+    }
+
+    std::sort(counts.begin(), counts.end(),
+              [](const std::pair<std::string, int>& a, const std::pair<std::string, int>& b) {
+                  if (a.second != b.second)
+                      return a.second > b.second;
+                  return a.first < b.first;
+              });
+    if (counts.size() > 40)
+        counts.resize(40);   // dichiarato: oltre, l'elenco non si legge piu'
+
+    app.columnPanelValues = std::move(counts);
+    app.columnPanel       = column;
+
+    std::vector<GroupMenuItem> items;
+    items.push_back({"", "Tutti", "", kFilterAllId});
+    items.push_back({"", "Nessuno", "", kFilterNoneId});
+    for (int i = 0; i < static_cast<int>(app.columnPanelValues.size()); ++i)
+    {
+        const std::pair<std::string, int>& value = app.columnPanelValues[static_cast<size_t>(i)];
+        const bool kept = app.columns[static_cast<size_t>(column)].excluded.count(value.first) == 0;
+        items.push_back({"", (kept ? "[x] " : "[ ] ") + value.first,
+                         std::to_string(value.second), i});
+    }
+
+    app.columnMenu.detailed = true;
+    GroupMenuOpen(app.columnMenu, kColumns[column].label, "Type to filter values...",
+                  std::move(items));
+    app.columnMenu.anchored = true;
+}
+
+// Rimette le caselle al loro posto dopo una spunta, senza ricontare e senza
+// riordinare: cambia solo il segno, e i valori restano quelli di quando il
+// pannello si e' aperto.
+void RefreshColumnMenuChecks(AppState& app)
+{
+    if (app.columnPanel < 0)
+        return;
+    for (GroupMenuItem& item : app.columnMenu.items)
+    {
+        if (item.id < 0)
+            continue;
+        const std::pair<std::string, int>& value = app.columnPanelValues[static_cast<size_t>(item.id)];
+        const bool kept = app.columns[static_cast<size_t>(app.columnPanel)].excluded.count(value.first) == 0;
+        item.label = (kept ? "[x] " : "[ ] ") + value.first;
+    }
+}
+
 void DrawHeader(AppState& app, const Layout& layout, float* columnX)
 {
     if (app.viewMode == ViewMode::Tiles || app.viewMode == ViewMode::Icons)
@@ -2339,6 +2495,34 @@ void DrawHeader(AppState& app, const Layout& layout, float* columnX)
         target.kind = ClickTarget::Kind::Column;
         target.index = i;
         app.clickTargets.push_back(target);
+
+        // La linguetta del filtro: tre barre di larghezza decrescente, che e' il
+        // segno che si legge come "imbuto". In colore d'accento quando la colonna
+        // filtra davvero, spenta quando no.
+        if (kColumns[i].filterable)
+        {
+            const float right = layout.header.x + layout.header.w *
+                                (i + 1 < kColumnCount ? app.columns[i + 1].fraction : 1.0f);
+            const float glyphX = right - 16.0f * scale;
+            const float glyphY = layout.header.y + layout.header.h * 0.5f;
+            const bool  filtered = !app.columns[static_cast<size_t>(i)].excluded.empty();
+            const Color ink = filtered ? t.accent : t.textDim;
+            const float widths[3] = {8.0f, 5.5f, 3.0f};
+            for (int bar = 0; bar < 3; ++bar)
+            {
+                const float w = widths[bar] * scale;
+                r.FillRect(Rect{glyphX + (8.0f * scale - w) * 0.5f,
+                                glyphY - 4.0f * scale + bar * 3.0f * scale, w, 1.5f * scale},
+                           ink, 0.5f * scale);
+            }
+
+            ClickTarget filterTarget;
+            filterTarget.rect  = Rect{glyphX - 3.0f * scale, layout.header.y, 16.0f * scale,
+                                      layout.header.h};
+            filterTarget.kind  = ClickTarget::Kind::ColumnFilter;
+            filterTarget.index = i;
+            app.clickTargets.push_back(filterTarget);
+        }
 
         // Il bordo, che si trascina. Sta a **sinistra** del nome della colonna: cosi'
         // il clic sul nome resta un clic per ordinare, e la striscia di presa non
@@ -4517,6 +4701,26 @@ Rect GroupMenuPanel(const AppState& app, const Layout& layout)
     return Rect{(static_cast<float>(app.viewportWidth) - width) * 0.5f, 70.0f * scale, width, height};
 }
 
+// Il pannello dei valori di una colonna: piu' stretto degli altri, appoggiato sotto
+// l'intestazione e alto quanto basta ai suoi valori, invece di 420 px di vuoto.
+Rect ColumnMenuPanel(const AppState& app, const Layout& layout, const GroupMenu& menu)
+{
+    const float scale = layout.scale;
+    const float width = 260.0f * scale;
+    const float wanted = 84.0f * scale + static_cast<float>(menu.rows.size()) * layout.rowHeight;
+    const float room = static_cast<float>(app.viewportHeight) - menu.anchor.bottom() - 20.0f * scale;
+    const float height = (std::min)((std::min)(520.0f * scale, wanted), (std::max)(160.0f * scale, room));
+    float x = menu.anchor.x;
+    if (x + width > static_cast<float>(app.viewportWidth) - 10.0f * scale)
+        x = static_cast<float>(app.viewportWidth) - width - 10.0f * scale;
+    return Rect{x, menu.anchor.bottom() + 2.0f * scale, width, height};
+}
+
+Rect MenuPanel(const AppState& app, const Layout& layout, const GroupMenu& menu)
+{
+    return menu.anchored ? ColumnMenuPanel(app, layout, menu) : GroupMenuPanel(app, layout);
+}
+
 // --- menu contestuale: geometria, disegno, interazione ----------------------
 void ActivateSelection(AppState& app);
 
@@ -5974,7 +6178,7 @@ void GroupMenuDraw(AppState& app, const Layout& layout, GroupMenu& menu)
     UIRenderer& r = app.renderer;
     const Theme& t = app.theme;
     const float scale = layout.scale;
-    const Rect panel = GroupMenuPanel(app, layout);
+    const Rect panel = MenuPanel(app, layout, menu);
 
     r.FillRect(Rect{0.0f, 0.0f, static_cast<float>(app.viewportWidth),
                     static_cast<float>(app.viewportHeight)}, Color{0.0f, 0.0f, 0.0f, 0.45f});
@@ -6175,7 +6379,7 @@ MenuAction GroupMenuClick(const AppState& app, const Layout& layout, GroupMenu& 
     }
 
     // Inside the panel but not on a row: swallow the click. Outside it, close.
-    return GroupMenuPanel(app, layout).Contains(x, y) ? MenuAction::None : MenuAction::Close;
+    return MenuPanel(app, layout, menu).Contains(x, y) ? MenuAction::None : MenuAction::Close;
 }
 
 std::wstring ParentOf(const std::wstring& path)
