@@ -240,9 +240,6 @@ private:
         return S_OK;
     }
 
-private:
-    ~DropTarget() = default;
-
     std::atomic<ULONG> references{1};
     HWND               window;
     std::vector<std::wstring> sources;   // lette in DragEnter, valgono per tutto il gesto
