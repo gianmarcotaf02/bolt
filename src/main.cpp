@@ -1172,16 +1172,22 @@ void UpdateWindowTitle(AppState& app)
 void LoadDirectory(AppState& app, const std::wstring& directory, bool recordHistory = true)
 {
     const std::wstring normalised = directory.empty() ? L"" : directory;
+    // Il filtro non segue l'utente in un'altra cartella — un filtro rimasto da un
+    // altro elenco sembrerebbe una cartella vuota — ma **ricaricare la stessa
+    // cartella non e' cambiare cartella**: premere F5 non deve svuotare la casella
+    // del filtro, che sta sotto gli occhi ed e' una cosa che l'utente ha scritto.
+    const bool sameFolder = (normalised == app.directory);
+
     app.entries = ReadDirectory(normalised, &app.errorText);
     app.directory = normalised;
     app.previews.CancelPending();
     app.stats.CancelQueued();
 
-    // The filter does not follow the user into another folder: a filter left over
-    // from a different listing would look like a missing directory. FilterSticky
-    // exists in the reference key table; this is the non-sticky default.
-    app.filter.clear();
-    app.filterActive = false;
+    if (!sameFolder)
+    {
+        app.filter.clear();
+        app.filterActive = false;
+    }
 
     app.scroll = 0.0f;
     app.selection.clear();
