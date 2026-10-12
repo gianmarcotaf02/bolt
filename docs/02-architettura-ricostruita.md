@@ -827,3 +827,56 @@ voce** e contando i byte che ne escono. È la seconda volta che il tema si prese
 e la lezione è la stessa: per la shell, "ho eseguito il comando" e "è successo
 qualcosa" sono due cose diverse, e l'unica delle due che si può verificare è la
 seconda.
+
+### 7.23 L'esito che non è quello che viene restituito
+
+Trascinare un file da Bolt a Esplora risorse: il file **si sposta davvero**, e la
+lista di Bolt continua a mostrarlo. Un file che non c'è più, in una lista che dice
+che c'è: premuto subito dopo, il tasto Canc cancella l'originale.
+
+La causa, letta nel registro diagnostico invece che ragionata:
+
+```
+trascinamento in uscita: 1 percorsi, effetto restituito 0, esito dichiarato 2
+```
+
+`0` è `DROPEFFECT_NONE`, `2` è `DROPEFFECT_MOVE`. La destinazione ha compiuto lo
+spostamento, l'ha **dichiarato**, e ha restituito un effetto diverso da quello che
+aveva fatto. Chi guarda solo il valore di ritorno di `DoDragDrop` conclude che non
+è successo niente, e non ricarica la vista.
+
+L'esito vero sta nell'oggetto dati, nel formato `CFSTR_PERFORMEDDROPEFFECT`: un
+`DWORD` in memoria globale che la destinazione scrive per dire cosa ha fatto
+davvero. Il valore di ritorno e quel formato sono due cose diverse, e **nessuna
+delle due è superflua**: il primo dice cosa la destinazione ha accettato, il
+secondo cosa ha concluso.
+
+La correzione è leggerli tutti e due e unirli: se una delle due dice
+"spostamento", i file non sono più dove stavano. Verificato: dopo la correzione
+la lista si rifà da sola, senza premere F5.
+
+**Il difetto non si vede scrivendo il codice**, perché il codice fa la cosa
+documentata: `DoDragDrop` restituisce l'effetto, e l'effetto sembra la risposta.
+Si vede solo **guardando la finestra dopo il gesto**, che è esattamente il genere
+di verifica che un test automatico ben scritto salterebbe.
+
+### 7.24 Il gesto vietato che lasciava un file in più
+
+Trascinare un file sul fondo della cartella dove è già non deve fare niente: è il
+caso in cui `DragOver` risponde `DROPEFFECT_NONE`, e il puntatore lo dice
+smettendo di promettere qualcosa.
+
+La prima versione di `Drop` però ricalcolava l'operazione dai tasti premuti invece
+di guardare cosa era stato promesso. Con l'effetto vietato (`NONE`) il calcolo
+diceva "copia" — e al rilascio il file veniva **duplicato**: un gesto che il
+puntatore aveva dichiarato impossibile produceva `nota (2).txt`.
+
+Adesso `Drop` guarda l'effetto negoziato e, se è `NONE`, non fa niente. Verificato:
+trascinando un file sul fondo della propria cartella la cartella resta identica, e
+il registro scrive `esito dichiarato 0`.
+
+Questo non è stato trovato provando: è stato trovato **rileggendo il proprio
+codice prima di provarlo**, ed è il motivo per cui il caso "rifiutato" è nella
+lista delle prove invece di essere un caso che non si prova mai. Le prove servono
+a trovare quello che non si sa; leggere serve a trovare quello che si è appena
+scritto.
