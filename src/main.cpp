@@ -21,6 +21,7 @@
 #include "drag_drop.h"
 #include "file_ops.h"
 #include "font_atlas.h"
+#include "image_preview.h"
 #include "gl_loader.h"
 #include "resource.h"
 #include "shell_icons.h"
@@ -80,6 +81,12 @@ constexpr int kSmallGlyphLayer = 3;
 // visualizzatore e' spesso proprio l'allineamento. E' il quinto strato: i primi
 // quattro non bastavano.
 constexpr int kMonoLayer = 4;
+// Un'immagine intera, per l'anteprima grande dell'inspector: la miniatura della
+// shell vive in una cella da 128 px e ingrandirla mostrerebbe 128 px allargati. E'
+// un sesto strato dell'array, cosi' si disegna con lo stesso shader delle altre cose
+// e non serve ne' un secondo campionatore ne' un ramo nel frammento.
+constexpr int kBigImageLayer = 5;
+constexpr int kBigImageSide  = 1024;
 
 // --- theme -----------------------------------------------------------------
 struct Theme
@@ -225,7 +232,7 @@ enum CommandId
     CmdGoTo,
     CmdToggleSidebar, CmdZoomIn, CmdZoomOut, CmdZoomReset, CmdToggleDetails,
     CmdTextWhitespace, CmdTextLineNumbers, CmdTextMinimap, CmdTextWrap, CmdTextZoomIn,
-    CmdTextZoomOut,
+    CmdTextZoomOut, CmdImageZoomIn, CmdImageZoomOut, CmdImageZoomFit,
     CmdViewDetails, CmdViewList, CmdViewTiles, CmdViewIcons,
     CmdSortName, CmdSortType, CmdSortModified, CmdSortFolders, CmdSortFiles,
     CmdSortSize, CmdSortDirection,
@@ -468,6 +475,15 @@ struct AppState
     // puntatore e' sopra il testo o sopra la lista, e il rettangolo lo conosce solo il
     // disegno.
     Rect  textViewerRect{};
+
+    // --- anteprima grande (M8) ----------------------------------------------
+    //
+    // L'immagine decodificata per la voce scelta, caricata nello strato suo. Si
+    // ricarica solo quando cambia la voce, e si tiene in memoria quanto la selezione.
+    ImagePreview::Image bigImage;
+    std::wstring        bigImagePath;
+    bool                bigImageUploaded = false;
+    float               imageZoom = 1.0f;   // 1 = adattata alla larghezza del pannello
     std::vector<TextRow> textRows;
     bool  textRowsDirty = true;
     float textRowsWidth = 0.0f;
@@ -3424,6 +3440,9 @@ const CommandDef kCommandTable[] = {
     {"Inspector", "Text: toggle word wrap",      CmdTextWrap},
     {"Inspector", "Text: zoom in",               CmdTextZoomIn},
     {"Inspector", "Text: zoom out",              CmdTextZoomOut},
+    {"Inspector", "Image: zoom in",              CmdImageZoomIn},
+    {"Inspector", "Image: zoom out",             CmdImageZoomOut},
+    {"Inspector", "Image: fit to panel",         CmdImageZoomFit},
     {"View",    "Zoom out",                    CmdZoomOut},
     {"View",    "Reset zoom",                  CmdZoomReset},
     {"View",    "Toggle command details",      CmdToggleDetails},
@@ -4241,6 +4260,13 @@ void RunCommand(AppState& app, int command)
             app.textZoom = (std::max)(0.6f, app.textZoom - 0.15f);
             app.textRowsDirty = true;
             break;
+
+        // L'ingrandimento dell'anteprima e' **relativo all'adattamento**: il
+        // decoder la ridimensiona a 1024 px al massimo, quindi "1:1 rispetto
+        // all'originale" non e' una cosa che si possa promettere.
+        case CmdImageZoomIn:  app.imageZoom = (std::min)(4.0f, app.imageZoom + 0.25f); break;
+        case CmdImageZoomOut: app.imageZoom = (std::max)(0.25f, app.imageZoom - 0.25f); break;
+        case CmdImageZoomFit: app.imageZoom = 1.0f; break;
         case CmdZoomOut:   app.zoom = (std::max)(0.6f, app.zoom - 0.1f); break;
         case CmdZoomReset: app.zoom = app.dpiScale; break;
         case CmdToggleDetails: app.palette.detailed = !app.palette.detailed; break;
@@ -7404,8 +7430,9 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, LPWSTR, int)
     constexpr int kPreviewCellSize  = 128;
     constexpr int kPreviewCapacity  = 64;
 
-    // Cinque strati: i quattro di sempre piu' quello del carattere a spaziatura fissa.
-    if (!app.renderer.CreateTextureArray(/*layers=*/5, kTextureLayerSize, &error))
+    // Sei strati: i quattro di sempre, il carattere a spaziatura fissa e l'immagine
+    // dell'anteprima grande.
+    if (!app.renderer.CreateTextureArray(/*layers=*/6, kTextureLayerSize, &error))
     {
         ShowError(error);
         return 1;

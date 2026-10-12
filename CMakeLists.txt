@@ -21,6 +21,8 @@ add_executable(Bolt WIN32
     src/ui_renderer.h
     src/font_atlas.cpp
     src/font_atlas.h
+    src/image_preview.cpp
+    src/image_preview.h
     src/shell_icons.cpp
     src/shell_icons.h
     src/shell_location.cpp
@@ -67,7 +69,10 @@ target_compile_definitions(Bolt PRIVATE
 # propsys reads the shell's property values (VariantToUInt64, VariantToFileTime):
 # namespace folders like the recycle bin have no file attributes to read, and their
 # size and date come from IShellFolder2::GetDetailsEx as PROPVARIANTs.
-target_link_libraries(Bolt PRIVATE opengl32 gdi32 user32 shell32 ole32 uuid shlwapi dwmapi propsys)
+# windowscodecs decodes the image for the inspector's large preview (WIC): the shell
+# thumbnail is 128 px, and its own decoder is the one that knows every format
+# Windows can open.
+target_link_libraries(Bolt PRIVATE opengl32 gdi32 user32 shell32 ole32 uuid shlwapi dwmapi propsys windowscodecs)
 
 if(MSVC)
     target_compile_options(Bolt PRIVATE /W4 /permissive- /utf-8)
