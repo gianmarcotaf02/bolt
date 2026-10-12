@@ -789,6 +789,36 @@ std::string FitText(const FontAtlas& font, const std::string& text, float scale,
     return truncated + ellipsis;
 }
 
+// Come FitText, ma taglia **davanti**: per un percorso la parte che identifica e' la
+// coda, e "...\sandbox\relazione.txt" si legge meglio di "...\Progetti\Antigravity\...".
+std::string FitTextTail(const FontAtlas& font, const std::string& text, float scale, float maxWidth)
+{
+    if (maxWidth <= 0.0f || text.empty() || font.Measure(text, scale) <= maxWidth)
+        return text;
+
+    const std::string ellipsis = "...";
+    const float ellipsisWidth = font.Measure(ellipsis, scale);
+
+    // Si parte dal fondo e si cammina all'indietro, un carattere alla volta: cosi'
+    // il taglio cade fra due caratteri e non a meta' di una sequenza UTF-8.
+    std::vector<size_t> starts;
+    for (size_t i = 0; i < text.size(); i = Utf8::Next(text, i))
+        starts.push_back(i);
+
+    float width = 0.0f;
+    size_t keepFrom = text.size();
+    for (size_t i = starts.size(); i > 0; --i)
+    {
+        const size_t index = starts[i - 1];
+        const float advance = font.MeasureOne(Utf8::At(text, index, nullptr), scale);
+        if (width + advance + ellipsisWidth > maxWidth)
+            break;
+        width += advance;
+        keepFrom = index;
+    }
+    return ellipsis + text.substr(keepFrom);
+}
+
 // Shell type name for an extension, cached: "PNG image" reads better than "PNG file".
 std::string ShellTypeName(const std::string& extension, bool isDirectory)
 {
@@ -2724,8 +2754,34 @@ void DrawInspector(AppState& app, const Layout& layout)
 
         const std::string breakdown =
             std::to_string(files) + " files, " + std::to_string(folders) + " folders";
+        // Che tipi sono: "3 Documento di testo, 2 Cartella di file". Il conteggio
+        // per tipo e' quello che dice cosa si sta per spostare o cancellare, e
+        // l'inspector e' l'unico posto dove c'e' spazio per dirlo.
+        std::unordered_map<std::string, int> byType;
+        for (const std::wstring& name : app.selection)
+        {
+            const int index = FindEntryByName(app, name);
+            if (index >= 0)
+                ++byType[app.entries[static_cast<size_t>(index)].typeText];
+        }
+        std::vector<std::pair<std::string, int>> types(byType.begin(), byType.end());
+        std::sort(types.begin(), types.end(),
+                  [](const std::pair<std::string, int>& a, const std::pair<std::string, int>& b) {
+                      return a.second > b.second;
+                  });
+        std::string typeList;
+        for (size_t i = 0; i < types.size() && i < 3; ++i)
+        {
+            if (!typeList.empty())
+                typeList += ", ";
+            typeList += std::to_string(types[i].second) + " " + types[i].first;
+        }
+        if (types.size() > 3)
+            typeList += ", ...";
+
         const std::pair<const char*, std::string> summary[] = {
             {"Items", breakdown},
+            {"Types", typeList},
             {"Size", HumanBytes(totalBytes)},
         };
         for (const auto& item : summary)
@@ -2801,14 +2857,62 @@ void DrawInspector(AppState& app, const Layout& layout)
     {
         rows.push_back({"Size", entry.sizeText, false});
     }
+    // Le date che il file system da' e che non si vedevano: la creazione e l'ultimo
+    // accesso. Un tempo a zero non e' il 1601, e' "non lo so": la riga non si mette.
+    const auto dated = [](const FILETIME& time) {
+        return time.dwLowDateTime != 0 || time.dwHighDateTime != 0;
+    };
+    if (dated(entry.created))
+        rows.push_back({"Created", FormatFileTime(entry.created, /*withTime=*/true), false});
     rows.push_back({"Modified", entry.modifiedFull, false});
+    if (dated(entry.accessed))
+        rows.push_back({"Accessed", FormatFileTime(entry.accessed, /*withTime=*/true), false});
+
+    // Le proprieta' che il file system non dice: le dimensioni di un'immagine le sa
+    // il gestore di quel tipo, e le risponde la shell.
+    const std::wstring full = EntryLocation(app, entry);
+    const FileProperties& properties = PropertiesOf(app, full);
+    if (properties.imageWidth > 0 && properties.imageHeight > 0)
+    {
+        rows.push_back({"Image", std::to_string(properties.imageWidth) + " x " +
+                                     std::to_string(properties.imageHeight) + " px",
+                        false});
+    }
+
+    // Un volume: il file system e lo spazio. Sono proprieta' del volume, non del
+    // file che ci sta sopra, e si chiedono al sistema.
+    const VolumeInfo volume = VolumeOf(full);
+    if (volume.isVolume)
+    {
+        if (!volume.fileSystem.empty())
+            rows.push_back({"System", volume.fileSystem, false});
+        if (!volume.freeText.empty())
+        {
+            char free[96];
+            std::snprintf(free, sizeof(free), "%s free of %s (%d%%)",
+                          volume.freeText.c_str(), volume.totalText.c_str(),
+                          static_cast<int>(volume.usedFraction * 100.0f));
+            rows.push_back({"Space", free, false});
+        }
+    }
+
+    // Il percorso: e' la riga che si copia, e l'unica che dice *dove* si sta
+    // guardando. Si taglia davanti.
+    rows.push_back({"Path", ToUtf8(full), false});
+
     rows.push_back({"Ext", entry.extension.empty() ? "—" : entry.extension, false});
 
     for (const Row& row : rows)
     {
         app.smallFont.Draw(r, layout.inspector.x + 14.0f * scale, y, row.label, t.textDim, scale);
         const float valueX = layout.inspector.x + 96.0f * scale;
-        app.smallFont.Draw(r, valueX, y, row.value, t.text, scale);
+        const float valueMax = layout.inspector.right() - valueX - 14.0f * scale;
+        // Un percorso si taglia davanti, tutto il resto dietro: le due cose che si
+        // vogliono sapere sono "dove finisce" e "cosa c'e' scritto".
+        const std::string shown = (_stricmp(row.label, "Path") == 0)
+                                      ? FitTextTail(app.smallFont, row.value, scale, valueMax)
+                                      : FitText(app.smallFont, row.value, scale, valueMax);
+        app.smallFont.Draw(r, valueX, y, shown, t.text, scale);
         if (row.growing)
         {
             const float width = app.smallFont.Measure(row.value, scale);
