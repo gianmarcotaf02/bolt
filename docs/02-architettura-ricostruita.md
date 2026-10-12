@@ -1098,3 +1098,43 @@ mostra più quando non ha niente da dire.
 
 **La regola che ne esce**: un carattere non-ASCII si scrive nel codice **solo** se
 sta nell'insieme rasterizzato. Altrimenti resta un buco, e un buco non fa rumore.
+
+### 7.33 La destinazione non e' sempre una cartella
+
+Il riquadro di navigazione e' diventato una destinazione di caduta, e la prima
+versione del codice trattava ogni voce come una cartella dove mettere dentro: nome
+del bersaglio, effetto copia o sposta, `IFileOperation`. Sulle cartelle funziona, e
+sul **cestino** era sbagliato due volte:
+
+- una copia nel cestino non vuol dire niente — il cestino non e' un posto dove si
+  tiene una cosa, e' il gesto di disfarsene;
+- con **Ctrl** premuto l'effetto sarebbe stato "copia", cioe' il file restava dov'e'
+  e ne compariva un secondo dentro il cestino.
+
+La correzione non e' un caso speciale dentro `Drop`: la destinazione ha un **verbo**.
+`DragDrop::TargetAt` restituisce un `Target` con `DropVerb::DropInto` o
+`DropVerb::Discard`, piu' il percorso; `Effect`, `Highlight` e `Drop` decidono in
+base a quello, e per `Discard` i modificatori non si guardano nemmeno. Un'unita'
+intera rifiuta di farsi buttare via, e lo dice subito: un effetto promesso e non
+mantenuto e' peggio di un gesto rifiutato, che e' la lezione di §7.24.
+
+Il bersaglio non si ricalcola a mano: le righe del riquadro sono gia' bersagli di
+clic, quindi la geometria la sa `HitTest` — l'evidenziazione diventa un indice, non
+un confronto di percorsi (due voci possono puntare alla stessa cartella, e quella
+accesa e' quella **sotto il puntatore**).
+
+**Difetto trovato mentre si verificava.** Un annullamento di `IFileOperation` usciva
+in silenzio: `DragDrop::Drop` faceva `if (result == Cancelled) return;` e non
+scriveva niente, da nessuna parte. Un gesto che finisce senza dire niente e'
+indistinguibile da un difetto, e infatti la prima diagnosi e' stata sbagliata: il
+messaggio di stato di un'altra prova, letto trenta secondi dopo, non dimostrava
+niente, mentre il registro diagnostico — che non esisteva — avrebbe risposto in una
+riga. Adesso l'annullamento si dice a schermo ("Operazione annullata"), e ogni
+caduta scrive nel registro cosa ha fatto, quanti elementi e — quando serve — perche'
+non e' riuscita.
+
+Vale anche per l'**incolla**: una volta ne e' partito uno senza che si riuscisse a
+capire da quale gesto, e l'unica traccia era un messaggio che dura quattro secondi.
+La riga di registro adesso c'e'. Il caso resta aperto e dichiarato: l'effetto e'
+stato nullo (il percorso nella clipboard non esisteva piu'), ma la causa non e'
+ricostruita.

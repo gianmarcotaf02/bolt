@@ -531,6 +531,11 @@ a gruppi, invece di scriverne tre.
       Bolt in un'altra finestra, Ctrl copia / Shift sposta / stesso volume sposta,
       destinazione tratteggiata durante il gesto, e i casi vietati che non fanno
       niente invece di fare qualcosa di sbagliato (§7.23 e §7.24 di `docs/02`)
+- [x] **trascinare sul riquadro di navigazione**: le sue righe sono bersagli come
+      le altre, quindi `TargetAt` chiede la geometria a `HitTest` invece di
+      rifarla. E la destinazione non è sempre una cartella: sul **cestino** il verbo
+      è *buttare via*, non *mettere dentro* — non si copia nel cestino, e Ctrl non
+      trasforma il gesto in una copia. Vedi §7.33 di `docs/02`
 - [x] **navigazione nello spazio dei nomi** e **ripristino dal cestino**: il
       cestino è un collegamento nella barra laterale, si apre come una cartella,
       e "Ripristina" è il verbo della shell sulla voce — che esiste solo se alla
