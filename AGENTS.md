@@ -84,6 +84,52 @@ Conseguenze pratiche:
 
 ---
 
+## 2-bis. La mappa prima del territorio — interroga il grafo, non il sorgente
+
+`graphify-out/graph.json` è la **mappa compilata del repository**: nodi (simboli,
+concetti, documenti), archi (chi chiama chi, chi referenzia cosa) e comunità. È un
+artefatto derivato: si rigenera, non si scrive a mano.
+
+**Prima di aprire un file, prima di `rg`, prima di decidere dove mettere le mani:
+interroga il grafo.**
+
+```bash
+graphify query "chi decide il layout della lista?"     # contesto ampio
+graphify query "..." --dfs                             # traccia un percorso
+(graphify path "AppState" "UIRenderer")                # cammino più breve
+graphify explain "GroupMenu"                           # spiegazione di un nodo
+```
+
+Se il grafo manca o è vecchio:
+
+```bash
+graphify .            # prima volta: ricostruzione completa
+graphify . --update   # solo i file nuovi o cambiati
+```
+
+### Perché
+
+- `src/main.cpp` è **~4.300 righe**. Leggerlo per intero per rispondere a «dove sta
+  X?» costa decine di migliaia di token e dà comunque una vista parziale.
+- Il grafo contiene già gli archi che una lettura per file non mostra: `AppState`
+  tocca 154 nodi e collega 23 comunità, `WindowProc()` ne collega 51. Quelle
+  relazioni non si vedono restando dentro un file.
+- Un nodo ad alta **betweenness** (`AppState`, 0.277) dice dove passa tutto: è lì
+  che una modifica costa di più, e va saputo **prima** di toccare.
+
+### Quanto vale e quanto non vale
+
+- Il grafo è una **derivazione**, non una fonte. Se un dettaglio conta per una
+  decisione, **confermalo sul sorgente**: vedi §2, che vale anche qui.
+- Il grafo è **vecchio appena modifichi un file**. Dopo una modifica sostanziale:
+  `--update`, o non fidarti delle risposte.
+- Un file che l'estrattore non riesce a leggere **non è nel grafo**: l'assenza di un
+  nodo è un'ipotesi, non la prova che il simbolo non esista.
+- L'interprete usato da graphify è scritto in `graphify-out/.graphify_python`:
+  serve per i comandi inline.
+
+---
+
 ## 3. Lingua
 
 - **Commenti, documentazione e messaggi di commit in italiano.**
@@ -278,6 +324,8 @@ rettangolo ha bordi continui a qualunque dimensione.
   trovati e risolti, §7.
 - `docs/03-spec-funzionale.md` — la spec ricostruita dall'originale: 1124 chiavi,
   319 comandi, 35 token di tema, 23 colonne.
+- `graphify-out/graph.json` — la **mappa** del repository (nodi, archi, comunità):
+  si interroga invece di leggere i file. Vedi §2-bis.
 
 ---
 
@@ -295,6 +343,9 @@ rettangolo ha bordi continui a qualunque dimensione.
 - **Non dichiarare fatto ciò che non hai visto.** Vedi §2.
 - **Non lasciare warning** nella build.
 - **Non aggiungere dipendenze** senza una ragione che stia in piedi da sola.
+- **Non ricostruire a mano la mappa del codice** leggendo i file uno per uno quando
+  il grafo può rispondere: vedi §2-bis. Una query costa poco, una lettura costa
+  migliaia di token.
 - **Non aprire nuove sessioni di refactoring largo** senza spazio per riverificare
   tutto: `main.cpp` a 4.300 righe è un problema noto e rimandato, non una scoperta.
 
