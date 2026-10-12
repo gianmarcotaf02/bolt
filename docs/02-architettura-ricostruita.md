@@ -979,3 +979,73 @@ Le due lezioni stanno insieme, e la seconda è più grande della prima: **una
 cattura è una copia di quello che sta sotto gli occhi, e va guardata come tale**.
 Per il cestino, da adesso, la verifica si fa contando — e le catture si fanno solo
 dopo aver ristretto la lista a un file proprio.
+
+### 7.29 I nomi con l'accento erano pieni di buchi
+
+Nell'elenco comparivano `perch .txt` e `relazione pi recente.txt`. Non un carattere
+sbagliato: un **buco** dove c'era la lettera accentata. I file sul disco si
+chiamavano `perché.txt` e `relazione più recente.txt`.
+
+L'atlante dei glifi rasterizzava `kFirstChar = 32 … kLastChar = 126`, cioè
+l'ASCII stampabile, e la ricerca era `c - kFirstChar`: un array denso di 95 celle.
+Un carattere accentato in UTF-8 sono **due byte**, e nessuno dei due stava in
+quell'intervallo, quindi non si disegnava né l'uno né l'altro. In un file manager
+italiano questo non è un caso di laboratorio: è il nome di metà dei documenti.
+
+Tre cose sono cambiate insieme, perché una sola non bastava:
+
+1. **l'atlante** rasterizza ASCII **più il blocco latino-1** (U+00A0–U+00FF: sono
+   96 caratteri, una manciata di celle) più un elenco corto di simboli che
+   l'interfaccia disegna — le frecce della barra strumenti, la stella dei
+   segnalibri, i puntini di sospensione. La chiave del dizionario non è più il byte
+   ma il **punto di codice**;
+2. **il testo si legge in UTF-8**: `Measure` e `Draw` avanzano di carattere in
+   carattere, non di byte in byte (`Utf8::Length`, `Utf8::Next`, `Utf8::At`);
+3. **la troncatura taglia fra i caratteri**, mai dentro: `FitText` avanzava di un
+   byte alla volta, e un taglio in mezzo a una sequenza lasciava in fondo al nome
+   un carattere che non c'era.
+
+**Perché non si era visto.** I nomi di prova erano tutti in ASCII — `nota.txt`,
+`relazione.txt`, `dati.csv` — e le stringhe dell'interfaccia erano scritte per
+evitare gli accenti: "Proprieta'" con l'apostrofo non è una scelta stilistica, era
+una **conseguenza** dell'atlante. Adesso la voce del menu si chiama "Proprietà", e
+`ShellLabelToAscii` — che ripiegava le lettere accentate della shell — ripiega solo
+oltre il latino-1, che è il suo mestiere vero.
+
+**Il difetto era invisibile a ogni prova che avessimo fatto**, perché nessuna
+prova conteneva una lettera accentata. Si è trovato scrivendo un nome di file come
+lo scriverebbe una persona.
+
+### 7.30 La sezione che si apriva vuota, e il CLSID che non si apriva
+
+"Accesso rapido" è una cartella dello spazio dei nomi, e il nome lo si è preso come
+per il cestino: `SHGetKnownFolderIDList` + `SHGetNameFromIDList`. Il risultato:
+
+```
+--- accesso rapido: la posizione non si apre
+```
+
+Il registro dice perché: per il cestino e per "Questo PC" c'è una voce in
+`FolderDescriptions`, e `SHGetKnownFolderIDList` pesca lì. Per "Accesso rapido" la
+voce **non c'è** — c'è solo il CLSID in `HKCR\CLSID` — quindi la funzione
+falliva e la sezione restava vuota.
+
+La seconda versione scriveva il CLSID nel codice, ed era comunque sbagliata: con
+`::{679f85cb-…}` la shell cerca la cartella **dentro lo spazio dei nomi del
+desktop**, dove "Accesso rapido" non sta. La forma che risponde è `shell:::{…}`,
+che la chiede per identificatore:
+
+```
+--- accesso rapido: 6 voci
+```
+
+Tre cose da portare via:
+
+- **un nome di spazio dei nomi sbagliato non dà errore**: dà una cartella vuota. È
+  la forma di guasto peggiore, perché sembra che non ci sia niente da mostrare
+  invece di sembrare un guasto. Adesso `QuickAccessName` **verifica** che la shell
+  riconosca quel nome prima di usarlo, e una sezione vuota non si disegna;
+- **il registro diagnostico ha pagato il conto**: una riga con il motivo ha
+  risolto quello che due tentativi a occhio non avevano risolto;
+- il CLSID di "Accesso rapido" è **l'unico identificatore scritto nel codice** di
+  tutto il progetto, e adesso c'è scritto perché.

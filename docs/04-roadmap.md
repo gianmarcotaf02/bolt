@@ -366,8 +366,46 @@ non un dato di fatto.
 - [x] cronologia di navigazione per tab (`Alt`+`←` / `Alt`+`→`)
 - [ ] drag&drop dei tab (`TabDropMarker_*`)
 - [ ] albero dei tab (`CloseInTree`, `CloseAllInTree`)
-- [ ] quick access con percorsi pinnati
-- [ ] il terzo contesto del componente a gruppi: il menu contestuale (arriva con M7)
+- [x] **barra laterale a sezioni** — QUICK ACCESS (i fissaggi della shell),
+      BOOKMARKS, STORAGE (i volumi con occupazione e spazio libero), PLACES — tutte
+      richiudibili, e la stella nella barra strumenti che aggiunge un segnalibro
+- [x] **pulsanti di navigazione** nella barra strumenti: indietro, avanti, su,
+      aggiorna, segnalibro — gli stessi comandi della tastiera e della palette
+- [x] il terzo contesto del componente a gruppi: il menu contestuale (fatto in M7)
+- [ ] drag&drop dei tab (`TabDropMarker_*`)
+
+### La barra laterale a sezioni, e il confronto col riferimento — *Ricostruito*
+
+Quattro sezioni, perché le voci sono di natura diversa e chi non usa una non deve
+guardarla: **QUICK ACCESS** (i fissaggi della shell), **BOOKMARKS** (nostri, in
+memoria sola: `docs/06`), **STORAGE** (i volumi con la barra di occupazione e lo
+spazio libero), **PLACES** (le cartelle standard, e il cestino in fondo). Le
+intestazioni sono richiudibili e lo stato è ricordato **per nome**: le righe si
+spostano quando i segnalibri cambiano, e una sezione chiusa non deve riaprirsi da
+sola perché ne è arrivata un'altra sopra.
+
+Il confronto col riferimento (`file pilot.png`, guardato su richiesta dell'autore)
+ha dato il resto della lista, e vale la pena scrivere cosa si è preso e cosa no:
+
+| cosa si vede nel riferimento | qui |
+|---|---|
+| sezioni nella barra laterale, richiudibili | fatte |
+| STORAGE col volume e lo spazio libero | fatto |
+| pulsanti indietro/avanti/su/aggiorna a sinistra del percorso | fatti, con la stella dei segnalibri in più |
+| il bersaglio di un collegamento accanto al nome, in tono spento | fatto |
+| piè di pagina con posizione, modalità di vista e ingrandimento | fatto; i contatori del motore sono passati dietro `BOLT_DEV_HUD=1` |
+| icone di filtro nelle intestazioni delle colonne | non fatto |
+| colonne ridimensionabili col mouse | non fatto |
+
+**La quarta voce della tabella era un difetto vero, trovato guardando.** Un
+collegamento mostrava `collegamento-prova.lnk` e basta: cosa apre lo sa solo la
+shell, e chiederlo costa una `IShellLink` + `IPersistFile::Load` per file — una
+volta per percorso, perché una riga si disegna sessanta volte al secondo.
+
+E il piè di pagina diceva `60 fps | 477 quads | 0 stats jobs`: numeri di chi scrive
+il programma, in un posto dove chi lo usa cerca "dove sono" e "quanti ne ho
+scelti". Adesso dice `5 items  1 selected` a sinistra e `1 / 5 | Details | 100%` a
+destra — ed è la forma del riferimento.
 
 ### Il componente a gruppi, e quando è stato estratto — *Ricostruito*
 
