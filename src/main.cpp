@@ -1129,12 +1129,24 @@ std::wstring EntryLocation(const AppState& app, const Entry& entry)
     return entry.location.empty() ? JoinPath(app.directory, entry.wideName) : entry.location;
 }
 
+// Come si chiama una posizione: il suo nome se e' un percorso, il nome che le da'
+// la shell se e' una cartella dello spazio dei nomi — "Cestino", non
+// "::{645FF040-...}".
+std::wstring LocationLabel(const std::wstring& location)
+{
+    if (location.empty())
+        return L"This PC";
+    if (!ShellLocation::IsNamespace(location))
+        return location;
+    const std::wstring name = ShellLocation::DisplayName(location);
+    return name.empty() ? location : name;
+}
+
 void UpdateWindowTitle(AppState& app)
 {
     if (app.window == nullptr)
         return;
-    const std::wstring title = L"Bolt — " +
-                               (app.directory.empty() ? L"This PC" : app.directory);
+    const std::wstring title = L"Bolt — " + LocationLabel(app.directory);
     SetWindowTextW(app.window, title.c_str());
 }
 
@@ -1307,6 +1319,19 @@ void CloseTab(AppState& app, int index)
 
 void BuildPlaces(AppState& app)
 {
+    // Il cestino sta in fondo e non in ordine alfabetico: non e' una cartella in
+    // cui si tiene roba, e' dove si va a prendere quello che si e' buttato.
+    // Aggiungerlo qui e' tutto quello che serve — si apre come una cartella
+    // qualunque, perche' una cartella dello spazio dei nomi e' una cartella.
+    {
+        const std::wstring bin = ShellLocation::ParsingNameOf(FOLDERID_RecycleBinFolder);
+        if (!bin.empty())
+        {
+            const std::wstring name = ShellLocation::DisplayName(bin);
+            app.places.push_back(Place{ToUtf8(name.empty() ? std::wstring(L"Recycle Bin") : name), bin});
+        }
+    }
+
     struct Known { KNOWNFOLDERID id; const char* label; };
     const Known known[] = {
         {FOLDERID_Profile,   "Home"},
@@ -3137,7 +3162,12 @@ void RunCommand(AppState& app, int command)
             }
             break;
 
-        case CmdGoUp:      LoadDirectory(app, ParentOf(app.directory)); break;
+        // In una cartella dello spazio dei nomi il genitore lo sa la shell: sopra
+        // il cestino c'e' il desktop, e `ParentOf` su "::{...}" non troverebbe
+        // niente da tagliare.
+        case CmdGoUp:      LoadDirectory(app, ShellLocation::IsNamespace(app.directory)
+                                                ? ShellLocation::ParentOf(app.directory)
+                                                : ParentOf(app.directory)); break;
         case CmdBack:      NavigateBack(app); break;
         case CmdForward:   NavigateForward(app); break;
         case CmdGoTo:      BuildGoToMenu(app); break;
@@ -3153,7 +3183,14 @@ void RunCommand(AppState& app, int command)
         case CmdDeletePermanent: DoDelete(app, /*permanently=*/true); break;
 
         case CmdOpenExplorer:
-            if (cursorIndex >= 0)
+            // Dentro una cartella dello spazio dei nomi `/select` non vale, e non
+            // serve: si apre la cartella stessa, che e' quello che si vede.
+            if (ShellLocation::IsNamespace(app.directory))
+            {
+                ShellExecuteW(nullptr, L"open", L"explorer.exe", app.directory.c_str(), nullptr,
+                              SW_SHOWNORMAL);
+            }
+            else if (cursorIndex >= 0)
             {
                 const std::wstring full = JoinPath(app.directory, app.entries[static_cast<size_t>(cursorIndex)].wideName);
                 const std::wstring arguments = L"/select,\"" + full + L"\"";
@@ -4728,7 +4765,7 @@ void DrawFrame(AppState& app, const Layout& layout)
                                static_cast<float>(app.viewportHeight)}, app.theme.windowBg);
 
     DrawTitleBar(app, layout);
-    DrawToolbar(app, layout, app.directory.empty() ? L"This PC" : app.directory);
+    DrawToolbar(app, layout, LocationLabel(app.directory));
     DrawSidebar(app, layout);
     DrawHeader(app, layout, columnX);
     DrawList(app, layout, columnX);
@@ -4968,13 +5005,20 @@ void ActivateSelection(AppState& app)
         return;
 
     const Entry& entry = app.entries[static_cast<size_t>(cursorIndex)];
+    const std::wstring full = EntryLocation(app, entry);
     if (entry.isDirectory)
     {
-        LoadDirectory(app, JoinPath(app.directory, entry.wideName));
+        LoadDirectory(app, full);
+    }
+    else if (!entry.location.empty())
+    {
+        // Un file dentro il cestino non si apre: si ripristina o si elimina, e
+        // quei comandi sono del menu contestuale della shell. Dirlo e' meglio che
+        // far finta di averlo aperto.
+        ReportStatus(app, L"\"" + entry.wideName + L"\" non si apre da qui: usa il menu contestuale.");
     }
     else
     {
-        const std::wstring full = JoinPath(app.directory, entry.wideName);
         ShellExecuteW(nullptr, L"open", full.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
     }
 }
@@ -6109,6 +6153,11 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, LPWSTR, int)
             {
                 const DWORD attributes = GetFileAttributesW(arguments[1]);
                 if (attributes != INVALID_FILE_ATTRIBUTES && (attributes & FILE_ATTRIBUTE_DIRECTORY) != 0)
+                    startDirectory = arguments[1];
+                // Un nome di spazio dei nomi non ha attributi da leggere: si
+                // riconosce da come e' scritto, ed e' l'unico modo di aprire Bolt
+                // direttamente sul cestino.
+                else if (ShellLocation::IsNamespace(arguments[1]))
                     startDirectory = arguments[1];
             }
             LocalFree(arguments);

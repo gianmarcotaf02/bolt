@@ -46,6 +46,10 @@ std::wstring DisplayName(const std::wstring& location);
 // scritto dentro il nostro codice.
 std::wstring ParsingNameOf(REFKNOWNFOLDERID id);
 
+// La posizione che contiene |location|. Vuoto se non c'e' — o se la shell non la
+// sa nominare: senza un nome non si potrebbe navigare.
+std::wstring ParentOf(const std::wstring& location);
+
 // Quello che serve a riempire una riga della lista. Il resto — il tipo, la
 // dimensione in lettere, le date — lo scrive `main.cpp` con le funzioni che usa
 // gia' per le cartelle normali: due formati diversi nella stessa colonna si

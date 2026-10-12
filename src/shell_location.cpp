@@ -96,6 +96,29 @@ std::wstring ParsingNameOf(REFKNOWNFOLDERID id)
     return out;
 }
 
+std::wstring ParentOf(const std::wstring& location)
+{
+    PIDLIST_ABSOLUTE pidl = nullptr;
+    if (FAILED(SHParseDisplayName(location.c_str(), nullptr, &pidl, 0, nullptr)) || pidl == nullptr)
+        return std::wstring();
+
+    std::wstring parent;
+    PIDLIST_ABSOLUTE up = ILClone(pidl);
+    if (up != nullptr && ILRemoveLastID(up))
+    {
+        PWSTR name = nullptr;
+        if (SUCCEEDED(SHGetNameFromIDList(up, SIGDN_DESKTOPABSOLUTEPARSING, &name)) && name != nullptr)
+        {
+            parent = name;
+            CoTaskMemFree(name);
+        }
+    }
+    if (up != nullptr)
+        CoTaskMemFree(up);
+    CoTaskMemFree(pidl);
+    return parent;
+}
+
 std::vector<Item> Read(const std::wstring& location, std::string* error)
 {
     std::vector<Item> items;
