@@ -469,9 +469,18 @@ a gruppi, invece di scriverne tre.
 - [x] Proprietà, che apre la finestra vera di Windows via `ShellExecuteEx`
 - [ ] ripristino dal cestino — **bloccato da una scelta strutturale**, vedi sotto
 - [ ] drag&drop in ingresso e in uscita con descrizione
-- [ ] i verbi della shell dentro il menu contestuale (Apri con, Invia a, le voci
-      delle estensioni installate): oggi il menu ha i nostri comandi, più
-      Proprietà. Servono `IContextMenu` e la gestione dei sottomenu
+- [x] le voci di **primo livello** della shell dentro il menu contestuale (Apri con,
+      le voci delle estensioni installate), dopo i nostri comandi e dopo un
+      separatore. La strada è quella del binario originale —
+      `IShellFolder::GetUIObjectOf` → `IContextMenu` → `QueryContextMenu` →
+      `GetCommandString(GCS_VERBW)` → `InvokeCommand`: vedi sotto
+- [ ] i **sottomenu** del menu della shell: `Invia a`, `7-Zip`, `WinRAR`,
+      "Dare accesso a", "Includi nella raccolta" restano fuori, e sono quattro o
+      cinque voci su venti. È il pezzo che manca perché il menu coincida con
+      quello di Esplora risorse
+- [ ] il menu della **cartella** (niente selezionato): nel vuoto le voci della
+      shell non si chiedono affatto, quindi `Nuovo >` e i verbi del contesto
+      cartella non ci sono
 - [ ] dialogo di progressione con annullamento proprio
 
 ### Il menu contestuale non è un `GroupMenu` — *Scelta*
@@ -484,6 +493,56 @@ campo "modalità" e due impaginazioni dentro lo stesso componente.
 
 Il menu **non aggiunge capacità**: riusa i comandi che già esistono e li rende
 raggiungibili dove servono.
+
+### I verbi della shell nel menu contestuale — *Ricostruito*
+
+La shell sa fare cose che non sono nostre: `Apri con`, `Invia a`, i verbi delle
+estensioni installate (`Converti a Adobe PDF`, `Modifica nel Blocco note`,
+`Ripristina versioni precedenti`, `Copia come percorso`). Non si reimplementa
+niente. Il binario originale fa la stessa cosa — `Win_GetIShellFolder`,
+`Win_GetUIObjectOfPaths`, `P_GetContextMenu`, `Win_ContextMenuBuild`,
+`P_ContextMenuInvoke`, e la stringa `GCS_VERBW` — quindi la strada è quella:
+
+```
+SHParseDisplayName → SHBindToParent(IID_IShellFolder) → GetUIObjectOf(IID_IContextMenu)
+   → QueryContextMenu in un HMENU che non mostriamo mai → GetMenuItemInfoW / GetCommandString
+   → InvokeCommand(CMINVOKECOMMANDINFOEX con lpVerbW = MAKEINTRESOURCE(id - kShellCmdFirst))
+```
+
+**L'HMENU non si mostra.** Chi disegna resta il nostro renderer, quindi il menu
+resta coerente con il resto della finestra; l'HMENU serve solo a leggere le voci,
+un po' come il PDB serviva solo a leggere i nomi. Vive quanto l'`IContextMenu` e i
+due si rilasciano insieme alla chiusura: verificato contando gli **oggetti USER**
+del processo, che non crescono (41 → 40 su cinque aperture), mentre se l'HMENU
+restasse appeso crescerebbe di uno per tasto destro.
+
+**Gli id della shell vivono in una banda riservata** (`0x6000`–`0x6FFF`): dentro
+quella banda un id è un indice per `IContextMenu`, fuori è un nostro `CommandId`.
+Così una voce sola può essere eseguita da chi la sa eseguire, senza un campo in
+più che dica di chi è.
+
+**Le voci che offriamo già si tolgono per verbo canonico, non per etichetta**:
+`open`, `cut`, `copy`, `paste`, `delete`, `rename`, `properties`. L'etichetta è
+tradotta e cambia con la lingua di Windows, il verbo no. Senza questo filtro il
+menu avrebbe due `Taglia` e tre `Proprietà`. `openas` **non** è nell'elenco: è
+proprio uno dei motivi per cui la shell viene interrogata.
+
+**Le voci che la shell offre spente si mostrano spente.** Una selezione mista non
+è una ragione per nascondere che quel verbo esiste: le frecce le saltano e l'Invio
+non le esegue, ma la voce resta leggibile.
+
+**Quattro costi misurati** (registro: `BOLT_DIAG_SHELL_MENU=1` → `shell-menu.log`):
+
+| misura | valore | lettura |
+|---|---|---|
+| prima apertura dopo l'avvio | ~350 ms | le DLL delle estensioni si caricano in-process |
+| regime | ~65 ms | il costo di ~15 gestori interrogati a ogni tasto destro |
+| handle di kernel | +22 per apertura | dentro le estensioni: i nostri oggetti USER non crescono |
+| estensioni moderne Win11 | dalla **seconda** apertura | `windows.storage` registra le proprie voci al secondo giro |
+
+Gli ultimi due sono limiti dichiarati, non risolti: il primo non dipende da noi,
+il secondo è una scelta da fare (chiedere la shell **su richiesta** invece che a
+ogni tasto destro). Va decisa prima di M8, non dopo.
 
 **Difetto trovato contando le frecce.** Con otto pressioni la selezione si
 fermava su "Incolla qui" invece che su "Proprietà". `ContextMenuMove` partiva da
