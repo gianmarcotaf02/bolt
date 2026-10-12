@@ -89,27 +89,77 @@ std::wstring DefaultValue(HKEY key)
     return value;
 }
 
-// "Nuovo documento di testo.txt": il nome che propone la shell. La prima lettera
-// dell'etichetta va in minuscolo — "Nuovo Documento di testo" non lo scrive
-// nessuno — e l'estensione si aggiunge, salvo che la chiave dica di non farlo.
+// "Nuova cartella compressa.zip" e "Nuovo documento di testo.txt": il nome che
+// propone la shell. Le etichette che sono gia' un nome — cominciano per "Nuov" —
+// si usano cosi' come sono, o verrebbe "Nuovo nuova cartella compressa"; le
+// altre prendono il prefisso e la prima lettera minuscola, perche' "Nuovo
+// Documento di testo" non lo scrive nessuno.
 std::wstring SuggestName(const std::wstring& label, const std::wstring& extension)
 {
-    std::wstring name = L"Nuovo " + label;
-    if (name.size() > 6 && name[6] >= L'A' && name[6] <= L'Z')
-        name[6] = static_cast<wchar_t>(name[6] - L'A' + L'a');
+    std::wstring name = label;
+    if (_wcsnicmp(label.c_str(), L"Nuov", 4) != 0)
+    {
+        name = L"Nuovo " + label;
+        if (name.size() > 6 && name[6] >= L'A' && name[6] <= L'Z')
+            name[6] = static_cast<wchar_t>(name[6] - L'A' + L'a');
+    }
     return name + extension;
+}
+
+// Il file modello: un percorso assoluto, oppure un nome dentro la cartella
+// `ShellNew` di Windows. Il registro usa tutte e due le forme.
+std::wstring ResolveTemplatePath(const std::wstring& value)
+{
+    if (value.size() > 2 && value[1] == L':')
+        return value;
+
+    wchar_t directory[MAX_PATH]{};
+    if (GetWindowsDirectoryW(directory, MAX_PATH) == 0)
+        return value;
+    return std::wstring(directory) + L"\\ShellNew\\" + value;
+}
+
+bool ReadData(HKEY key, std::vector<BYTE>* out)
+{
+    DWORD type  = 0;
+    DWORD bytes = 0;
+    if (RegQueryValueExW(key, L"Data", nullptr, &type, nullptr, &bytes) != ERROR_SUCCESS)
+        return false;
+    if (type != REG_BINARY || bytes == 0)
+        return false;
+
+    out->assign(bytes, 0);
+    return RegQueryValueExW(key, L"Data", nullptr, nullptr, out->data(), &bytes) == ERROR_SUCCESS;
 }
 
 // Un modello, se la chiave e' davvero un modello.
 void AddTemplate(HKEY shellNew, const std::wstring& progId, const std::wstring& extension,
                  bool noExtension, std::vector<Template>* out)
 {
-    // I valori con cui il sistema sa creare qualcosa. Una chiave `ShellNew` senza
-    // nessuno di questi non e' un modello: la shell la ignora, e ignorarla anche
-    // noi evita di offrire una voce che non crea niente.
-    if (!HasValue(shellNew, L"NullFile") && !HasValue(shellNew, L"FileName") &&
-        !HasValue(shellNew, L"Command") && !HasValue(shellNew, L"Data"))
-        return;
+    // Il contenuto, nell'ordine in cui la shell li guarda. `Command` non e' un
+    // modo di creare un file ma di avviare un programma, quindi resta fuori: vedi
+    // l'intestazione di `shell_new.h`.
+    Template item;
+    item.extension = noExtension ? std::wstring() : extension;
+
+    std::wstring templateFile;
+    if (ReadRaw(shellNew, L"FileName", &templateFile) && !templateFile.empty())
+    {
+        item.source       = Template::Source::TemplateFile;
+        item.templatePath = ResolveTemplatePath(templateFile);
+    }
+    else if (ReadData(shellNew, &item.data))
+    {
+        item.source = Template::Source::Data;
+    }
+    else if (HasValue(shellNew, L"NullFile"))
+    {
+        item.source = Template::Source::Empty;
+    }
+    else
+    {
+        return;   // `Command`, o niente che il sistema sappia usare
+    }
 
     std::wstring label;
     if (!ReadLabel(shellNew, L"ItemName", &label))
@@ -136,9 +186,7 @@ void AddTemplate(HKEY shellNew, const std::wstring& progId, const std::wstring& 
     if (label.empty())
         label = extension;   // meglio l'estensione di un buco
 
-    Template item;
-    item.label     = label;
-    item.extension = noExtension ? std::wstring() : extension;
+    item.label         = label;
     item.suggestedName = SuggestName(label, item.extension);
 
     for (const Template& existing : *out)

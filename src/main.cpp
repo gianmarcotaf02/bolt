@@ -2879,10 +2879,45 @@ void DoNewFolder(AppState& app)
     }
 }
 
+// Il contenuto della voce nuova. La shell crea il file e sceglie il nome — e' il
+// solo modo di avere il "(2)" dei conflitti senza indovinarlo — ma senza un
+// modello crea un file di **zero byte**: e uno zip di zero byte non e' uno zip,
+// un .docx di zero byte non si apre. Il contenuto lo dice il registro, e lo
+// scriviamo qui.
+void FillNewItemContent(const ShellNew::Template& model, const std::wstring& path, bool* complete)
+{
+    *complete = true;
+    if (model.source == ShellNew::Template::Source::Empty)
+        return;
+
+    if (model.source == ShellNew::Template::Source::TemplateFile)
+    {
+        // Copia, invece di leggere e riscrivere: il modello puo' essere grande
+        // (un .docx lo e'), e questa e' una copia di file sola.
+        if (!CopyFileW(model.templatePath.c_str(), path.c_str(), FALSE))
+            *complete = false;
+        return;
+    }
+
+    HANDLE file = CreateFileW(path.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS,
+                              FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (file == INVALID_HANDLE_VALUE)
+    {
+        *complete = false;
+        return;
+    }
+
+    DWORD written = 0;
+    if (!WriteFile(file, model.data.data(), static_cast<DWORD>(model.data.size()), &written,
+                   nullptr) ||
+        written != model.data.size())
+        *complete = false;
+    CloseHandle(file);
+}
+
 // Crea una voce nuova dal modello |index| del registro, col meccanismo del
 // sistema: il nome definitivo lo sceglie la shell ("Nuovo documento di testo.txt",
-// e "(2)" se esiste gia'), il contenuto lo mette `IFileOperation::NewItem`
-// applicando i dati `ShellNew` dell'estensione.
+// e "(2)" se esiste gia'), il contenuto lo mette `FillNewItemContent`.
 void CreateNewItem(AppState& app, size_t index)
 {
     const std::vector<ShellNew::Template>& templates = ShellNew::Templates();
@@ -2896,21 +2931,31 @@ void CreateNewItem(AppState& app, size_t index)
     const FileOps::Result result =
         FileOps::NewItem(app.window, app.directory, wanted, &created, &error);
 
-    if (result == FileOps::Result::Ok)
+    if (result != FileOps::Result::Ok)
     {
-        const std::wstring name = created.empty() ? wanted : LeafName(created.front());
-        std::unordered_set<std::wstring> keep;
-        keep.insert(name);
-        ReloadKeeping(app, keep, name, scroll);
+        if (result == FileOps::Result::Failed)
+            ReportStatus(app, L"File non creato: " + error);
+        return;
+    }
 
-        // Creare e rinominare sono un'azione sola, come per la cartella: chi crea
-        // vuole dare un nome, non guardare un altro "Nuovo documento di testo".
-        BeginRename(app);
-    }
-    else if (result == FileOps::Result::Failed)
-    {
-        ReportStatus(app, L"File non creato: " + error);
-    }
+    const std::wstring path = created.empty() ? JoinPath(app.directory, wanted)
+                                              : created.front();
+    bool complete = true;
+    FillNewItemContent(templates[index], path, &complete);
+
+    const std::wstring name = LeafName(path);
+    std::unordered_set<std::wstring> keep;
+    keep.insert(name);
+    ReloadKeeping(app, keep, name, scroll);
+
+    // Creare e rinominare sono un'azione sola, come per la cartella: chi crea
+    // vuole dare un nome, non guardare un altro "Nuovo documento di testo".
+    BeginRename(app);
+
+    // Il file c'e' ma senza il contenuto del modello: un .zip vuoto non e' uno
+    // zip, e chi lo apre lo scoprirebbe da solo. Meglio dirlo adesso.
+    if (!complete)
+        ReportStatus(app, L"Creato senza il contenuto del modello: " + name);
 }
 
 // --- menu execution ---------------------------------------------------------
