@@ -463,10 +463,34 @@ a gruppi, invece di scriverne tre.
 - [x] dopo un incolla con conflitto, la selezione cade sull'elemento che la shell
       ha davvero creato, non su quello di partenza
 - [x] le statistiche della cartella vengono invalidate dopo un'operazione
+- [x] menu contestuale del tasto destro: si ancora al puntatore, alto quanto il
+      contenuto, con separatori e navigazione da tastiera; la riga sotto il
+      puntatore viene preselezionata
+- [x] Proprietà, che apre la finestra vera di Windows via `ShellExecuteEx`
 - [ ] ripristino dal cestino — **bloccato da una scelta strutturale**, vedi sotto
 - [ ] drag&drop in ingresso e in uscita con descrizione
-- [ ] menu contestuale della shell (terzo contesto del componente a gruppi)
+- [ ] i verbi della shell dentro il menu contestuale (Apri con, Invia a, le voci
+      delle estensioni installate): oggi il menu ha i nostri comandi, più
+      Proprietà. Servono `IContextMenu` e la gestione dei sottomenu
 - [ ] dialogo di progressione con annullamento proprio
+
+### Il menu contestuale non è un `GroupMenu` — *Scelta*
+
+Condividono l'idea di "una lista di righe etichettate", ma differiscono in tutto
+il resto: il menu contestuale si ancora al puntatore invece di stare al centro,
+è alto quanto il contenuto invece di 420 px fissi, ha **separatori** e non bande,
+e non ha né filtro né piede. Forzarlo dentro `GroupMenu` avrebbe voluto dire un
+campo "modalità" e due impaginazioni dentro lo stesso componente.
+
+Il menu **non aggiunge capacità**: riusa i comandi che già esistono e li rende
+raggiungibili dove servono.
+
+**Difetto trovato contando le frecce.** Con otto pressioni la selezione si
+fermava su "Incolla qui" invece che su "Proprietà". `ContextMenuMove` partiva da
+0 quando niente era selezionato e poi incrementava dentro il ciclo, quindi **la
+prima freccia sceglieva la seconda voce**. Guardando il menu il difetto non si
+vede: si è visto solo contando quante pressioni servivano, perché il numero non
+tornava di uno.
 
 ### Perché il ripristino dal cestino non è una casella da spuntare
 

@@ -93,6 +93,7 @@ Controlli a runtime:
 | `Ctrl+C` / `Ctrl+X` / `Ctrl+V` | copia / taglia / incolla (clipboard di sistema) |
 | `F2` | rinomina sul posto |
 | `Ctrl+Shift+N` | nuova cartella, col nome gia' in scrittura |
+| clic destro | menu contestuale: apri, copia, taglia, rinomina, elimina, proprieta' |
 | `Canc` / `Shift+Canc` | cestino / eliminazione definitiva |
 | frecce in griglia | `Su`/`Giù` di una riga, `Sinistra`/`Destra` di una cella |
 | click su una banda di gruppo | collassa o espande |
