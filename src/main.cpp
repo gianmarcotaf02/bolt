@@ -2769,19 +2769,8 @@ void DrawInspector(AppState& app, const Layout& layout)
                   [](const std::pair<std::string, int>& a, const std::pair<std::string, int>& b) {
                       return a.second > b.second;
                   });
-        std::string typeList;
-        for (size_t i = 0; i < types.size() && i < 3; ++i)
-        {
-            if (!typeList.empty())
-                typeList += ", ";
-            typeList += std::to_string(types[i].second) + " " + types[i].first;
-        }
-        if (types.size() > 3)
-            typeList += ", ...";
-
         const std::pair<const char*, std::string> summary[] = {
             {"Items", breakdown},
-            {"Types", typeList},
             {"Size", HumanBytes(totalBytes)},
         };
         for (const auto& item : summary)
@@ -2789,6 +2778,27 @@ void DrawInspector(AppState& app, const Layout& layout)
             app.smallFont.Draw(r, layout.inspector.x + 14.0f * scale, y, item.first, t.textDim, scale);
             app.smallFont.Draw(r, layout.inspector.x + 96.0f * scale, y, item.second, t.text, scale);
             y += 20.0f * scale;
+        }
+
+        // Un tipo per riga invece di tutti su una: "3 Documento di testo, 2 Cartella
+        // di file" non ci sta in una riga sola, e troncato dice la meta' di quello che
+        // serve. L'etichetta sta sulla prima, le altre si allineano sotto.
+        for (size_t i = 0; i < types.size() && i < 4; ++i)
+        {
+            app.smallFont.Draw(r, layout.inspector.x + 14.0f * scale, y,
+                               (i == 0) ? "Types" : "", t.textDim, scale);
+            const float valueX = layout.inspector.x + 96.0f * scale;
+            const float valueMax = layout.inspector.right() - valueX - 14.0f * scale;
+            const std::string line = std::to_string(types[i].second) + " " + types[i].first;
+            app.smallFont.Draw(r, valueX, y, FitText(app.smallFont, line, scale, valueMax), t.text,
+                               scale);
+            y += 20.0f * scale;
+        }
+        if (types.size() > 4)
+        {
+            app.smallFont.Draw(r, layout.inspector.x + 96.0f * scale, y,
+                               "and " + std::to_string(types.size() - 4) + " more", t.textDim,
+                               scale);
         }
         return;
     }
