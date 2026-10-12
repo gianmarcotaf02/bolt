@@ -4727,108 +4727,6 @@ const ClickTarget* HitTest(const AppState& app, float x, float y, ClickTarget::K
     return nullptr;
 }
 
-// --- trascinamento: la parte che sa la vista -------------------------------
-//
-// Il modulo OLE (`drag_drop.cpp`) non sa cosa sia una riga o una cartella aperta:
-// sa leggere un oggetto dati e consegnare una caduta. La destinazione la decide
-// chi conosce l'elenco, cioe' queste tre funzioni.
-
-namespace DragDrop
-{
-
-std::wstring TargetAt(HWND window, POINT client, bool* ontoRow)
-{
-    AppState* app = reinterpret_cast<AppState*>(GetWindowLongPtrW(window, GWLP_USERDATA));
-    if (app == nullptr)
-        return std::wstring();
-
-    const float x = static_cast<float>(client.x);
-    const float y = static_cast<float>(client.y);
-
-    if (const ClickTarget* row = HitTest(*app, x, y, ClickTarget::Kind::Row))
-    {
-        const Entry& entry = app->entries[static_cast<size_t>(row->index)];
-        if (!entry.isDirectory)
-        {
-            // Sopra un file la destinazione e' la cartella che lo contiene, come
-            // in Esplora risorse: li' un file non riceve niente, ma la lista si'.
-            if (ontoRow != nullptr)
-                *ontoRow = false;
-            return app->directory;
-        }
-        if (ontoRow != nullptr)
-            *ontoRow = true;
-        // Una cartella va aperta per lasciarci qualcosa dentro: la riga mostra il
-        // nome, la destinazione e' il percorso.
-        return JoinPath(app->directory, entry.wideName);
-    }
-
-    const Layout layout = ComputeLayout(*app);
-    if (layout.list.Contains(x, y))
-    {
-        if (ontoRow != nullptr)
-            *ontoRow = false;
-        return app->directory;
-    }
-    return std::wstring();   // fuori dalla lista non si lascia cadere niente
-}
-
-void Highlight(HWND window, const std::wstring& target, bool ontoRow)
-{
-    AppState* app = reinterpret_cast<AppState*>(GetWindowLongPtrW(window, GWLP_USERDATA));
-    if (app == nullptr)
-        return;
-    app->dropTarget      = target;
-    app->dropTargetIsRow = ontoRow && !target.empty();
-}
-
-void Drop(HWND window, const std::vector<std::wstring>& sources, const std::wstring& target,
-          bool move)
-{
-    AppState* app = reinterpret_cast<AppState*>(GetWindowLongPtrW(window, GWLP_USERDATA));
-    if (app == nullptr || sources.empty())
-        return;
-
-    const float scroll = app->scroll;
-    std::wstring error;
-    std::vector<std::wstring> created;
-    const FileOps::Result result =
-        move ? FileOps::Move(window, sources, target, &created, &error)
-             : FileOps::Copy(window, sources, target, &created, &error);
-
-    if (result == FileOps::Result::Cancelled)
-        return;
-
-    if (result == FileOps::Result::Failed)
-    {
-        ReportStatus(*app, (move ? L"Spostamento non riuscito: " : L"Copia non riuscita: ") + error);
-        return;
-    }
-
-    // La vista si rifa' sempre: uno spostamento toglie gli originali da qui, e una
-    // copia puo' aver aggiunto qualcosa se la destinazione e' la cartella aperta.
-    // Si seleziona solo cio' che e' arrivato *qui*, perche' quello che e' finito
-    // altrove non si vede e non si potrebbe evidenziare.
-    std::unordered_set<std::wstring> keep;
-    std::wstring landed;
-    if (_wcsicmp(target.c_str(), app->directory.c_str()) == 0)
-    {
-        for (const std::wstring& path : created)
-        {
-            const std::wstring name = LeafName(path);
-            keep.insert(name);
-            if (landed.empty())
-                landed = name;
-        }
-    }
-    ReloadKeeping(*app, keep, landed, scroll);
-
-    ReportStatus(*app, (move ? L"Spostati " : L"Copiati ") + std::to_wstring(sources.size()) +
-                           L" elementi in " + LeafName(target));
-}
-
-} // namespace DragDrop
-
 // A click inside an open group menu. The caller turns the action into whatever
 // the menu means: running a command, or going to a location.
 MenuAction GroupMenuClick(const AppState& app, const Layout& layout, GroupMenu& menu, float x, float y)
@@ -6005,6 +5903,108 @@ double NowSeconds()
 }
 
 } // namespace
+
+// --- trascinamento: la parte che sa la vista -------------------------------
+//
+// Il modulo OLE (`drag_drop.cpp`) non sa cosa sia una riga o una cartella aperta:
+// sa leggere un oggetto dati e consegnare una caduta. La destinazione la decide
+// chi conosce l'elenco, cioe' queste tre funzioni.
+
+namespace DragDrop
+{
+
+std::wstring TargetAt(HWND window, POINT client, bool* ontoRow)
+{
+    AppState* app = reinterpret_cast<AppState*>(GetWindowLongPtrW(window, GWLP_USERDATA));
+    if (app == nullptr)
+        return std::wstring();
+
+    const float x = static_cast<float>(client.x);
+    const float y = static_cast<float>(client.y);
+
+    if (const ClickTarget* row = HitTest(*app, x, y, ClickTarget::Kind::Row))
+    {
+        const Entry& entry = app->entries[static_cast<size_t>(row->index)];
+        if (!entry.isDirectory)
+        {
+            // Sopra un file la destinazione e' la cartella che lo contiene, come
+            // in Esplora risorse: li' un file non riceve niente, ma la lista si'.
+            if (ontoRow != nullptr)
+                *ontoRow = false;
+            return app->directory;
+        }
+        if (ontoRow != nullptr)
+            *ontoRow = true;
+        // Una cartella va aperta per lasciarci qualcosa dentro: la riga mostra il
+        // nome, la destinazione e' il percorso.
+        return JoinPath(app->directory, entry.wideName);
+    }
+
+    const Layout layout = ComputeLayout(*app);
+    if (layout.list.Contains(x, y))
+    {
+        if (ontoRow != nullptr)
+            *ontoRow = false;
+        return app->directory;
+    }
+    return std::wstring();   // fuori dalla lista non si lascia cadere niente
+}
+
+void Highlight(HWND window, const std::wstring& target, bool ontoRow)
+{
+    AppState* app = reinterpret_cast<AppState*>(GetWindowLongPtrW(window, GWLP_USERDATA));
+    if (app == nullptr)
+        return;
+    app->dropTarget      = target;
+    app->dropTargetIsRow = ontoRow && !target.empty();
+}
+
+void Drop(HWND window, const std::vector<std::wstring>& sources, const std::wstring& target,
+          bool move)
+{
+    AppState* app = reinterpret_cast<AppState*>(GetWindowLongPtrW(window, GWLP_USERDATA));
+    if (app == nullptr || sources.empty())
+        return;
+
+    const float scroll = app->scroll;
+    std::wstring error;
+    std::vector<std::wstring> created;
+    const FileOps::Result result =
+        move ? FileOps::Move(window, sources, target, &created, &error)
+             : FileOps::Copy(window, sources, target, &created, &error);
+
+    if (result == FileOps::Result::Cancelled)
+        return;
+
+    if (result == FileOps::Result::Failed)
+    {
+        ReportStatus(*app, (move ? L"Spostamento non riuscito: " : L"Copia non riuscita: ") + error);
+        return;
+    }
+
+    // La vista si rifa' sempre: uno spostamento toglie gli originali da qui, e una
+    // copia puo' aver aggiunto qualcosa se la destinazione e' la cartella aperta.
+    // Si seleziona solo cio' che e' arrivato *qui*, perche' quello che e' finito
+    // altrove non si vede e non si potrebbe evidenziare.
+    std::unordered_set<std::wstring> keep;
+    std::wstring landed;
+    if (_wcsicmp(target.c_str(), app->directory.c_str()) == 0)
+    {
+        for (const std::wstring& path : created)
+        {
+            const std::wstring name = LeafName(path);
+            keep.insert(name);
+            if (landed.empty())
+                landed = name;
+        }
+    }
+    ReloadKeeping(*app, keep, landed, scroll);
+
+    ReportStatus(*app, (move ? L"Spostati " : L"Copiati ") + std::to_wstring(sources.size()) +
+                           L" elementi in " + LeafName(target));
+}
+
+} // namespace DragDrop
 
 int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, LPWSTR, int)
 {

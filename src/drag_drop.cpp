@@ -1,5 +1,6 @@
 #include "drag_drop.h"
 
+#include <shellapi.h>
 #include <shlobj.h>
 
 #include <atomic>
@@ -148,21 +149,68 @@ public:
     HRESULT STDMETHODCALLTYPE DragEnter(IDataObject* data, DWORD keys, POINTL point,
                                         DWORD* effect) override
     {
-        // Entrare e stare sopra sono la stessa domanda: "cosa succede se mollo
-        // qui?". Rispondere due volte con lo stesso codice e' meglio che
-        // duplicarlo e farli divergere.
-        return DragOver(data, keys, point, effect);
+        // L'oggetto dati arriva **una volta sola**: `DragOver` e `DragLeave` non lo
+        // ricevono, e le sorgenti non cambiano finche' il puntatore sta qui. Si
+        // legge adesso, invece di rileggerlo a ogni movimento del mouse.
+        sources.clear();
+        ReadPaths(data, &sources);
+        return Effect(keys, point, effect);
     }
 
-    HRESULT STDMETHODCALLTYPE DragOver(IDataObject* data, DWORD keys, POINTL point,
-                                       DWORD* effect) override
+    HRESULT STDMETHODCALLTYPE DragOver(DWORD keys, POINTL point, DWORD* effect) override
+    {
+        return Effect(keys, point, effect);
+    }
+
+    HRESULT STDMETHODCALLTYPE DragLeave() override
+    {
+        sources.clear();
+        Highlight(window, L"", false);
+        return S_OK;
+    }
+
+    HRESULT STDMETHODCALLTYPE Drop(IDataObject* data, DWORD keys, POINTL point,
+                                   DWORD* effect) override
+    {
+        if (effect == nullptr)
+            return E_POINTER;
+
+        // Quello che avevamo promesso in DragOver: chi molla usa questo per
+        // copiare o spostare, e non si ricalcola.
+        const DWORD negotiated = *effect;
+        *effect = DROPEFFECT_NONE;
+
+        std::vector<std::wstring> paths = sources;
+        if (paths.empty())
+            ReadPaths(data, &paths);
+
+        POINT client{point.x, point.y};
+        ScreenToClient(window, &client);
+
+        bool ontoRow = false;
+        const std::wstring target = TargetAt(window, client, &ontoRow);
+        Highlight(window, L"", false);
+        sources.clear();
+        if (paths.empty() || target.empty() || Refuses(paths, target))
+            return S_OK;
+
+        const bool move = (negotiated & DROPEFFECT_MOVE) != 0;
+        ::DragDrop::Drop(window, paths, target, move);
+        *effect = move ? DROPEFFECT_MOVE : DROPEFFECT_COPY;
+        return S_OK;
+    }
+
+private:
+    ~DropTarget() = default;
+
+    // Cosa succede se si molla adesso, sul punto |point| (coordinate schermo).
+    HRESULT Effect(DWORD keys, POINTL point, DWORD* effect)
     {
         if (effect == nullptr)
             return E_POINTER;
         *effect = DROPEFFECT_NONE;
 
-        std::vector<std::wstring> sources;
-        if (!ReadPaths(data, &sources))
+        if (sources.empty())
         {
             Highlight(window, L"", false);
             return S_OK;
@@ -192,49 +240,12 @@ public:
         return S_OK;
     }
 
-    HRESULT STDMETHODCALLTYPE DragLeave() override
-    {
-        Highlight(window, L"", false);
-        return S_OK;
-    }
-
-    HRESULT STDMETHODCALLTYPE Drop(IDataObject* data, DWORD keys, POINTL point, DWORD* effect) override
-    {
-        if (effect == nullptr)
-            return E_POINTER;
-
-        // Quello che avevamo promesso in DragOver: chi molla usa questo per
-        // copiare o spostare, e non si ricalcola.
-        const DWORD negotiated = *effect;
-        *effect = DROPEFFECT_NONE;
-
-        std::vector<std::wstring> sources;
-        if (!ReadPaths(data, &sources))
-        {
-            Highlight(window, L"", false);
-            return S_OK;
-        }
-
-        POINT client{point.x, point.y};
-        ScreenToClient(window, &client);
-
-        bool ontoRow = false;
-        const std::wstring target = TargetAt(window, client, &ontoRow);
-        Highlight(window, L"", false);
-        if (target.empty() || Refuses(sources, target))
-            return S_OK;
-
-        const bool move = (negotiated & DROPEFFECT_MOVE) != 0;
-        Drop(window, sources, target, move);
-        *effect = move ? DROPEFFECT_MOVE : DROPEFFECT_COPY;
-        return S_OK;
-    }
-
 private:
     ~DropTarget() = default;
 
     std::atomic<ULONG> references{1};
     HWND               window;
+    std::vector<std::wstring> sources;   // lette in DragEnter, valgono per tutto il gesto
 };
 
 class DropSource final : public IDropSource
