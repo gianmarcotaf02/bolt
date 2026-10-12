@@ -1168,3 +1168,21 @@ controllo, un file trascinato dalla sandbox a una finestra di Esplora risorse ar
 davvero. Per una voce **riciclata** invece la destinazione dichiara ancora `COPY` e
 non arriva niente: il cestino, per la shell, e' un'altra cosa anche da questo lato, e
 la causa **non e' stata ricostruita**. Non si dichiara risolto.
+
+### 7.35 Cambiando vista, il suggerimento restava appeso
+
+Le viste si cambiano dalla palette, e cambiando vista le celle si spostano: la
+griglia impagina per indice, e gli stessi indici cadono altrove. Il **sovrappasso**
+pero' e' un indice, e nessuno lo azzerava — quindi il suggerimento continuava a
+mostrare il nome della voce che stava sotto il puntatore *prima*, accanto a una
+voce diversa. Un nome giusto accanto al posto sbagliato: la forma peggiore di errore
+in una lista di file, e la stessa famiglia di "quello che vedi non e' quello che
+credi" di §7.29.
+
+Il sovrappasso adesso si azzera quando la vista cambia (`SetViewMode`), e lo
+ricalcola il primo movimento del puntatore. Cambiare vista e' diventato un punto
+solo, invece di quattro assegnazioni ripetute: era il posto dove la riga mancava.
+
+Vale anche per l'ordinamento e per il filtro, che spostano le righe allo stesso
+modo: li' l'indice sbagliato resta finche' il puntatore non si muove, ed e'
+transitorio — dichiarato, non nascosto.

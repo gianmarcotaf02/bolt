@@ -334,9 +334,15 @@ esisteva già fra i 35.
       più nessun `WM_MOUSEMOVE`
 - [x] la selezione vince sul sovrappasso: la riga selezionata **non** cambia colore
       sotto il puntatore
-- [ ] `HoverToSelect` — il passaggio **seleziona**, non solo evidenzia
-- [ ] `UnderlineOnHover` — sottolineatura al passaggio
-- [ ] `ShowTooltips`
+- [x] `HoverToSelect` — il passaggio **seleziona**, non solo evidenzia: dopo una
+      pausa di 0,35 s, e non mentre si trascina o con un menu aperto
+- [x] `UnderlineOnHover` — sottolineatura al passaggio, sotto il nome **visibile**
+      (sotto quello intero, con un nome troncato, sarebbe una riga lunga quanto una
+      parola che non c'è)
+- [x] `ShowTooltips` — nome per esteso, tipo, data e dimensione; per una cartella
+      anche i conteggi ricorsivi quando ci sono. Compare dopo 0,55 s **di puntatore
+      fermo**: il conto riparte a ogni movimento, quindi scorrendo l'elenco non
+      passa niente davanti
 - [ ] `ActOnPress`, `SingleClick`, `SingleClickFoldersOnly`, `DoubleClickToParent`,
       `ShowCheckboxes`
 
@@ -353,6 +359,17 @@ Nota di merito: `HoverToSelect` è una **chiave di configurazione**, quindi
 nell'originale non è il comportamento predefinito. Evidenziare e selezionare sono
 due cose distinte, e la seconda si accende. Anche `UnderlineOnHover` è una chiave,
 non un dato di fatto.
+
+**I valori di partenza dell'originale non sono ricostruiti**, e questi si
+dichiarano: `ShowTooltips` acceso, `HoverToSelect` e `UnderlineOnHover` spenti. Si
+accendono e si spengono dalla palette, che è il posto dove stanno le altre chiavi.
+
+**Un difetto trovato guardando la griglia.** Cambiando vista le celle si spostano e
+l'indice della riga sotto il puntatore non vuol più dire niente: il suggerimento
+restava appeso a una voce che non era più quella sotto il mouse — cioè un nome
+sbagliato accanto al puntatore, che è la forma peggiore di errore in una lista di
+file. Il sovrappasso adesso si azzera cambiando vista e lo ricalcola il prossimo
+movimento.
 
 ---
 
