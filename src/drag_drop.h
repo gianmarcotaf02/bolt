@@ -62,15 +62,34 @@ void Unregister(HWND window);
 
 // --- quello che il modulo non sa, e chiede a chi conosce la vista -----------
 
-// La cartella sotto il punto |client| (coordinate cliente). Vuota se li' non si
-// puo' lasciare cadere niente. |ontoRow| dice se la destinazione e' una riga
-// dell'elenco o il fondo della lista.
-std::wstring TargetAt(HWND window, POINT client, bool* ontoRow);
+// Cosa si puo' fare di quello che si lascia cadere su un punto. La terza non e' una
+// variante della seconda, e chiamarla "destinazione" sarebbe stato il modo di
+// sbagliarla: il cestino non e' una cartella *dove i file finiscono*, e' il gesto
+// di disfarsene — non ha senso copiarci dentro, e Ctrl non deve trasformarlo in una
+// copia.
+enum class DropVerb
+{
+    None,       // li' non si lascia cadere niente
+    DropInto,   // metti dentro la cartella |path|
+    Discard,    // buttali via
+};
 
-// Evidenzia la destinazione, o toglie l'evidenziazione se |target| e' vuoto.
-void Highlight(HWND window, const std::wstring& target, bool ontoRow);
+struct Target
+{
+    DropVerb     verb = DropVerb::None;
+    std::wstring path;             // per DropInto: la cartella
+    bool         ontoRow = false;  // evidenziazione piena (una riga) o leggera (il fondo)
+    int          sidebarRow = -1;  // voce del riquadro di navigazione, -1 se non viene da li'
 
-// Esegue la caduta di |sources| dentro |target|, copiando o spostando.
-void Drop(HWND window, const std::vector<std::wstring>& sources, const std::wstring& target,
-          bool move);
+    bool Empty() const { return verb == DropVerb::None; }
+};
+
+// La destinazione sotto il punto |client| (coordinate cliente).
+Target TargetAt(HWND window, POINT client);
+
+// Evidenzia la destinazione, o toglie l'evidenziazione se non ce n'e' una.
+void Highlight(HWND window, const Target& target);
+
+// Esegue la caduta di |sources| su |target|. |move| vale per DropInto.
+void Drop(HWND window, const std::vector<std::wstring>& sources, const Target& target, bool move);
 } // namespace DragDrop

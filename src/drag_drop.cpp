@@ -147,6 +147,19 @@ DWORD PerformedEffect(IDataObject* data)
 // Vero se la caduta non si puo' fare: dentro cio' che si sta trascinando, o sulla
 // cosa stessa. Una cartella non si copia dentro di se', e nessuno vuole scoprirlo
 // dalla finestra di avanzamento.
+// Buttare via un'unita' intera non si fa: ne' da qui ne' dal tasto Canc, e la shell
+// stessa rifiuterebbe. Il controllo sta qui perche' un effetto promesso e non
+// mantenuto e' peggio di un gesto rifiutato subito.
+bool RefusesDiscard(const std::vector<std::wstring>& sources)
+{
+    for (const std::wstring& source : sources)
+    {
+        if (source.size() >= 2 && source.size() <= 3 && source[1] == L':')
+            return true;
+    }
+    return false;
+}
+
 bool Refuses(const std::vector<std::wstring>& sources, const std::wstring& target)
 {
     for (const std::wstring& source : sources)
@@ -210,7 +223,7 @@ public:
     HRESULT STDMETHODCALLTYPE DragLeave() override
     {
         sources.clear();
-        Highlight(window, L"", false);
+        Highlight(window, Target{});
         return S_OK;
     }
 
@@ -231,7 +244,7 @@ public:
         if ((negotiated & (DROPEFFECT_COPY | DROPEFFECT_MOVE | DROPEFFECT_LINK)) == 0)
         {
             sources.clear();
-            Highlight(window, L"", false);
+            Highlight(window, Target{});
             return S_OK;
         }
 
@@ -242,19 +255,33 @@ public:
         POINT client{point.x, point.y};
         ScreenToClient(window, &client);
 
-        bool ontoRow = false;
-        const std::wstring target = TargetAt(window, client, &ontoRow);
-        Highlight(window, L"", false);
+        const Target target = TargetAt(window, client);
+        Highlight(window, Target{});
         sources.clear();
-        if (paths.empty() || target.empty() || Refuses(paths, target))
+        if (paths.empty() || target.Empty())
             return S_OK;
+        if (target.verb == DropVerb::Discard)
+        {
+            if (RefusesDiscard(paths))
+                return S_OK;
+        }
+        else if (Refuses(paths, target.path))
+        {
+            return S_OK;
+        }
 
         const bool move = (negotiated & DROPEFFECT_MOVE) != 0;
-        // Nel registro va la forma della destinazione, non il percorso: "una riga"
-        // o "la cartella aperta" bastano a leggere cosa e' successo.
+        // Nel registro va la forma della destinazione, non il percorso: "una riga",
+        // "il riquadro" o "il cestino" bastano a leggere cosa e' successo.
         DiagLog("  caduta: " + std::to_string(paths.size()) + " percorsi su " +
-                (ontoRow ? "una riga" : "la cartella aperta") + ", " +
-                (move ? "spostamento" : "copia"));
+                (target.verb == DropVerb::Discard
+                     ? std::string("il cestino")
+                     : std::string(target.sidebarRow >= 0 ? "il riquadro"
+                                                          : (target.ontoRow ? "una riga"
+                                                                            : "la cartella aperta"))) +
+                ", " + (target.verb == DropVerb::Discard
+                            ? std::string("eliminazione")
+                            : std::string(move ? "spostamento" : "copia")));
         ::DragDrop::Drop(window, paths, target, move);
         *effect = move ? DROPEFFECT_MOVE : DROPEFFECT_COPY;
         return S_OK;
@@ -272,7 +299,7 @@ private:
 
         if (sources.empty())
         {
-            Highlight(window, L"", false);
+            Highlight(window, Target{});
             return S_OK;
         }
 
@@ -281,19 +308,31 @@ private:
         POINT client{point.x, point.y};
         ScreenToClient(window, &client);
 
-        bool ontoRow = false;
-        const std::wstring target = TargetAt(window, client, &ontoRow);
-        Highlight(window, target, ontoRow);
-        if (target.empty() || Refuses(sources, target))
+        const Target target = TargetAt(window, client);
+        Highlight(window, target);
+        if (target.Empty())
+            return S_OK;
+
+        // Buttare via: sempre uno spostamento, e i modificatori non si guardano.
+        // Ctrl non puo' trasformarlo in una copia — non c'e' niente da copiare — e
+        // Shift non ha un'alternativa da offrire.
+        if (target.verb == DropVerb::Discard)
+        {
+            if (!RefusesDiscard(sources))
+                *effect = DROPEFFECT_MOVE;
+            return S_OK;
+        }
+
+        if (Refuses(sources, target.path))
             return S_OK;
 
         const bool control = (keys & MK_CONTROL) != 0;
         const bool shift   = (keys & MK_SHIFT) != 0;
-        const bool move    = shift || (!control && SameVolume(sources.front(), target));
+        const bool move    = shift || (!control && SameVolume(sources.front(), target.path));
 
         // Spostare dove sono gia': non c'e' niente da fare. L'effetto "niente" lo
         // dice al puntatore, che smette di promettere qualcosa.
-        if (move && sources.size() == 1 && SamePath(ParentOf(sources.front()), target))
+        if (move && sources.size() == 1 && SamePath(ParentOf(sources.front()), target.path))
             return S_OK;
 
         *effect = move ? DROPEFFECT_MOVE : DROPEFFECT_COPY;
