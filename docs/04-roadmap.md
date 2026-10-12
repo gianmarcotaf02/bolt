@@ -488,6 +488,11 @@ a gruppi, invece di scriverne tre.
       legge (`%APPDATA%\Microsoft\Windows\SendTo`, 11 voci su questa macchina in
       0,3 ms) e si esegue **lasciandoci cadere sopra la selezione**, che è quello che
       fa la shell. Non con `ShellExecuteEx`: vedi §7.22 di `docs/02`
+- [x] **drag&drop dentro e fuori**, con OLE: file trascinati da Esplora risorse
+      dentro la lista (su una riga di cartella o sul fondo), file trascinati da
+      Bolt in un'altra finestra, Ctrl copia / Shift sposta / stesso volume sposta,
+      destinazione tratteggiata durante il gesto, e i casi vietati che non fanno
+      niente invece di fare qualcosa di sbagliato (§7.23 e §7.24 di `docs/02`)
 - [ ] i modelli col valore **`Command`** restano fuori dal menu `Nuovo file`:
       quel valore avvia un'applicazione invece di creare un file
       (`msaccess.exe /NEWDB 1`, `Wab.exe /CreateContact "%1"`), e imitarlo
@@ -644,7 +649,56 @@ byte, con `relazione.txt` dentro), e la barra di stato ha scritto *"Avviato:
 finestra sua e il suo esito non è nostro da dichiarare; se invece la voce non
 accetta i file, lo dice.
 
-**Quattro costi misurati** (registro: `BOLT_DIAG_SHELL_MENU=1` → `shell-menu.log`):
+### Il trascinamento, che è di OLE — *Ricostruito*
+
+Trascinare fra due programmi non è un accordo fra due programmi: è un **oggetto
+dati** che il sistema consegna alla finestra sotto il puntatore. Da qui due metà,
+e servono tutte e due:
+
+| verso | interfaccia | chi la fornisce |
+|---|---|---|
+| in entrata | `IDropTarget` registrato con `RegisterDragDrop` | noi, sulla nostra finestra |
+| in uscita | `IDropSource` + `DoDragDrop` | noi, quando il mouse si muove con il tasto giù |
+
+L'oggetto dati è quello della shell (`SHCreateDataObject`, lo stesso che scrive
+Esplora risorse), quindi una cartella o un altro file manager lo accettano senza
+sapere chi gliel'ha mandato. Il modulo che se ne occupa è `src/drag_drop.cpp`; la
+destinazione sotto il puntatore la decide `main.cpp`, perché solo lì si sa cosa
+c'è sotto — una riga di cartella, o il fondo della lista (che vale la cartella
+aperta).
+
+**La regola copia/sposta è quella di Esplora risorse**, e sono tre casi: Ctrl
+copia, Shift sposta, e senza tasti si guarda il volume — stesso volume sposta,
+volume diverso copia. Un file trascinato nella cartella dove è già non si sposta:
+lì non c'è niente da fare, e il puntatore lo dice.
+
+**L'evidenziazione della destinazione si disegna da un callback di OLE.** Durante
+un trascinamento che nasce da qui il ciclo principale è fermo dentro `DoDragDrop`,
+quindi la riga non si accenderebbe mai: il ciclo modale di OLE consegna però i
+messaggi, e un fotogramma disegnato quando la destinazione **cambia** basta. È
+`RenderFrame`, l'unico posto in cui si disegna fuori dal ciclo.
+
+**Quattro cose misurate**, tutte con `BOLT_DIAG=1` → `bolt-diag.log`:
+
+- un trascinamento in entrata arriva con i percorsi già pronti (`1 percorsi`);
+- un trascinamento **in uscita** verso Esplora risorse: `effetto restituito 0,
+  esito dichiarato 2` — la destinazione sposta e lo dichiara in un formato
+  dell'oggetto dati, non nel valore di ritorno (§7.23 di `docs/02`);
+- un trascinamento rifiutato: `esito dichiarato 0`, e la cartella resta identica
+  (§7.24);
+- la vista si rifà da sola dopo uno spostamento, senza premere F5.
+
+Prove fatte, con `tools/drag-mouse.ps1` (preme, muove a passi, **fotografa a metà
+gesto**, rilascia) e `tools/explorer-side.ps1`:
+
+| prova | esito |
+|---|---|
+| `nota.txt` da Bolt sulla riga della cartella `documenti` | spostato, riga tratteggiata a metà gesto |
+| `relazione.txt` da Esplora risorse al fondo della lista di Bolt | spostato, tratteggio sul bordo della lista |
+| `contratto.txt` da Bolt a Esplora risorse | spostato dalla shell, vista rifatta da sola |
+| un file sul fondo della **propria** cartella | rifiutato: nessun `(2)`, registro `esito dichiarato 0` |
+
+**Quattro costi misurati** (registro: `BOLT_DIAG=1` → `bolt-diag.log`):
 
 Due note sull'elenco, perché sono differenze misurate rispetto al menu della
 shell e non difetti noti:
@@ -659,7 +713,7 @@ shell e non difetti noti:
   byte con l'estensione `.bmp`, cioè un'immagine che nessun programma apre.
   Meglio nessuna voce di una voce che non funziona.
 
-**Quattro costi misurati** (registro: `BOLT_DIAG_SHELL_MENU=1` → `shell-menu.log`):
+**Quattro costi misurati** (registro: `BOLT_DIAG=1` → `bolt-diag.log`):
 
 | misura | valore | lettura |
 |---|---|---|

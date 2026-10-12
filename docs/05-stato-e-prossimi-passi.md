@@ -4,7 +4,7 @@ Documento di lavoro, non di progetto: serve a riprendere senza rileggere la
 conversazione. Aggiornarlo è l'ultima cosa da fare prima di una pausa lunga o di
 una compattazione del contesto.
 
-Ultimo aggiornamento: dopo "Nuovo file >" e "Invia a >", i due sottomenu che la shell non sa eseguire.
+Ultimo aggiornamento: dopo dragUltimo aggiornamento: dopo "Nuovo file >" e "Invia a >", i due sottomenu che la shell non sa eseguire.drop, "Nuovo file >" e "Invia a >".
 
 ---
 
@@ -21,8 +21,9 @@ Ultimo aggiornamento: dopo "Nuovo file >" e "Invia a >", i due sottomenu che la 
 | M5d — sovrappasso del mouse | 🟡 evidenzia righe e celle; mancano `HoverToSelect`, `UnderlineOnHover`, `ShowTooltips` |
 | M6 — tab, barra del titolo, palette, GoTo | 🟡 fatti tab, titolo, palette, GoTo; mancano quick access pinnato, drag&drop e albero dei tab |
 | M7 — operazioni su file | 🟡 copia, sposta, rinomina, cestino, clipboard interoperabile, **menu contestuale a più livelli** con Proprietà di Windows, le **voci di primo livello della shell**, il **menu della cartella** sul fondo, i **sottomenu delle estensioni**, **`Nuovo file >`** (tipi dal registro, creazione con
-contenuto) e **`Invia a >`** (destinazioni della cartella SendTo, eseguite lasciandoci
-cadere sopra la selezione). Mancano drag&drop e il ripristino dal cestino |
+contenuto), **`Invia a >`** (destinazioni della cartella SendTo, eseguite lasciandoci
+cadere sopra la selezione) e **drag&drop dentro e fuori** con OLE. Mancano il
+ripristino dal cestino e il trascinamento sul riquadro di navigazione |
 | M8 — inspector completo | ⬜ |
 | M9 — configurazione e temi | ⬜ **vincolata**: niente file di impostazioni, vedi `docs/06` |
 | M10 — backend D3D11 | ⬜ |
@@ -57,11 +58,13 @@ Ordinato per quanto morde.
 
 In ordine di valore, non di facilità.
 
-1. **Drag&drop, dentro e fuori** — adesso che il bersaglio di caduta e l'oggetto
-   dati della selezione si sanno costruire (`SHCreateDataObject` +
-   `IDropTarget::Drop`, vedi `docs/02` §7.22), il pezzo che manca è l'altra metà:
-   `IDropTarget` sulla nostra finestra e `IDataObject` per il trascinamento verso
-   fuori. È l'ultimo pezzo grosso delle operazioni su file.
+1. **Il browsing dello spazio dei nomi** — è quello che sblocca il **ripristino
+   dal cestino**, fermo da M7: oggi la navigazione è per percorso, e il cestino non
+   è un percorso. È il pezzo più grosso che resta delle operazioni su file, e non
+   ha scorciatoie: la shell espone i suoi contenuti solo come PIDL.
+2. **Il trascinamento sul riquadro di navigazione** — adesso si può lasciare
+   cadere su una riga di cartella e sul fondo della lista, non sui collegamenti
+   della barra laterale (`docs/02` §7.22 ha il meccanismo, manca il bersaglio).
 2. **Il costo dell'interrogazione della shell** — la prima apertura dopo l'avvio
    costa ~350 ms e le estensioni moderne di Windows 11 compaiono solo dalla
    seconda; in regime sono ~65 ms e **22 handle di kernel** per apertura, dentro
@@ -217,6 +220,19 @@ Windows 11 si registrano solo dalla seconda apertura, quindi la stessa voce sta 
 un indice diverso fra il primo e il secondo tasto destro. Contare le frecce con un
 numero fisso sbaglia voce; per una voce precisa si legge il registro diagnostico
 dell'apertura in corso, e si naviga con `Fine` e le frecce.
+
+**Trascinare si prova fotografando a metà gesto.** Un trascinamento è un gesto
+continuo: la sua evidenza visiva — la destinazione tratteggiata — esiste solo
+mentre il tasto è ancora giù, e tenerlo premuto fra due script non si può.
+`tools/drag-mouse.ps1` preme, muove a passi, **fotografa**, e solo allora rilascia.
+E due finestre si misurano prima di premerci sopra: `CW_USEDEFAULT` sposta la
+finestra a ogni avvio, e la prima volta ho trascinato verso un punto che nel
+frattempo era diventato un altro.
+
+**Il riquadro di navigazione di Esplora risorse è pieno di nomi personali**: i
+ritagli delle prove si tagliano sulla lista dei file, non sulla finestra intera.
+Per lo stesso motivo le destinazioni di "Invia a" non finiscono nel registro
+diagnostico — si contano, non si trascrivono.
 
 **Un comando che risponde "fatto" non ha fatto niente.** Due volte, in due
 punti diversi: il sottomenu della shell che risponde `S_OK` senza eseguire nulla

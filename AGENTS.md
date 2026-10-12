@@ -222,9 +222,16 @@ file personale.
 **Log di avvio**: `build/RelWithDebInfo/startup-error.log` (sovrascritto a ogni
 avvio; assente significa nessun errore).
 
-**Log dei verbi della shell**: `BOLT_DIAG_SHELL_MENU=1` fa scrivere a ogni
+**Trascinare** (dentro e fuori): `tools/drag-mouse.ps1` preme, muove a passi,
+**fotografa a metà gesto** e rilascia; `tools/window-rect.ps1` dice dove sta la
+finestra adesso (`CW_USEDEFAULT` la sposta a ogni avvio, e le coordinate cliente
+non si indovinano); `tools/capture-rect.ps1` salva un riquadro senza toccare
+l'ordine delle finestre; `tools/explorer-side.ps1` apre Esplora risorse su una
+cartella **del progetto** e lo mette di fianco.
+
+**Log dei verbi della shell**: `BOLT_DIAG=1` fa scrivere a ogni
 interrogazione di `IContextMenu` le voci trovate, i verbi, quelle saltate e il
-tempo impiegato, in `shell-menu.log` accanto all'eseguibile. Spento di default,
+tempo impiegato, in `bolt-diag.log` accanto all'eseguibile. Spento di default,
 come il registro di avvio: è lo strumento che ha reso leggibile cosa la shell
 offre su **questa** macchina, e quello che serve per i sottomenu.
 
@@ -362,6 +369,8 @@ rettangolo ha bordi continui a qualunque dimensione.
 | `src/ui_renderer.*` | quad batcher, una draw call, catena di mipmap |
 | `src/font_atlas.*` | atlante di glifi GDI → strato dell'array; ClearType ridotto a copertura in scala di grigi, con gutter fra le celle |
 | `src/shell_icons.*` | icone di sistema → strato 1 |
+| `src/drag_drop.*` | trascinamento OLE: `IDropTarget` sulla finestra, `IDropSource` per portare fuori |
+| `src/diag.*` | registro diagnostico (`BOLT_DIAG=1` → `bolt-diag.log`) |
 | `src/shell_new.*` | i modelli del menu "Nuovo": chiavi `ShellNew` del registro, etichette risolte con `SHLoadIndirectString` |
 | `src/shell_sendto.*` | le destinazioni di "Invia a": la cartella SendTo, letta a ogni apertura |
 | `src/shell_preview.*` | anteprime via `IShellItemImageFactory` → strato 2, worker MTA |
@@ -376,7 +385,7 @@ rettangolo ha bordi continui a qualunque dimensione.
 
 - `docs/04-roadmap.md` — le milestone, con le caselle spuntate e i difetti aperti.
 - `docs/05-stato-e-prossimi-passi.md` — dove si è arrivati, cosa resta, le trappole.
-- `docs/02-architettura-ricostruita.md` — l'architettura e i **ventidue** difetti
+- `docs/02-architettura-ricostruita.md` — l'architettura e i **ventiquattro** difetti
   trovati e risolti, §7.
 - `docs/03-spec-funzionale.md` — la spec ricostruita dall'originale: 1124 chiavi,
   319 comandi, 35 token di tema, 23 colonne.
