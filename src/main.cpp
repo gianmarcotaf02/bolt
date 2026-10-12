@@ -24,6 +24,7 @@
 #include "gl_loader.h"
 #include "resource.h"
 #include "shell_icons.h"
+#include "shell_location.h"
 #include "shell_new.h"
 #include "shell_preview.h"
 #include "shell_sendto.h"
@@ -103,6 +104,12 @@ struct Entry
     bool         isDirectory = false;
     FILETIME     modified{};
     bool         readable = true;
+
+    // Il nome assoluto, quando la voce viene da una cartella che **non e' un
+    // percorso** (il cestino): li' il nome da solo non basta ne' ad aprirla ne' a
+    // chiedere alla shell di ripristinarla. Vuoto per le voci normali, che il
+    // percorso ce l'hanno gia' dalla cartella aperta.
+    std::wstring location;
 };
 
 struct Place
@@ -619,10 +626,43 @@ std::string ShellTypeName(const std::string& extension, bool isDirectory)
 }
 
 // --- directory reading -----------------------------------------------------
+//
+// Le voci di una cartella che non e' un percorso. Il lavoro grosso lo fa
+// `ShellLocation`; qui si traduce nel tipo che usa la lista, con le stesse funzioni
+// di formattazione delle cartelle normali: da qui in poi una voce del cestino e'
+// una voce come le altre, e ordinamento, filtro e gruppi non sanno da dove viene.
+std::vector<Entry> ReadNamespaceDirectory(const std::wstring& directory, std::string* error)
+{
+    std::vector<Entry> entries;
+    for (const ShellLocation::Item& item : ShellLocation::Read(directory, error))
+    {
+        Entry entry;
+        entry.wideName    = item.name;
+        entry.name        = ToUtf8(item.name);
+        entry.isDirectory = item.isDirectory;
+        entry.bytes       = item.bytes;
+        entry.modified    = item.modified;
+        entry.extension   = item.extension;
+        entry.location    = item.location;
+
+        entry.typeText     = ShellTypeName(entry.extension, entry.isDirectory);
+        entry.sizeText     = entry.isDirectory ? "" : HumanBytes(entry.bytes);
+        entry.modifiedText = FormatFileTime(entry.modified, /*withTime=*/false);
+        entry.modifiedFull = FormatFileTime(entry.modified, /*withTime=*/true);
+        entries.push_back(std::move(entry));
+    }
+    return entries;
+}
+
 std::vector<Entry> ReadDirectory(const std::wstring& directory, std::string* error)
 {
     std::vector<Entry> entries;
     error->clear();
+
+    // Il cestino non si elenca con FindFirstFile, e non e' un percorso: le sue
+    // voci le sa solo la shell.
+    if (ShellLocation::IsNamespace(directory))
+        return ReadNamespaceDirectory(directory, error);
 
     WIN32_FIND_DATAW data{};
     const std::wstring pattern = directory + L"\\*";
@@ -1077,6 +1117,16 @@ std::wstring LeafName(const std::wstring& path)
         return trimmed;
     const std::wstring leaf = trimmed.substr(slash + 1);
     return leaf.empty() ? trimmed : leaf;
+}
+
+// Il nome assoluto di una voce: quello che si e' letto per le cartelle dello
+// spazio dei nomi, o il percorso dentro la cartella aperta per tutto il resto.
+//
+// Un solo posto decide, cosi' aprire, selezionare e chiedere un verbo alla shell
+// non possono divergere sul significato di "dove sta questa voce".
+std::wstring EntryLocation(const AppState& app, const Entry& entry)
+{
+    return entry.location.empty() ? JoinPath(app.directory, entry.wideName) : entry.location;
 }
 
 void UpdateWindowTitle(AppState& app)
@@ -1869,8 +1919,11 @@ void DrawEntryCell(AppState& app, const Layout& layout, const ViewMetrics& metri
                     iconSize, iconSize};
 
     ShellPreviewCache::IconUV preview;
+    // Fuori da una cartella normale un'anteprima non c'e': `Query` riceve il nome
+    // di spazio dei nomi, se c'e', e risponde "niente" invece di leggere un
+    // percorso che non esiste.
     const ShellPreviewCache::State state =
-        app.previews.Query(JoinPath(app.directory, entry.wideName), entry.extension, &preview);
+        app.previews.Query(EntryLocation(app, entry), entry.extension, &preview);
 
     if (state == ShellPreviewCache::State::Ready)
     {
@@ -2014,7 +2067,7 @@ void DrawList(AppState& app, const Layout& layout, const float* columnX)
                         metrics.iconSize, metrics.iconSize};
         ShellPreviewCache::IconUV preview;
         const ShellPreviewCache::State previewState =
-            app.previews.Query(JoinPath(app.directory, entry.wideName), entry.extension, &preview);
+            app.previews.Query(EntryLocation(app, entry), entry.extension, &preview);
 
         if (previewState == ShellPreviewCache::State::Ready)
         {
@@ -2201,7 +2254,7 @@ void DrawInspector(AppState& app, const Layout& layout)
 
     ShellPreviewCache::IconUV preview;
     const ShellPreviewCache::State previewState =
-        app.previews.Query(JoinPath(app.directory, entry.wideName), entry.extension, &preview);
+        app.previews.Query(EntryLocation(app, entry), entry.extension, &preview);
 
     if (previewState == ShellPreviewCache::State::Ready)
     {
@@ -2675,7 +2728,7 @@ std::vector<std::wstring> SelectedPaths(const AppState& app)
             continue;
         const Entry& entry = app.entries[static_cast<size_t>(row.entry)];
         if (app.selection.count(entry.wideName) != 0)
-            paths.push_back(JoinPath(app.directory, entry.wideName));
+            paths.push_back(EntryLocation(app, entry));
     }
     return paths;
 }
@@ -2686,6 +2739,20 @@ void ReportStatus(AppState& app, const std::wstring& message)
 {
     app.statusMessage     = message;
     app.statusMessageTime = NowSeconds();
+}
+
+// I comandi che agiscono su un **percorso** non valgono dove un percorso non c'e':
+// nel cestino le voci si spostano, si cancellano e si ripristinano coi verbi della
+// shell, che quegli oggetti li conoscono. Qui si dice, invece di far finta che sia
+// un guasto e lasciare l'utente a chiedersi perche' non succede niente.
+bool RefuseInNamespace(AppState& app, const wchar_t* action)
+{
+    if (!ShellLocation::IsNamespace(app.directory))
+        return false;
+    ReportStatus(app, std::wstring(action) +
+                          L": qui non si puo', questa cartella non e' un percorso. "
+                          L"Le voci si gestiscono coi comandi del menu contestuale.");
+    return true;
 }
 
 // Ricarica la cartella mantenendo la selezione sui nomi che esistono ancora.
