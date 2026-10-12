@@ -2879,6 +2879,41 @@ void DoNewFolder(AppState& app)
     }
 }
 
+// Crea una voce nuova dal modello |index| del registro, col meccanismo del
+// sistema: il nome definitivo lo sceglie la shell ("Nuovo documento di
+testo.txt",
+// e "(2)" se esiste gia'), il contenuto lo mette `IFileOperation::NewItem`
+// applicando i dati `ShellNew` dell'estensione.
+void CreateNewItem(AppState& app, size_t index)
+{
+    const std::vector<ShellNew::Template>& templates = ShellNew::Templates();
+    if (index >= templates.size())
+        return;
+
+    const std::wstring wanted = templates[index].suggestedName;
+    const float scroll = app.scroll;
+    std::vector<std::wstring> created;
+    std::wstring error;
+    const FileOps::Result result =
+        FileOps::NewItem(app.window, app.directory, wanted, &created, &error);
+
+    if (result == FileOps::Result::Ok)
+    {
+        const std::wstring name = created.empty() ? wanted : LeafName(created.front());
+        std::unordered_set<std::wstring> keep;
+        keep.insert(name);
+        ReloadKeeping(app, keep, name, scroll);
+
+        // Creare e rinominare sono un'azione sola, come per la cartella: chi crea
+        // vuole dare un nome, non guardare un altro "Nuovo documento di testo".
+        BeginRename(app);
+    }
+    else if (result == FileOps::Result::Failed)
+    {
+        ReportStatus(app, L"File non creato: " + error);
+    }
+}
+
 // --- menu execution ---------------------------------------------------------
 void RunCommand(AppState& app, int command);
 

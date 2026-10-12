@@ -23,6 +23,8 @@ add_executable(Bolt WIN32
     src/font_atlas.h
     src/shell_icons.cpp
     src/shell_icons.h
+    src/shell_new.cpp
+    src/shell_new.h
     src/shell_preview.cpp
     src/shell_preview.h
     src/dir_stats.cpp
