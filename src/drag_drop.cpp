@@ -169,7 +169,7 @@ public:
         return S_OK;
     }
 
-    HRESULT STDMETHODCALLTYPE Drop(IDataObject* data, DWORD keys, POINTL point,
+    HRESULT STDMETHODCALLTYPE Drop(IDataObject* data, DWORD /*keys*/, POINTL point,
                                    DWORD* effect) override
     {
         if (effect == nullptr)
