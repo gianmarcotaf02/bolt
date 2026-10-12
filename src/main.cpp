@@ -529,6 +529,11 @@ struct AppState
     // possono puntare alla stessa cartella, e quella accesa e' **quella sotto il
     // puntatore**.
     int          dropTargetSidebarRow = -1;
+    // Se l'esito della caduta l'ha gia' detto chi l'ha eseguita. Chiudere un
+    // trascinamento riferisce "Spostati N elementi" e non sa *dove*: senza questo,
+    // il suo messaggio copre quello piu' preciso della caduta — "Buttati via N
+    // elementi nel cestino" diventava "Spostati N elementi".
+    bool         dropReported = false;
     // Il percorso del cestino, che non e' una cartella come le altre: tenerlo qui
     // evita di richiederlo alla shell a ogni movimento del mouse durante una caduta.
     std::wstring recycleBinPath;
@@ -6591,6 +6596,7 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
 
                         const std::vector<std::wstring> paths = SelectedPaths(*app);
                         DWORD effect = DROPEFFECT_NONE;
+                        app->dropReported = false;
                         DragDrop::DragOut(window, paths, &effect);
 
                         // Spostati davvero: gli originali non ci sono piu' e la
@@ -6598,8 +6604,15 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
                         if ((effect & DROPEFFECT_MOVE) != 0 && !paths.empty())
                         {
                             ReloadKeeping(*app, /*keep=*/{}, /*preferCursor=*/{}, app->scroll);
-                            ReportStatus(*app, L"Spostati " + std::to_wstring(paths.size()) +
-                                                   L" elementi");
+                            // Il messaggio lo da' chi ha eseguito la caduta, se e'
+                            // stato uno di noi: sa dove sono finiti i file, e
+                            // "Spostati 3 elementi" senza dire dove e' meno di
+                            // "Buttati via 3 elementi nel cestino". Qui si parla
+                            // solo se la destinazione era un'altra applicazione,
+                            // che non ha modo di dirlo.
+                            if (!app->dropReported)
+                                ReportStatus(*app, L"Spostati " + std::to_wstring(paths.size()) +
+                                                       L" elementi");
                         }
                         return 0;
                     }
@@ -7431,6 +7444,7 @@ void Drop(HWND window, const std::vector<std::wstring>& sources, const DragDrop:
     // mollato un file deve poter sapere che non e' successo niente.
     if (result == FileOps::Result::Cancelled)
     {
+        app->dropReported = true;
         ReportStatus(*app, discard ? L"Eliminazione annullata" : L"Operazione annullata");
         return;
     }
@@ -7438,6 +7452,7 @@ void Drop(HWND window, const std::vector<std::wstring>& sources, const DragDrop:
     if (result == FileOps::Result::Failed)
     {
         DiagLog("  caduta non riuscita: " + ToUtf8(error));
+        app->dropReported = true;
         ReportStatus(*app, (discard ? L"Eliminazione non riuscita: "
                                     : (move ? L"Spostamento non riuscito: "
                                             : L"Copia non riuscita: ")) +
@@ -7463,6 +7478,7 @@ void Drop(HWND window, const std::vector<std::wstring>& sources, const DragDrop:
     }
     ReloadKeeping(*app, keep, landed, scroll);
 
+    app->dropReported = true;
     DiagLog("  esito della caduta: " + std::string(discard ? "eliminazione"
                                                            : (move ? "spostamento" : "copia")) +
             " di " + std::to_string(sources.size()) + " elementi" +
