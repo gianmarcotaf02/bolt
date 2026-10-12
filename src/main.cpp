@@ -3502,117 +3502,28 @@ bool BuildShellItems(HWND owner, const std::vector<std::wstring>& paths, bool fo
 
     if (shell != nullptr)
     {
+        HMENU handle = CreatePopupMenu();
+        if (handle != nullptr &&
+            SUCCEEDED(shell->QueryContextMenu(handle, 0, kShellCmdFirst, kShellCmdLast, CMF_NORMAL)))
         {
-            HMENU handle = CreatePopupMenu();
-            if (handle != nullptr &&
-                SUCCEEDED(shell->QueryContextMenu(handle, 0, kShellCmdFirst, kShellCmdLast,
-                                                  CMF_NORMAL)))
+            ReadShellMenu(shell, handle, folderBackground, out, outSkipped);
+
+            if (!out->empty())
             {
-                const int count = GetMenuItemCount(handle);
-                for (int i = 0; i < count; ++i)
-                {
-                    MENUITEMINFOW basic{};
-                    basic.cbSize = sizeof(basic);
-                    basic.fMask  = MIIM_FTYPE | MIIM_ID | MIIM_STATE | MIIM_SUBMENU;
-                    if (!GetMenuItemInfoW(handle, static_cast<UINT>(i), TRUE, &basic))
-                        continue;
-
-                    if ((basic.fType & MFT_SEPARATOR) != 0)
-                    {
-                        out->push_back({"", 0, /*separator=*/true});
-                        continue;
-                    }
-
-                    // Fuori banda la voce non si potrebbe eseguire: meglio non
-                    // offrirla che offrirla e non farla partire.
-                    if (basic.wID < kShellCmdFirst || basic.wID >= kShellCmdLast)
-                        continue;
-
-                    const UINT offset = static_cast<UINT>(basic.wID) - kShellCmdFirst;
-
-                    wchar_t verb[128]{};
-                    const bool haveVerb = SUCCEEDED(shell->GetCommandString(
-                        offset, GCS_VERBW, nullptr, reinterpret_cast<LPSTR>(verb), 128));
-
-                    if (haveVerb && IsOwnShellVerb(verb, folderBackground))
-                        continue;
-
-                    wchar_t text[256]{};
-                    MENUITEMINFOW detailed{};
-                    detailed.cbSize     = sizeof(detailed);
-                    detailed.fMask      = MIIM_STRING;
-                    detailed.dwTypeData = text;
-                    detailed.cch        = 255;
-                    GetMenuItemInfoW(handle, static_cast<UINT>(i), TRUE, &detailed);
-
-                    // I sottomenu sono il pezzo che manca ancora: "Invia a" e
-                    // "Apri con >" vivono li' dentro. Il limite e' dichiarato in
-                    // docs/04-roadmap.md, non nascosto qui.
-                    if (basic.hSubMenu != nullptr)
-                    {
-                        DiagLog("  saltata (sottomenu): '" + ShellLabelToAscii(text) + "'");
-                        ++(*outSkipped);
-                        continue;
-                    }
-
-                    ContextMenuItem item;
-                    item.label    = ShellLabelToAscii(text);
-                    item.command  = static_cast<int>(basic.wID);
-                    item.disabled = (basic.fState & (MFS_DISABLED | MFS_GRAYED)) != 0;
-
-                    // Le voci disegnate da chi le ha messe (ownerdraw) non
-                    // portano il testo nel menu: il ripiego e' il testo di aiuto,
-                    // che e' meglio del nome tecnico del verbo.
-                    if (item.label.empty())
-                    {
-                        wchar_t help[256]{};
-                        if (SUCCEEDED(shell->GetCommandString(offset, GCS_HELPTEXTW, nullptr,
-                                                              reinterpret_cast<LPSTR>(help), 256)))
-                            item.label = ShellLabelToAscii(help);
-                    }
-                    if (item.label.empty())
-                    {
-                        DiagLog("  saltata (senza etichetta): verbo '" + ShellLabelToAscii(verb) + "'");
-                        ++(*outSkipped);
-                        continue;
-                    }
-
-                    DiagLog("  voce: '" + item.label + "'" + (haveVerb ? " verbo '" : " verbo '?") +
-                            ShellLabelToAscii(verb) + "'" + (item.disabled ? " (spenta)" : ""));
-                    out->push_back(std::move(item));
-                }
-
-                // La shell apre e chiude con dei separatori suoi, che accanto ai
-                // nostri diventerebbero doppi; e togliendo le voci che offriamo
-                // gia' possono restarne due di fila.
-                std::vector<ContextMenuItem> cleaned;
-                for (ContextMenuItem& item : *out)
-                {
-                    if (item.separator && (cleaned.empty() || cleaned.back().separator))
-                        continue;
-                    cleaned.push_back(std::move(item));
-                }
-                while (!cleaned.empty() && cleaned.back().separator)
-                    cleaned.pop_back();
-                *out = std::move(cleaned);
-
-                if (!out->empty())
-                {
-                    *outMenu   = shell;
-                    *outHandle = handle;
-                    shell  = nullptr;
-                    handle = nullptr;
-                }
+                *outMenu   = shell;
+                *outHandle = handle;
+                shell  = nullptr;
+                handle = nullptr;
             }
-
-            if (handle != nullptr)
-                DestroyMenu(handle);
-            if (shell != nullptr)
-                shell->Release();
         }
-        if (parent != nullptr)
-            parent->Release();
+
+        if (handle != nullptr)
+            DestroyMenu(handle);
+        if (shell != nullptr)
+            shell->Release();
     }
+    if (parent != nullptr)
+        parent->Release();
 
     for (PIDLIST_ABSOLUTE pidl : pidls)
         CoTaskMemFree(pidl);
