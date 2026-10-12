@@ -69,6 +69,8 @@ switch ($Action) {
     'up'     { [BoltKeys]::Key(0x26) }
     # Tasto Menu: apre il menu contestuale sulla riga del cursore.
     'apps'   { [BoltKeys]::Key(0x5D) }
+    'home'   { [BoltKeys]::Key(0x24) }
+    'end'    { [BoltKeys]::Key(0x23) }
     # Alt+sinistra arriva all'applicazione come WM_SYSKEYDOWN, non WM_KEYDOWN:
     # la finestra ha un menu di sistema e Alt lo dirotta. keybd_event genera il
     # messaggio giusto da solo, perche' Alt e' premuto davvero.
