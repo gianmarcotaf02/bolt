@@ -75,6 +75,11 @@ constexpr int kGlyphLayer      = 0;
 constexpr int kIconLayer       = 1;
 constexpr int kPreviewLayer    = 2;
 constexpr int kSmallGlyphLayer = 3;
+// Un testo si legge in un carattere **a spaziatura fissa**: in un carattere
+// proporzionale le colonne non si allineano, e quello che si guarda in un
+// visualizzatore e' spesso proprio l'allineamento. E' il quinto strato: i primi
+// quattro non bastavano.
+constexpr int kMonoLayer = 4;
 
 // --- theme -----------------------------------------------------------------
 struct Theme
@@ -405,6 +410,11 @@ struct AppState
     // Testo secondario: intestazioni, etichette, barra di stato. Rasterizzato
     // alla sua dimensione invece che ricampionato dal corpo.
     FontAtlas       smallFont;
+
+    // Il carattere del testo del visualizzatore, e se e' stato costruito: senza, si
+    // usa quello secondario.
+    FontAtlas       monoFont;
+    bool            monoFontOk = false;
     ShellIconAtlas  icons;
     ShellPreviewCache previews;
     DirStatsService   stats;
@@ -7080,7 +7090,8 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, LPWSTR, int)
     constexpr int kPreviewCellSize  = 128;
     constexpr int kPreviewCapacity  = 64;
 
-    if (!app.renderer.CreateTextureArray(/*layers=*/4, kTextureLayerSize, &error))
+    // Cinque strati: i quattro di sempre piu' quello del carattere a spaziatura fissa.
+    if (!app.renderer.CreateTextureArray(/*layers=*/5, kTextureLayerSize, &error))
     {
         ShowError(error);
         return 1;
@@ -7102,6 +7113,14 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, LPWSTR, int)
         ShowError(error);
         return 1;
     }
+
+    // Il carattere del testo. Se non c'e' — non tutte le installazioni hanno
+    // Consolas — si ripiega su quello secondario: si legge lo stesso, le colonne non
+    // sono allineate, e va detto invece di far finta.
+    app.monoFontOk = app.monoFont.Build(app.renderer, L"Consolas", 14, kMonoLayer,
+                                        kTextureLayerSize, &error);
+    if (!app.monoFontOk)
+        error.clear();
 
     if (!app.icons.Initialize(app.renderer, kIconLayer, kTextureLayerSize, &error))
     {
