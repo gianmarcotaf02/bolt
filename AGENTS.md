@@ -134,8 +134,8 @@ Per le modifiche a documenti e immagini l'aggiornamento è la skill, in chat:
 
 - Il grafo è una **derivazione**, non una fonte. Se un dettaglio conta per una
   decisione, **confermalo sul sorgente**: vedi §2, che vale anche qui.
-- Il grafo è **vecchio appena modifichi un file**. Dopo una modifica sostanziale:
-  `--update`, o non fidarti delle risposte.
+- Il grafo è **vecchio appena modifichi un file**. Dopo una modifica sostanziale,
+  `graphify update .`, o non fidarti delle risposte.
 - Un file che l'estrattore non riesce a leggere **non è nel grafo**: l'assenza di un
   nodo è un'ipotesi, non la prova che il simbolo non esista.
 - L'interprete usato da graphify è scritto in `graphify-out/.graphify_python`:
