@@ -23,8 +23,9 @@ Ultimo aggiornamento: dopo dragUltimo aggiornamento: dopo "Nuovo file >" e "Invi
 | M7 — operazioni su file | 🟡 copia, sposta, rinomina, cestino, clipboard interoperabile, **menu contestuale a più livelli** con Proprietà di Windows, le **voci di primo livello della shell**, il **menu della cartella** sul fondo, i **sottomenu delle estensioni**, **`Nuovo file >`** (tipi dal registro, creazione con
 contenuto), **`Invia a >`** (destinazioni della cartella SendTo, eseguite lasciandoci
 cadere sopra la selezione), **drag&drop dentro e fuori** con OLE e la **navigazione
-nello spazio dei nomi** col **ripristino dal cestino**. Mancano il trascinamento sul
-riquadro di navigazione e le cartelle riciclate (che si ripristinano, non si aprono) |
+nello spazio dei nomi** col **ripristino dal cestino** e il **trascinamento sul
+riquadro di navigazione** (che sul cestino è il gesto per buttare via, non una
+copia). Mancano le cartelle riciclate (che si ripristinano, non si aprono) |
 | M8 — inspector | ✅ metadati, proprietà `PROPSYS`, conteggio per tipo, **visualizzatore di testo** (righe, minimap, spazi visibili, andare a capo, ingrandimento, codifica) e **anteprima immagine** decodificata con adattamento e ingrandimento. Le voci di spazio dei nomi mostrano le colonne della shell (percorso originale, data di eliminazione). Unica chiave non ricostruita: `InspectorHideGrid` |
 | M9 — configurazione e temi | ⬜ **vincolata**: niente file di impostazioni, vedi `docs/06` |
 | M10 — backend D3D11 | ⬜ |
@@ -64,10 +65,7 @@ In ordine di valore, non di facilità.
    comandi e i 35 token di tema.
 2. **M10 — backend D3D11** — l'ultima milestone del piano; il renderer è già
    dietro `ui_renderer.*`, quindi è un secondo backend, non una riscrittura.
-3. **Il riquadro di navigazione come destinazione di caduta** — il meccanismo c'è
-   (`docs/02` §7.22), manca il bersaglio. Con quello, trascinare qualcosa sul
-   cestino diventa il gesto per buttarlo via.
-4. **Trascinare fuori dalle cartelle di spazio dei nomi** — oggi è rifiutato con un
+3. **Trascinare fuori dalle cartelle di spazio dei nomi** — oggi è rifiutato con un
    messaggio e la ragione è scritta (§7.25): l'oggetto dati si costruisce dai nomi.
    Con i PIDL che ormai si hanno in mano si può fare.
 5. **Colonne ridimensionabili e filtri per colonna** — nel riferimento ci sono

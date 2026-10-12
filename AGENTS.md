@@ -33,6 +33,24 @@ quindi niente di tutto questo finisce nel repository.
 Mai usare il Desktop, i Download o le Immagini di chi lavora, **nemmeno come
 "cartella di esempio"** per una cattura.
 
+Quando una prova **deve** mostrare il riquadro di navigazione — per esempio una
+caduta su una sua voce — vale questa procedura, che non lascia nomi personali in
+nessun file:
+
+1. si chiude `QUICK ACCESS`, che è l'unica sezione coi fissaggi di chi lavora:
+   **si clicca la sua intestazione**, che è la prima riga e sta a un `y` calcolabile
+   dal codice. Le altre tre sezioni (`BOOKMARKS`, `STORAGE`, `PLACES`) contengono
+   solo nomi standard e segnalibri del progetto.
+2. si verifica che sia chiusa catturando **solo la sua riga** (`capture-rect.ps1`,
+   coordinate schermo): la freccia `>` invece di `v` è la risposta.
+3. si cattura **solo il riquadro** con `tools/capture-rect.ps1`, mai la finestra
+   intera: quel copione salva il rettangolo chiesto e niente altro.
+
+Un clic su una finestra **non attiva** la attiva e basta, e viene consumato: il
+primo tentativo di chiusura non chiude niente, e la cattura successiva mostra i
+fissaggi. Quando si fa una prova di questo tipo si guarda il punto 2 **prima** di
+salvare altro.
+
 ### Perché questa regola esiste
 
 Chi lavora qui è una **macchina**. Un agente che ispeziona un disco vede nomi di
@@ -295,6 +313,15 @@ Costano tempo, sembrano bug dell'applicazione e non lo sono. Vedi anche §5 di
 - **`keybd_event` va preceduto da `SetForegroundWindow`**, o i tasti vanno
   altrove. Un falso negativo da mancanza di focus sembra un bug dell'app: **leggi
   il codice prima di correggerlo**.
+- **Su una finestra non attiva il primo clic la attiva e non fa altro.** Un
+  trascinamento che comincia da lì non comincia, e sembra che la funzione di
+  trascinamento non funzioni: è successo per due tentativi di fila. Prima di un
+  gesto, un clic su un punto neutro (il fondo della lista).
+- **Quello che vedi non è detto sia quello che credi.** In una prova un clic su una
+  riga non ha selezionato niente per due volte: l'applicazione era su **un'altra
+  cartella** con un **filtro** che non corrispondeva a niente, quindi la lista era
+  vuota e il clic cadeva nel vuoto. Prima di misurare coordinate, guarda il percorso
+  e il filtro: sono due righe di cattura, e risparmiano mezz'ora di diagnosi.
 - **`GetKeyState` non vede un modificatore iniettato con `SendMessage`.** Per i
   tasti con `Ctrl`/`Shift` serve `keybd_event`; per quelli senza, `SendMessage`
   con `WM_KEYDOWN`/`WM_CHAR` è più affidabile.
