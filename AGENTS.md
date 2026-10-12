@@ -213,7 +213,9 @@ avvio; assente significa nessun errore).
 
 **Log dei verbi della shell**: `BOLT_DIAG_SHELL_MENU=1` fa scrivere a ogni
 interrogazione di `IContextMenu` le voci trovate, i verbi, quelle saltate e il
-tempo impiegato, in `shell-menu.log` accanto all'eseguibile. Spento di default:
+tempo impiegato, in `shell-menu.log` accanto all'eseguibile. Spento di default,
+come il registro di avvio: è lo strumento che ha reso leggibile cosa la shell
+offre su **questa** macchina, e quello che serve per i sottomenu.
 
 **Le shader non richiedono ricompilazione.** `REA_SHADER_DIR` punta alla sorgente,
 quindi `src/shaders/*` si modificano a caldo.
