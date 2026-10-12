@@ -68,13 +68,23 @@ std::wstring DisplayName(const std::wstring& location)
     if (FAILED(SHParseDisplayName(location.c_str(), nullptr, &pidl, 0, nullptr)) || pidl == nullptr)
         return std::wstring();
 
-    // Il nome lo da' la cartella che la contiene, come per ogni voce di ogni
-    // elenco: `SHGDN_NORMAL` sul genitore. Chiederlo all'oggetto con
-    // `SIGDN_NORMALDISPLAY` su "Questo PC" restituisce il nome del computer — che
-    // non e' quello che si vuole leggere in una briciola, ed e' il nome di una
-    // macchina, non un'informazione da mostrare in giro.
+    // Tre strade, in ordine, perche' nessuna va bene sempre. Chiedere il nome
+    // all'oggetto con `SIGDN_NORMALDISPLAY`, per "Questo PC", restituisce il nome
+    // del **computer**: una macchina, non una cartella, e nemmeno un'informazione
+    // da mostrare in giro.
     std::wstring out;
-    PIDLIST_ABSOLUTE up = ILClone(pidl);
+
+    // 1. `SHGetFileInfo` col PIDL: e' il nome che la shell scrive accanto
+    //    all'icona, quindi localizzato — "Questo PC", "Cestino".
+    SHFILEINFOW info{};
+    if (SHGetFileInfoW(reinterpret_cast<LPCWSTR>(pidl), 0, &info, sizeof(info),
+                       SHGFI_PIDL | SHGFI_DISPLAYNAME) != 0 &&
+        info.szDisplayName[0] != L'\0')
+        out = info.szDisplayName;
+
+    // 2. Il nome che le da' la cartella che la contiene, come per ogni voce di ogni
+    //    elenco: `SHGDN_NORMAL` sul genitore.
+    PIDLIST_ABSOLUTE up = out.empty() ? ILClone(pidl) : nullptr;
     if (up != nullptr && ILRemoveLastID(up))
     {
         IShellFolder* parent = nullptr;
@@ -94,7 +104,8 @@ std::wstring DisplayName(const std::wstring& location)
     if (up != nullptr)
         CoTaskMemFree(up);
 
-    // Ripiego, se il genitore non risponde: il nome che l'oggetto da' di se'.
+    // 3. Ripiego, se nessuna delle due ha risposto: il nome che l'oggetto da' di
+    //    se'.
     if (out.empty())
     {
         PWSTR name = nullptr;

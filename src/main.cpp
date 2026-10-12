@@ -1457,7 +1457,7 @@ void DrawTitleBar(AppState& app, const Layout& layout)
         // moved out and only the live fields are current, so the title has to come
         // from there.
         const std::wstring& source = (i == app.activeTab) ? app.directory : tab.directory;
-        const std::string title = ToUtf8(LeafName(source));
+        const std::string title = ToUtf8(LocationLabel(source));
         const float width = (std::min)(220.0f * scale,
                                        (std::max)(130.0f * scale,
                                                   app.font.Measure(title, scale) + 66.0f * scale));
