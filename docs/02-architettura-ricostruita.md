@@ -880,3 +880,102 @@ codice prima di provarlo**, ed è il motivo per cui il caso "rifiutato" è nella
 lista delle prove invece di essere un caso che non si prova mai. Le prove servono
 a trovare quello che non si sa; leggere serve a trovare quello che si è appena
 scritto.
+
+### 7.25 Il nome di una voce del cestino è un'altra voce
+
+Per il cestino serviva una cosa sola: **Ripristina**. Si è costruita la navigazione
+nello spazio dei nomi, si è aperto il cestino, si è fatto tasto destro su un file
+riciclato — e il menu era quello di un file normale: *Modifica*, *Stampa*, *7-Zip*,
+*Converti a Adobe PDF*. Nessun "Ripristina".
+
+La causa si legge nel registro diagnostico, dove finiscono etichette e verbi:
+
+```
+voce: 'Modifica' verbo 'Edit'
+voce: 'Stampa' verbo 'Print'
+voce: '7-Zip' verbo 'SevenZip'
+```
+
+Il menu lo costruisce la shell, e la shell risponde su ciò che le si chiede. Le si
+chiedeva il menu del **nome** della voce, e il nome assoluto di un file nel cestino
+— `SHGetNameFromIDList(..., SIGDN_DESKTOPABSOLUTEPARSING)` — non è il file
+riciclato: è il percorso del file *dentro* `$Recycle.Bin`, cioè il blob. Che è
+un'altra voce: un file vero, in una cartella nascosta, con i suoi verbi. Tutti
+plausibili, e tutti sbagliati per la cosa che si sta guardando.
+
+**L'identità di una voce di spazio dei nomi è il suo PIDL**, non una stringa. Con
+il PIDL — quello che si è già avuto in mano enumerando la cartella — `SHBindToParent`
+dà la cartella giusta e `GetUIObjectOf` dà il menu giusto:
+
+```
+voce: 'Ripristina' verbo 'undelete'
+```
+
+**Il difetto non è nell'API: è nell'aver creduto che un nome basti.** Per il file
+system basta, ed è per questo che tutto il resto dell'applicazione funzionava: un
+percorso identifica un file. Nello spazio dei nomi no, e le stringhe che sembrano
+funzionare sono la trappola peggiore — nessun errore, nessun avviso, solo il menu
+di qualcos'altro. Si è visto **solo eseguendo un verbo e guardando cosa fa**.
+
+Da qui una regola: quando una voce può venire da una cartella che non è un percorso,
+si porta dietro il PIDL che la identifica. Serve anche a non trascinarla mai fuori
+per sbaglio (vedi sotto).
+
+### 7.26 "Questo PC" si chiamava come il computer
+
+Aprendo "Questo PC" la briciola e il titolo della scheda dicevano il nome del
+computer. Tutto il resto funzionava: due unità in elenco, tipi, dimensioni.
+
+La causa: il nome lo si chiedeva all'oggetto —
+`SHGetNameFromIDList(..., SIGDN_NORMALDISPLAY)` e, in una seconda versione,
+`SHGetFileInfo(SHGFI_PIDL | SHGFI_DISPLAYNAME)`. Per "Questo PC" tutti e due
+rispondono col **nome del computer**, perché è così che quella cartella si chiama
+per la shell: se stessa. Explorer la chiama "Questo PC" perché il nome lo prende
+altrove.
+
+Il nome di una cartella di spazio dei nomi sta nel suo CLSID, nella stessa forma
+delle etichette del menu "Nuovo":
+
+```
+HKCR\CLSID\{20D04FE0-3AEA-1069-A2D8-08002B30309D}\LocalizedString
+    = @C:\WINDOWS\system32\windows.storage.dll,-9216      → "Questo PC"
+HKCR\CLSID\{645FF040-5081-101B-9F08-00AA002F954E}\LocalizedString
+    = @C:\WINDOWS\system32\shell32.dll,-8964              → "Cestino"
+```
+
+Risolte con `SHLoadIndirectString`, le due cartelle si chiamano come le chiama
+Windows. Il difetto aveva anche un secondo lato, che è la ragione per cui è
+scritto qui: il nome del computer è **il nome di una macchina**, e non finisce in
+una briciola per sbaglio.
+
+### 7.27 Il 1601 in ogni riga di "Questo PC"
+
+Aprendo "Questo PC", ogni unità mostrava come data `1601-01-01`. Non un errore:
+un tempo di Windows che significa zero, formattato come se fosse una data. Le
+unità non hanno una data di modifica, e la shell risponde con zero.
+
+Un tempo a zero non è una data: è "non lo so", e si scrive lasciando la colonna
+vuota. La stessa regola valeva già altrove nell'applicazione, ma qui la shell
+risponde zero invece di non rispondere, ed è un caso diverso.
+
+### 7.28 Il filtro che spariva al ricaricamento
+
+Il difetto è stato trovato **sbagliando una prova**: dopo aver ripristinato un file
+dal cestino ho fotografato la finestra per verificare che la riga fosse sparita, e
+la fotografia mostrava il cestino **intero** — il filtro che avevo scritto per non
+guardare i file di nessuno non c'era più.
+
+Il ripristino passa da `ReloadKeeping`, che passa da `LoadDirectory`, che azzera il
+filtro. La regola «il filtro non segue l'utente in un'altra cartella» è giusta;
+applicarla anche al **ricaricamento della stessa cartella** era sbagliato, e faceva
+sparire la casella del filtro a ogni F5 — cosa che l'applicazione faceva da
+quando il filtro esiste, e che nessuno aveva notato perché nessuno ricarica una
+cartella *con un filtro attivo* per guardare se il filtro resta.
+
+Adesso il filtro si azzera solo quando la cartella cambia davvero. Verificato:
+con "zz" nella casella, F5 lascia "zz" e lascia la lista filtrata.
+
+Le due lezioni stanno insieme, e la seconda è più grande della prima: **una
+cattura è una copia di quello che sta sotto gli occhi, e va guardata come tale**.
+Per il cestino, da adesso, la verifica si fa contando — e le catture si fanno solo
+dopo aver ristretto la lista a un file proprio.
