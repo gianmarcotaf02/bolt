@@ -608,6 +608,29 @@ struct AppState
     std::vector<std::pair<std::string, int>> columnPanelValues;
     GroupMenu                               columnMenu;
 
+    // --- verbi della shell, tenuti per selezione -----------------------------
+    //
+    // Chiedere alla shell il menu contestuale costa ~65 ms di regime e una ventina
+    // di **handle di kernel che non tornano piu' giu'** (misurato, `docs/02`
+    // §7.38): le istanze delle estensioni restano vive nel processo. Chiederlo due
+    // volte per la stessa selezione e' lavoro ripetuto *e* una perdita, quindi si
+    // tiene l'ultimo risultato finche' la selezione non cambia.
+    //
+    // Gli oggetti della shell stanno qui e non nel menu: il menu li prende in
+    // prestito e li restituisce chiudendosi. Chi li rilascia davvero e' questa
+    // memoria, quando il risultato non serve piu'.
+    struct ShellMenuCache
+    {
+        bool                          valid      = false;
+        bool                          background = false;
+        std::wstring                  key;
+        std::vector<ContextMenuItem>  items;
+        IContextMenu*                 shell  = nullptr;
+        HMENU                         handle = nullptr;
+        double                        stamp  = 0.0;
+    };
+    ShellMenuCache shellMenuCache;
+
     // La geometria della griglia: i rettangoli di ogni riga, senza lo scorrimento.
     // Si rifa' solo quando cambia qualcosa da cui dipende.
     std::vector<Rect> gridRects;
@@ -5406,18 +5429,33 @@ bool IsOwnShellVerb(const wchar_t* verb, bool folderBackground)
 // Rilascia quello che la shell ci ha prestato. Va chiamato a ogni chiusura del
 // menu: un IContextMenu tenuto in vita e' una DLL di estensione che non si
 // scarica, e un HMENU mai distrutto e' una risorsa utente che cola.
-void ShellMenuRelease(ContextMenu& menu)
+// Il menu **lascia andare** gli oggetti della shell: non li distrugge, perche' non
+// sono suoi. Il proprietario e' la memoria dei verbi, che li rilascia quando il
+// risultato non serve piu' a nessuno (`ReleaseShellMenuCache`).
+void ShellMenuDetach(ContextMenu& menu)
 {
-    if (menu.shell != nullptr)
+    menu.shell     = nullptr;
+    menu.shellMenu = nullptr;
+}
+
+// Rilascia davvero. Si chiama quando la selezione cambia, quando la memoria scade,
+// e all'uscita.
+void ReleaseShellMenuCache(AppState& app)
+{
+    AppState::ShellMenuCache& cache = app.shellMenuCache;
+    if (cache.shell != nullptr)
     {
-        menu.shell->Release();
-        menu.shell = nullptr;
+        cache.shell->Release();
+        cache.shell = nullptr;
     }
-    if (menu.shellMenu != nullptr)
+    if (cache.handle != nullptr)
     {
-        DestroyMenu(menu.shellMenu);
-        menu.shellMenu = nullptr;
+        DestroyMenu(cache.handle);
+        cache.handle = nullptr;
     }
+    cache.valid = false;
+    cache.items.clear();
+    cache.key.clear();
 }
 
 // I sottomenu che la shell popola **da sé** — "Nuovo", "Invia a", "Dare accesso
@@ -5684,13 +5722,42 @@ bool BuildShellItems(HWND owner, const std::vector<std::wstring>& paths,
 // quello che non lo e'.
 void AppendShellItems(AppState& app, ContextMenu& menu)
 {
+    // La chiave dice **cosa** si e' chiesto, non quando: la stessa selezione nello
+    // stesso posto da' gli stessi verbi, e un'estensione non cambia mestiere fra un
+    // tasto destro e il successivo.
+    const bool folderBackground = app.selection.empty();
+    std::wstring key = app.directory;
+    key += folderBackground ? L"|sfondo" : L"|selezione";
+    for (const std::wstring& name : app.selection)
+    {
+        key += L"|";
+        key += name;
+    }
+
+    AppState::ShellMenuCache& cache = app.shellMenuCache;
+    // La scadenza c'e' per una ragione precisa: al primo menu della sessione le
+    // estensioni moderne di Windows 11 non si sono ancora registrate, e quello che
+    // si e' letto e' un elenco **incompleto**. Tenendolo per sempre, "Apri nel
+    // Terminale" non comparirebbe mai; tenendolo mezzo minuto, si corregge da solo.
+    if (cache.valid && cache.key == key && NowSeconds() - cache.stamp < 30.0)
+    {
+        DiagLog("--- " + DiagClock() + " verbi della shell **ripresi dalla memoria**: " +
+                std::to_string(cache.items.size()) + " voci");
+        menu.shell             = cache.shell;
+        menu.shellMenu         = cache.handle;
+        menu.shellIsBackground = cache.background;
+        for (const ContextMenuItem& item : cache.items)
+            menu.items.push_back(item);
+        menu.items.push_back({"", 0, /*separator=*/true});
+        return;
+    }
+
     std::vector<std::wstring> paths = SelectedPaths(app);
 
     // Nel vuoto il contesto della shell e' **la cartella aperta**: il menu che si
     // apre col tasto destro sul fondo parla della cartella, non di un file. Sono
     // gli stessi verbi su un altro oggetto, ed e' da li' che arrivano "Apri in
     // Terminale", "Condividi" e la finestra delle proprieta' della cartella.
-    const bool folderBackground = paths.empty();
     if (folderBackground)
     {
         if (app.directory.empty())
@@ -5714,12 +5781,26 @@ void AppendShellItems(AppState& app, ContextMenu& menu)
             std::to_string(paths.size()) + " percorsi, " + std::to_string(items.size()) +
             " voci, " + std::to_string(skipped) + " saltate, " + std::to_string(elapsed) + " ms");
 
-    ShellMenuRelease(menu);
-    if (shell == nullptr)
-        return;
+    // Il risultato vecchio si rilascia **dopo** aver costruito il nuovo: se la
+    // costruzione fallisce, quello che c'era non e' gia' stato buttato via.
+    ReleaseShellMenuCache(app);
 
-    menu.shell            = shell;
-    menu.shellMenu        = handle;
+    if (shell == nullptr)
+    {
+        ShellMenuDetach(menu);
+        return;
+    }
+
+    cache.valid      = true;
+    cache.background = folderBackground;
+    cache.key        = key;
+    cache.items      = items;      // una copia: il menu ne prende la sua
+    cache.shell      = shell;
+    cache.handle     = handle;
+    cache.stamp      = NowSeconds();
+
+    menu.shell             = shell;
+    menu.shellMenu         = handle;
     menu.shellIsBackground = folderBackground;
     for (ContextMenuItem& item : items)
         menu.items.push_back(std::move(item));
@@ -5740,7 +5821,7 @@ void ContextMenuClose(AppState& app)
     menu.levels.assign(1, ContextMenuLevel{});
     menu.items.clear();
     menu.shellIsBackground = false;
-    ShellMenuRelease(menu);
+    ShellMenuDetach(menu);   // gli oggetti restano in memoria, per la stessa selezione
 }
 
 // Quanti handle di kernel ha in mano il processo. Serve a distinguere un costo da
