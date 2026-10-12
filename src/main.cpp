@@ -3528,6 +3528,19 @@ void DrawTextViewer(AppState& app, const Layout& layout, const Rect& area)
     const int first = (std::max)(0, static_cast<int>(app.textScroll / lineHeight) - 1);
     const int last = (std::min)(static_cast<int>(app.textRows.size()),
                                 first + static_cast<int>(text.h / lineHeight) + 3);
+
+    // Le righe si ritagliano sull'area del testo, come la lista sul suo rettangolo
+    // (§7.36). Il `first` qui sopra comincia **una riga prima** di quella visibile,
+    // cosi' la riga a meta' si vede a meta' invece di comparire di colpo — ed e'
+    // proprio quella riga che, senza ritaglio, finisce sopra la testata
+    // `UTF-8 ... righe`. Si vedeva scorrendo.
+    app.renderer.End();
+    glEnable(GL_SCISSOR_TEST);
+    glScissor(static_cast<GLint>(text.x),
+              static_cast<GLint>(static_cast<float>(app.viewportHeight) - text.bottom()),
+              static_cast<GLsizei>(text.w), static_cast<GLsizei>(text.h));
+    app.renderer.Begin(app.viewportWidth, app.viewportHeight);
+
     for (int row = first; row < last; ++row)
     {
         const TextRow& item = app.textRows[static_cast<size_t>(row)];
@@ -3545,6 +3558,10 @@ void DrawTextViewer(AppState& app, const Layout& layout, const Rect& area)
         DrawTextRow(r, font, document.lines[item.line], item, text.x, y, textScale,
                     app.textShowWhitespace, t.text, text.w);
     }
+
+    app.renderer.End();
+    glDisable(GL_SCISSOR_TEST);
+    app.renderer.Begin(app.viewportWidth, app.viewportHeight);
 
     // La minimap: una barra per riga di schermo, lunga quanto la riga piu' lunga che
     // ci sta dentro, e la parte che si sta guardando evidenziata. Serve a orientarsi in
