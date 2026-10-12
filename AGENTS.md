@@ -197,10 +197,23 @@ powershell -ExecutionPolicy Bypass -File tools/send-keys.ps1 -Action <azione> [-
 ```
 
 Azioni: `text`, `backspace`, `enter`, `escape`, `delete`, `f2`, `down`, `up`,
-`alt+left`, `alt+right`, `ctrl+<lettera>`, `ctrl+shift+<lettera>`, `shift+delete`.
+`home`, `end`, `apps`, `alt+left`, `alt+right`, `ctrl+<lettera>`,
+`ctrl+shift+<lettera>`, `shift+delete`.
+
+**Mandare clic e rotella**, in coordinate **cliente** (così la prova si ripete
+anche se la finestra si sposta):
+
+```bash
+powershell -ExecutionPolicy Bypass -File tools/send-mouse.ps1 -Action right -X 300 -Y 150
+powershell -ExecutionPolicy Bypass -File tools/send-mouse.ps1 -Action left|-move|-wheel -X … -Y … [-Clicks n]
+```
 
 **Log di avvio**: `build/RelWithDebInfo/startup-error.log` (sovrascritto a ogni
 avvio; assente significa nessun errore).
+
+**Log dei verbi della shell**: `BOLT_DIAG_SHELL_MENU=1` fa scrivere a ogni
+interrogazione di `IContextMenu` le voci trovate, i verbi, quelle saltate e il
+tempo impiegato, in `shell-menu.log` accanto all'eseguibile. Spento di default:
 
 **Le shader non richiedono ricompilazione.** `REA_SHADER_DIR` punta alla sorgente,
 quindi `src/shaders/*` si modificano a caldo.
@@ -325,7 +338,7 @@ rettangolo ha bordi continui a qualunque dimensione.
 
 | file | responsabilità |
 |---|---|
-| `src/main.cpp` | finestra Win32, contesto GL, navigazione, layout, input, disegno. **~4.300 righe: è il collo di bottiglia dichiarato.** |
+| `src/main.cpp` | finestra Win32, contesto GL, navigazione, layout, input, disegno. **~5.300 righe: è il collo di bottiglia dichiarato.** |
 | `src/ui_renderer.*` | quad batcher, una draw call, catena di mipmap |
 | `src/font_atlas.*` | atlante di glifi GDI → strato dell'array; ClearType ridotto a copertura in scala di grigi, con gutter fra le celle |
 | `src/shell_icons.*` | icone di sistema → strato 1 |
@@ -341,7 +354,7 @@ rettangolo ha bordi continui a qualunque dimensione.
 
 - `docs/04-roadmap.md` — le milestone, con le caselle spuntate e i difetti aperti.
 - `docs/05-stato-e-prossimi-passi.md` — dove si è arrivati, cosa resta, le trappole.
-- `docs/02-architettura-ricostruita.md` — l'architettura e i **quattordici** difetti
+- `docs/02-architettura-ricostruita.md` — l'architettura e i **diciassette** difetti
   trovati e risolti, §7.
 - `docs/03-spec-funzionale.md` — la spec ricostruita dall'originale: 1124 chiavi,
   319 comandi, 35 token di tema, 23 colonne.

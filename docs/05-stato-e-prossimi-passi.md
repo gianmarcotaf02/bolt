@@ -35,7 +35,7 @@ lavorano i file — inclusa l'apertura delle proprietà di Windows.
 
 Ordinato per quanto morde.
 
-1. **`src/main.cpp` è a ~4.700 righe.** I confini dei componenti ci sono
+1. **`src/main.cpp` è a ~5.300 righe.** I confini dei componenti ci sono
    (`GroupMenu`, `ContextMenu`, `file_ops`, `dir_stats`) ma vivono tutti nello
    stesso file. Spezzarlo richiede che `AppState` e i tipi condivisi escano
    dall'anonimo namespace in un header: è un lavoro meccanico ma largo, e va fatto
@@ -85,7 +85,7 @@ In ordine di valore, non di facilità.
 7. **Raggruppamento in griglia** e **ridimensionamento continuo** della cella.
 8. **Il resto di M5d** — `HoverToSelect`, `UnderlineOnHover` e `ShowTooltips`,
    più le altre chiavi di interazione dello spec. Vedi `docs/04-roadmap.md`.
-9. **Spezzare `main.cpp`** — ~4.700 righe e otto moduli: il confine c'è, ma il
+9. **Spezzare `main.cpp`** — ~5.300 righe e otto moduli: il confine c'è, ma il
    file che lo contiene è diventato il collo di bottiglia.
 
 ---
