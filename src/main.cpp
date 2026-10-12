@@ -298,6 +298,9 @@ struct ContextMenu
     bool open = false;
     float x = 0.0f, y = 0.0f;       // dove e' stato aperto, in coordinate cliente
     int   selected = -1;
+    // Prima voce disegnata. Il menu non si scorre a meta' voce: le voci visibili
+    // sono un intervallo intero, e ognuna sta interamente dentro il pannello.
+    int   firstItem = 0;
     std::string subtitle;
     std::vector<ContextMenuItem> items;
 
@@ -3007,17 +3010,52 @@ float ContextMenuWidth(const AppState& app, const Layout& layout)
     return (std::max)(220.0f * scale, (std::min)(340.0f * scale, widest + 56.0f * scale));
 }
 
+// Quante voci entrano nell'altezza utile, a partire da |firstItem|.
+//
+// Il taglio cade sempre fra due voci. Una voce mostrata a meta' si sceglie per
+// sbaglio, e con i verbi della shell il menu supera la finestra molto prima di
+// quanto si creda: venti voci su un monitor normale sono piu' della finestra.
+int ContextMenuVisibleCount(const AppState& app, const Layout& layout, int firstItem)
+{
+    const float scale     = layout.scale;
+    const float separator = 7.0f * scale;
+    // 8 px di margine sotto, 6 px di riempimento sopra e sotto, 22 px di
+    // sottotitolo: quello che resta e' lo spazio delle voci.
+    const float room = static_cast<float>(app.viewportHeight) - 8.0f * scale -
+                       12.0f * scale - 22.0f * scale;
+
+    const int total = static_cast<int>(app.contextMenu.items.size());
+    float used  = 0.0f;
+    int   count = 0;
+    for (int i = firstItem; i < total; ++i)
+    {
+        const float height = app.contextMenu.items[static_cast<size_t>(i)].separator
+                                 ? separator
+                                 : layout.rowHeight;
+        // Almeno una voce si mostra sempre: un menu vuoto non si spiega.
+        if (count > 0 && used + height > room)
+            break;
+        used += height;
+        ++count;
+    }
+    return count;
+}
+
 Rect ContextMenuPanel(const AppState& app, const Layout& layout)
 {
     const float scale     = layout.scale;
     const float separator = 7.0f * scale;
     const float padding   = 6.0f * scale;
 
-    float content = 0.0f;
-    for (const ContextMenuItem& item : app.contextMenu.items)
-        content += item.separator ? separator : layout.rowHeight;
+    const ContextMenu& menu = app.contextMenu;
+    const int first   = menu.firstItem;
+    const int visible = ContextMenuVisibleCount(app, layout, first);
 
-    const float width  = ContextMenuWidth(app, layout);
+    float content = 0.0f;
+    for (int i = first; i < first + visible; ++i)
+        content += menu.items[static_cast<size_t>(i)].separator ? separator : layout.rowHeight;
+
+    const float width = ContextMenuWidth(app, layout);
     // 22 px in fondo per il sottotitolo, che non e' una voce.
     const float height = content + padding * 2.0f + 22.0f * scale;
 
@@ -3025,9 +3063,19 @@ Rect ContextMenuPanel(const AppState& app, const Layout& layout)
     // al bordo destro finirebbe per meta' fuori e irraggiungibile.
     const float maxX = static_cast<float>(app.viewportWidth) - width - 4.0f * scale;
     const float maxY = static_cast<float>(app.viewportHeight) - height - 4.0f * scale;
-    const float x = (std::max)(4.0f * scale, (std::min)(app.contextMenu.x, maxX));
-    const float y = (std::max)(4.0f * scale, (std::min)(app.contextMenu.y, maxY));
+    const float x = (std::max)(4.0f * scale, (std::min)(menu.x, maxX));
+    const float y = (std::max)(4.0f * scale, (std::min)(menu.y, maxY));
     return Rect{x, y, width, height};
+}
+
+// Ultimo indice disegnato, escluso. Fuori da questo intervallo una voce non
+// esiste: non si disegna, non si sovrappassa e non si clicca. Cosi' non serve
+// nessun taglio, perche' quello che non si disegna non sborda.
+int ContextMenuLastVisible(const AppState& app, const Layout& layout)
+{
+    const int first   = app.contextMenu.firstItem;
+    const int visible = ContextMenuVisibleCount(app, layout, first);
+    return (std::min)(static_cast<int>(app.contextMenu.items.size()), first + visible);
 }
 
 Rect ContextMenuRowRect(const AppState& app, const Layout& layout, int index)
@@ -3038,13 +3086,46 @@ Rect ContextMenuRowRect(const AppState& app, const Layout& layout, int index)
     const float padding    = 6.0f * scale;
 
     float top = panel.y + padding;
-    for (int i = 0; i < index && i < static_cast<int>(app.contextMenu.items.size()); ++i)
+    for (int i = app.contextMenu.firstItem;
+         i < index && i < static_cast<int>(app.contextMenu.items.size()); ++i)
         top += app.contextMenu.items[static_cast<size_t>(i)].separator ? separator : layout.rowHeight;
 
     const float height = app.contextMenu.items[static_cast<size_t>(index)].separator
                              ? separator
                              : layout.rowHeight;
     return Rect{panel.x + 4.0f * scale, top, panel.w - 8.0f * scale, height};
+}
+
+// Tiene la finestra del menu dentro i limiti e ci tiene dentro la voce scelta:
+// l'Invio esegue quello che si vede, quindi la selezione non deve poter uscire
+// dal pannello.
+void ContextMenuClampWindow(AppState& app, const Layout& layout)
+{
+    ContextMenu& menu = app.contextMenu;
+    const int total = static_cast<int>(menu.items.size());
+    if (total == 0)
+    {
+        menu.firstItem = 0;
+        return;
+    }
+
+    const int capacity = (std::max)(1, ContextMenuVisibleCount(app, layout, 0));
+    menu.firstItem = (std::max)(0, (std::min)(menu.firstItem, (std::max)(0, total - capacity)));
+
+    if (menu.selected < 0)
+        return;
+    if (menu.selected < menu.firstItem)
+    {
+        menu.firstItem = menu.selected;
+        return;
+    }
+
+    // Si avanza finche' la voce scelta non entra: quante ne entrano dipende da
+    // dove si comincia, perche' un separatore non e' alto quanto una voce.
+    while (menu.firstItem < menu.selected &&
+           menu.firstItem + ContextMenuVisibleCount(app, layout, menu.firstItem) <= menu.selected)
+        ++menu.firstItem;
+    menu.firstItem = (std::min)(menu.firstItem, menu.selected);
 }
 
 // --- verbi della shell nel menu contestuale ---------------------------------
@@ -3081,6 +3162,13 @@ void DiagLog(const std::string& line)
     if (!DiagLogEnabled())
         return;
 
+    // Le righe si accumulano e si riscrivono tutte insieme. Aprendo in append a
+    // ogni riga il registro restava incompleto — il 2026-10-12 conteneva 118 byte
+    // su venti voci — e un registro a meta' e' peggio di nessun registro.
+    static std::string buffer;
+    buffer += line;
+    buffer += "\r\n";
+
     wchar_t modulePath[MAX_PATH]{};
     if (GetModuleFileNameW(nullptr, modulePath, MAX_PATH) == 0)
         return;
@@ -3090,21 +3178,26 @@ void DiagLog(const std::string& line)
     file = (slash == std::wstring::npos) ? L"shell-menu.log"
                                          : file.substr(0, slash + 1) + L"shell-menu.log";
 
-    // Il primo giro azzera il registro: un file che cresce a ogni tasto destro
-    // non si legge piu'.
-    static bool first = true;
-    HANDLE handle = CreateFileW(file.c_str(), FILE_APPEND_DATA | FILE_WRITE_DATA,
-                                FILE_SHARE_READ, nullptr,
-                                first ? CREATE_ALWAYS : OPEN_ALWAYS,
-                                FILE_ATTRIBUTE_NORMAL, nullptr);
-    first = false;
+    HANDLE handle = CreateFileW(file.c_str(), GENERIC_WRITE, FILE_SHARE_READ, nullptr,
+                                CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
     if (handle == INVALID_HANDLE_VALUE)
         return;
 
-    const std::string text = line + "\r\n";
     DWORD written = 0;
-    WriteFile(handle, text.data(), static_cast<DWORD>(text.size()), &written, nullptr);
+    WriteFile(handle, buffer.data(), static_cast<DWORD>(buffer.size()), &written, nullptr);
     CloseHandle(handle);
+}
+
+// Segna l'ora nel registro: due giri nella stessa sessione si distinguono solo
+// cosi', e la prima apertura non costa quanto la seconda.
+std::string DiagClock()
+{
+    SYSTEMTIME time{};
+    GetLocalTime(&time);
+    char text[16]{};
+    sprintf_s(text, "%02u:%02u:%02u.%03u", time.wHour, time.wMinute, time.wSecond,
+              time.wMilliseconds);
+    return text;
 }
 
 // L'atlante dei glifi copre il solo ASCII stampabile, quindi un'etichetta della
@@ -3138,8 +3231,24 @@ std::string ShellLabelToAscii(const std::wstring& text)
 {
     std::string out;
     out.reserve(text.size());
-    for (const wchar_t c : text)
+    for (size_t i = 0; i < text.size(); ++i)
     {
+        const wchar_t c = text[i];
+
+        // Nelle etichette della shell la e commerciale segnala il tasto di scelta
+        // rapida e si raddoppia per scriverla davvero: "Aggiungi ad &&Accesso"
+        // significa "Aggiungi ad &Accesso". Il nostro menu non ha tasti di scelta
+        // rapida, quindi l'occhiello si toglie invece di finire a schermo.
+        if (c == L'&')
+        {
+            if (i + 1 < text.size() && text[i + 1] == L'&')
+            {
+                out.push_back('&');
+                ++i;
+            }
+            continue;
+        }
+
         if (c >= 32 && c < 127)
         {
             out.push_back(static_cast<char>(c));
@@ -3306,7 +3415,7 @@ bool BuildShellItems(HWND owner, const std::vector<std::wstring>& paths,
                     // Le voci disegnate da chi le ha messe (ownerdraw) non
                     // portano il testo nel menu: il ripiego e' il testo di aiuto,
                     // che e' meglio del nome tecnico del verbo.
-                                    if (item.label.empty())
+                    if (item.label.empty())
                     {
                         wchar_t help[256]{};
                         if (SUCCEEDED(shell->GetCommandString(offset, GCS_HELPTEXTW, nullptr,
@@ -3377,8 +3486,9 @@ void AppendShellItems(AppState& app, ContextMenu& menu)
     BuildShellItems(app.window, paths, &shell, &handle, &items, &skipped);
     const double elapsed = (NowSeconds() - started) * 1000.0;
 
-    DiagLog("--- " + std::to_string(paths.size()) + " percorsi, " + std::to_string(items.size()) +
-            " voci, " + std::to_string(skipped) + " saltate, " + std::to_string(elapsed) + " ms");
+    DiagLog("--- " + DiagClock() + " " + std::to_string(paths.size()) + " percorsi, " +
+            std::to_string(items.size()) + " voci, " + std::to_string(skipped) +
+            " saltate, " + std::to_string(elapsed) + " ms");
 
     ShellMenuRelease(menu);
     if (shell == nullptr)
@@ -3406,6 +3516,7 @@ void BuildContextMenu(AppState& app, float x, float y)
     menu.x = x;
     menu.y = y;
     menu.selected = -1;
+    menu.firstItem = 0;
 
     const size_t count = app.selection.size();
     menu.subtitle = count == 0 ? std::string("niente selezionato")
@@ -3445,8 +3556,9 @@ void BuildContextMenu(AppState& app, float x, float y)
     menu.open = true;
 }
 
-void ContextMenuMove(ContextMenu& menu, int delta)
+void ContextMenuMove(AppState& app, const Layout& layout, int delta)
 {
+    ContextMenu& menu = app.contextMenu;
     const int count = static_cast<int>(menu.items.size());
     if (count == 0 || delta == 0)
         return;
@@ -3467,6 +3579,9 @@ void ContextMenuMove(ContextMenu& menu, int delta)
             break;
     }
     menu.selected = index;
+
+    // Se la voce scelta sta fuori dal pannello, il menu scivola di quel tanto.
+    ContextMenuClampWindow(app, layout);
 }
 
 // Apre la finestra delle proprieta' di Windows sulla selezione: la stessa che
