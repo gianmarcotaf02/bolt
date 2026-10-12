@@ -140,7 +140,7 @@ struct ClickTarget
 {
     enum class Kind
     {
-        Column, Breadcrumb, Place, SidebarHeader, Row, GroupHeader, GroupMode,
+        Column, Breadcrumb, NavButton, Place, SidebarHeader, Row, GroupHeader, GroupMode,
         Menu, Tab, TabClose, TabNew,
         WindowMinimize, WindowMaximize, WindowClose,
         MenuRow, MenuHeader,
@@ -408,6 +408,7 @@ struct AppState
     int              hoveredTab = -1;
     int              hoveredChrome = -1;   // 0 menu, 1 new tab, 2 min, 3 max, 4 close
     int              hoveredSection = -1;  // intestazione di sezione della barra laterale
+    int              hoveredNav = -1;      // 0 indietro, 1 avanti, 2 su, 3 aggiorna, 4 segnalibro
 
     std::wstring directory;
 
@@ -1759,7 +1760,49 @@ void DrawToolbar(AppState& app, const Layout& layout, const std::wstring& displa
     // measured from the toolbar rectangle, not from the top of the window: the
     // title bar above it is drawn by the application and its height varies with
     // the UI scale.
-    float penX = layout.toolbar.x + 12.0f * scale;
+    // I pulsanti di navigazione, a sinistra del percorso: indietro, avanti, su,
+    // aggiorna, e la stella dei segnalibri. Sono i più usati dopo il percorso, e in
+    // File Pilot stanno li'.
+    const char* const kNavGlyphs[5] = {"←", "→", "↑", "↻", "★"};
+    const bool navEnabled[5] = {
+        app.historyIndex > 0,
+        app.historyIndex + 1 < static_cast<int>(app.history.size()),
+        !app.directory.empty(),
+        true,
+        !app.directory.empty(),
+    };
+    constexpr float kNavSize = 26.0f;
+    float navX = layout.toolbar.x + 8.0f * scale;
+    for (int i = 0; i < 5; ++i)
+    {
+        const Rect button{navX, layout.toolbar.y + 5.0f * scale, kNavSize * scale,
+                          kNavSize * scale};
+        const bool bookmarked = (i == 4) && IsBookmarked(app);
+        if (i == app.hoveredNav && navEnabled[i])
+            r.FillRect(button, t.rowHover, 5.0f * scale);
+        else if (bookmarked)
+            r.FillRect(button, t.accent.WithAlpha(0.18f), 5.0f * scale);
+
+        // La stella e' piena quando la cartella e' nei segnalibri: e' l'unico segno
+        // che dice se il comando aggiunge o toglie.
+        const char* glyph = (i == 4 && !bookmarked) ? "☆" : kNavGlyphs[i];
+        const Color color = !navEnabled[i] ? t.textDim.WithAlpha(0.4f)
+                          : bookmarked      ? t.accent
+                                            : t.textDim;
+        const float glyphWidth = app.font.Measure(glyph, scale);
+        app.font.Draw(r, button.x + (button.w - glyphWidth) * 0.5f,
+                      boxTop(layout.toolbar.y, button, app.font), glyph, color, scale);
+
+        ClickTarget target;
+        target.rect  = button;
+        target.kind  = ClickTarget::Kind::NavButton;
+        target.index = i;
+        app.clickTargets.push_back(target);
+
+        navX += (kNavSize + 2.0f) * scale;
+    }
+
+    float penX = navX + 8.0f * scale;
     const float baseline = layout.toolbar.y + 11.0f * scale;
 
     std::wstring accumulated;
