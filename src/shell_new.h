@@ -11,8 +11,10 @@
 // La forma 2 e' quella piu' usata su Windows 11 ed e' quella che rende il menu
 // della shell molto piu' lungo di quello che si otterrebbe guardando solo la
 // prima. Le etichette sono stringhe **indirette** ("@…dll,-id"), risolte con
-// `RegLoadMUIString`: e' il meccanismo di Windows, quindi i nomi dei tipi
+// `SHLoadIndirectString`: e' il meccanismo di Windows, quindi i nomi dei tipi
 // arrivano tradotti senza avere le traduzioni dentro il nostro eseguibile.
+// (`RegLoadMUIString` sembra nata per questo e restituisce errore 87 sulle stesse
+// stringhe: vedi `docs/02-architettura-ricostruita.md` §7.20.)
 //
 // La creazione non passa da qui: la fa `FileOps::NewItem`, cioe' la shell, che
 // sceglie il nome definitivo, e poi il contenuto lo scrive chi legge il modello
