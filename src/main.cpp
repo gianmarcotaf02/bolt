@@ -29,6 +29,9 @@
 #include <dwmapi.h>
 #include <shellapi.h>
 #include <shlobj.h>
+// CMINVOKECOMMANDINFOEX sta in shobjidl.h, non in shlobj.h: serve per eseguire
+// una voce del menu della shell.
+#include <shobjidl.h>
 #include <windowsx.h>
 
 #include <algorithm>
@@ -3283,9 +3286,7 @@ bool BuildShellItems(HWND owner, const std::vector<std::wstring>& paths,
                     detailed.fMask      = MIIM_STRING;
                     detailed.dwTypeData = text;
                     detailed.cch        = 255;
-                    const bool haveText =
-                        GetMenuItemInfoW(handle, static_cast<UINT>(i), TRUE, &detailed) != FALSE &&
-                        text[0] != L'\0';
+                    GetMenuItemInfoW(handle, static_cast<UINT>(i), TRUE, &detailed);
 
                     // I sottomenu sono il pezzo che manca ancora: "Invia a" e
                     // "Apri con >" vivono li' dentro. Il limite e' dichiarato in
@@ -3305,7 +3306,7 @@ bool BuildShellItems(HWND owner, const std::vector<std::wstring>& paths,
                     // Le voci disegnate da chi le ha messe (ownerdraw) non
                     // portano il testo nel menu: il ripiego e' il testo di aiuto,
                     // che e' meglio del nome tecnico del verbo.
-                    if (item.label.empty())
+                                    if (item.label.empty())
                     {
                         wchar_t help[256]{};
                         if (SUCCEEDED(shell->GetCommandString(offset, GCS_HELPTEXTW, nullptr,
