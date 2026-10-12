@@ -4084,9 +4084,107 @@ void FillSendToMenu(ContextMenuItem& item)
             std::to_string(elapsed) + " ms");
 }
 
-// Manda la selezione a una destinazione: la shell esegue il collegamento e i
-// percorsi scelti sono i suoi argomenti — e' quello che fa Esplora risorse, e ogni
-// destinazione si comporta come e' registrata sul sistema.
+// I percorsi scelti come oggetto dati della shell: e' quello che si lascia cadere
+// su una destinazione, e porta le stesse cose che si vedono trascinando — non solo
+// l'elenco dei percorsi, ma anche la parte che serve a un gestore di caduta per
+// sapere *cosa* ha ricevuto.
+IDataObject* SelectionDataObject(const std::vector<std::wstring>& paths)
+{
+    std::vector<PIDLIST_ABSOLUTE> absolute;
+    for (const std::wstring& path : paths)
+    {
+        PIDLIST_ABSOLUTE pidl = nullptr;
+        if (SUCCEEDED(SHParseDisplayName(path.c_str(), nullptr, &pidl, 0, nullptr)) &&
+            pidl != nullptr)
+            absolute.push_back(pidl);
+    }
+    if (absolute.empty())
+        return nullptr;
+
+    // I figli si passano relativi alla loro cartella: si prende la parte finale di
+    // ogni percorso assoluto, e la cartella padre dal primo.
+    PIDLIST_ABSOLUTE folder = ILClone(absolute.front());
+    std::vector<PCUITEMID_CHILD> children;
+    if (folder != nullptr)
+    {
+        ILRemoveLastID(folder);
+        for (PIDLIST_ABSOLUTE pidl : absolute)
+            children.push_back(ILFindLastID(pidl));
+    }
+
+    IDataObject* data = nullptr;
+    if (!children.empty())
+        SHCreateDataObject(folder, static_cast<UINT>(children.size()), children.data(), nullptr,
+                           IID_IDataObject, reinterpret_cast<void**>(&data));
+
+    for (PIDLIST_ABSOLUTE pidl : absolute)
+        CoTaskMemFree(pidl);
+    if (folder != nullptr)
+        CoTaskMemFree(folder);
+    return data;
+}
+
+// Lascia cadere la selezione su una voce della cartella SendTo.
+//
+// Non si avvia con `ShellExecuteEx`, e la ragione e' nel registro: la voce
+// "cartella compressa" della cartella SendTo **non e' un programma**, e' un file
+// `.ZFSendToTarget` che contiene un CLSID, e il suo handler e' registrato come
+// `DropHandler` — il registro lo dice con le parole "Drag Files onto this icon to
+// compress them". Avviarla non le da' niente da comprimere: `ShellExecuteEx`
+// restituisce TRUE e non succede niente, che e' la peggiore delle risposte.
+//
+// Quindi si fa quello che farebbe il mouse: si prende il bersaglio di caduta della
+// voce e gli si lascia cadere sopra la selezione. Vale per tutte le voci della
+// cartella, compresi i collegamenti ai programmi, che si aprono con i file
+// ricevuti — e' quello che fa la shell quando ci si trascina sopra qualcosa.
+bool DropOnSendToTarget(HWND owner, const std::wstring& path, IDataObject* data)
+{
+    if (data == nullptr)
+        return false;
+
+    PIDLIST_ABSOLUTE item = nullptr;
+    if (FAILED(SHParseDisplayName(path.c_str(), nullptr, &item, 0, nullptr)) || item == nullptr)
+        return false;
+
+    PIDLIST_ABSOLUTE parent = ILClone(item);
+    bool dropped = false;
+
+    IShellFolder* folder = nullptr;
+    if (parent != nullptr)
+    {
+        ILRemoveLastID(parent);
+        if (SUCCEEDED(SHBindToObject(nullptr, parent, nullptr, IID_IShellFolder,
+                                    reinterpret_cast<void**>(&folder))) &&
+            folder != nullptr)
+        {
+            PCUITEMID_CHILD child = ILFindLastID(item);
+            IDropTarget* target = nullptr;
+            if (SUCCEEDED(folder->GetUIObjectOf(owner, 1, &child, IID_IDropTarget, nullptr,
+                                                reinterpret_cast<void**>(&target))) &&
+                target != nullptr)
+            {
+                // `DROPEFFECT_COPY`: "invia a" manda una copia, non sposta — e'
+                // quello che fa la shell, ed e' anche quello che serve alla
+                // cartella compressa, che legge i file senza portarli via.
+                POINTL point{};
+                DWORD  effect = DROPEFFECT_COPY;
+                if (SUCCEEDED(target->DragEnter(data, MK_LBUTTON, point, &effect)))
+                {
+                    effect = DROPEFFECT_COPY;
+                    dropped = SUCCEEDED(target->Drop(data, MK_LBUTTON, point, &effect));
+                    DiagLog("  caduta su voce: effetto restituito " + std::to_string(effect));
+                }
+                target->Release();
+            }
+            folder->Release();
+        }
+        CoTaskMemFree(parent);
+    }
+    CoTaskMemFree(item);
+    return dropped;
+}
+
+// Manda la selezione a una destinazione di "Invia a".
 void SendToTargets(AppState& app, size_t index, const std::vector<std::wstring>& paths)
 {
     const std::vector<ShellSendTo::Target> targets = ShellSendTo::Targets();
@@ -4095,42 +4193,21 @@ void SendToTargets(AppState& app, size_t index, const std::vector<std::wstring>&
     if (paths.empty())
         return;   // mandare "niente" da qualche parte non e' un'azione
 
-    // I percorsi si citano: un nome con uno spazio dentro, senza virgolette,
-    // arriva alla destinazione spezzato in due argomenti.
-    std::wstring parameters;
-    for (const std::wstring& path : paths)
-    {
-        if (!parameters.empty())
-            parameters += L' ';
-        parameters += L'"';
-        parameters += path;
-        parameters += L'"';
-    }
+    IDataObject* data = SelectionDataObject(paths);
+    const bool dropped = DropOnSendToTarget(app.window, targets[index].path, data);
+    if (data != nullptr)
+        data->Release();
 
-    // Niente `SEE_MASK_NOASYNC`: la nostra finestra non deve stare ferma ad
-    // aspettare il programma che parte, e l'esito che ci serve — e' partito o no —
-    // ce l'abbiamo lo stesso. `SEE_MASK_FLAG_NO_UI` perche' l'errore lo diciamo
-    // noi, nella barra di stato, invece di aprire una finestra del sistema.
-    SHELLEXECUTEINFOW info{};
-    info.cbSize       = sizeof(info);
-    info.fMask        = SEE_MASK_FLAG_NO_UI;
-    info.hwnd         = app.window;
-    info.lpFile       = targets[index].path.c_str();
-    info.lpParameters = parameters.c_str();
-    info.nShow        = SW_SHOWNORMAL;
-
-    if (!ShellExecuteExW(&info))
+    if (!dropped)
     {
-        // Un'azione che fallisce in silenzio e' peggio di una che non parte.
-        // Nel registro va l'indice e il codice d'errore, **non l'etichetta**: le
-        // destinazioni dicono quali programmi ha installato chi usa il computer.
-        DiagLog("  invio a voce " + std::to_string(index) + ": non avviata, errore " +
-                std::to_string(GetLastError()));
-        ReportStatus(app, L"\"" + targets[index].label + L"\" non si e' potuto avviare.");
+        // Nel registro va l'indice, **non l'etichetta**: le destinazioni dicono
+        // quali programmi ha installato chi usa il computer. Vedi `AGENTS.md` §0.
+        DiagLog("  invio a voce " + std::to_string(index) + ": non riuscito");
+        ReportStatus(app, L"\"" + targets[index].label + L"\" non ha accettato i file.");
         return;
     }
 
-    DiagLog("  invio a voce " + std::to_string(index) + ": avviata");
+    DiagLog("  invio a voce " + std::to_string(index) + ": riuscito");
 
     // "Avviato", non "fatto": la destinazione puo' copiare, comprimere o aprire
     // una finestra sua, e il suo esito non e' nostro da dichiarare.
