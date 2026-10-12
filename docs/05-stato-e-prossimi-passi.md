@@ -22,8 +22,9 @@ Ultimo aggiornamento: dopo dragUltimo aggiornamento: dopo "Nuovo file >" e "Invi
 | M6 — tab, barra del titolo, palette, GoTo | 🟡 fatti tab, titolo, palette, GoTo; mancano quick access pinnato, drag&drop e albero dei tab |
 | M7 — operazioni su file | 🟡 copia, sposta, rinomina, cestino, clipboard interoperabile, **menu contestuale a più livelli** con Proprietà di Windows, le **voci di primo livello della shell**, il **menu della cartella** sul fondo, i **sottomenu delle estensioni**, **`Nuovo file >`** (tipi dal registro, creazione con
 contenuto), **`Invia a >`** (destinazioni della cartella SendTo, eseguite lasciandoci
-cadere sopra la selezione) e **drag&drop dentro e fuori** con OLE. Mancano il
-ripristino dal cestino e il trascinamento sul riquadro di navigazione |
+cadere sopra la selezione), **drag&drop dentro e fuori** con OLE e la **navigazione
+nello spazio dei nomi** col **ripristino dal cestino**. Mancano il trascinamento sul
+riquadro di navigazione e le cartelle riciclate (che si ripristinano, non si aprono) |
 | M8 — inspector completo | ⬜ |
 | M9 — configurazione e temi | ⬜ **vincolata**: niente file di impostazioni, vedi `docs/06` |
 | M10 — backend D3D11 | ⬜ |
@@ -58,13 +59,14 @@ Ordinato per quanto morde.
 
 In ordine di valore, non di facilità.
 
-1. **Il browsing dello spazio dei nomi** — è quello che sblocca il **ripristino
-   dal cestino**, fermo da M7: oggi la navigazione è per percorso, e il cestino non
-   è un percorso. È il pezzo più grosso che resta delle operazioni su file, e non
-   ha scorciatoie: la shell espone i suoi contenuti solo come PIDL.
-2. **Il trascinamento sul riquadro di navigazione** — adesso si può lasciare
+1. **Il riquadro di navigazione come destinazione di caduta** — si può lasciare
    cadere su una riga di cartella e sul fondo della lista, non sui collegamenti
-   della barra laterale (`docs/02` §7.22 ha il meccanismo, manca il bersaglio).
+   della barra laterale: il meccanismo c'è (`docs/02` §7.22), manca il bersaglio.
+   Con quello, trascinare qualcosa **sul cestino** diventa il gesto per buttarlo via.
+2. **Trascinare fuori dalle cartelle di spazio dei nomi** — oggi è rifiutato con un
+   messaggio, e la ragione è scritta (`docs/02` §7.25): l'oggetto dati si costruisce
+   dai nomi. Con i PIDL che ormai si hanno in mano si può fare, ed è il passo che
+   chiude il cerchio.
 2. **Il costo dell'interrogazione della shell** — la prima apertura dopo l'avvio
    costa ~350 ms e le estensioni moderne di Windows 11 compaiono solo dalla
    seconda; in regime sono ~65 ms e **22 handle di kernel** per apertura, dentro
@@ -233,6 +235,15 @@ frattempo era diventato un altro.
 ritagli delle prove si tagliano sulla lista dei file, non sulla finestra intera.
 Per lo stesso motivo le destinazioni di "Invia a" non finiscono nel registro
 diagnostico — si contano, non si trascrivono.
+
+**Il cestino è dati personali, e una cattura li copia.** È successo il
+2026-10-12: dopo un ripristino la lista del cestino non era più filtrata — per un
+difetto vero, `docs/02` §7.28 — e la cattura ha preso i nomi di quello che qualcuno
+ha buttato via. Cancellate subito, e da allora la regola è: nel cestino ci si mette
+**un file della sandbox**, si restringe la lista **col filtro**, e solo allora si
+fotografa; il ripristino si verifica **contando i file nella sandbox**. Un filtro
+che sparisce non è una comodità che manca: è una telecamera accesa in una stanza
+che non è la tua.
 
 **Un comando che risponde "fatto" non ha fatto niente.** Due volte, in due
 punti diversi: il sottomenu della shell che risponde `S_OK` senza eseguire nulla
