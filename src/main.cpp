@@ -8900,6 +8900,9 @@ void DrawFrame(AppState& app, const Layout& layout)
     GroupMenuDraw(app, layout, app.options);
     GroupMenuDraw(app, layout, app.optionsChoice);
     ContextMenuDraw(app, layout);
+    // Il pannello delle proprieta' e' modale come un menu, e si disegna per ultimo:
+    // copre tutto quello che c'e' sotto.
+    DrawPropertiesPanel(app, layout);
 
     // Il suggerimento viene dopo tutto, ma non prende clic: non e' un menu.
     DrawTooltip(app, layout);
