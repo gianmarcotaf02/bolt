@@ -1,7 +1,5 @@
 #include "d3d11_renderer.h"
 
-#include "diag.h"
-
 #include <d3dcompiler.h>
 
 #include <cstdio>
@@ -288,35 +286,9 @@ bool D3D11Renderer::Initialize(std::string* error)
 
     ID3DBlob* vertexBlob = nullptr;
     ID3DBlob* pixelBlob  = nullptr;
-    // Sonda: il compilatore HLSL risponde? Se anche una riga minima fallisce, il
-    // problema non e' lo shader ma `D3DCompile` su questa macchina.
+    if (!CompileStage(kVertexShader, "main", "vs_5_0", error, &vertexBlob) ||
+        !CompileStage(kPixelShader, "main", "ps_5_0", error, &pixelBlob))
     {
-        ID3DBlob* probe = nullptr;
-        ID3DBlob* probeError = nullptr;
-        const char* tiny = "float4 main() : SV_Target { return float4(1,1,1,1); }";
-        const HRESULT probeResult = D3DCompile(tiny, std::strlen(tiny), "probe", nullptr, nullptr,
-                                               "main", "ps_5_0", 0, 0, &probe, &probeError);
-        char code[48];
-        std::snprintf(code, sizeof(code), "0x%08lX", static_cast<unsigned long>(probeResult));
-        DiagLog(std::string("--- D3DCompile sonda: ") + code + " " +
-                (probeError != nullptr ? static_cast<const char*>(probeError->GetBufferPointer())
-                                       : "(nessun messaggio)"));
-        if (probe != nullptr) probe->Release();
-        if (probeError != nullptr) probeError->Release();
-    }
-    if (!CompileStage(kVertexShader, "main", "vs_5_0", error, &vertexBlob))
-    {
-        DiagLog(std::string("--- vs len ") + std::to_string(std::strlen(kVertexShader)) +
-                " esito: " + *error);
-        if (vertexBlob != nullptr) vertexBlob->Release();
-        if (pixelBlob != nullptr) pixelBlob->Release();
-        Shutdown();
-        return false;
-    }
-    if (!CompileStage(kPixelShader, "main", "ps_5_0", error, &pixelBlob))
-    {
-        DiagLog(std::string("--- ps len ") + std::to_string(std::strlen(kPixelShader)) +
-                " esito: " + *error);
         if (vertexBlob != nullptr) vertexBlob->Release();
         if (pixelBlob != nullptr) pixelBlob->Release();
         Shutdown();
