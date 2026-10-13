@@ -1888,6 +1888,10 @@ void UpdateTabDrop(AppState& app, float x, float y)
     }
     app.tabDropInto  = false;
     app.tabDropAfter = (x > left + third);
+    DiagLog("  trascinamento di un tab: x " + std::to_string(x) + ", tab " +
+            std::to_string(index) + " da " + std::to_string(left) + " a " +
+            std::to_string(left + hit->rect.w) + ", terzo " + std::to_string(third) +
+            ", esito " + (app.tabDropAfter ? "dopo" : "prima"));
 }
 
 // La fila come si vede: ogni coppia e' (indice del tab, quanto e' profondo).
