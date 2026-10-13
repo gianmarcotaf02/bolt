@@ -1861,6 +1861,8 @@ bool TabIsDescendantOf(const AppState& app, int id, int ancestorId)
     return TabRootId(app, id) == ancestorId;
 }
 
+const ClickTarget* HitTest(const AppState& app, float x, float y, ClickTarget::Kind kind);
+
 // Dove finirebbe il tab trascinato, dato il punto del puntatore. Sta qui e non nel
 // gestore del mouse perche' il marcatore disegnato e il rilascio devono leggere la
 // stessa risposta: due calcoli che devono coincidere prima o poi non coincidono.
