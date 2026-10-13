@@ -2922,7 +2922,12 @@ void BuildSidebarRows(const AppState& app, std::vector<SidebarRow>* rows)
         {
             if (path.empty() || path == app.directory)
                 continue;   // dove si e' gia' non e' un "recente" da riproporre
-            recents.push_back(Place{ToUtf8(LocationLabel(app, path)), path});
+            // Il nome di una cartella, non il percorso: di un percorso la parte che
+            // identifica e' la coda. Per una cartella di spazio dei nomi non c'e' una
+            // coda da tagliare, e il nome lo da' la shell.
+            const std::wstring label = ShellLocation::IsNamespace(path) ? LocationLabel(app, path)
+                                                                       : LeafName(path);
+            recents.push_back(Place{ToUtf8(label), path});
         }
         if (!recents.empty())
             section("RECENTS", recents);
