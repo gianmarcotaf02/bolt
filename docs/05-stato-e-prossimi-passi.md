@@ -70,9 +70,9 @@ Ordinato per quanto morde.
 
 **Tre numeri, che sono tre cose diverse e non vanno confusi.**
 
-- **Quarantuno** difetti **trovati e risolti**: il registro è `docs/02` §7, uno per
+- **Quarantadue** difetti **trovati e risolti**: il registro è `docs/02` §7, uno per
   uno, con sintomo, causa e correzione. È un cumulativo, non una lista di lavoro.
-- **Sette** cose **da fare**: la lista qui sotto.
+- **Sei** cose **da fare**: la lista qui sotto.
 - I **limiti dichiarati**: cose che si è scelto di non fare, scritte dove vivono con
   la ragione accanto (il tetto di 1 MB nella lettura dei testi, i modelli `ShellNew`
   con valore `Command`, le 23 colonne della specifica contro le 6 fatte, il ritaglio
@@ -80,17 +80,18 @@ Ordinato per quanto morde.
   volta che nei documenti c'è scritto "dichiarato", vuol dire questo: non risolto, e
   detto.
 
-Qualche voce dei quarantuno porta con sé un residuo dichiarato — §7.34 ha risolto
+Qualche voce dei quarantadue porta con sé un residuo dichiarato — §7.34 ha risolto
 l'oggetto dati ma la voce riciclata che non viene presa resta un limite — e il
 conteggio non lo nasconde: il residuo è scritto nella voce stessa.
 
 In ordine di valore, non di facilità.
 
 > **M9 — il pannello delle opzioni** (`Ctrl+,`), **l'allineamento delle scorciatoie**
-> (`Ctrl+P`/`F4` al GoTo, `Ctrl+Shift+P` ai comandi, `Ctrl+,` alle opzioni) e **finire
-> la lingua** erano le prime voci di questa lista, e sono fatte: vedi `docs/04` M9 e la
-> sezione «La lingua e' finita», e §7.40/§7.41 di `docs/02`. Restano della milestone
-> la **mappa tasti rimappabile** sui 319 comandi e i **temi a 35 token**.
+> (`Ctrl+P`/`F4` al GoTo, `Ctrl+Shift+P` ai comandi, `Ctrl+,` alle opzioni), **finire
+> la lingua** e **salire da una radice di volume** erano voci di questa lista, e sono
+> fatte: vedi `docs/04` M9 e la sezione «La lingua e' finita», e §7.40/§7.41/§7.42 di
+> `docs/02`. Restano della M9 la **mappa tasti rimappabile** sui 319 comandi e i
+> **temi a 35 token**.
 
 1. **M10 — backend D3D11** — l'ultima milestone del piano; il renderer è già
    dietro `ui_renderer.*`, quindi è un secondo backend, non una riscrittura.
@@ -107,10 +108,7 @@ In ordine di valore, non di facilità.
 5. **Albero dei tab: finire di verificarlo.** Il modello, il disegno e il
    trascinamento ci sono (`docs/04` M6); la chiusura dell'albero è scritta e
    **non ancora vista**.
-6. **Salire da una radice di volume**: `Alt`+↑ su `C:\` non va a "This PC" — la
-   lista delle unità si raggiunge solo dalla palette, e il nome della voce è quello
-   localizzato ("Questo PC"), non "This PC".
-7. **Spezzare `main.cpp`** — **10.460 righe** e undici moduli: il confine c'è, ma il
+6. **Spezzare `main.cpp`** — **~10.500 righe** e dodici moduli: il confine c'è, ma il
    file che lo contiene resta il collo di bottiglia dichiarato fin dall'inizio.
 
 
