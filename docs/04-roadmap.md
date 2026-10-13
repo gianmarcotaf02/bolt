@@ -1126,6 +1126,39 @@ Il precedente nella tabella dello spec resta `StoreRecents: Session`: i recenti 
 sola sessione non sono una limitazione da colmare, sono **il comportamento
 voluto**.
 
+### La lingua e' finita — *Visto*
+
+Il meccanismo c'era (`Tr`/`TrW`, coppie di stringhe dove si usano); mancavano le
+superfici. Adesso la lingua copre:
+
+- il **menu contestuale** (le nostre voci: `Apri`/`Open`, `Taglia`/`Cut`, ...); le
+  voci della shell restano nella lingua del sistema, che le sa lei;
+- l'**inspector**, per le parti in prosa (`Niente selezionato`, `N elementi
+  selezionati`, `N file, M cartelle`, `conteggio...`, `%s liberi`);
+- i **messaggi di stato** (operazioni su file, shell, proprieta', cascate,
+  trascinamento) e i **conteggi** con la grammatica giusta (`Copiato 1 elemento` /
+  `Copiati 3 elementi`);
+- la **barra di stato** (`N voci`, `N selezionati`, i quattro nomi di vista) e il
+  **pie' di pagina** (`Filtra N file...`, `Raggruppa: ...`);
+- il **visualizzatore di testo** (`N righe`) e il pannello dei valori di una colonna
+  (`Tutti`/`Nessuno`, `Scrivi per filtrare i valori...`);
+- il **nome di partenza di una cartella nuova** (`Nuova cartella` / `New folder`).
+
+Il modulo sta in `src/language.h`/`.cpp` perche' anche `file_ops.cpp` ha i suoi due o
+tre messaggi: il secondo utilizzatore e' la ragione per cui e' un file a se'.
+
+**Cosa resta in inglese, e perche'.** I **nomi del riferimento** non si traducono
+(`AGENTS.md` §3): le sei intestazioni delle colonne, le quattro sezioni della barra
+laterale, le righe dell'inspector (`Type`, `Size`, `Created`, ...), i gruppi della
+palette, i nomi delle bande di raggruppamento (`GroupByLabel_*`). Sono *i suoi nomi*,
+e cambiarli renderebbe il clone meno fedele, non piu' tradotto.
+
+**Verificato a schermo in tutte e due le lingue**: pie' di pagina, barra di stato,
+menu contestuale, inspector a selezione multipla, messaggio di copia, e la testata
+del visualizzatore (`2 righe` / `2 lines`, `UTF-8`). Vedi anche §7.41 di `docs/02`,
+per il nome della vista a elenco che l'inglese ha fatto vedere sbagliato in tutte e
+due.
+
 ---
 
 ## M10 — Backend Direct3D 11 ⬜
