@@ -362,8 +362,30 @@ esisteva già fra i 35.
       anche i conteggi ricorsivi quando ci sono. Compare dopo 0,55 s **di puntatore
       fermo**: il conto riparte a ogni movimento, quindi scorrendo l'elenco non
       passa niente davanti
-- [ ] `ActOnPress`, `SingleClick`, `SingleClickFoldersOnly`, `DoubleClickToParent`,
-      `ShowCheckboxes`
+- [x] `SingleClick` e `SingleClickFoldersOnly` — un clic apre, e con la seconda
+      chiave solo le cartelle: sui file serve ancora il doppio, che è quello che
+      vuole chi accende solo la prima
+- [x] `ActOnPress` — l'attivazione avviene **premendo** invece che mollando.
+      Verificato con una cattura scattata a tasto ancora giù: la cartella era già
+      aperta. **L'interpretazione è nostra**: il significato esatto della chiave
+      nello spec non è ricostruito, e questa è la lettura che le dà un senso — senza
+      di essa sarebbe un doppione di `SingleClick`
+- [x] `DoubleClickToParent` — doppio clic sul **fondo** della lista: su di un
+      livello. Su una riga il doppio clic apre, che è un'altra cosa
+- [x] `ShowCheckboxes` — una casella che **riflette la selezione** (una casella con
+      una verità propria sarebbe una seconda verità da tenere allineata, e prima o
+      poi le due divergono). Si preme per scegliere: il clic non apre, non arma un
+      trascinamento e non sposta il cursore. Nella griglia sta nell'angolo della
+      cella, che è centrata; nell'elenco sposta icona e nome di 22 px invece di
+      coprirli. Il segno di spunta è un quadrato pieno perché nell'atlante dei glifi
+      non c'è un carattere di spunta, e scriverne uno fuori dall'insieme rasterizzato
+      darebbe un buco (§7.32)
+
+**Tutte e cinque spente di partenza.** Sono *impostazioni* nell'originale, e il
+doppio clic è il gesto che si aspetta chiunque: cambiarlo senza che nessuno l'abbia
+chiesto vorrebbe dire cambiare il programma sotto le mani di chi lo usa. Si accendono
+dalla palette, gruppo `Interaction`, che è il nome della riga nella tabella delle
+chiavi.
 
 ### Cosa fa l'originale, e cosa non abbiamo ancora — *Ricostruito*
 

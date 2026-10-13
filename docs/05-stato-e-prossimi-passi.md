@@ -22,7 +22,7 @@ risolti, **otto** cose da fare, i limiti dichiarati sparsi dove vivono.
 | M3 — statistiche di cartella | 🟡 mancano byte allocati e invalidazione da `ReadDirectoryChangesW` |
 | M5 — filtro, ordinamento, raggruppamento, selezione | ✅ |
 | M5c — modalità di visualizzazione | 🟡 quattro viste, celle di altezza derivata, raggruppamento in griglia e nell'elenco; manca il ridimensionamento continuo della cella |
-| M5d — sovrappasso del mouse | 🟡 evidenzia righe e celle, con `HoverToSelect`, `UnderlineOnHover` e `ShowTooltips` (tre chiavi, accese dalla palette); mancano `ActOnPress`, `SingleClick`, `DoubleClickToParent`, `ShowCheckboxes` |
+| M5d — sovrappasso e comportamento del clic | ✅ evidenzia righe e celle, e le otto chiavi di interazione: `HoverToSelect`, `UnderlineOnHover`, `ShowTooltips`, `SingleClick`, `SingleClickFoldersOnly`, `ActOnPress`, `DoubleClickToParent`, `ShowCheckboxes` |
 | M5b — colonne | ✅ ridimensionabili col mouse, con filtri per valore nelle intestazioni |
 | M6 — tab, barra del titolo, palette, GoTo | 🟡 fatti tab, titolo, palette, GoTo, **barra laterale a sezioni** (fissaggi, segnalibri, volumi, cartelle standard) e **pulsanti di navigazione**; mancano drag&drop e albero dei tab |
 | M7 — operazioni su file | 🟡 copia, sposta, rinomina, cestino, clipboard interoperabile, **menu contestuale a più livelli** con Proprietà di Windows, le **voci di primo livello della shell**, il **menu della cartella** sul fondo, i **sottomenu delle estensioni**, **`Nuovo file >`** (tipi dal registro, creazione con
@@ -95,10 +95,8 @@ In ordine di valore, non di facilità.
    `docs/02`. Se non si trova, resta un limite dichiarato.
 4. **`InspectorHideGrid`** — la sola chiave di M8 che resta senza risposta: cosa sia
    la griglia dell'inspector non è ricostruito, e non si inventa.
-5. **Il resto di M5** — il ridimensionamento continuo della cella (la scala fra
-   `Icons` e `Tiles`) e le chiavi di comportamento del clic: `ActOnPress`,
-   `SingleClick`, `SingleClickFoldersOnly`, `DoubleClickToParent`,
-   `ShowCheckboxes`.
+5. **Il ridimensionamento continuo della cella** (M5c) — la scala fra `Icons` e
+   `Tiles`: oggi sono due misure fisse e una derivata, non una che si trascina.
 6. **Drag&drop e albero dei tab** (`TabDropMarker_*`, `CloseInTree`).
 7. **Spezzare `main.cpp`** — **8.480 righe** e undici moduli: il confine c'è, ma il
    file che lo contiene resta il collo di bottiglia dichiarato fin dall'inizio.
@@ -254,6 +252,16 @@ frattempo era diventato un altro.
 ritagli delle prove si tagliano sulla lista dei file, non sulla finestra intera.
 Per lo stesso motivo le destinazioni di "Invia a" non finiscono nel registro
 diagnostico — si contano, non si trascrivono.
+
+**Un clic è finito nel riquadro di navigazione, e da lì nella cartella personale.**
+Provando le caselle di scelta ho cliccato a `x=18` credendo di essere sulla casella:
+la lista comincia a `x≈198`, e le prime righe a sinistra sono il riquadro di
+navigazione. Il clic ha aperto la cartella dell'utente, e le due catture di verifica
+successive hanno preso nomi di cartelle personali. Eliminate subito, e **non erano
+versionate** (`analysis/` è escluso dal controllo di versione, verificato con
+`git check-ignore`): nessuna copia è entrata nel repository. Rifatta la prova con la
+coordinata giusta. La lezione: **prima di cliccare si guarda in che riquadro si
+sta cliccando**, non solo il numero.
 
 **Un file di prova è finito sul Desktop di chi lavora.** È successo provando il
 trascinamento sul cestino: `QUICK ACCESS` era rimasto aperto, quindi la riga a

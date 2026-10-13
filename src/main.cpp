@@ -2541,7 +2541,10 @@ float DrawCheckbox(AppState& app, const Rect& row, bool selected, float scale,
     const float side = 14.0f * scale;
     const Rect box{row.x + padding, row.y + (row.h - side) * 0.5f, side, side};
     app.renderer.Draw(UIDraw::Fill(box, selected ? t.accent : t.windowBg, 3.0f * scale));
-    app.renderer.Draw(UIDraw::Border(box, selected ? t.accent : t.panelBorder, 1.0f, 3.0f * scale));
+    // Il bordo di una casella vuota e' in tono spento ma **visibile**: su una riga
+    // scura un bordo del colore del pannello sparisce, e una casella che non si vede
+    // e' una casella che non c'e'.
+    app.renderer.Draw(UIDraw::Border(box, selected ? t.accent : t.textDim, 1.0f, 3.0f * scale));
     if (selected)
     {
         // Il segno di spunta e' un quadrato pieno: nell'atlante dei glifi non c'e'
