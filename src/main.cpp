@@ -6025,22 +6025,28 @@ int OptionRowAt(const Layout& layout, const GroupMenu& menu, const Rect& panel, 
     return index;
 }
 
+// Quanto e' largo il controllo di un tipo. La larghezza non dipende dalla riga:
+// e' la stessa per il disegno, per il clic e per il trascinamento di uno slider.
+float OptionControlWidth(const GroupMenuItem& item, float scale)
+{
+    switch (item.control)
+    {
+        case OptionControl::Text:    return 200.0f * scale;
+        case OptionControl::Choice:  return 170.0f * scale;
+        case OptionControl::Stepper: return 128.0f * scale;
+        case OptionControl::Slider:  return 150.0f * scale;
+        case OptionControl::Toggle:  return 40.0f * scale;
+        default:                     return 0.0f;
+    }
+}
+
 // Dove sta il controllo di una riga. Una funzione sola, perche' disegno e clic
 // devono scegliere lo stesso rettangolo.
 Rect OptionControlRect(const Layout& layout, const GroupMenuItem& item, const Rect& rowRect)
 {
     const float scale = layout.scale;
     const float height = 22.0f * scale;
-    float width = 0.0f;
-    switch (item.control)
-    {
-        case OptionControl::Text:    width = 200.0f * scale; break;
-        case OptionControl::Choice:  width = 170.0f * scale; break;
-        case OptionControl::Stepper: width = 128.0f * scale; break;
-        case OptionControl::Slider:  width = 150.0f * scale; break;
-        case OptionControl::Toggle:  width = 40.0f * scale;  break;
-        default:                     width = 0.0f;           break;
-    }
+    const float width  = OptionControlWidth(item, scale);
     return Rect{rowRect.right() - width - 14.0f * scale,
                 rowRect.y + (rowRect.h - height) * 0.5f, width, height};
 }
@@ -8832,6 +8838,42 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
                 if (app->dragTab >= 0)
                 {
                     UpdateTabDrop(*app, tx, ty);
+                    InvalidateRect(window, nullptr, FALSE);
+                    return 0;
+                }
+            }
+
+            // Il trascinamento di uno slider delle opzioni: finche' il pulsante e'
+            // giu', la posizione del puntatore e' il valore. Se il pulsante e' stato
+            // lasciato fuori dalla finestra, il trascinamento finisce qui invece di
+            // riprendere al movimento successivo.
+            if (app != nullptr && app->optionSliderDrag >= 0)
+            {
+                if ((wparam & MK_LBUTTON) == 0)
+                {
+                    app->optionSliderDrag = -1;
+                }
+                else
+                {
+                    const Layout layout = ComputeLayout(*app);
+                    const float x = static_cast<float>(GET_X_LPARAM(lparam));
+                    const Rect panel = MenuPanel(*app, layout, app->options);
+                    for (GroupMenuItem& item : app->options.items)
+                    {
+                        if (item.id != app->optionSliderDrag || item.control != OptionControl::Slider)
+                            continue;
+                        const float scale  = layout.scale;
+                        const float width  = OptionControlWidth(item, scale);
+                        const float height = 22.0f * scale;
+                        const float left   = panel.right() - 6.0f * scale - width - 14.0f * scale;
+                        const float knob   = height * 0.5f;
+                        const float track  = (std::max)(1.0f, width - knob * 2.0f);
+                        float fraction = (x - (left + knob)) / track;
+                        fraction = (fraction < 0.0f) ? 0.0f : (fraction > 1.0f ? 1.0f : fraction);
+                        item.fraction = fraction;
+                        ApplyOptionFromItem(*app, item);
+                        break;
+                    }
                     InvalidateRect(window, nullptr, FALSE);
                     return 0;
                 }
