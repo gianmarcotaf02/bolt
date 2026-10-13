@@ -1993,9 +1993,13 @@ std::wstring EntryLocation(const AppState& app, const Entry& entry)
 // Come si chiama una posizione: il suo nome se e' un percorso, il nome che le da'
 // la shell se e' una cartella dello spazio dei nomi — "Cestino", non
 // "::{645FF040-...}".
-std::wstring LocationLabel(const std::wstring& location)
+std::wstring LocationLabel(const AppState& app, const std::wstring& location)
 {
     if (location.empty())
+        return L"This PC";
+    // "This PC" e' il nome del riferimento, e la shell lo tradurrebbe: qui si
+    // tiene il suo.
+    if (!app.thisPcPath.empty() && location == app.thisPcPath)
         return L"This PC";
     if (!ShellLocation::IsNamespace(location))
         return location;
@@ -2007,7 +2011,7 @@ void UpdateWindowTitle(AppState& app)
 {
     if (app.window == nullptr)
         return;
-    const std::wstring title = L"Bolt — " + LocationLabel(app.directory);
+    const std::wstring title = L"Bolt — " + LocationLabel(app, app.directory);
     SetWindowTextW(app.window, title.c_str());
 }
 
@@ -2480,6 +2484,14 @@ void BuildPlaces(AppState& app)
                 Place{ToUtf8(name.empty() ? std::wstring(L"Recycle Bin") : name), bin});
         }
     }
+
+    // "This PC" sta **prima** di tutto: e' dove si scelgono le unita', e da li' si
+    // entra in un disco. E' una cartella di spazio dei nomi, non un percorso, e
+    // l'etichetta e' quella del riferimento: la shell in italiano risponde "Questo
+    // PC", ma il nome con cui il prodotto lo chiama e' "This PC".
+    app.thisPcPath = ShellLocation::ParsingNameOf(FOLDERID_ComputerFolder);
+    if (!app.thisPcPath.empty())
+        app.places.insert(app.places.begin(), Place{"This PC", app.thisPcPath});
 }
 
 // --- layout ----------------------------------------------------------------
@@ -2587,7 +2599,7 @@ void DrawTitleBar(AppState& app, const Layout& layout)
         // moved out and only the live fields are current, so the title has to come
         // from there.
         const std::wstring& source = (i == app.activeTab) ? app.directory : tab.directory;
-        const std::string title = ToUtf8(LocationLabel(source));
+        const std::string title = ToUtf8(LocationLabel(app, source));
         const float width = (std::min)(220.0f * scale,
                                        (std::max)(130.0f * scale,
                                                   app.font.Measure(title, scale) + 66.0f * scale));
@@ -8372,7 +8384,7 @@ void DrawFrame(AppState& app, const Layout& layout)
                                static_cast<float>(app.viewportHeight)}, app.theme.windowBg);
 
     DrawTitleBar(app, layout);
-    DrawToolbar(app, layout, LocationLabel(app.directory));
+    DrawToolbar(app, layout, LocationLabel(app, app.directory));
     DrawSidebar(app, layout);
     DrawHeader(app, layout, columnX);
 
