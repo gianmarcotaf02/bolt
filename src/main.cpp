@@ -9569,27 +9569,35 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
                             NewTab(*app, app->directory.empty() ? L"C:\\" : app->directory);
                         break;
                     case 'P':
+                        // Le scorciatoie del riferimento: Ctrl+Maiusc+P apre i
+                        // comandi, Ctrl+P va a una cartella. Erano scambiate.
                         if ((GetKeyState(VK_CONTROL) & 0x8000) != 0)
                         {
-                            BuildPaletteMenu(*app);
                             if ((GetKeyState(VK_SHIFT) & 0x8000) != 0)
-                                app->palette.detailed = true;   // Ctrl+Shift+P
+                                BuildPaletteMenu(*app);
+                            else
+                                BuildGoToMenu(*app);
                         }
                         break;
-                    case 'G':
-                        // GoTo takes the obvious binding; cycling the grouping
-                        // moves to Ctrl+Shift+G.
+                    case VK_F4:
+                        // F4 da solo: Alt+F4 resta la chiusura della finestra, e
+                        // arriva come WM_SYSKEYDOWN, quindi non passa di qui.
+                        if ((GetKeyState(VK_MENU) & 0x8000) == 0)
+                            BuildGoToMenu(*app);
+                        break;
+                    case VK_OEM_COMMA:
                         if ((GetKeyState(VK_CONTROL) & 0x8000) != 0)
+                            BuildOptionsMenu(*app);
+                        break;
+                    case 'G':
+                        // GoTo ha preso Ctrl+P e F4, come il riferimento. Ctrl+G
+                        // resta libero: ciclare il raggruppamento sta su
+                        // Ctrl+Maiusc+G, che e' l'unico uso rimasto.
+                        if ((GetKeyState(VK_CONTROL) & 0x8000) != 0 &&
+                            (GetKeyState(VK_SHIFT) & 0x8000) != 0)
                         {
-                            if ((GetKeyState(VK_SHIFT) & 0x8000) != 0)
-                            {
-                                app->groupMode = static_cast<GroupMode>((static_cast<int>(app->groupMode) + 1) % 6);
-                                app->viewDirty = true;
-                            }
-                            else
-                            {
-                                BuildGoToMenu(*app);
-                            }
+                            app->groupMode = static_cast<GroupMode>((static_cast<int>(app->groupMode) + 1) % 6);
+                            app->viewDirty = true;
                         }
                         break;
                     case 'W':
