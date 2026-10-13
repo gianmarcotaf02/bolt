@@ -932,8 +932,30 @@ struct VolumeInfo
 VolumeInfo VolumeOf(const std::wstring& location)
 {
     VolumeInfo info;
-    if (location.empty() || GetDriveTypeW(location.c_str()) == DRIVE_UNKNOWN)
-        return info;   // non e' una radice di volume
+    if (location.empty())
+        return info;
+
+    // La domanda e' "questo percorso **e'** la radice di un volume", non "sta su un
+    // volume". `GetDriveTypeW` risponde `DRIVE_FIXED` anche per una cartella in
+    // mezzo al disco — risolve il percorso al volume che lo contiene — quindi ogni
+    // file e ogni cartella su `C:` diventava un volume, con la capacita' del disco
+    // al posto della propria dimensione: 952,6 GB per una cartella da 36 byte.
+    //
+    // Il modo giusto e' chiedere **qual e'** la radice del volume e confrontarla col
+    // percorso. Regge anche i volumi montati dentro una cartella, che una radice di
+    // unita' non li copre.
+    wchar_t root[MAX_PATH]{};
+    if (GetVolumePathNameW(location.c_str(), root, MAX_PATH) == FALSE)
+        return info;
+
+    const auto trim = [](std::wstring text) {
+        while (text.size() > 1 && text.back() == L'\\')
+            text.pop_back();
+        return text;
+    };
+    if (_wcsicmp(trim(location).c_str(), trim(root).c_str()) != 0)
+        return info;   // e' una cartella o un file che sta **sopra** un volume
+
     info.isVolume = true;
 
     wchar_t fileSystem[64]{};
