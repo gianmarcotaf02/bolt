@@ -4,10 +4,10 @@ Documento di lavoro, non di progetto: serve a riprendere senza rileggere la
 conversazione. Aggiornarlo è l'ultima cosa da fare prima di una pausa lunga o di
 una compattazione del contesto.
 
-Ultimo aggiornamento: dopo il **raggruppamento in griglia** (M5c), le tre chiavi di
-M5d, le **colonne ridimensionabili coi filtri per valore** (M5b), il **trascinamento
-sul riquadro di navigazione** e due difetti di **ritaglio** trovati dall'autore
-guardando (`docs/02` §7.36 e §7.37). Registro: **trentasette** difetti trovati e
+Ultimo aggiornamento: dopo il **pannello delle opzioni** (M9, `Ctrl+,`) con i
+controlli tipizzati e le preferenze ricordate in `%APPDATA%\Bolt\settings.ini`,
+l'**allineamento delle scorciatoie** all'originale e il difetto di testo sovrapposto
+che si e' visto provandolo (`docs/02` §7.40). Registro: **quaranta** difetti trovati e
 risolti, **otto** cose da fare, i limiti dichiarati sparsi dove vivono.
 
 ---
@@ -33,7 +33,7 @@ riquadro di navigazione** (che sul cestino è il gesto per buttare via, non una
 copia). Mancano le cartelle riciclate (che si ripristinano, non si aprono) e il
 trascinamento **fuori** dal cestino, che resta un limite dichiarato |
 | M8 — inspector | ✅ metadati, proprietà `PROPSYS`, conteggio per tipo, **visualizzatore di testo** (righe, minimap, spazi visibili, andare a capo, ingrandimento, codifica) e **anteprima immagine** decodificata con adattamento e ingrandimento. Le voci di spazio dei nomi mostrano le colonne della shell (percorso originale, data di eliminazione). Unica chiave non ricostruita: `InspectorHideGrid` |
-| M9 — configurazione e temi | ⬜ **vincolata**: niente file di impostazioni, vedi `docs/06` |
+| M9 — configurazione e temi | 🟡 pannello delle opzioni (`Ctrl+,`) con i controlli tipizzati e le preferenze ricordate in `%APPDATA%\Bolt\settings.ini`; mancano la mappa tasti rimappabile e i temi a 35 token |
 | M10 — backend D3D11 | ⬜ |
 
 L'applicazione è **usabile**: si naviga, si filtra, si raggruppa, si seleziona, si
@@ -46,7 +46,7 @@ lavorano i file — inclusa l'apertura delle proprietà di Windows.
 
 Ordinato per quanto morde.
 
-1. **`src/main.cpp` è a 8.480 righe.** I confini dei componenti ci sono
+1. **`src/main.cpp` è a 10.460 righe.** I confini dei componenti ci sono
    (`GroupMenu`, `ContextMenu`, `file_ops`, `dir_stats`, `shell_*`, `drag_drop`)
    ma quelli della vista vivono tutti nello stesso file. Spezzarlo richiede che
    `AppState` e i tipi condivisi escano dall'anonimo namespace in un header: è un

@@ -1330,3 +1330,30 @@ radice di unita' non li copre.
 28 B` e `stat` dice 28. Il caso volume — l'unico che la correzione *cambiava* — resta
 quello di prima perche' il test nuovo e' **piu' stretto** del vecchio: una radice vera
 lo passa, e la radice vera era gia' stata verificata in M8.
+
+### 7.40 Il testo disegnato senza chiedersi quanto spazio avesse
+
+**Trovato provando le opzioni, scegliendo `Font: Consolas`.** Due testi che con il
+carattere di partenza convivevano hanno cominciato a **sovrapporsi**:
+
+- i titoli delle colonne, a larghezze fisse: `Modified` correva dentro `Folders`, e
+  in testata si leggeva `ModifedFoldersFilesSize`;
+- nella lista a gruppi del GoTo, l'etichetta e il percorso allineato a destra, che si
+  scrivevano uno sopra l'altro (`analysisters\Desktop\...`).
+
+La causa e' la stessa nei due posti: **un testo veniva disegnato senza misurare lo
+spazio che aveva**. Finche' il carattere e' `Segoe UI` a 15 px le larghezze fisse
+bastano per fortuna; appena il carattere cambia — ed e' proprio una delle opzioni che
+M9 aggiunge — la fortuna finisce.
+
+Nei titoli di colonna l'etichetta si accorcia con `FitText` allo spazio prima della
+colonna successiva, tolto il posto dell'imbuto del filtro. Nelle liste a gruppi
+l'etichetta e il dettaglio si dividono la riga: il dettaglio, quando c'e', si taglia
+**davanti** con `FitTextTail` — di un percorso la parte che dice dove si va e' la coda
+— e l'etichetta prende quello che avanza.
+
+**Verificato a schermo**, non dedotto: con `Consolas` 16 i titoli restano separati e
+il percorso lungo del GoTo diventa `...\analysis\tmp\sandbox` invece di finire sopra
+il nome. Il caso con il carattere di partenza — l'unico che la correzione *cambia* —
+e' quello che conviene guardare: con `Segoe UI` 15 e' identico a prima, perche' il
+testo ci sta e `FitText` lo lascia intero.
