@@ -1169,6 +1169,21 @@ davvero. Per una voce **riciclata** invece la destinazione dichiara ancora `COPY
 non arriva niente: il cestino, per la shell, e' un'altra cosa anche da questo lato, e
 la causa **non e' stata ricostruita**. Non si dichiara risolto.
 
+**Ritentato il 2026-10-14, senza esito.** L'oggetto dati della voce riciclata,
+chiesto con `GetUIObjectOf`, **offre `CF_HDROP` e `CFSTR_SHELLIDLIST`** (letto dal
+registro: `[49386 15 49158 ...] hdrop=1`) — la forma dei dati e' quella giusta. Il
+rilascio per\u00f2 non trasferisce: offrendo `COPY` la destinazione lo dichiara e non
+esegue, offrendo il solo `MOVE` rifiuta con `NONE`. **E lo stesso succede a un file
+normale** nella stessa prova: e' il trascinamento *sintetico* (`mouse_event`) verso
+Esplora risorse a non essere riproducibile in questo banco, non il cestino. La
+verifica del giro precedente era stata fatta a mano, ed e' quella che vale. La
+modifica "solo `MOVE`" e' stata provata e **ritirata**: era un'ipotesi che la prova
+non conferma.
+
+Nota per chi ci riprova: la finestra di Bolt **rifiuta di proposito** le voci di
+spazio dei nomi (`TargetAt` esce vuoto se `draggingNamespaceItems`), quindi la prova
+va fatta **verso un'altra applicazione**, con un gesto vero.
+
 ### 7.35 Cambiando vista, il suggerimento restava appeso
 
 Le viste si cambiano dalla palette, e cambiando vista le celle si spostano: la

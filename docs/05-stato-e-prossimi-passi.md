@@ -8,9 +8,10 @@ Ultimo aggiornamento: dopo il **pannello delle opzioni** (M9, `Ctrl+,`) con i
 controlli tipizzati e le preferenze ricordate in `%APPDATA%\Bolt\settings.ini`,
 l'**allineamento delle scorciatoie** all'originale, la **lingua finita su tutte le
 superfici**, la **salita da una radice di volume**, le **tre cose viste
-nell'originale**, l'**albero dei tab verificato** e i tre difetti che si sono visti
-facendoli (`docs/02` §7.40, §7.41 e §7.42). Registro: **quarantadue** difetti trovati
-e risolti, **quattro** cose da fare, i limiti dichiarati sparsi dove vivono.
+nell'originale**, l'**albero dei tab verificato**,
+**`InspectorHideGrid` ricostruito** e i tre difetti che si sono visti facendoli
+(`docs/02` §7.40, §7.41 e §7.42). Registro: **quarantadue** difetti trovati e
+risolti, **tre** cose da fare, i limiti dichiarati sparsi dove vivono.
 
 ---
 
