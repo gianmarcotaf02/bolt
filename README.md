@@ -40,7 +40,7 @@ reimplementato in modo indipendente.
 | Cronologia di navigazione per tab | ✅ funzionante (`Alt`+`←` / `Alt`+`→`) |
 | Quick access pinnato, drag&drop dei tab | 🟡 albero dei tab fatto e verificato; resta il quick access pinnato |
 | Operazioni su file (copia, sposta, rinomina, cestino) | ✅ funzionanti, clipboard interoperabile con Esplora risorse |
-| Drag&drop, menu contestuale della shell | ✅ funzionanti (OLE dentro e fuori, menu a più livelli con Proprietà di Windows) |
+| Drag&drop, menu contestuale della shell | ✅ funzionanti (OLE dentro e fuori, menu a più livelli con **Proprietà in-app** e **Proprietà di Windows**) |
 | Persistenza configurazione, temi, hotkey | 🟡 pannello delle opzioni e `settings.ini`; mancano temi e mappa tasti rimappabile |
 | Backend Direct3D 11 | ✅ secondo backend dietro `IRenderer`, scelto all'avvio (`BOLT_BACKEND=d3d11|opengl`, con fallback) |
 
@@ -95,7 +95,7 @@ Controlli a runtime:
 | `Ctrl+C` / `Ctrl+X` / `Ctrl+V` | copia / taglia / incolla (clipboard di sistema) |
 | `F2` | rinomina sul posto |
 | `Ctrl+Shift+N` | nuova cartella, col nome gia' in scrittura |
-| clic destro | menu contestuale: apri, copia, taglia, rinomina, elimina, proprieta' |
+| clic destro | menu contestuale: apri, copia, taglia, rinomina, elimina, proprieta' (in-app) e proprieta' di Windows |
 | `Canc` / `Shift+Canc` | cestino / eliminazione definitiva |
 | frecce in griglia | `Su`/`Giù` di una riga, `Sinistra`/`Destra` di una cella |
 | click su una banda di gruppo | collassa o espande |
