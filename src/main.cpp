@@ -255,16 +255,18 @@ std::wstring TrW(const wchar_t* italian, const wchar_t* english)
     return gLanguage == Language::English ? english : italian;
 }
 
-// "3 elementi" / "1 elemento", col verbo giusto: "Copiati 3 elementi" ma "Copiato
-// 1 elemento". I messaggi di stato e i contatori lo dicono spesso, e un "1
-// elementi" si vede subito. L'inglese non cambia il verbo, quindi |en| e' uno solo.
+// "3 elementi" / "1 elemento". I messaggi di stato e i contatori lo dicono
+// spesso, e un "1 elementi" si vede subito. L'inglese non cambia il verbo, quindi
+// |en| e' uno solo.
+std::wstring CountItems(size_t count)
+{
+    return std::to_wstring(count) + L" " +
+           TrW(count == 1 ? L"elemento" : L"elementi", count == 1 ? L"item" : L"items");
+}
+
 std::wstring VerbItems(size_t count, const wchar_t* oneIt, const wchar_t* manyIt, const wchar_t* en)
 {
-    std::wstring text = TrW(oneIt, en);
-    text += std::to_wstring(count);
-    text += L" ";
-    text += TrW(count == 1 ? L"elemento" : L"elementi", count == 1 ? L"item" : L"items");
-    return text;
+    return TrW(oneIt, en) + CountItems(count);
 }
 
 enum CommandId
@@ -5417,8 +5419,10 @@ void DoCopyToClipboard(AppState& app, bool cut)
     }
 
     app.clipboardCut = cut;
-    ReportStatus(app, (cut ? TrW(L"Tagliati ", L"Cut ") : TrW(L"Copiati ", L"Copied ")) +
-                          std::to_wstring(paths.size()) + TrW(L" elementi", L" items"));
+    ReportStatus(app, VerbItems(paths.size(),
+                                cut ? L"Tagliato " : L"Copiato ",
+                                cut ? L"Tagliati " : L"Copiati ",
+                                cut ? L"Cut " : L"Copied "));
 }
 
 void DoPaste(AppState& app)
@@ -5469,8 +5473,10 @@ void DoPaste(AppState& app)
         }
 
         ReloadKeeping(app, keep, landed, scroll);
-        ReportStatus(app, (cut ? TrW(L"Spostati ", L"Moved ") : TrW(L"Incollati ", L"Pasted ")) +
-                              std::to_wstring(paths.size()) + TrW(L" elementi", L" items"));
+        ReportStatus(app, VerbItems(paths.size(),
+                                    cut ? L"Spostato " : L"Incollato ",
+                                    cut ? L"Spostati " : L"Incollati ",
+                                    cut ? L"Moved " : L"Pasted "));
     }
     else if (result == FileOps::Result::Failed)
     {
@@ -5491,9 +5497,11 @@ void DoDelete(AppState& app, bool permanently)
     if (result == FileOps::Result::Ok)
     {
         ReloadKeeping(app, /*keep=*/{}, /*preferCursor=*/{}, scroll);
-        ReportStatus(app, (permanently ? TrW(L"Eliminati definitivamente ", L"Deleted permanently ")
-                                       : TrW(L"Nel cestino: ", L"Moved to the recycle bin: ")) +
-                              std::to_wstring(paths.size()) + TrW(L" elementi", L" items"));
+        ReportStatus(app, permanently
+                              ? VerbItems(paths.size(), L"Eliminato definitivamente ",
+                                          L"Eliminati definitivamente ", L"Deleted permanently ")
+                              : TrW(L"Nel cestino: ", L"Moved to the recycle bin: ") +
+                                    CountItems(paths.size()));
     }
     else if (result == FileOps::Result::Failed)
     {
@@ -9154,9 +9162,8 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
                             // solo se la destinazione era un'altra applicazione,
                             // che non ha modo di dirlo.
                             if (!app->dropReported)
-                                ReportStatus(*app, TrW(L"Spostati ", L"Moved ") +
-                                                       std::to_wstring(dragged) +
-                                                       TrW(L" elementi", L" items"));
+                                ReportStatus(*app, VerbItems(dragged, L"Spostato ", L"Spostati ",
+                                                             L"Moved "));
                         }
                         return 0;
                     }
@@ -10233,15 +10240,14 @@ void Drop(HWND window, const std::vector<std::wstring>& sources, const DragDrop:
             " di " + std::to_string(sources.size()) + " elementi" +
             (discard ? std::string()
                      : ", prodotti " + std::to_string(created.size())));
-    const std::wstring action = discard ? TrW(L"Buttati via ", L"Thrown away ")
-                             : move    ? TrW(L"Spostati ", L"Moved ")
-                                       : TrW(L"Copiati ", L"Copied ");
-    const std::wstring tail = discard ? TrW(L" elementi nel cestino", L" items to the recycle bin")
-                                      : TrW(L" elementi in ", L" items into ") +
-                                            LeafName(target.path);
-    std::wstring outcome = action;
-    outcome += std::to_wstring(sources.size());
-    outcome += tail;
+    const bool one = sources.size() == 1;
+    const std::wstring verb =
+        discard ? TrW(one ? L"Buttato via " : L"Buttati via ", L"Thrown away ")
+        : move  ? TrW(one ? L"Spostato " : L"Spostati ", L"Moved ")
+                : TrW(one ? L"Copiato " : L"Copiati ", L"Copied ");
+    std::wstring outcome = verb + CountItems(sources.size());
+    outcome += discard ? TrW(L" nel cestino", L" to the recycle bin")
+                       : TrW(L" in ", L" into ") + LeafName(target.path);
     ReportStatus(*app, outcome);
 }
 
