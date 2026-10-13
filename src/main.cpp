@@ -8276,6 +8276,10 @@ void DrawFrame(AppState& app, const Layout& layout)
     // Il pannello dei valori sta attaccato all'intestazione da cui e' nato, e si
     // disegna per ultimo: e' l'unico che deve coprire la lista.
     GroupMenuDraw(app, layout, app.columnMenu);
+    // Le opzioni stanno sopra tutto il resto tranne il proprio sottoelenco: un
+    // controllo `Choice` aperto e' l'ultima cosa su cui si sta agendo.
+    GroupMenuDraw(app, layout, app.options);
+    GroupMenuDraw(app, layout, app.optionsChoice);
     ContextMenuDraw(app, layout);
 
     // Il suggerimento viene dopo tutto, ma non prende clic: non e' un menu.
