@@ -8733,6 +8733,17 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
                     return 0;
                 }
 
+                // La stessa cosa per una lista a gruppi: la rotella muove il
+                // cursore invece di scorrere la lista sotto, che e' coperta.
+                if (GroupMenu* menu = OpenMenu(*app))
+                {
+                    // Rotella in su (delta positivo) muove il cursore in su.
+                    const int steps = static_cast<int>(GET_WHEEL_DELTA_WPARAM(wparam)) / WHEEL_DELTA;
+                    GroupMenuMove(*menu, -steps);
+                    InvalidateRect(window, nullptr, FALSE);
+                    return 0;
+                }
+
                 const float steps = static_cast<float>(GET_WHEEL_DELTA_WPARAM(wparam)) / WHEEL_DELTA;
 
                 // Sopra il testo la rotella scorre il testo, e con Ctrl lo ingrandisce:
