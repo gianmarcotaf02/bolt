@@ -1,5 +1,7 @@
 #include "shell_location.h"
 
+#include "language.h"
+
 #include <shellapi.h>
 #include <shlobj.h>
 #include <shlwapi.h>
@@ -324,7 +326,7 @@ std::vector<Item> Read(const std::wstring& location, std::string* error)
     PIDLIST_ABSOLUTE root = nullptr;
     if (FAILED(SHParseDisplayName(location.c_str(), nullptr, &root, 0, nullptr)) || root == nullptr)
     {
-        *error = "This location cannot be opened.";
+        *error = Tr("Questa posizione non si apre.", "This location cannot be opened.");
         return items;
     }
 
@@ -333,7 +335,7 @@ std::vector<Item> Read(const std::wstring& location, std::string* error)
                               reinterpret_cast<void**>(&folder))) ||
         folder == nullptr)
     {
-        *error = "This location cannot be read.";
+        *error = Tr("Questa posizione non si legge.", "This location cannot be read.");
         CoTaskMemFree(root);
         return items;
     }
@@ -350,7 +352,7 @@ std::vector<Item> Read(const std::wstring& location, std::string* error)
             folder2->Release();
         folder->Release();
         CoTaskMemFree(root);
-        *error = "This location cannot be listed.";
+        *error = Tr("Questa posizione non si elenca.", "This location cannot be listed.");
         return items;
     }
 

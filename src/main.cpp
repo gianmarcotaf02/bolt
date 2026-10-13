@@ -1516,7 +1516,10 @@ std::vector<Entry> ReadDirectory(const std::wstring& directory, std::string* err
     if (search == INVALID_HANDLE_VALUE)
     {
         const DWORD code = GetLastError();
-        *error = (code == ERROR_ACCESS_DENIED) ? "Access denied." : "Cannot read this folder.";
+        *error = (code == ERROR_ACCESS_DENIED)
+                     ? Tr("Accesso negato.", "Access denied.")
+                     : Tr("Non si riesce a leggere questa cartella.",
+                          "Cannot read this folder.");
         return entries;
     }
 
@@ -2935,9 +2938,13 @@ void DrawToolbar(AppState& app, const Layout& layout, const std::wstring& displa
         start = slash + 1;
     }
 
-    // Item count on the right.
+    // Il conto delle voci, a destra: le stesse parole della barra di stato, cosi'
+    // la stessa cosa non si dice in due modi.
     char summary[64];
-    std::snprintf(summary, sizeof(summary), "%zu items", app.entries.size());
+    std::snprintf(summary, sizeof(summary),
+                  app.entries.size() == 1 ? Tr("%zu voce", "%zu item")
+                                          : Tr("%zu voci", "%zu items"),
+                  app.entries.size());
     const float summaryWidth = app.font.Measure(summary, scale);
     app.font.Draw(r, static_cast<float>(app.viewportWidth) - summaryWidth - 14.0f * scale,
                   layout.toolbar.y + 12.0f * scale, summary, t.textDim, scale);
@@ -3105,7 +3112,7 @@ void DrawSidebar(AppState& app, const Layout& layout)
                             track.h},
                        fill, 2.0f * scale);
             app.smallFont.Draw(r, row.x + 30.0f * scale, row.y + 31.0f * scale,
-                               item.freeText + " free", t.textDim, scale);
+                               item.freeText + Tr(" liberi", " free"), t.textDim, scale);
         }
 
         ClickTarget target;
@@ -3474,8 +3481,12 @@ void DrawTooltip(AppState& app, const Layout& layout)
     {
         DirStats stats;
         if (app.stats.TryGet(JoinPath(app.directory, entry.wideName), &stats) && !stats.partial)
-            lines.push_back(HumanCount(stats.folders) + " cartelle   " +
-                            HumanCount(stats.files) + " file   " +
+            lines.push_back(HumanCount(stats.folders) +
+                            (stats.folders == 1 ? Tr(" cartella   ", " folder   ")
+                                                : Tr(" cartelle   ", " folders   ")) +
+                            HumanCount(stats.files) +
+                            (stats.files == 1 ? Tr(" file   ", " file   ")
+                                              : Tr(" file   ", " files   ")) +
                             HumanBytes(stats.logicalBytes));
     }
 
@@ -3926,7 +3937,9 @@ void DrawList(AppState& app, const Layout& layout, const float* columnX)
             app.smallFont.Draw(r, row.x + 8.0f * scale, TextY(layout, row, app.smallFont),
                           title, t.text, scale);
 
-            const std::string count = std::to_string(group.count) + " items";
+            const std::string count =
+                std::to_string(group.count) +
+                (group.count == 1 ? Tr(" voce", " item") : Tr(" voci", " items"));
             app.smallFont.Draw(r, row.right() - app.smallFont.Measure(count, scale) - 10.0f * scale,
                           TextY(layout, row, app.smallFont), count, t.textDim, scale);
 
@@ -8833,8 +8846,10 @@ void GroupMenuDraw(AppState& app, const Layout& layout, GroupMenu& menu)
         }
     }
 
-    const std::string footer = std::to_string(menu.matchCount) + " of " +
-                               std::to_string(menu.items.size()) + "   " + menu.hint;
+    char footerText[96];
+    std::snprintf(footerText, sizeof(footerText), Tr("%d di %zu", "%d of %zu"),
+                  menu.matchCount, menu.items.size());
+    const std::string footer = std::string(footerText) + "   " + menu.hint;
     app.smallFont.Draw(r, panel.x + 16.0f * scale, panel.bottom() - 20.0f * scale,
                   footer, t.textDim, scale);
 }
