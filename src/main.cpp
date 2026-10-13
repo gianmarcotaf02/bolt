@@ -8238,21 +8238,27 @@ void GroupMenuDraw(AppState& app, const Layout& layout, GroupMenu& menu)
             continue;
         }
 
-        // L'etichetta si accorcia prima di incontrare il dettaglio a destra: con
-        // un carattere largo scelto dalle opzioni le due si sovrapponevano, e due
-        // testi uno sopra l'altro non si leggono ne' l'uno ne' l'altro.
+        // L'etichetta e il dettaglio si dividono la riga. Il dettaglio, quando c'e',
+        // prende al massimo poco piu' di meta' riga e si taglia **davanti** — di un
+        // percorso la parte che dice dove si va e' la coda; l'etichetta prende quello
+        // che resta e si taglia in fondo. Con un carattere largo scelto dalle opzioni
+        // i due si sovrapponevano, e due testi uno sopra l'altro non si leggono.
         std::string label = item.label;
-        float labelRoom = rowRect.w - 28.0f * scale;
         if (menu.detailed)
         {
-            const std::string& detail = item.detail.empty() ? item.group : item.detail;
+            const std::string& raw = item.detail.empty() ? item.group : item.detail;
+            const std::string detail =
+                FitTextTail(app.smallFont, raw, scale, rowRect.w * 0.62f);
             const float width = app.smallFont.Measure(detail, scale);
-            app.smallFont.Draw(r, rowRect.right() - width - 12.0f * scale, TextY(layout, rowRect, app.smallFont),
-                          detail, t.textDim, scale);
-            labelRoom = rowRect.right() - width - 20.0f * scale - (rowRect.x + 14.0f * scale);
+            app.smallFont.Draw(r, rowRect.right() - width - 12.0f * scale,
+                               TextY(layout, rowRect, app.smallFont), detail, t.textDim, scale);
+            const float room = rowRect.right() - width - 20.0f * scale - (rowRect.x + 14.0f * scale);
+            label = FitText(app.font, label, scale, (std::max)(0.0f, room));
         }
-        if (labelRoom > 10.0f * scale)
-            label = FitText(app.font, label, scale, labelRoom);
+        else
+        {
+            label = FitText(app.font, label, scale, rowRect.w - 28.0f * scale);
+        }
 
         app.font.Draw(r, rowRect.x + 14.0f * scale, TextY(layout, rowRect, app.font),
                       label, t.text, scale);
