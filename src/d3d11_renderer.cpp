@@ -20,7 +20,7 @@ constexpr size_t kIndicesPerQuad  = 6;
 // SDF, stesso bordo, stessa ombra, stesso dash. Non e' una seconda implementazione
 // *visiva*, e' la stessa detta in un'altra lingua.
 const char* const kVertexShader = R"(
-cbuffer Constants : register(b0) { float4x4 uProjection; };
+cbuffer Constants : register(b0) { row_major float4x4 uProjection; };
 
 struct VSInput
 {
