@@ -5380,11 +5380,11 @@ void CommitRename(AppState& app)
         const std::wstring landed = created.empty() ? newName : LeafName(created.front());
         keep.insert(landed);
         ReloadKeeping(app, keep, landed, scroll);
-        ReportStatus(app, L"Rinominato in " + landed);
+        ReportStatus(app, TrW(L"Rinominato in ", L"Renamed to ") + landed);
     }
     else if (result == FileOps::Result::Failed)
     {
-        ReportStatus(app, L"Rinomina non riuscita: " + error);
+        ReportStatus(app, TrW(L"Rinomina non riuscita: ", L"Rename failed: ") + error);
     }
 }
 
@@ -5396,13 +5396,13 @@ void DoCopyToClipboard(AppState& app, bool cut)
 
     if (!FileOps::SetClipboardFiles(app.window, paths, cut))
     {
-        ReportStatus(app, L"Clipboard non disponibile.");
+        ReportStatus(app, TrW(L"Clipboard non disponibile.", L"Clipboard unavailable."));
         return;
     }
 
     app.clipboardCut = cut;
-    ReportStatus(app, (cut ? L"Tagliati " : L"Copiati ") +
-                          std::to_wstring(paths.size()) + L" elementi");
+    ReportStatus(app, (cut ? TrW(L"Tagliati ", L"Cut ") : TrW(L"Copiati ", L"Copied ")) +
+                          std::to_wstring(paths.size()) + TrW(L" elementi", L" items"));
 }
 
 void DoPaste(AppState& app)
@@ -5411,7 +5411,7 @@ void DoPaste(AppState& app)
     bool cut = false;
     if (!FileOps::ReadClipboardFiles(&paths, &cut))
     {
-        ReportStatus(app, L"Niente da incollare.");
+        ReportStatus(app, TrW(L"Niente da incollare.", L"Nothing to paste."));
         return;
     }
 
@@ -5453,12 +5453,12 @@ void DoPaste(AppState& app)
         }
 
         ReloadKeeping(app, keep, landed, scroll);
-        ReportStatus(app, (cut ? L"Spostati " : L"Incollati ") +
-                              std::to_wstring(paths.size()) + L" elementi");
+        ReportStatus(app, (cut ? TrW(L"Spostati ", L"Moved ") : TrW(L"Incollati ", L"Pasted ")) +
+                              std::to_wstring(paths.size()) + TrW(L" elementi", L" items"));
     }
     else if (result == FileOps::Result::Failed)
     {
-        ReportStatus(app, L"Incolla non riuscito: " + error);
+        ReportStatus(app, TrW(L"Incolla non riuscito: ", L"Paste failed: ") + error);
     }
 }
 
@@ -5475,12 +5475,13 @@ void DoDelete(AppState& app, bool permanently)
     if (result == FileOps::Result::Ok)
     {
         ReloadKeeping(app, /*keep=*/{}, /*preferCursor=*/{}, scroll);
-        ReportStatus(app, (permanently ? L"Eliminati definitivamente " : L"Nel cestino: ") +
-                              std::to_wstring(paths.size()) + L" elementi");
+        ReportStatus(app, (permanently ? TrW(L"Eliminati definitivamente ", L"Deleted permanently ")
+                                       : TrW(L"Nel cestino: ", L"Moved to the recycle bin: ")) +
+                              std::to_wstring(paths.size()) + TrW(L" elementi", L" items"));
     }
     else if (result == FileOps::Result::Failed)
     {
-        ReportStatus(app, L"Eliminazione non riuscita: " + error);
+        ReportStatus(app, TrW(L"Eliminazione non riuscita: ", L"Delete failed: ") + error);
     }
 }
 
