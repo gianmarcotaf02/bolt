@@ -9270,6 +9270,13 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
             return 0;
 
         case WM_LBUTTONUP:
+            if (app != nullptr && app->optionSliderDrag >= 0)
+            {
+                // Fine del trascinamento di uno slider: il valore e' gia' stato
+                // applicato a ogni movimento, qui si lascia solo la presa.
+                app->optionSliderDrag = -1;
+                return 0;
+            }
             if (app != nullptr && app->dragTab >= 0)
             {
                 ApplyTabDrop(*app);
