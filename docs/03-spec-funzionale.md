@@ -142,8 +142,12 @@ evidenziazione di codifica, spazi e tabulazioni
 (`InspectorShowWhitespace`, `InspectorHideLineNumbers`, `InspectorHideMinimap`,
 `InspectorWordWrap`, `InspectorZoomLevel`, `InspectorHideGrid`).
 
-Le opzioni di testo confermano anche un **minimap nell'inspector** e una vista a
-griglia con `InspectorHideGrid`.
+Le opzioni di testo confermano anche un **minimap nell'inspector**.
+
+`InspectorHideGrid` non e' del testo: e' la **griglia dietro l'anteprima immagine**,
+che serve a distinguere lo sfondo dell'immagine (bianco o trasparente) da quello del
+pannello. Il comando corrispondente e' `HK_InspectorToggleImageGrid`, «Toggle display
+of image grid to better differentiate background from the image contents».
 
 ---
 

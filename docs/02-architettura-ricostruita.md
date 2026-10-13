@@ -1172,7 +1172,7 @@ la causa **non e' stata ricostruita**. Non si dichiara risolto.
 **Ritentato il 2026-10-14, senza esito.** L'oggetto dati della voce riciclata,
 chiesto con `GetUIObjectOf`, **offre `CF_HDROP` e `CFSTR_SHELLIDLIST`** (letto dal
 registro: `[49386 15 49158 ...] hdrop=1`) — la forma dei dati e' quella giusta. Il
-rilascio per\u00f2 non trasferisce: offrendo `COPY` la destinazione lo dichiara e non
+rilascio però non trasferisce: offrendo `COPY` la destinazione lo dichiara e non
 esegue, offrendo il solo `MOVE` rifiuta con `NONE`. **E lo stesso succede a un file
 normale** nella stessa prova: e' il trascinamento *sintetico* (`mouse_event`) verso
 Esplora risorse a non essere riproducibile in questo banco, non il cestino. La
