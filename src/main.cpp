@@ -5940,11 +5940,11 @@ void ApplyFonts(AppState& app)
 {
     std::string error;
     const int smallSize = (std::max)(AppState::kUiFontSizeMin, app.uiFontSize - 2);
-    app.font.Build(app.renderer, app.fontFace.c_str(), app.uiFontSize, kGlyphLayer,
+    app.font.Build(*app.renderer, app.fontFace.c_str(), app.uiFontSize, kGlyphLayer,
                    kTextureLayerSize, &error);
-    app.smallFont.Build(app.renderer, app.fontFace.c_str(), smallSize, kSmallGlyphLayer,
+    app.smallFont.Build(*app.renderer, app.fontFace.c_str(), smallSize, kSmallGlyphLayer,
                         kTextureLayerSize, &error);
-    app.monoFontOk = app.monoFont.Build(app.renderer, app.monoFace.c_str(), app.monoFontSize,
+    app.monoFontOk = app.monoFont.Build(*app.renderer, app.monoFace.c_str(), app.monoFontSize,
                                         kMonoLayer, kTextureLayerSize, &error);
 }
 
@@ -10639,7 +10639,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, LPWSTR, int)
         return 1;
     }
 
-    if (!app.font.Build(app.renderer, L"Segoe UI", 15, kGlyphLayer, kTextureLayerSize, &error))
+    if (!app.font.Build(*app.renderer, L"Segoe UI", 15, kGlyphLayer, kTextureLayerSize, &error))
     {
         ShowError(error);
         return 1;
@@ -10649,7 +10649,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, LPWSTR, int)
     // atlas at 0.8-0.95 resamples glyphs that were hinted for 15 px, which is
     // exactly where small text loses its crispness; a second body costs one more
     // atlas layer and makes the whole secondary tier sharp.
-    if (!app.smallFont.Build(app.renderer, L"Segoe UI", 13, kSmallGlyphLayer,
+    if (!app.smallFont.Build(*app.renderer, L"Segoe UI", 13, kSmallGlyphLayer,
                              kTextureLayerSize, &error))
     {
         ShowError(error);
@@ -10659,18 +10659,18 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, LPWSTR, int)
     // Il carattere del testo. Se non c'e' — non tutte le installazioni hanno
     // Consolas — si ripiega su quello secondario: si legge lo stesso, le colonne non
     // sono allineate, e va detto invece di far finta.
-    app.monoFontOk = app.monoFont.Build(app.renderer, L"Consolas", 14, kMonoLayer,
+    app.monoFontOk = app.monoFont.Build(*app.renderer, L"Consolas", 14, kMonoLayer,
                                         kTextureLayerSize, &error);
     if (!app.monoFontOk)
         error.clear();
 
-    if (!app.icons.Initialize(app.renderer, kIconLayer, kTextureLayerSize, &error))
+    if (!app.icons.Initialize(*app.renderer, kIconLayer, kTextureLayerSize, &error))
     {
         ShowError(error);
         return 1;
     }
 
-    if (!app.previews.Initialize(app.renderer, kPreviewLayer, kTextureLayerSize,
+    if (!app.previews.Initialize(*app.renderer, kPreviewLayer, kTextureLayerSize,
                                  kPreviewCellSize, kPreviewCapacity, &error))
     {
         ShowError(error);
