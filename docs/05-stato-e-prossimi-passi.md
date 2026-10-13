@@ -93,31 +93,29 @@ In ordine di valore, non di facilità.
 
 1. **M10 — backend D3D11** — l'ultima milestone del piano; il renderer è già
    dietro `ui_renderer.*`, quindi è un secondo backend, non una riscrittura.
-4. **Il trascinamento fuori dal cestino** — l'oggetto dati adesso c'è e le voci
+2. **Il trascinamento fuori dal cestino** — l'oggetto dati adesso c'è e le voci
    normali escono davvero, ma una voce **riciclata** non viene presa (la
    destinazione dichiara "copia" e non copia). La causa non è ricostruita: §7.34 di
    `docs/02`. Se non si trova, resta un limite dichiarato.
-5. **`InspectorHideGrid`** — la sola chiave di M8 che resta senza risposta: cosa sia
+3. **`InspectorHideGrid`** — la sola chiave di M8 che resta senza risposta: cosa sia
    la griglia dell'inspector non è ricostruito, e non si inventa.
-6. **Le tre cose viste nell'originale che non abbiamo** (`docs/04`, il riferimento
+4. **Le tre cose viste nell'originale che non abbiamo** (`docs/04`, il riferimento
    guardato dal vivo): la **barra inferiore** con filtro, selettori di vista e
    ingrandimento delle anteprime; il **filtro sulla colonna del nome**; la sezione
    **Recents** nella barra laterale (che è il ranking dei recenti di M4).
-7. **Finire la lingua.** Il meccanismo c'è e la **palette** si traduce tutta — è la
-   superficie delle preferenze, dove la lingua si sceglie. Restano le altre
-   superfici, e finché non sono fatte la modalità inglese le lascia in italiano:
-   menu contestuale (19 voci), inspector (15 righe), messaggi di stato (31),
-   intestazioni delle colonne (6), piè di pagina e pannelli. La lingua vale per la
-   sessione: per renderla persistente serve il comando esplicito che `docs/06`
-   prevede («salva la configurazione in questo file», con scritto cosa ci finisce
-   dentro), che non c'è ancora.
-8. **Albero dei tab: finire di verificarlo.** Il modello, il disegno e il
+5. **Finire la lingua.** Il meccanismo c'è, la **palette** si traduce tutta e il
+   **pannello delle opzioni** pure — è la superficie delle preferenze, dove la lingua
+   si sceglie. Restano le altre superfici, e finché non sono fatte la modalità inglese
+   le lascia in italiano: menu contestuale (19 voci), inspector (15 righe), messaggi di
+   stato (31), intestazioni delle colonne (6), piè di pagina. La lingua **si ricorda**
+   già nella `settings.ini`; quello che resta è tradurre le superfici, non salvarla.
+6. **Albero dei tab: finire di verificarlo.** Il modello, il disegno e il
    trascinamento ci sono (`docs/04` M6); la chiusura dell'albero è scritta e
    **non ancora vista**.
-9. **Salire da una radice di volume**: `Alt`+↑ su `C:\` non va a "This PC" — la
+7. **Salire da una radice di volume**: `Alt`+↑ su `C:\` non va a "This PC" — la
    lista delle unità si raggiunge solo dalla palette, e il nome della voce è quello
    localizzato ("Questo PC"), non "This PC".
-10. **Spezzare `main.cpp`** — **9.357 righe** e undici moduli: il confine c'è, ma il
+8. **Spezzare `main.cpp`** — **10.460 righe** e undici moduli: il confine c'è, ma il
    file che lo contiene resta il collo di bottiglia dichiarato fin dall'inizio.
 
 
