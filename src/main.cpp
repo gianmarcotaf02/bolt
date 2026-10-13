@@ -7717,7 +7717,7 @@ void SendToTargets(AppState& app, size_t index, const std::vector<std::wstring>&
 
     // "Avviato", non "fatto": la destinazione puo' copiare, comprimere o aprire
     // una finestra sua, e il suo esito non e' nostro da dichiarare.
-    ReportStatus(app, L"Avviato: " + targets[index].label);
+    ReportStatus(app, TrW(L"Avviato: ", L"Launched: ") + targets[index].label);
 }
 
 // Chiede alla shell il contenuto di un sottomenu e lo copia nel nostro albero.
@@ -7884,7 +7884,8 @@ void ContextMenuActivate(AppState& app)
     {
         if (shell == nullptr)
         {
-            ReportStatus(app, L"Comando della shell non piu' disponibile.");
+            ReportStatus(app, TrW(L"Comando della shell non piu' disponibile.",
+                                  L"Shell command no longer available."));
             return;
         }
 
@@ -7902,7 +7903,8 @@ void ContextMenuActivate(AppState& app)
         // Un'azione che fallisce in silenzio e' peggio di una che non parte.
         if (FAILED(hr))
         {
-            ReportStatus(app, L"Il comando della shell non e' partito.");
+            ReportStatus(app, TrW(L"Il comando della shell non e' partito.",
+                                  L"The shell command did not start."));
             return;
         }
 
@@ -7923,9 +7925,11 @@ void ContextMenuActivate(AppState& app)
         // Un'azione che non fa niente in silenzio e' peggio di una che non parte:
         // se non si apre niente, l'utente deve sapere perche'.
         if (paths.empty())
-            ReportStatus(app, L"Niente su cui aprire le proprieta'.");
+            ReportStatus(app, TrW(L"Niente su cui aprire le proprieta'.",
+                                  L"Nothing to show properties for."));
         else if (ShowProperties(app.window, paths) == 0)
-            ReportStatus(app, L"Proprietà non disponibili per la selezione.");
+            ReportStatus(app, TrW(L"Proprietà non disponibili per la selezione.",
+                                  L"Properties unavailable for the selection."));
         return;
     }
 
