@@ -164,7 +164,7 @@ skill in chat — `/graphify`, o `/graphify --update` per documenti e immagini.
 
 ### Perché
 
-- `src/main.cpp` è **~10.812 righe**. Leggerlo per intero per rispondere a «dove sta
+- `src/main.cpp` è **~10.860 righe**. Leggerlo per intero per rispondere a «dove sta
   X?» costa decine di migliaia di token e dà comunque una vista parziale.
 - Una query restituisce **etichetta, file, riga e comunità** di ogni nodo: è
   l'indice di cui altrimenti ricostruiresti a mano con `rg`.
@@ -473,8 +473,9 @@ rettangolo ha bordi continui a qualunque dimensione.
 
 | file | responsabilità |
 |---|---|
-| `src/main.cpp` | finestra Win32, contesto GL, navigazione, layout, input, disegno. **~10.812 righe: è il collo di bottiglia dichiarato.** |
-| `src/ui_renderer.*` | quad batcher, una draw call, catena di mipmap |
+| `src/main.cpp` | finestra Win32, navigazione, layout, input, disegno; sceglie e possiede il backend (`BOLT_BACKEND`, fallback). **~10.860 righe: è il collo di bottiglia dichiarato.** |
+| `src/ui_renderer.*` | il backend **OpenGL** dietro `IRenderer`: quad batcher, una draw call, catena di mipmap |
+| `src/d3d11_renderer.*` | il backend **Direct3D 11** della stessa interfaccia: stessi 30 float per vertice, stessi shader in HLSL, swap chain che segue la finestra |
 | `src/font_atlas.*` | atlante di glifi GDI → strato dell'array; ClearType ridotto a copertura in scala di grigi, con gutter fra le celle |
 | `src/shell_icons.*` | icone di sistema → strato 1 |
 | `src/drag_drop.*` | trascinamento OLE: `IDropTarget` sulla finestra, `IDropSource` per portare fuori |
@@ -524,7 +525,7 @@ rettangolo ha bordi continui a qualunque dimensione.
   il grafo può rispondere: vedi §2-bis. Una query costa poco, una lettura costa
   migliaia di token.
 - **Non aprire nuove sessioni di refactoring largo** senza spazio per riverificare
-  tutto: `main.cpp` a 10.812 righe è un problema noto e rimandato, non una scoperta.
+  tutto: `main.cpp` a 10.860 righe è un problema noto e rimandato, non una scoperta.
 
 ---
 
