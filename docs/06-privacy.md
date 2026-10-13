@@ -80,6 +80,20 @@ e scelta dall'utente** — un comando che dice «salva la configurazione in ques
 file», con scritto cosa ci finisce dentro — e non una cartella creata di nascosto
 al primo avvio.
 
+## 4-bis. Cosa si scrive, oggi
+
+C'e' **un** file, e c'e' perche' l'autore l'ha chiesto («la lingua deve impostarsi in
+maniera fissa»):
+
+    %APPDATA%\Bolt\settings.ini
+
+Testo semplice, una riga per preferenza (`language=italian`, `showTooltips=1`, …),
+scritto a ogni cambio e riletto a ogni avvio. Contiene **solo come si vuole che il
+programma si comporti**: nessun nome di file, nessuna cartella visitata, nessun
+elenco di cosa si e' guardato. Si cancella a mano, e cancellarlo riporta tutto ai
+valori di partenza. Il percorso lo dice l'applicazione, con un comando della palette
+(`Dove sta il file delle impostazioni`): non e' una cartella creata di nascosto.
+
 ## 5. Cosa fare se il requisito sembra in conflitto con una richiesta
 
 Chiedere. Non introdurre una scrittura su disco «piccola», «innocua» o

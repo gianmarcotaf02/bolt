@@ -1187,3 +1187,41 @@ dal codice (nomi di job, messaggi diagnostici) e dagli import.
 Strumenti nuovi e riutilizzabili: `analysis/tools/callers.mjs` (trovai siti di
 chiamata di una funzione importata, dallo slot IAT) e
 `analysis/tools/refs-to.mjs` (riferimenti a un indirizzo interno).
+
+### Il riferimento guardato dal vivo (v0.8.5), su richiesta dell'autore
+
+L'autore ha chiesto di aprire il prodotto originale e navigarlo, per migliorare il
+piano. L'ho aperto **sulla sandbox del progetto**, così che quello che si vedeva
+fosse roba di progetto, e le catture sono state **guardate e cancellate**: due
+mostravano i file recenti e le cartelle di chi lavora, e `AGENTS.md` §0 dice che una
+cattura è una copia.
+
+**Quello che conferma la ricostruzione.** La finestra principale ha le stesse
+sezioni nella barra laterale (`QUICK ACCESS`, `BOOKMARKS`, `STORAGE` con la barra di
+occupazione, `PLACES` col cestino in fondo), le stesse colonne
+(`Name/Type/Modified/Folders/Files/Size`), il piè di pagina col filtro e
+`Group: None  n / n`, l'inspector a destra e i pulsanti di navigazione a sinistra
+del percorso. La nostra ricostruzione era già quella lì.
+
+**Quello che non abbiamo, e che vale la pena mettere in fila.**
+
+1. **Una barra inferiore** con, da sinistra: il campo di filtro, i selettori di
+   vista (`2`, `3`, elenco, dettagli) e una **percentuale di ingrandimento** che
+   riguarda le *anteprime*, non l'interfaccia (`0%` = nessuna anteprima). Da noi il
+   filtro sta sotto la lista e i selettori di vista stanno solo nella palette.
+2. **Le colonne hanno il filtro su tutte le intestazioni**, anche su `Name`: da noi
+   il nome non ce l'ha, perché un valore per nome non filtra niente. Vale la pena
+   riguardarlo: forse là il filtro del nome non è per valori ma per testo.
+3. **Una modalità con la barra laterale di ricerca**: aprendo il pannello laterale
+   compaiono `Recents` (file e cartelle recenti), una casella «Find Quick Access…»,
+   `Bookmarks`, `Storage`, `Places` e le **schede**. Cioè: i recenti sono una
+   sezione vera, non un elenco che si apre quando serve — ed è la cosa che M4
+   chiama «ranking dei recenti».
+4. Le schede ci sono anche in questa versione, e stanno sopra il percorso.
+
+**Quello che non ho trovato.** La superficie delle **impostazioni**: il pulsante in
+alto a sinistra apre e chiude la barra laterale — come da noi — e non ho trovato
+dove File Pilot metta le preferenze. Quindi per M9 il piano resta quello che
+abbiamo: la palette è la superficie delle preferenze, perché è lì che si accendono
+le chiavi; e le preferenze **si ricordano** in `%APPDATA%\Bolt\settings.ini`,
+testo leggibile con una riga per preferenza, che si cancella a mano.

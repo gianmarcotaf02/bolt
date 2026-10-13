@@ -71,7 +71,7 @@ Ordinato per quanto morde.
 
 - **Trentasette** difetti **trovati e risolti**: il registro è `docs/02` §7, uno per
   uno, con sintomo, causa e correzione. È un cumulativo, non una lista di lavoro.
-- **Otto** cose **da fare**: la lista qui sotto.
+- **Nove** cose **da fare**: la lista qui sotto.
 - I **limiti dichiarati**: cose che si è scelto di non fare, scritte dove vivono con
   la ragione accanto (il tetto di 1 MB nella lettura dei testi, i modelli `ShellNew`
   con valore `Command`, le 23 colonne della specifica contro le 6 fatte, il ritaglio
@@ -95,7 +95,11 @@ In ordine di valore, non di facilità.
    `docs/02`. Se non si trova, resta un limite dichiarato.
 4. **`InspectorHideGrid`** — la sola chiave di M8 che resta senza risposta: cosa sia
    la griglia dell'inspector non è ricostruito, e non si inventa.
-5. **Finire la lingua.** Il meccanismo c'è e la **palette** si traduce tutta — è la
+5. **Le tre cose viste nell'originale che non abbiamo** (`docs/04`, il riferimento
+   guardato dal vivo): la **barra inferiore** con filtro, selettori di vista e
+   ingrandimento delle anteprime; il **filtro sulla colonna del nome**; la sezione
+   **Recents** nella barra laterale (che è il ranking dei recenti di M4).
+6. **Finire la lingua.** Il meccanismo c'è e la **palette** si traduce tutta — è la
    superficie delle preferenze, dove la lingua si sceglie. Restano le altre
    superfici, e finché non sono fatte la modalità inglese le lascia in italiano:
    menu contestuale (19 voci), inspector (15 righe), messaggi di stato (31),
@@ -103,13 +107,13 @@ In ordine di valore, non di facilità.
    sessione: per renderla persistente serve il comando esplicito che `docs/06`
    prevede («salva la configurazione in questo file», con scritto cosa ci finisce
    dentro), che non c'è ancora.
-6. **Albero dei tab: finire di verificarlo.** Il modello, il disegno e il
+7. **Albero dei tab: finire di verificarlo.** Il modello, il disegno e il
    trascinamento ci sono (`docs/04` M6); la chiusura dell'albero è scritta e
    **non ancora vista**.
-7. **Salire da una radice di volume**: `Alt`+↑ su `C:\` non va a "This PC" — la
+8. **Salire da una radice di volume**: `Alt`+↑ su `C:\` non va a "This PC" — la
    lista delle unità si raggiunge solo dalla palette, e il nome della voce è quello
    localizzato ("Questo PC"), non "This PC".
-8. **Spezzare `main.cpp`** — **8.480 righe** e undici moduli: il confine c'è, ma il
+9. **Spezzare `main.cpp`** — **8.480 righe** e undici moduli: il confine c'è, ma il
    file che lo contiene resta il collo di bottiglia dichiarato fin dall'inizio.
 
 
