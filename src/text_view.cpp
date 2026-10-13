@@ -1,5 +1,7 @@
 #include "text_view.h"
 
+#include "language.h"
+
 #include <windows.h>
 
 #include <algorithm>
@@ -138,7 +140,7 @@ const char* EncodingName(Encoding encoding)
         case Encoding::Utf16Le:  return "UTF-16 LE";
         case Encoding::Utf16Be:  return "UTF-16 BE";
         case Encoding::Ansi:     return "ANSI";
-        case Encoding::Binary:   return "binary";
+        case Encoding::Binary:   return Tr("binario", "binary");
     }
     return "?";
 }
@@ -249,7 +251,7 @@ Document Load(const std::wstring& path)
     if (crlf > 0 && lf == 0 && cr == 0)      document.endings = "CRLF";
     else if (lf > 0 && crlf == 0 && cr == 0) document.endings = "LF";
     else if (cr > 0 && crlf == 0 && lf == 0) document.endings = "CR";
-    else if (crlf + lf + cr > 0)             document.endings = "misto";
+    else if (crlf + lf + cr > 0)             document.endings = Tr("misto", "mixed");
 
     const std::string utf8 = Utf8FromWide(text);
     size_t start = 0;
