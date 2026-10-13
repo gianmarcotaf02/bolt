@@ -4620,7 +4620,8 @@ void DrawInspector(AppState& app, const Layout& layout)
         if (!volume.freeText.empty())
         {
             char free[96];
-            std::snprintf(free, sizeof(free), "%s free (%d%% used)", volume.freeText.c_str(),
+            std::snprintf(free, sizeof(free), Tr("%s liberi (%d%% usato)", "%s free (%d%% used)"),
+                          volume.freeText.c_str(),
                           static_cast<int>(volume.usedFraction * 100.0f));
             rows.push_back({"Space", free, false});
         }
@@ -4707,13 +4708,14 @@ void DrawStatusBar(AppState& app, const Layout& layout)
     // motore — fotogrammi, quadrilateri, lavori in corso — che servono a chi scrive
     // il programma e non a chi lo usa: adesso stanno dietro `BOLT_DEV_HUD=1`.
     char counts[96];
-    std::snprintf(counts, sizeof(counts), "%zu items", app.entries.size());
+    std::snprintf(counts, sizeof(counts), Tr("%zu voci", "%zu items"), app.entries.size());
     app.smallFont.Draw(r, 12.0f * scale, layout.statusBar.y + 4.0f * scale, counts, t.textDim, scale);
 
     if (!app.selection.empty())
     {
         char chosen[96];
-        std::snprintf(chosen, sizeof(chosen), "%zu selected", app.selection.size());
+        std::snprintf(chosen, sizeof(chosen), Tr("%zu selezionati", "%zu selected"),
+                      app.selection.size());
         const float x = 12.0f * scale + app.smallFont.Measure(counts, scale) + 16.0f * scale;
         app.smallFont.Draw(r, x, layout.statusBar.y + 4.0f * scale, chosen, t.text, scale);
     }
@@ -4749,9 +4751,15 @@ void DrawStatusBar(AppState& app, const Layout& layout)
     if (position > 0)
         right = std::to_string(position) + " / " + std::to_string(visible);
 
-    const char* view = (app.viewMode == ViewMode::Details) ? "Details"
-                     : (app.viewMode == ViewMode::Tiles)   ? "Tiles"
-                                                           : "Icons";
+    // Le quattro viste dello spec, col nome che il riferimento da' loro nel menu.
+    // `List` c'era e non era nominata: cadeva su "Icons", quindi la vista a elenco si
+    // presentava come icona. Un nome che non c'e' non deve essere indovinato dal
+    // ramo di ripiego.
+    const char* view =
+        app.viewMode == ViewMode::Details ? Tr("Dettagli", "Details") :
+        app.viewMode == ViewMode::List    ? Tr("Elenco", "List") :
+        app.viewMode == ViewMode::Tiles   ? Tr("Riquadri", "Tiles") :
+                                            Tr("Icone", "Icons");
     if (!right.empty())
         right += "   |   ";
     right += view;
