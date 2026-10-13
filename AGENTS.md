@@ -164,7 +164,7 @@ skill in chat — `/graphify`, o `/graphify --update` per documenti e immagini.
 
 ### Perché
 
-- `src/main.cpp` è **~4.300 righe**. Leggerlo per intero per rispondere a «dove sta
+- `src/main.cpp` è **~10.460 righe**. Leggerlo per intero per rispondere a «dove sta
   X?» costa decine di migliaia di token e dà comunque una vista parziale.
 - Una query restituisce **etichetta, file, riga e comunità** di ogni nodo: è
   l'indice di cui altrimenti ricostruiresti a mano con `rg`.
@@ -473,7 +473,7 @@ rettangolo ha bordi continui a qualunque dimensione.
 
 | file | responsabilità |
 |---|---|
-| `src/main.cpp` | finestra Win32, contesto GL, navigazione, layout, input, disegno. **~5.300 righe: è il collo di bottiglia dichiarato.** |
+| `src/main.cpp` | finestra Win32, contesto GL, navigazione, layout, input, disegno. **~10.460 righe: è il collo di bottiglia dichiarato.** |
 | `src/ui_renderer.*` | quad batcher, una draw call, catena di mipmap |
 | `src/font_atlas.*` | atlante di glifi GDI → strato dell'array; ClearType ridotto a copertura in scala di grigi, con gutter fra le celle |
 | `src/shell_icons.*` | icone di sistema → strato 1 |
@@ -496,7 +496,7 @@ rettangolo ha bordi continui a qualunque dimensione.
 
 - `docs/04-roadmap.md` — le milestone, con le caselle spuntate e i difetti aperti.
 - `docs/05-stato-e-prossimi-passi.md` — dove si è arrivati, cosa resta, le trappole.
-- `docs/02-architettura-ricostruita.md` — l'architettura e i **trentanove** difetti
+- `docs/02-architettura-ricostruita.md` — l'architettura e i **quaranta** difetti
   trovati e risolti, §7.
 - `docs/03-spec-funzionale.md` — la spec ricostruita dall'originale: 1124 chiavi,
   319 comandi, 35 token di tema, 23 colonne.
@@ -523,7 +523,7 @@ rettangolo ha bordi continui a qualunque dimensione.
   il grafo può rispondere: vedi §2-bis. Una query costa poco, una lettura costa
   migliaia di token.
 - **Non aprire nuove sessioni di refactoring largo** senza spazio per riverificare
-  tutto: `main.cpp` a 4.300 righe è un problema noto e rimandato, non una scoperta.
+  tutto: `main.cpp` a 10.460 righe è un problema noto e rimandato, non una scoperta.
 
 ---
 
