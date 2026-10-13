@@ -26,7 +26,10 @@ di cui non sa niente. Il file manager diventa esso stesso la cosa da cui difende
 **Vietato:**
 
 - Scrivere in `%APPDATA%`, `%LOCALAPPDATA%`, `%PROGRAMDATA%` o accanto
-  all'eseguibile, qualunque cosa che descriva l'attività dell'utente.
+  all'eseguibile, qualunque cosa che descriva l'attività dell'utente. **Una sola
+  eccezione**, chiesta dall'autore e descritta in §4-bis: le preferenze, in un file
+  di testo che dice cosa contiene, che non nomina nessun file e nessuna cartella
+  visitata.
 - Registro di Windows: nessuna chiave, di nessun tipo.
 - Elenchi di recenti, cronologia di navigazione, segnalibri o ultima-cartella
   **persistenti**. Restano in memoria e muoiono con il processo.
@@ -51,7 +54,7 @@ Al momento della stesura:
 | verifica | esito |
 |---|---|
 | Scritture di file nel codice | una sola: `startup-error.log`, solo su errore |
-| Riferimenti a `%APPDATA%` / `%LOCALAPPDATA%` | **nessuno** |
+| Riferimenti a `%APPDATA%` / `%LOCALAPPDATA%` | **uno**: `\Bolt\settings.ini`, le preferenze (§4-bis) |
 | Accessi al registro | **nessuno** |
 | Cache su disco | **nessuna** |
 

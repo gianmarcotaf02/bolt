@@ -113,7 +113,7 @@ In ordine di valore, non di facilità.
 8. **Salire da una radice di volume**: `Alt`+↑ su `C:\` non va a "This PC" — la
    lista delle unità si raggiunge solo dalla palette, e il nome della voce è quello
    localizzato ("Questo PC"), non "This PC".
-9. **Spezzare `main.cpp`** — **8.480 righe** e undici moduli: il confine c'è, ma il
+9. **Spezzare `main.cpp`** — **9.357 righe** e undici moduli: il confine c'è, ma il
    file che lo contiene resta il collo di bottiglia dichiarato fin dall'inizio.
 
 
