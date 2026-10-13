@@ -3155,8 +3155,8 @@ void BuildColumnMenu(AppState& app, int column)
     app.columnPanel       = column;
 
     std::vector<GroupMenuItem> items;
-    items.push_back({"", "Tutti", "", kFilterAllId});
-    items.push_back({"", "Nessuno", "", kFilterNoneId});
+    items.push_back({"", Tr("Tutti", "All"), "", kFilterAllId});
+    items.push_back({"", Tr("Nessuno", "None"), "", kFilterNoneId});
     for (int i = 0; i < static_cast<int>(app.columnPanelValues.size()); ++i)
     {
         const std::pair<std::string, int>& value = app.columnPanelValues[static_cast<size_t>(i)];
@@ -3166,7 +3166,8 @@ void BuildColumnMenu(AppState& app, int column)
     }
 
     app.columnMenu.detailed = true;
-    GroupMenuOpen(app.columnMenu, kColumns[column].label, "Type to filter values...",
+    GroupMenuOpen(app.columnMenu, kColumns[column].label,
+                  Tr("Scrivi per filtrare i valori...", "Type to filter values..."),
                   std::move(items));
     app.columnMenu.anchored = true;
 }
@@ -4266,7 +4267,9 @@ void DrawTextViewer(AppState& app, const Layout& layout, const Rect& area)
     // cose che si vogliono sapere di un file di testo prima di leggerlo, e la codifica
     // e' quella che l'originale chiama `PanelInspector_TextEncodingUTF8`.
     char header[160];
-    std::snprintf(header, sizeof(header), Tr("%s   %zu righe%s%s", "%s   %zu lines%s%s"),
+    std::snprintf(header, sizeof(header),
+                  document.lines.size() == 1 ? Tr("%s   %zu riga%s%s", "%s   %zu line%s%s")
+                                              : Tr("%s   %zu righe%s%s", "%s   %zu lines%s%s"),
                   TextView::EncodingName(document.encoding), document.lines.size(),
                   document.endings.empty() ? "" : "   ", document.endings.c_str());
     app.smallFont.Draw(r, area.x, area.y, header, t.textDim, scale);
