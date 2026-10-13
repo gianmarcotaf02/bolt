@@ -268,7 +268,7 @@ enum CommandId
     CmdSingleClick, CmdSingleClickFoldersOnly, CmdActOnPress, CmdDoubleClickToParent,
     CmdShowCheckboxes,
     CmdCloseInTree, CmdCloseAllInTree, CmdDetachTab,
-    CmdLanguageItalian, CmdLanguageEnglish,
+    CmdLanguageItalian, CmdLanguageEnglish, CmdShowSettingsPath,
     CmdToggleBookmark, CmdClearBookmarks, CmdClearRecents,
     // Operazioni su file (M7).
     CmdCopy, CmdCut, CmdPaste, CmdDelete, CmdDeletePermanent, CmdRename, CmdNewFolder,
@@ -794,6 +794,156 @@ struct AppState
     int    viewportWidth = 0;
     int    viewportHeight = 0;
 };
+
+// --- impostazioni ------------------------------------------------------------
+//
+// Le preferenze si **ricordano**. `docs/06` chiedeva che la persistenza fosse
+// esplicita e scelta dall'utente, e l'autore l'ha chiesta cosi': «la lingua deve
+// impostarsi in maniera fissa». Quindi il file c'e' — e non e' nascosto:
+//
+//   %APPDATA%\Bolt\settings.ini
+//
+// e' testo semplice con una riga per preferenza, si legge e si cancella a mano,
+// cancellarlo riporta tutto ai valori di partenza, e l'applicazione **dice dove
+// l'ha scritto**. Non contiene nomi di file, cartelle visitate o altre tracce di
+// cosa si e' guardato: solo come si vuole che il programma si comporti.
+std::wstring SettingsPath()
+{
+    PWSTR roaming = nullptr;
+    std::wstring path;
+    if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_RoamingAppData, 0, nullptr, &roaming)) &&
+        roaming != nullptr)
+    {
+        path = roaming;
+        CoTaskMemFree(roaming);
+    }
+    if (path.empty())
+        return path;
+    path += L"\\Bolt";
+    CreateDirectoryW(path.c_str(), nullptr);
+    return path + L"\\settings.ini";
+}
+
+// Una riga per preferenza, "chiave=valore". Niente librerie e niente formato
+// binario: si apre col Blocco note e si capisce.
+bool ReadSetting(const std::string& text, const char* key, std::string* value)
+{
+    const std::string wanted = std::string(key) + "=";
+    size_t at = 0;
+    while (at < text.size())
+    {
+        size_t end = text.find('\n', at);
+        if (end == std::string::npos)
+            end = text.size();
+        std::string line = text.substr(at, end - at);
+        if (!line.empty() && line.back() == '\r')
+            line.pop_back();
+        if (line.compare(0, wanted.size(), wanted) == 0)
+        {
+            *value = line.substr(wanted.size());
+            return true;
+        }
+        at = end + 1;
+    }
+    return false;
+}
+
+void LoadSettings(AppState& app)
+{
+    const std::wstring path = SettingsPath();
+    if (path.empty())
+        return;
+    HANDLE file = CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING,
+                              FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (file == INVALID_HANDLE_VALUE)
+        return;   // primo avvio: i valori di partenza sono quelli giusti
+
+    std::string text;
+    char buffer[1024];
+    DWORD read = 0;
+    while (ReadFile(file, buffer, sizeof(buffer), &read, nullptr) && read > 0)
+        text.append(buffer, read);
+    CloseHandle(file);
+
+    std::string value;
+    if (ReadSetting(text, "language", &value))
+        gLanguage = (value == "english") ? Language::English : Language::Italian;
+
+    const auto readFlag = [&](const char* key, bool* target) {
+        std::string v;
+        if (ReadSetting(text, key, &v))
+            *target = (v == "1");
+    };
+    readFlag("showTooltips", &app.showTooltips);
+    readFlag("hoverToSelect", &app.hoverToSelect);
+    readFlag("underlineOnHover", &app.underlineOnHover);
+    readFlag("singleClick", &app.singleClick);
+    readFlag("singleClickFoldersOnly", &app.singleClickFoldersOnly);
+    readFlag("actOnPress", &app.actOnPress);
+    readFlag("doubleClickToParent", &app.doubleClickToParent);
+    readFlag("showCheckboxes", &app.showCheckboxes);
+    readFlag("sidebarVisible", &app.sidebarVisible);
+
+    std::string grid;
+    if (ReadSetting(text, "gridIconSize", &grid))
+        app.gridIconSize = static_cast<float>(atof(grid.c_str()));
+    if (app.gridIconSize < AppState::kGridIconMin || app.gridIconSize > AppState::kGridIconMax)
+        app.gridIconSize = 64.0f;
+}
+
+// Si scrive a ogni cambio di preferenza: il file e' minuscolo, e una preferenza che
+// si perde perche' il programma e' stato chiuso male e' peggio di una scrittura in
+// piu'. L'esito lo dice l'applicazione, perche' un salvataggio che fallisce in
+// silenzio lascerebbe credere che la scelta sia ricordata.
+bool SaveSettings(const AppState& app)
+{
+    const std::wstring path = SettingsPath();
+    if (path.empty())
+        return false;
+    HANDLE file = CreateFileW(path.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS,
+                              FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (file == INVALID_HANDLE_VALUE)
+        return false;
+
+    std::string text =
+        "# Bolt — impostazioni\n"
+        "# Le scrive Bolt quando cambi una preferenza, e le rilegge a ogni avvio.\n"
+        "# Si cancellano a mano: cancellandole, tutto torna come al primo avvio.\n"
+        "# Non contengono nomi di file ne' cartelle visitate.\n";
+    text += std::string("language=") +
+            (gLanguage == Language::English ? "english" : "italian") + "\n";
+
+    const auto writeFlag = [&](const char* key, bool value) {
+        text += std::string(key) + "=" + (value ? "1" : "0") + "\n";
+    };
+    writeFlag("showTooltips", app.showTooltips);
+    writeFlag("hoverToSelect", app.hoverToSelect);
+    writeFlag("underlineOnHover", app.underlineOnHover);
+    writeFlag("singleClick", app.singleClick);
+    writeFlag("singleClickFoldersOnly", app.singleClickFoldersOnly);
+    writeFlag("actOnPress", app.actOnPress);
+    writeFlag("doubleClickToParent", app.doubleClickToParent);
+    writeFlag("showCheckboxes", app.showCheckboxes);
+    writeFlag("sidebarVisible", app.sidebarVisible);
+    text += "gridIconSize=" + std::to_string(static_cast<int>(app.gridIconSize)) + "\n";
+
+    DWORD written = 0;
+    const BOOL ok = WriteFile(file, text.data(), static_cast<DWORD>(text.size()), &written, nullptr);
+    CloseHandle(file);
+    return ok != FALSE && written == text.size();
+}
+
+// Ricorda la preferenza e, se non si riesce, lo dice: e' l'unico modo di sapere che
+// una scelta non verra' ritrovata al prossimo avvio.
+void ReportStatus(AppState& app, const std::wstring& message);
+
+void RememberSettings(AppState& app)
+{
+    if (!SaveSettings(app))
+        ReportStatus(app, TrW(L"Impostazioni non salvate: il file non si e' potuto scrivere",
+                              L"Settings not saved: the file could not be written"));
+}
+
 
 // Helpers defined further down but needed earlier: the selection queries by the
 // drawing code, and the parent path by the command palette.
@@ -2820,6 +2970,7 @@ const char* CommandLabelIt(CommandId id)
         case CmdClearRecents:           return "Azzera i recenti";
         case CmdLanguageItalian:        return "Lingua: italiano";
         case CmdLanguageEnglish:        return "Lingua: inglese";
+        case CmdShowSettingsPath:       return "Dove sta il file delle impostazioni";
         default:                        return nullptr;
     }
 }
@@ -4493,6 +4644,7 @@ const CommandDef kCommandTable[] = {
     // accesa, e non serve indovinare lo stato di partenza.
     {"Language", "Language: Italian",           CmdLanguageItalian},
     {"Language", "Language: English",           CmdLanguageEnglish},
+    {"Language", "Where the settings file is",  CmdShowSettingsPath},
     {"Tabs",    "New tab",                     CmdNewTab},
     {"Tabs",    "Close tab and its children",   CmdCloseInTree},
     {"Tabs",    "Close the whole tab tree",     CmdCloseAllInTree},
@@ -5391,17 +5543,35 @@ void RunCommand(AppState& app, int command)
             ShellExecuteW(nullptr, L"open", L"cmd.exe", nullptr, app.directory.c_str(), SW_SHOWNORMAL);
             break;
 
-        case CmdToggleSidebar: app.sidebarVisible = !app.sidebarVisible; break;
-        case CmdToggleHoverToSelect:    app.hoverToSelect    = !app.hoverToSelect; break;
-        case CmdToggleUnderlineOnHover: app.underlineOnHover = !app.underlineOnHover; break;
-        case CmdToggleTooltips:         app.showTooltips     = !app.showTooltips; break;
-        case CmdSingleClick:            app.singleClick            = !app.singleClick; break;
-        case CmdSingleClickFoldersOnly: app.singleClickFoldersOnly = !app.singleClickFoldersOnly; break;
-        case CmdActOnPress:             app.actOnPress             = !app.actOnPress; break;
-        case CmdDoubleClickToParent:    app.doubleClickToParent    = !app.doubleClickToParent; break;
-        case CmdShowCheckboxes:         app.showCheckboxes         = !app.showCheckboxes; break;
-        case CmdLanguageItalian: gLanguage = Language::Italian; break;
-        case CmdLanguageEnglish: gLanguage = Language::English; break;
+        case CmdToggleSidebar:
+            app.sidebarVisible = !app.sidebarVisible;
+            RememberSettings(app);
+            break;
+        // Una preferenza si cambia e si **ricorda**: e' quello che l'autore ha
+        // chiesto per la lingua, e vale per tutte quelle che si scelgono qui.
+        case CmdToggleHoverToSelect:    app.hoverToSelect    = !app.hoverToSelect;    RememberSettings(app); break;
+        case CmdToggleUnderlineOnHover: app.underlineOnHover = !app.underlineOnHover; RememberSettings(app); break;
+        case CmdToggleTooltips:         app.showTooltips     = !app.showTooltips;     RememberSettings(app); break;
+        case CmdSingleClick:            app.singleClick            = !app.singleClick;            RememberSettings(app); break;
+        case CmdSingleClickFoldersOnly: app.singleClickFoldersOnly = !app.singleClickFoldersOnly; RememberSettings(app); break;
+        case CmdActOnPress:             app.actOnPress             = !app.actOnPress;             RememberSettings(app); break;
+        case CmdDoubleClickToParent:    app.doubleClickToParent    = !app.doubleClickToParent;    RememberSettings(app); break;
+        case CmdShowCheckboxes:         app.showCheckboxes         = !app.showCheckboxes;         RememberSettings(app); break;
+        case CmdLanguageItalian:
+            gLanguage = Language::Italian;
+            RememberSettings(app);
+            ReportStatus(app, L"Impostazioni salvate in " + SettingsPath());
+            break;
+        case CmdLanguageEnglish:
+            gLanguage = Language::English;
+            RememberSettings(app);
+            ReportStatus(app, L"Impostazioni salvate in " + SettingsPath());
+            break;
+        case CmdShowSettingsPath:
+            ReportStatus(app, SettingsPath().empty()
+                                 ? TrW(L"Impostazioni non disponibili", L"Settings unavailable")
+                                 : TrW(L"Impostazioni in ", L"Settings in ") + SettingsPath());
+            break;
         case CmdCloseInTree:
             CloseTabTree(app, app.tabs[static_cast<size_t>(app.activeTab)].id, /*wholeTree=*/false);
             break;
@@ -9074,6 +9244,9 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, LPWSTR, int)
     app.dpiScale = (dpi > 0) ? static_cast<float>(dpi) / 96.0f : 1.0f;
     app.zoom = app.dpiScale;
 
+    // Le preferenze si rileggono **prima** della prima costruzione della vista: la
+    // lingua e l'aspetto devono essere quelli giusti al primo fotogramma.
+    LoadSettings(app);
     InitColumns(app);
     BuildPlaces(app);
     app.window = window;
