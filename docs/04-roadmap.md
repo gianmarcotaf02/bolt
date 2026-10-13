@@ -456,6 +456,31 @@ movimento.
       aggiorna, segnalibro — gli stessi comandi della tastiera e della palette
 - [x] il terzo contesto del componente a gruppi: il menu contestuale (fatto in M7)
 
+### L'albero dei tab, verificato — *Visto*
+
+Il modello c'era dal primo giorno di M6 — un tab ha **un'identita'** e un `parentId`,
+non una posizione — e le tre operazioni erano scritte ma mai guardate. Adesso sono
+state provate a schermo, su tre tab:
+
+- **Creazione:** si trascina un tab sul **terzo di mezzo** di un altro e diventa
+  suo figlio. Il figlio si disegna **rientrato** e con la riga che lo lega al
+genitore; il trascinamento **rifiuta** un tab dentro un proprio discendente, perche'
+un albero con un anello non e' piu' un albero.
+- **`CloseInTree`:** chiude il tab scelto **e i suoi figli**. Con il genitore attivo
+  sono spariti due tab in un colpo solo, e l'altro ramo e' rimasto.
+- **`CloseAllInTree`:** chiude **tutto l'albero** a cui appartiene il tab, radice
+  compresa. Col **figlio** attivo sono spariti lui *e* il genitore, e l'albero
+  estraneo e' rimasto: e' cio' che lo distingue dal primo.
+- **`DetachTab`:** il figlio torna una radice; il rientro e la riga spariscono.
+
+L'ultimo tab non si chiude mai: chiudendo un albero intero se ne risparmia uno, e
+lo si dice invece di lasciare una finestra vuota.
+
+**Metodo.** Un trascinamento e' ambiguo da leggere in una cattura — due tab con lo
+stesso titolo si assomigliano — quindi la prova si e' appoggiata a una riga di
+`BOLT_DIAG`: `tab drop: 2 figlio di 0` dice *cosa* e' successo, e la cattura dice
+*come si vede*. Le due cose insieme, non una delle due.
+
 ### La barra laterale a sezioni, e il confronto col riferimento — *Ricostruito*
 
 Quattro sezioni, perché le voci sono di natura diversa e chi non usa una non deve

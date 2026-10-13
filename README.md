@@ -34,11 +34,11 @@ reimplementato in modo indipendente.
 | **Modalità di visualizzazione** | ✅ Details, List, Tiles, Icons, con i **selettori nella barra in fondo** e la misura delle anteprime (0/50/100%) |
 | **Sovrappasso del mouse** | ✅ evidenzia riga o cella, si spegne uscendo dalla finestra |
 | **Due corpi di testo** | ✅ 15 px per il contenuto, 13 px per il secondario |
-| **Tab multipli** con barra del titolo propria | ✅ funzionante (senza drag&drop né albero dei tab) |
+| **Tab multipli** con barra del titolo propria | ✅ funzionante, con drag&drop (dentro un tab si diventa figli) e albero dei tab (chiudi ramo, chiudi albero, distacca) |
 | **Command palette** a gruppi collassabili | ✅ funzionante (72 comandi + le cartelle note) |
 | **Finestra GoTo** con recenti e segnalibri | ✅ funzionante (di sessione) |
 | Cronologia di navigazione per tab | ✅ funzionante (`Alt`+`←` / `Alt`+`→`) |
-| Quick access pinnato, drag&drop dei tab | ⬜ milestone 6 |
+| Quick access pinnato, drag&drop dei tab | 🟡 albero dei tab fatto e verificato; resta il quick access pinnato |
 | Operazioni su file (copia, sposta, rinomina, cestino) | ✅ funzionanti, clipboard interoperabile con Esplora risorse |
 | Drag&drop, menu contestuale della shell | ⬜ milestone 7 |
 | Persistenza configurazione, temi, hotkey | ⬜ milestone 9 |
