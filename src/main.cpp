@@ -656,6 +656,10 @@ struct AppState
     // Il percorso del cestino, che non e' una cartella come le altre: tenerlo qui
     // evita di richiederlo alla shell a ogni movimento del mouse durante una caduta.
     std::wstring recycleBinPath;
+    // Il nome di spazio dei nomi di "Questo PC". Serve a due cose: salire da una
+    // radice di volume ci porta, e la sua etichetta e' "This PC" — il nome del
+    // riferimento — invece di quello localizzato che risponde la shell.
+    std::wstring thisPcPath;
 
     // --- colonne (larghezza e filtri per valore) -----------------------------
     //
