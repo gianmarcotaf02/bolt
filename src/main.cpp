@@ -8901,6 +8901,12 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
             if (app == nullptr)
                 break;
 
+            // Con un pannello a gruppi aperto il tasto destro non apre niente: la
+            // finestra sotto e' coperta, e un menu contestuale dietro un pannello
+            // non si potrebbe ne' vedere ne' usare.
+            if (OpenMenu(*app) != nullptr)
+                return 0;
+
             const float x = static_cast<float>(GET_X_LPARAM(lparam));
             const float y = static_cast<float>(GET_Y_LPARAM(lparam));
 
