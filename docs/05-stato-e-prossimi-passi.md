@@ -37,7 +37,7 @@ copia). Mancano le cartelle riciclate (che si ripristinano, non si aprono) e il
 trascinamento **fuori** dal cestino, che resta un limite dichiarato |
 | M8 — inspector | ✅ metadati, proprietà `PROPSYS`, conteggio per tipo, **visualizzatore di testo** (righe, minimap, spazi visibili, andare a capo, ingrandimento, codifica), **anteprima immagine** decodificata con adattamento e ingrandimento e **griglia di sfondo** (`InspectorHideGrid`). Le voci di spazio dei nomi mostrano le colonne della shell (percorso originale, data di eliminazione) |
 | M9 — configurazione e temi | 🟡 pannello delle opzioni (`Ctrl+,`) con i controlli tipizzati, preferenze ricordate in `%APPDATA%\Bolt\settings.ini` e **lingua su tutte le superfici**; mancano la mappa tasti rimappabile e i temi a 35 token |
-| M10 — backend D3D11 | ⬜ |
+| M10 — backend D3D11 | ✅ `IRenderer` dietro cui stanno **OpenGL** e **Direct3D 11** (stessi shader in HLSL, stesso batcher di quadrilateri), con scelta all'avvio (`BOLT_BACKEND`) e fallback all'OpenGL |
 
 L'applicazione è **usabile**: si naviga, si filtra, si raggruppa, si seleziona, si
 aprono tab, si salta con GoTo, si guardano anteprime e statistiche ricorsive, e si
@@ -74,7 +74,7 @@ Ordinato per quanto morde.
 
 - **Quarantadue** difetti **trovati e risolti**: il registro è `docs/02` §7, uno per
   uno, con sintomo, causa e correzione. È un cumulativo, non una lista di lavoro.
-- **Tre** cose **da fare**: la lista qui sotto.
+- **Due** cose **da fare**: la lista qui sotto.
 - I **limiti dichiarati**: cose che si è scelto di non fare, scritte dove vivono con
   la ragione accanto (il tetto di 1 MB nella lettura dei testi, i modelli `ShellNew`
   con valore `Command`, le 23 colonne della specifica contro le 6 fatte, il ritaglio
@@ -97,13 +97,11 @@ In ordine di valore, non di facilità.
 > M9 la **mappa tasti rimappabile** sui 319 comandi e i **temi a 35 token**; di M4 il
 > **punteggio** dei recenti, che adesso e' solo l'ordine di visita.
 
-1. **M10 — backend D3D11** — l'ultima milestone del piano; il renderer è già
-   dietro `ui_renderer.*`, quindi è un secondo backend, non una riscrittura.
-2. **Il trascinamento fuori dal cestino** — l'oggetto dati adesso c'è e le voci
+1. **Il trascinamento fuori dal cestino** — l'oggetto dati adesso c'è e le voci
    normali escono davvero, ma una voce **riciclata** non viene presa (la
    destinazione dichiara "copia" e non copia). La causa non è ricostruita: §7.34 di
    `docs/02`. Se non si trova, resta un limite dichiarato.
-3. **Spezzare `main.cpp`** — **~10.812 righe** e dodici moduli: il confine c'è, ma il
+2. **Spezzare `main.cpp`** — **~10.860 righe** e tredici moduli: il confine c'è, ma il
    file che lo contiene resta il collo di bottiglia dichiarato fin dall'inizio.
 
 
