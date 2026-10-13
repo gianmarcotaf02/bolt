@@ -504,10 +504,16 @@ struct ColumnDef
 const ColumnDef kColumns[] = {
     {"Name",     SortColumn::Name,     0.00f, false},
     {"Type",     SortColumn::Type,     0.38f, true},
-    {"Modified", SortColumn::Modified, 0.57f, true},
-    {"Folders",  SortColumn::Folders,  0.71f, true},
-    {"Files",    SortColumn::Files,    0.80f, true},
-    {"Size",     SortColumn::Size,     0.88f, true},
+    {"Modified", SortColumn::Modified, 0.56f, true},
+    // `Folders` e `Files` avevano il titolo appena piu' largo della colonna, e
+    // l'imbuto del filtro si mangiava la coda: con il carattere di partenza si
+    // sovrapponevano di pochi pixel, con un carattere piu' largo si leggeva
+    // `ModifedFoldersFilesSize`. Qui le due colonne hanno lo spazio per il titolo
+    // **e** per l'imbuto; se la finestra si stringe, il titolo si accorcia (vedi
+    // `DrawHeader`) invece di finire sopra quello vicino.
+    {"Folders",  SortColumn::Folders,  0.70f, true},
+    {"Files",    SortColumn::Files,    0.805f, true},
+    {"Size",     SortColumn::Size,     0.885f, true},
 };
 constexpr int kColumnCount = static_cast<int>(sizeof(kColumns) / sizeof(kColumns[0]));
 
