@@ -520,7 +520,6 @@ struct AppState
     // Il contesto di disegno della finestra, per poter disegnare un fotogramma
     // anche fuori dal ciclo principale (vedi `RenderFrame`).
     HDC deviceContext = nullptr;
-
     IRenderer*       renderer = nullptr;
     FontAtlas       font;
     // Testo secondario: intestazioni, etichette, barra di stato. Rasterizzato
@@ -10749,7 +10748,6 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, LPWSTR, int)
     app.activeTab = 0;
     LoadDirectory(app, initialDirectory);
 
-    app.deviceContext = dc;
     SetWindowLongPtrW(window, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(&app));
 
     // Da qui in poi la finestra accetta file trascinati da fuori. Se il sistema
@@ -10761,10 +10759,16 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, LPWSTR, int)
 
     ShowWindow(window, SW_SHOW);
 
-    glEnable(GL_BLEND);
-    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-    glDisable(GL_DEPTH_TEST);
-    glDisable(GL_CULL_FACE);
+    // Lo stato di disegno che in OpenGL e' globale e in Direct3D 11 lo mette il
+    // backend (blend, niente profondita', niente culling) sta qui solo per
+    // l'OpenGL.
+    if (usingOpenGL)
+    {
+        glEnable(GL_BLEND);
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+        glDisable(GL_DEPTH_TEST);
+        glDisable(GL_CULL_FACE);
+    }
 
     app.lastFrameTime = NowSeconds();
     bool running = true;
@@ -10838,10 +10842,14 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, LPWSTR, int)
     OleUninitialize();
     app.previews.Shutdown();
     app.renderer->Shutdown();
-    wglMakeCurrent(nullptr, nullptr);
-    if (context != nullptr)
-        wglDeleteContext(context);
-    ReleaseDC(window, dc);
+    if (usingOpenGL)
+    {
+        wglMakeCurrent(nullptr, nullptr);
+        if (context != nullptr)
+            wglDeleteContext(context);
+        if (dc != nullptr)
+            ReleaseDC(window, dc);
+    }
     DestroyWindow(window);
     CoUninitialize();
     return 0;
