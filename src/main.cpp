@@ -279,6 +279,8 @@ enum CommandId
     CmdCopy, CmdCut, CmdPaste, CmdDelete, CmdDeletePermanent, CmdRename, CmdNewFolder,
     // M9: il pannello delle opzioni, raggiungibile anche dalla palette.
     CmdOpenOptions,
+    // Le proprieta': quella in-app e quella di Windows, due voci distinte.
+    CmdProperties, CmdPropertiesWindows,
 };
 
 // Item ids below this are CommandId values; above it they are indexes into
@@ -403,7 +405,8 @@ struct Tab
 // Id che non sono comandi della palette: il primo apre la selezione, che l'Invio
 // gia' fa, il secondo apre la finestra delle proprieta' di Windows.
 constexpr int kContextOpen       = -1;
-constexpr int kContextProperties = -2;
+constexpr int kContextProperties        = -2;
+constexpr int kContextPropertiesWindows = -3;
 
 struct ContextMenuItem
 {
@@ -3211,6 +3214,8 @@ const char* CommandLabelIt(CommandId id)
         case CmdLanguageEnglish:        return "Lingua: inglese";
         case CmdShowSettingsPath:       return "Dove sta il file delle impostazioni";
         case CmdOpenOptions:            return "Apri le opzioni";
+        case CmdProperties:             return "Proprietà";
+        case CmdPropertiesWindows:      return "Proprietà di Windows";
         default:                        return nullptr;
     }
 }
@@ -4852,6 +4857,203 @@ void DrawInspector(AppState& app, const Layout& layout)
     // segnaposto prometteva qualcosa che nessuna milestone ha mai previsto.
 }
 
+// --- il pannello delle proprieta' in-app ------------------------------------
+//
+// La voce `Proprietà` non apre piu' la finestra di Windows: apre questa, che mostra
+// le stesse righe dell'inspector in una finestra nostra. `Proprietà di Windows`
+// resta, accanto, per cio' che solo la shell sa — permessi, versioni precedenti, le
+// pagine registrate dai gestori dei tipi di file, e la scrittura.
+//
+// Le righe le costruisce `BuildInspectorRows`, la stessa che usa l'inspector: due
+// viste della stessa cosa con un solo calcolo, o prima o poi mostrerebbero numeri
+// diversi.
+void OpenPropertiesPanel(AppState& app)
+{
+    app.propertiesRows.clear();
+    app.propertiesScroll = 0.0f;
+
+    const int selectedCount = static_cast<int>(app.selection.size());
+    const int cursorIndex   = CursorIndex(app);
+
+    if (selectedCount > 1)
+    {
+        // Piu' voci: l'aggregato, come nell'inspector.
+        uint64_t totalBytes = 0;
+        int files = 0;
+        int folders = 0;
+        std::unordered_map<std::string, int> byType;
+        for (const std::wstring& name : app.selection)
+        {
+            const int index = FindEntryByName(app, name);
+            if (index < 0)
+                continue;
+            const Entry& item = app.entries[static_cast<size_t>(index)];
+            if (item.isDirectory)
+            {
+                ++folders;
+                DirStats stats;
+                if (app.stats.TryGet(JoinPath(app.directory, item.wideName), &stats))
+                    totalBytes += stats.logicalBytes;
+            }
+            else
+            {
+                ++files;
+                totalBytes += item.bytes;
+            }
+            ++byType[item.typeText];
+        }
+        std::vector<std::pair<std::string, int>> types(byType.begin(), byType.end());
+        std::sort(types.begin(), types.end(),
+                  [](const std::pair<std::string, int>& a, const std::pair<std::string, int>& b) {
+                      return a.second > b.second;
+                  });
+
+        app.propertiesTitle    = TrW(L"PROPRIETÀ", L"PROPERTIES");
+        app.propertiesSubtitle = std::to_wstring(selectedCount) +
+                                 TrW(L" elementi selezionati", L" items selected");
+        app.propertiesRows.push_back(
+            {"Items", std::to_string(files) + Tr(" file, ", " files, ") +
+                          std::to_string(folders) +
+                          (folders == 1 ? Tr(" cartella", " folder") : Tr(" cartelle", " folders")),
+             false, false});
+        app.propertiesRows.push_back({"Size", HumanBytes(totalBytes), false, false});
+        for (size_t i = 0; i < types.size(); ++i)
+            app.propertiesRows.push_back({(i == 0) ? "Types" : "",
+                                          std::to_string(types[i].second) + " " + types[i].first,
+                                          false, false});
+    }
+    else if (cursorIndex >= 0)
+    {
+        const Entry& entry = app.entries[static_cast<size_t>(cursorIndex)];
+        app.propertiesTitle    = TrW(L"PROPRIETÀ", L"PROPERTIES");
+        app.propertiesSubtitle = Widen(entry.name);
+        BuildInspectorRows(app, entry, &app.propertiesRows);
+    }
+    else
+    {
+        return;   // niente da mostrare, niente pannello
+    }
+
+    app.propertiesOpen = true;
+}
+
+Rect PropertiesPanelRect(const AppState& app, const Layout& layout)
+{
+    const float scale = layout.scale;
+    const float width = (std::min)(620.0f * scale,
+                                   static_cast<float>(app.viewportWidth) - 80.0f * scale);
+    const float height = (std::min)(520.0f * scale,
+                                    static_cast<float>(app.viewportHeight) - 100.0f * scale);
+    return Rect{(static_cast<float>(app.viewportWidth) - width) * 0.5f, 70.0f * scale,
+                width, height};
+}
+
+// Il pulsante in fondo al pannello: riapre la finestra di Windows. E' l'unica cosa
+// del pannello su cui si clicca, e dice a parole cosa apre, perche' non e' un
+// comando che si indovina.
+Rect PropertiesWindowsButton(const AppState& app, const Layout& layout, const Rect& panel)
+{
+    const float scale = layout.scale;
+    const std::string label = Tr("Proprietà di Windows...", "Windows properties...");
+    const float width = app.smallFont.Measure(label, scale) + 20.0f * scale;
+    return Rect{panel.right() - width - 14.0f * scale, panel.bottom() - 28.0f * scale,
+                width, 20.0f * scale};
+}
+
+void DrawPropertiesPanel(AppState& app, const Layout& layout)
+{
+    if (!app.propertiesOpen)
+        return;
+
+    IRenderer& r = *app.renderer;
+    const Theme& t = app.theme;
+    const float scale = layout.scale;
+    const Rect panel = PropertiesPanelRect(app, layout);
+
+    r.FillRect(Rect{0.0f, 0.0f, static_cast<float>(app.viewportWidth),
+                    static_cast<float>(app.viewportHeight)}, Color{0.0f, 0.0f, 0.0f, 0.45f});
+    r.Draw(UIDraw::Shadow(Rect{panel.x + 3.0f * scale, panel.y + 6.0f * scale, panel.w, panel.h},
+                          Color{0.0f, 0.0f, 0.0f, 0.45f}, 22.0f * scale, 10.0f * scale));
+    r.Draw(UIDraw::Fill(panel, t.panelBg, 10.0f * scale));
+    r.Draw(UIDraw::Border(panel, t.panelBorder, 1.0f, 10.0f * scale));
+
+    app.smallFont.Draw(r, panel.x + 16.0f * scale, panel.y + 12.0f * scale,
+                       ToUtf8(app.propertiesTitle), t.textDim, scale);
+    app.font.Draw(r, panel.x + 16.0f * scale, panel.y + 34.0f * scale,
+                  FitText(app.font, ToUtf8(app.propertiesSubtitle), scale, panel.w - 32.0f * scale),
+                  t.text, scale);
+
+    const float listTop    = panel.y + 66.0f * scale;
+    const float listBottom = panel.bottom() - 36.0f * scale;
+    const float rowHeight  = 22.0f * scale;
+    r.FillRect(Rect{panel.x + 1.0f, listTop - 6.0f * scale, panel.w - 2.0f, 1.0f}, t.separator);
+
+    const float content = static_cast<float>(app.propertiesRows.size()) * rowHeight;
+    const float room    = listBottom - listTop;
+    const float maxScroll = (std::max)(0.0f, content - room);
+    app.propertiesScroll = (std::max)(0.0f, (std::min)(app.propertiesScroll, maxScroll));
+
+    const int visible = (std::max)(1, static_cast<int>(room / rowHeight));
+    int first = static_cast<int>(app.propertiesScroll / rowHeight);
+    if (first > static_cast<int>(app.propertiesRows.size()) - visible)
+        first = (std::max)(0, static_cast<int>(app.propertiesRows.size()) - visible);
+
+    const float labelX = panel.x + 16.0f * scale;
+    const float valueX = panel.x + 120.0f * scale;
+    const float valueMax = panel.right() - valueX - 16.0f * scale;
+    for (int i = first; i < static_cast<int>(app.propertiesRows.size()); ++i)
+    {
+        const float y = listTop + static_cast<float>(i - first) * rowHeight;
+        if (y + rowHeight > listBottom)
+            break;
+        const InspectorRow& row = app.propertiesRows[static_cast<size_t>(i)];
+        app.smallFont.Draw(r, labelX, y + 4.0f * scale,
+                           FitText(app.smallFont, row.label, scale, 96.0f * scale), t.textDim,
+                           scale);
+        const std::string shown = row.tail
+                                      ? FitTextTail(app.smallFont, row.value, scale, valueMax)
+                                      : FitText(app.smallFont, row.value, scale, valueMax);
+        app.smallFont.Draw(r, valueX, y + 4.0f * scale, shown, t.text, scale);
+    }
+
+    // La barra di scorrimento, quando le righe non ci stanno tutte.
+    if (content > room)
+    {
+        const float barW = 4.0f * scale;
+        const Rect track{panel.right() - 10.0f * scale, listTop, barW, room};
+        r.Draw(UIDraw::Fill(track, t.separator, barW * 0.5f));
+        const float thumbH = (std::max)(24.0f * scale, room * room / content);
+        const float offset = (maxScroll > 0.0f) ? (app.propertiesScroll / maxScroll) : 0.0f;
+        r.Draw(UIDraw::Fill(Rect{track.x, track.y + (room - thumbH) * offset, barW, thumbH},
+                            t.scrollThumb, barW * 0.5f));
+    }
+
+    app.smallFont.Draw(r, panel.x + 16.0f * scale, panel.bottom() - 22.0f * scale,
+                       Tr("Su/Giù scorrono   Esc chiude", "Up/Down scroll   Esc closes"),
+                       t.textDim, scale);
+    const Rect windowsButton = PropertiesWindowsButton(app, layout, panel);
+    r.Draw(UIDraw::Fill(windowsButton, t.rowHover, 4.0f * scale));
+    r.Draw(UIDraw::Border(windowsButton, t.panelBorder, 1.0f, 4.0f * scale));
+    app.smallFont.Draw(r, windowsButton.x + 10.0f * scale,
+                       TextY(layout, windowsButton, app.smallFont),
+                       Tr("Proprietà di Windows...", "Windows properties..."), t.text, scale);
+}
+
+bool PropertiesPanelKey(AppState& app, WPARAM key)
+{
+    switch (key)
+    {
+        case VK_ESCAPE: app.propertiesOpen = false; return true;
+        case VK_UP:     app.propertiesScroll -= 22.0f; return true;
+        case VK_DOWN:   app.propertiesScroll += 22.0f; return true;
+        case VK_PRIOR:  app.propertiesScroll -= 200.0f; return true;
+        case VK_NEXT:   app.propertiesScroll += 200.0f; return true;
+        case VK_HOME:   app.propertiesScroll = 0.0f; return true;
+        case VK_END:    app.propertiesScroll = 1e9f; return true;
+        default:        return true;   // modale: non passa niente alla lista
+    }
+}
+
 void DrawStatusBar(AppState& app, const Layout& layout)
 {
     IRenderer& r = *app.renderer;
@@ -5097,6 +5299,8 @@ const CommandDef kCommandTable[] = {
     {"Bookmarks", "Clear all bookmarks",       CmdClearBookmarks},
     {"Recents", "Clear recent locations",      CmdClearRecents},
     {"Options", "Open options",                 CmdOpenOptions},
+    {"File",    "Properties",                   CmdProperties},
+    {"File",    "Windows properties",           CmdPropertiesWindows},
 };
 
 bool MenuMatch(const std::string& text, const std::wstring& filter)
@@ -6700,6 +6904,17 @@ void RunCommand(AppState& app, int command)
         case CmdOpenOptions:
             BuildOptionsMenu(app);
             break;
+        case CmdProperties:
+            OpenPropertiesPanel(app);
+            break;
+        case CmdPropertiesWindows:
+        {
+            const std::vector<std::wstring> paths = SelectedPaths(app);
+            if (paths.empty() || ShowProperties(app.window, paths) == 0)
+                ReportStatus(app, TrW(L"Proprietà non disponibili per la selezione.",
+                                      L"Properties unavailable for the selection."));
+            break;
+        }
         case CmdCloseInTree:
             CloseTabTree(app, app.tabs[static_cast<size_t>(app.activeTab)].id, /*wholeTree=*/false);
             break;
@@ -7722,6 +7937,8 @@ void BuildContextMenu(AppState& app, float x, float y)
                               CmdDeletePermanent, false, namespaced});
         menu.items.push_back({"", 0, true});
         menu.items.push_back({Tr("Proprietà", "Properties"), kContextProperties, false, namespaced});
+        menu.items.push_back({Tr("Proprietà di Windows", "Windows properties"),
+                              kContextPropertiesWindows, false, namespaced});
 
         // I verbi della shell stanno dopo i nostri: i nostri sono quelli che si
         // usano davvero, e non devono scendere sotto una lista lunga quanto le
@@ -8189,6 +8406,13 @@ void ContextMenuActivate(AppState& app)
         return;
     }
     if (item.command == kContextProperties)
+    {
+        // In-app: le stesse righe dell'inspector, in una finestra nostra.
+        app.contextMenu.open = false;
+        OpenPropertiesPanel(app);
+        return;
+    }
+    if (item.command == kContextPropertiesWindows)
     {
         // Un'azione che non fa niente in silenzio e' peggio di una che non parte:
         // se non si apre niente, l'utente deve sapere perche'.
