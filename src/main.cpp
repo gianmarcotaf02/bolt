@@ -4429,10 +4429,7 @@ void DrawTextViewer(AppState& app, const Layout& layout, const Rect& area)
     // riga stanno nella gutter, a sinistra, e ritagliando sul solo testo sparivano —
     // un ritaglio stretto e' un difetto quanto uno largo.
     app.renderer->End();
-    glEnable(GL_SCISSOR_TEST);
-    glScissor(static_cast<GLint>(body.x),
-              static_cast<GLint>(static_cast<float>(app.viewportHeight) - text.bottom()),
-              static_cast<GLsizei>(text.right() - body.x), static_cast<GLsizei>(text.h));
+    app.renderer->SetScissor(Rect{body.x, text.y, text.right() - body.x, text.h});
     app.renderer->Begin(app.viewportWidth, app.viewportHeight);
 
     for (int row = first; row < last; ++row)
@@ -4454,7 +4451,7 @@ void DrawTextViewer(AppState& app, const Layout& layout, const Rect& area)
     }
 
     app.renderer->End();
-    glDisable(GL_SCISSOR_TEST);
+    app.renderer->ClearScissor();
     app.renderer->Begin(app.viewportWidth, app.viewportHeight);
 
     // La minimap: una barra per riga di schermo, lunga quanto la riga piu' lunga che
