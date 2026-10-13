@@ -49,6 +49,7 @@
 #include <array>
 #include <cmath>
 #include <cstdio>
+#include <functional>
 #include <cwctype>
 #include <set>
 #include <string>
@@ -245,6 +246,7 @@ enum CommandId
     CmdToggleHoverToSelect, CmdToggleUnderlineOnHover, CmdToggleTooltips,
     CmdSingleClick, CmdSingleClickFoldersOnly, CmdActOnPress, CmdDoubleClickToParent,
     CmdShowCheckboxes,
+    CmdCloseInTree, CmdCloseAllInTree, CmdDetachTab,
     CmdToggleBookmark, CmdClearBookmarks, CmdClearRecents,
     // Operazioni su file (M7).
     CmdCopy, CmdCut, CmdPaste, CmdDelete, CmdDeletePermanent, CmdRename, CmdNewFolder,
@@ -305,6 +307,11 @@ struct GroupMenu
 // so they survive a switch for free.
 struct Tab
 {
+    // Un tab ha un'**identita'** e un genitore, non una posizione. Gli indici
+    // scivolano appena se ne chiude uno, e un albero tenuto per indici si sbaglia
+    // da solo: il figlio del tab 3 diventa il figlio di un altro.
+    int          id       = 0;
+    int          parentId = -1;   // -1: e' una radice
     std::wstring directory;
     std::vector<Entry> entries;
     std::wstring cursor;
@@ -536,6 +543,14 @@ struct AppState
 
     std::vector<Tab> tabs;
     int              activeTab = 0;
+    int              nextTabId = 1;
+
+    // Il trascinamento di un tab: quale, e dove finirebbe. `tabDropTarget` e' un
+    // indice nella fila disegnata, `tabDropInto` dice se ci finisce **dentro**
+    // (figlio) invece che prima o dopo (fratello).
+    int              dragTab       = -1;
+    int              tabDropTarget = -1;
+    bool             tabDropInto   = false;
     bool             sidebarVisible = true;
     int              hoveredTab = -1;
     int              hoveredChrome = -1;   // 0 menu, 1 new tab, 2 min, 3 max, 4 close
@@ -1800,11 +1815,75 @@ void LoadActiveTab(AppState& app)
     UpdateWindowTitle(app);
 }
 
+// --- l'albero dei tab -------------------------------------------------------
+//
+// I tab sono un albero, non una fila: un tab puo' avere figli, e un figlio si
+// disegna **sotto** il suo genitore. La fila si ricava dall'albero a ogni
+// fotogramma invece di essere l'ordine in cui i tab sono nati, cosi' chiudere o
+// spostare non deve aggiustare l'indice di tutti gli altri — che e' il modo in cui
+// un albero diventa un groviglio.
+int TabById(const AppState& app, int id)
+{
+    for (int i = 0; i < static_cast<int>(app.tabs.size()); ++i)
+    {
+        if (app.tabs[static_cast<size_t>(i)].id == id)
+            return i;
+    }
+    return -1;
+}
+
+int TabRootId(const AppState& app, int id)
+{
+    // Il ciclo si ferma anche se qualcuno, un giorno, chiudesse un anello: un
+    // albero sbagliato deve disegnarsi male, non bloccare la finestra.
+    for (int guard = 0; guard < 64; ++guard)
+    {
+        const int index = TabById(app, id);
+        if (index < 0)
+            return id;
+        const int parent = app.tabs[static_cast<size_t>(index)].parentId;
+        if (parent < 0)
+            return id;
+        id = parent;
+    }
+    return id;
+}
+
+bool TabIsDescendantOf(const AppState& app, int id, int ancestorId)
+{
+    if (id == ancestorId)
+        return true;
+    return TabRootId(app, id) == ancestorId;
+}
+
+// La fila come si vede: ogni coppia e' (indice del tab, quanto e' profondo).
+std::vector<std::pair<int, int>> TabOrder(const AppState& app)
+{
+    std::vector<std::pair<int, int>> out;
+    out.reserve(app.tabs.size());
+
+    // I figli si mettono subito dopo il genitore, ricorsivamente: un ramo alla
+    // volta, nell'ordine di nascita. Le radici in fondo.
+    std::function<void(int, int)> walk = [&](int parentId, int depth)
+    {
+        for (int i = 0; i < static_cast<int>(app.tabs.size()); ++i)
+        {
+            if (app.tabs[static_cast<size_t>(i)].parentId != parentId)
+                continue;
+            out.push_back({i, depth});
+            walk(app.tabs[static_cast<size_t>(i)].id, depth + 1);
+        }
+    };
+    walk(-1, 0);
+    return out;
+}
+
 void NewTab(AppState& app, const std::wstring& directory)
 {
     SaveActiveTab(app);
 
     Tab tab;
+    tab.id = app.nextTabId++;
     // A new tab inherits the view settings, not the location: the user's idea of
     // "how I look at files" should not reset when a tab is opened.
     tab.sortColumn    = app.sortColumn;
@@ -1862,6 +1941,37 @@ void CloseTab(AppState& app, int index)
         app.stats.CancelQueued();
         app.previews.CancelPending();
     }
+}
+
+// Le due chiusure dell'albero. `CloseInTree` chiude il tab **e i suoi figli**;
+// `CloseAllInTree` chiude tutto l'albero a cui appartiene, radice compresa.
+//
+// La lettura e' nostra: l'evidenza sono due nomi di hotkey nel binario
+// (`HK_CloseInTree`, `HK_CloseAllInTree`, `docs/03`), e cosa significhino di
+// preciso non e' ricostruito. Questa e' la lettura che li distingue l'uno
+// dall'altro, ed e' dichiarata.
+void CloseTabTree(AppState& app, int id, bool wholeTree)
+{
+    if (TabById(app, id) < 0)
+        return;
+    const int root = wholeTree ? TabRootId(app, id) : id;
+
+    std::vector<int> doomed;
+    for (const Tab& tab : app.tabs)
+    {
+        if (TabIsDescendantOf(app, tab.id, root))
+            doomed.push_back(tab.id);
+    }
+    // L'ultimo tab non si chiude: resterebbe una finestra senza niente dentro.
+    // Si chiude tutto tranne uno, e si dice invece di far finta.
+    const bool all = (doomed.size() == app.tabs.size());
+    if (all)
+        doomed.pop_back();
+
+    // Dal fondo: chiudendo, gli indici sotto scivolano, e chi resta deve restare
+    // valido.
+    for (auto it = doomed.rbegin(); it != doomed.rend(); ++it)
+        CloseTab(app, TabById(app, *it));
 }
 
 // I fissaggi della shell: "Accesso rapido" di Esplora risorse, che e' una cartella
@@ -4132,6 +4242,9 @@ struct CommandDef
 // groups this shell can carry out are present.
 const CommandDef kCommandTable[] = {
     {"Tabs",    "New tab",                     CmdNewTab},
+    {"Tabs",    "Close tab and its children",   CmdCloseInTree},
+    {"Tabs",    "Close the whole tab tree",     CmdCloseAllInTree},
+    {"Tabs",    "Detach tab from its parent",   CmdDetachTab},
     {"Tabs",    "Close current tab",           CmdCloseTab},
     {"Tabs",    "Next tab",                    CmdNextTab},
     {"Tabs",    "Previous tab",                CmdPrevTab},
@@ -5024,6 +5137,20 @@ void RunCommand(AppState& app, int command)
         case CmdActOnPress:             app.actOnPress             = !app.actOnPress; break;
         case CmdDoubleClickToParent:    app.doubleClickToParent    = !app.doubleClickToParent; break;
         case CmdShowCheckboxes:         app.showCheckboxes         = !app.showCheckboxes; break;
+        case CmdCloseInTree:
+            CloseTabTree(app, app.tabs[static_cast<size_t>(app.activeTab)].id, /*wholeTree=*/false);
+            break;
+        case CmdCloseAllInTree:
+            CloseTabTree(app, app.tabs[static_cast<size_t>(app.activeTab)].id, /*wholeTree=*/true);
+            break;
+        case CmdDetachTab:
+        {
+            // "Stacca" riporta il tab alla radice: e' l'unico modo di disfare un
+            // annidamento senza cercarne un altro con il mouse.
+            Tab& tab = app.tabs[static_cast<size_t>(app.activeTab)];
+            tab.parentId = -1;
+            break;
+        }
         case CmdZoomIn:    app.zoom = (std::min)(2.0f, app.zoom + 0.1f); break;
 
         // Le quattro opzioni del visualizzatore. Cambiano il disegno del testo, non
