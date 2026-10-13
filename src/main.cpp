@@ -266,7 +266,7 @@ std::wstring CountItems(size_t count)
 
 std::wstring VerbItems(size_t count, const wchar_t* oneIt, const wchar_t* manyIt, const wchar_t* en)
 {
-    return TrW(oneIt, en) + CountItems(count);
+    return TrW(count == 1 ? oneIt : manyIt, en) + CountItems(count);
 }
 
 enum CommandId
