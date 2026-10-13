@@ -71,7 +71,7 @@ Ordinato per quanto morde.
 
 - **Trentasette** difetti **trovati e risolti**: il registro è `docs/02` §7, uno per
   uno, con sintomo, causa e correzione. È un cumulativo, non una lista di lavoro.
-- **Nove** cose **da fare**: la lista qui sotto.
+- **Dieci** cose **da fare**: la lista qui sotto.
 - I **limiti dichiarati**: cose che si è scelto di non fare, scritte dove vivono con
   la ragione accanto (il tetto di 1 MB nella lettura dei testi, i modelli `ShellNew`
   con valore `Command`, le 23 colonne della specifica contro le 6 fatte, il ritaglio
@@ -84,22 +84,30 @@ conteggio non lo nasconde: il residuo è scritto nella voce stessa.
 
 In ordine di valore, non di facilità.
 
-1. **M9 — configurazione e temi** — **vincolata da `docs/06`**: niente file di
-   impostazioni, tutto in memoria e dichiarato. Restano la mappa tasti sui 319
-   comandi e i 35 token di tema.
-2. **M10 — backend D3D11** — l'ultima milestone del piano; il renderer è già
+1. **M9 — il pannello delle opzioni.** L'originale ha una **lista cercabile** di
+   opzioni, ognuna con nome, descrizione e un **controllo del tipo giusto** (campo di
+   testo, stepper, slider, interruttore, scelta), aperta con `Ctrl+,`: vedi `docs/04`,
+   «L'originale ha un pannello di opzioni». Il componente c'è già — `GroupMenu` ha
+   filtro, `Su`/`Giù`, `Invio`, `Esc` — mancano i **controlli tipizzati** dentro le
+   righe, che oggi sono tutte testo. Restano anche i **35 token di tema** e la mappa
+   tasti sui 319 comandi. Le preferenze si ricordano: `%APPDATA%\Bolt\settings.ini`,
+   `docs/06` §4-bis.
+2. **Allineare le scorciatoie all'originale** — `Ctrl+P` e `F4` al GoTo,
+   `Ctrl+Shift+P` ai comandi, `Ctrl+,` alle opzioni. Da noi sono **scambiate**: la
+   palette sta su `Ctrl+P` e il GoTo su `Ctrl+G`.
+3. **M10 — backend D3D11** — l'ultima milestone del piano; il renderer è già
    dietro `ui_renderer.*`, quindi è un secondo backend, non una riscrittura.
-3. **Il trascinamento fuori dal cestino** — l'oggetto dati adesso c'è e le voci
+4. **Il trascinamento fuori dal cestino** — l'oggetto dati adesso c'è e le voci
    normali escono davvero, ma una voce **riciclata** non viene presa (la
    destinazione dichiara "copia" e non copia). La causa non è ricostruita: §7.34 di
    `docs/02`. Se non si trova, resta un limite dichiarato.
-4. **`InspectorHideGrid`** — la sola chiave di M8 che resta senza risposta: cosa sia
+5. **`InspectorHideGrid`** — la sola chiave di M8 che resta senza risposta: cosa sia
    la griglia dell'inspector non è ricostruito, e non si inventa.
-5. **Le tre cose viste nell'originale che non abbiamo** (`docs/04`, il riferimento
+6. **Le tre cose viste nell'originale che non abbiamo** (`docs/04`, il riferimento
    guardato dal vivo): la **barra inferiore** con filtro, selettori di vista e
    ingrandimento delle anteprime; il **filtro sulla colonna del nome**; la sezione
    **Recents** nella barra laterale (che è il ranking dei recenti di M4).
-6. **Finire la lingua.** Il meccanismo c'è e la **palette** si traduce tutta — è la
+7. **Finire la lingua.** Il meccanismo c'è e la **palette** si traduce tutta — è la
    superficie delle preferenze, dove la lingua si sceglie. Restano le altre
    superfici, e finché non sono fatte la modalità inglese le lascia in italiano:
    menu contestuale (19 voci), inspector (15 righe), messaggi di stato (31),
@@ -107,13 +115,13 @@ In ordine di valore, non di facilità.
    sessione: per renderla persistente serve il comando esplicito che `docs/06`
    prevede («salva la configurazione in questo file», con scritto cosa ci finisce
    dentro), che non c'è ancora.
-7. **Albero dei tab: finire di verificarlo.** Il modello, il disegno e il
+8. **Albero dei tab: finire di verificarlo.** Il modello, il disegno e il
    trascinamento ci sono (`docs/04` M6); la chiusura dell'albero è scritta e
    **non ancora vista**.
-8. **Salire da una radice di volume**: `Alt`+↑ su `C:\` non va a "This PC" — la
+9. **Salire da una radice di volume**: `Alt`+↑ su `C:\` non va a "This PC" — la
    lista delle unità si raggiunge solo dalla palette, e il nome della voce è quello
    localizzato ("Questo PC"), non "This PC".
-9. **Spezzare `main.cpp`** — **9.357 righe** e undici moduli: il confine c'è, ma il
+10. **Spezzare `main.cpp`** — **9.357 righe** e undici moduli: il confine c'è, ma il
    file che lo contiene resta il collo di bottiglia dichiarato fin dall'inizio.
 
 

@@ -1225,3 +1225,61 @@ dove File Pilot metta le preferenze. Quindi per M9 il piano resta quello che
 abbiamo: la palette è la superficie delle preferenze, perché è lì che si accendono
 le chiavi; e le preferenze **si ricordano** in `%APPDATA%\Bolt\settings.ini`,
 testo leggibile con una riga per preferenza, che si cancella a mano.
+
+### L'originale ha un pannello di opzioni, non una lista di comandi — *Visto*
+
+L'autore ha aperto il prodotto originale e ne ha mandato due catture, su sua
+richiesta. Da quelle si ricostruisce la superficie che M9 deve avere, e si corregge
+una cosa che avevamo dato per buona.
+
+**Il menu principale** (il pulsante in alto a sinistra) contiene:
+
+| voce | scorciatoia |
+|---|---|
+| `GoTo` | `Ctrl+P`, `F4` |
+| `Commands` | `Ctrl+Shift+P` |
+| `Load Layout` / `Save Layout` | — |
+| `Options` | `Ctrl+,` |
+| `File Pilot Setup` | — |
+
+**Le nostre due scorciatoie sono scambiate rispetto all'originale**: da noi la
+palette dei comandi e' `Ctrl+P` e il GoTo e' `Ctrl+G`. Per allinearsi: `Ctrl+P` (e
+`F4`) al GoTo, `Ctrl+Shift+P` ai comandi, `Ctrl+,` alle opzioni. Piccola, precisa, e
+finora evasa.
+
+**Il pannello delle opzioni** e' una **lista cercabile**, non una griglia di
+controlli: in cima un campo «Select an option...», sotto una voce per opzione, ognuna
+con tre cose —
+
+1. il **nome** (`Font`, `Font Size`, `Spacing`, `Animations`, ...),
+2. una **descrizione** che dice a cosa serve (`Defines the space between items in a
+   list.`): il *perche'* sta accanto alla scelta, non nella documentazione,
+3. un **controllo del tipo giusto** per quella opzione:
+   - campo di testo (`Font` → un nome di font installato),
+   - **stepper** `− 9 +` (`Font Size`),
+   - **slider** (`Spacing`, `Inactive Panel Content Opacity`),
+   - **interruttore** (`Animations`, `Round Corners`, `Alternating Row Colors`,
+     `Show File Extension`, `Long Paths Support`, `Display Compact Paths`),
+   - **pulsante con freccia** per le scelte che aprono qualcosa (`Color Scheme` →
+     `Voidstar >`).
+
+In fondo, la **tastiera scritta nel pannello**: `Up` `Down` navigano, `Invio` usa,
+`Esc` chiude. E' la stessa promessa che il nostro `GroupMenu` fa nel suo piè di
+pagina, quindi il componente c'e' gia': quello che manca sono i **controlli tipizzati**
+dentro le righe, che oggi sono tutte testo.
+
+**Una lezione di interfaccia da copiare**: `System Light / Dark Scheme` si vede
+**spento**, perche' li' un tema e' gia' stato scelto a mano. Un'opzione che non si
+puo' applicare si mostra disabilitata invece di sparire — la stessa regola per cui da
+noi le voci di menu che vanno su un percorso sono spente dentro una cartella di
+spazio dei nomi.
+
+**Opzioni viste**, nell'ordine in cui compaiono: `Font`, `Font Size`, `Inspector
+Font`, `Inspector Font Size`, `Spacing`, `Animations`, `Round Corners`, `System
+Light / Dark Scheme`, `Color Scheme`, `Alternating Row Colors`, `Inactive Panel
+Content Opacity`, `Show File Extension`, `Long Paths Support`, `Display Compact
+Paths`, e altre sotto il bordo.
+
+**La lingua** non compare fra queste: sta piu' in basso o altrove. Da noi la scelta
+della lingua c'e' gia' ed e' nella palette, che per ora e' anche la nostra superficie
+delle preferenze: quando arrivera' il pannello delle opzioni, la lingua ci si sposta.
