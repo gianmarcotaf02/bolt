@@ -10608,9 +10608,13 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, LPWSTR, int)
     D3D11Renderer d3dRenderer(window);
     bool usingOpenGL = false;
 
-    const char* requested = std::getenv("BOLT_BACKEND");
-    const bool wantOpenGl = (requested != nullptr && _stricmp(requested, "opengl") == 0);
-    const bool wantD3D    = (requested != nullptr && _stricmp(requested, "d3d11") == 0);
+    // `getenv_s` e non `getenv`: la versione "unsafe" e' segnalata a /W4, e la
+    // scelta del backend non vale un warning.
+    char   requested[32] = {};
+    size_t requestedLength = 0;
+    getenv_s(&requestedLength, requested, sizeof(requested), "BOLT_BACKEND");
+    const bool wantOpenGl = _stricmp(requested, "opengl") == 0;
+    const bool wantD3D    = _stricmp(requested, "d3d11") == 0;
 
     if (!wantOpenGl)
     {
