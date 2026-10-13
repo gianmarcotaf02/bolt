@@ -1299,3 +1299,34 @@ compresi quelli moderni.
 Resta dichiarato un costo che non e' una perdita: **ogni selezione nuova costa una
 interrogazione** (~65 ms). La shell e' l'unica autorita' sui propri verbi, e
 chiederli e' l'unico modo di averli.
+
+### 7.39 Ogni cosa su `C:` era "un volume"
+
+**Trovato dall'autore, guardando l'inspector.** Per una cartella, le righe
+`Size` e `Space` dicevano la capacita' del **disco**: 952,6 GB per
+`analysis/tmp/sandbox/documenti`, che contiene 36 byte in due file. E per un file la
+riga `Size` non c'era affatto.
+
+La causa era una riga in `VolumeOf`:
+
+    if (location.empty() || GetDriveTypeW(location.c_str()) == DRIVE_UNKNOWN)
+        return info;   // non e' una radice di volume
+
+`GetDriveTypeW` **risolve il percorso al volume che lo contiene**: su
+`C:\...\sandbox\documenti` risponde `DRIVE_FIXED`, non `DRIVE_UNKNOWN`. Quindi la
+condizione non era mai vera per niente che stesse su un disco, e ogni cartella e ogni
+file diventava "un volume": le righe `System` e `Space` comparivano, e la dimensione
+era quella del disco. Il commento accanto diceva la cosa giusta — "non e' una radice
+di volume" — e il codice faceva un'altra domanda.
+
+La domanda giusta e' **se il percorso *e'* la radice**, e il modo di porla e'
+`GetVolumePathNameW`, che dice *quale* e' la radice del volume che contiene il
+percorso: se non coincide col percorso, non e' un volume ma una cartella o un file
+che ci sta sopra. Cosi' reggono anche i volumi montati dentro una cartella, che una
+radice di unita' non li copre.
+
+**Verificato contro il vero**, non contro l'impressione: `documenti` da' `Size 36 B`,
+`Folders 0`, `Files 2` e `du -sb` dice 36 byte con due file; `dati.csv` da' `Size
+28 B` e `stat` dice 28. Il caso volume — l'unico che la correzione *cambiava* — resta
+quello di prima perche' il test nuovo e' **piu' stretto** del vecchio: una radice vera
+lo passa, e la radice vera era gia' stata verificata in M8.

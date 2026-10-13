@@ -489,7 +489,7 @@ rettangolo ha bordi continui a qualunque dimensione.
 
 - `docs/04-roadmap.md` — le milestone, con le caselle spuntate e i difetti aperti.
 - `docs/05-stato-e-prossimi-passi.md` — dove si è arrivati, cosa resta, le trappole.
-- `docs/02-architettura-ricostruita.md` — l'architettura e i **trentotto** difetti
+- `docs/02-architettura-ricostruita.md` — l'architettura e i **trentanove** difetti
   trovati e risolti, §7.
 - `docs/03-spec-funzionale.md` — la spec ricostruita dall'originale: 1124 chiavi,
   319 comandi, 35 token di tema, 23 colonne.
