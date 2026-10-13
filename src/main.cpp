@@ -8638,14 +8638,18 @@ void ActivateSelection(AppState& app)
         // Dentro il cestino il nome di una cartella e' il percorso del file
         // riciclato: aprirlo mostrerebbe il blob, non quello che si vede. Li' una
         // cartella si ripristina.
-        ReportStatus(app, L"\"" + entry.wideName + L"\" non si apre da qui: si ripristina.");
+        ReportStatus(app, L"\"" + entry.wideName +
+                              TrW(L"\" non si apre da qui: si ripristina.",
+                                  L"\" does not open from here: restore it."));
     }
     else if (!entry.location.empty())
     {
         // Un file dentro il cestino non si apre: si ripristina o si elimina, e
         // quei comandi sono del menu contestuale della shell. Dirlo e' meglio che
         // far finta di averlo aperto.
-        ReportStatus(app, L"\"" + entry.wideName + L"\" non si apre da qui: usa il menu contestuale.");
+        ReportStatus(app, L"\"" + entry.wideName +
+                              TrW(L"\" non si apre da qui: usa il menu contestuale.",
+                                  L"\" does not open from here: use the context menu."));
     }
     else
     {
@@ -9109,9 +9113,11 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
                             }
                             else
                             {
-                                ReportStatus(*app, L"La shell non sa preparare queste voci per il "
-                                                   L"trascinamento: si gestiscono col menu "
-                                                   L"contestuale.");
+                                ReportStatus(*app, TrW(L"La shell non sa preparare queste voci per il "
+                                                       L"trascinamento: si gestiscono col menu "
+                                                       L"contestuale.",
+                                                       L"The shell cannot prepare these items for "
+                                                       L"dragging: use the context menu."));
                             }
                             app->draggingNamespaceItems = false;
                         }
@@ -9132,8 +9138,9 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
                             // solo se la destinazione era un'altra applicazione,
                             // che non ha modo di dirlo.
                             if (!app->dropReported)
-                                ReportStatus(*app, L"Spostati " + std::to_wstring(dragged) +
-                                                       L" elementi");
+                                ReportStatus(*app, TrW(L"Spostati ", L"Moved ") +
+                                                       std::to_wstring(dragged) +
+                                                       TrW(L" elementi", L" items"));
                         }
                         return 0;
                     }
