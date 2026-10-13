@@ -6460,7 +6460,7 @@ Rect ColumnMenuPanel(const AppState& app, const Layout& layout, const GroupMenu&
 
 Rect MenuPanel(const AppState& app, const Layout& layout, const GroupMenu& menu)
 {
-    return menu.anchored ? ColumnMenuPanel(app, layout, menu) : GroupMenuPanel(app, layout);
+    return menu.anchored ? ColumnMenuPanel(app, layout, menu) : GroupMenuPanel(app, layout, menu);
 }
 
 // --- menu contestuale: geometria, disegno, interazione ----------------------
