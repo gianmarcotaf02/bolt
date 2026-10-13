@@ -284,6 +284,10 @@ cartella **del progetto** e lo mette di fianco.
 (fotogrammi, quadrilateri, icone, lavori). Di default la barra mostra quello che
 serve a chi usa il programma.
 
+**Quale backend disegna**: `BOLT_BACKEND=opengl` o `d3d11` lo forza all'avvio; senza
+la variabile si prova il Direct3D 11 e si ripiega sull'OpenGL se non parte. La riga
+`--- backend:` in `bolt-diag.log` dice quale sta disegnando (`BOLT_DIAG=1`).
+
 **Log dei verbi della shell**: `BOLT_DIAG=1` fa scrivere a ogni
 interrogazione di `IContextMenu` le voci trovate, i verbi, quelle saltate e il
 tempo impiegato, in `bolt-diag.log` accanto all'eseguibile. Spento di default,

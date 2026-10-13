@@ -42,7 +42,7 @@ reimplementato in modo indipendente.
 | Operazioni su file (copia, sposta, rinomina, cestino) | ✅ funzionanti, clipboard interoperabile con Esplora risorse |
 | Drag&drop, menu contestuale della shell | ✅ funzionanti (OLE dentro e fuori, menu a più livelli con Proprietà di Windows) |
 | Persistenza configurazione, temi, hotkey | 🟡 pannello delle opzioni e `settings.ini`; mancano temi e mappa tasti rimappabile |
-| Backend Direct3D 11 | ⬜ milestone 10 |
+| Backend Direct3D 11 | ✅ secondo backend dietro `IRenderer`, scelto all'avvio (`BOLT_BACKEND=d3d11|opengl`, con fallback) |
 
 Vedi [docs/04-roadmap.md](docs/04-roadmap.md) per la sequenza completa,
 [docs/05-stato-e-prossimi-passi.md](docs/05-stato-e-prossimi-passi.md) per dove si
@@ -121,7 +121,8 @@ docs/          metodologia, analisi, architettura ricostruita, spec, roadmap,
 brand/         identità visiva: brief del logo, palette, prompt pronti
 src/
   main.cpp          finestra Win32, contesto GL, navigazione, layout, input
-  ui_renderer.*     quad batcher: una draw call per frame, catena di mipmap
+  ui_renderer.*     backend OpenGL: quad batcher, una draw call per frame, mipmap
+  d3d11_renderer.*  backend Direct3D 11: stessi quadrilateri e shader in HLSL
                     per icone e anteprime (ridotte fino a otto volte in lista)
   font_atlas.*      atlas di glifi GDI -> texture array, layer 0 (15 px) e 3 (13 px); ClearType
                     ridotto a copertura in scala di grigi, con gutter fra le celle
