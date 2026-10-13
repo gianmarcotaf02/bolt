@@ -9185,7 +9185,14 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
                                             ? OptionsClick(*app, layout, *menu, x, y)
                                             : GroupMenuClick(*app, layout, *menu, x, y);
                     if (action == MenuAction::Close)
+                    {
+                        // Chiudere il pannello mentre si scrive in un campo non deve
+                        // lasciare la scrittura appesa: senza questo, il primo
+                        // carattere digitato dopo sarebbe finito in un campo chiuso.
+                        if (menu == &app->options)
+                            CancelOptionEdit(*app);
                         menu->open = false;
+                    }
                     else if (action == MenuAction::Activate)
                     {
                         if (menu == &app->palette)
@@ -9495,6 +9502,8 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
                          (menu == &app->options && wparam == VK_OEM_COMMA));
                     if (toggling)
                     {
+                        if (menu == &app->options)
+                            CancelOptionEdit(*app);
                         menu->open = false;
                         return 0;
                     }
@@ -9506,7 +9515,11 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
 
                     const MenuAction action = GroupMenuKeyDown(*menu, wparam);
                     if (action == MenuAction::Close)
+                    {
+                        if (menu == &app->options)
+                            CancelOptionEdit(*app);
                         menu->open = false;
+                    }
                     else if (action == MenuAction::Activate)
                     {
                         if (menu == &app->palette)
