@@ -574,6 +574,12 @@ struct AppState
     bool textLineNumbers    = true;    // InspectorHideLineNumbers, al contrario
     bool textMinimap        = true;    // InspectorHideMinimap, al contrario
     bool textWrap           = false;   // InspectorWordWrap
+    // La griglia dietro l'anteprima **immagine**: serve a distinguere lo sfondo
+    // dell'immagine (spesso bianco o trasparente) da quello del pannello. La chiave
+    // dell'originale e' `InspectorHideGrid`, e il suo comando e'
+    // `HK_InspectorToggleImageGrid` — «Toggle display of image grid to better
+    // differentiate background from the image contents» (`analysis/out`).
+    bool inspectorHideGrid  = false;   // InspectorHideGrid
 
     // Le righe come si vedono, e con che misura sono state calcolate: si rifanno solo
     // quando la misura cambia, perche' su un file lungo rifarle a ogni fotogramma
