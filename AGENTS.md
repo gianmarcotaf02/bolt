@@ -194,6 +194,13 @@ skill in chat — `/graphify`, o `/graphify --update` per documenti e immagini.
 
 - **Commenti, documentazione e messaggi di commit in italiano.**
 - **Identificatori, nomi di file e stringhe di codice in inglese.**
+- **I testi che si vedono si scrivono in due lingue**, italiano e inglese, con
+  l'italiano per primo: `Tr("italiano", "english")` dove serve una, la tabella dei
+  comandi con l'inglese (che è anche il nome della chiave) e `CommandLabelIt` per
+  l'italiano. La lingua si sceglie dalla palette e vale per la sessione: `docs/06`
+  vieta di scrivere un file di impostazioni di nascosto. I nomi che vengono dal
+  riferimento — le sezioni della barra laterale, i gruppi della palette, le chiavi
+  dello spec — **non si traducono**: sono i suoi nomi.
 - Il registro è quello di chi spiega a un collega: diretto, concreto, senza
   entusiasmi e senza scuse. I commenti dicono **perché**, non cosa.
 

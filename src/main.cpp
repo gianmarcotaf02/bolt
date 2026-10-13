@@ -4822,8 +4822,13 @@ void BuildPaletteMenu(AppState& app)
     {
         // L'etichetta della tabella e' quella inglese, che e' anche il nome della
         // chiave; in italiano la da' `CommandLabelIt`, e se non c'e' resta quella.
-        const char* translated = CommandLabelIt(command.id);
-        std::string label = (translated != nullptr) ? translated : command.label;
+        // In inglese vale l'etichetta della tabella; in italiano la traduzione, se
+        // c'e'. Il ripiego e' sempre la tabella: una traduzione mancante lascia la
+        // parola in inglese invece di lasciare il vuoto.
+        const char* italian = CommandLabelIt(command.id);
+        std::string label = (gLanguage == Language::English || italian == nullptr)
+                                ? command.label
+                                : italian;
         // The one command whose wording depends on state. The table stays data.
         if (command.id == CmdToggleBookmark && IsBookmarked(app))
             label = Tr("Togli questo posto dai segnalibri", "Remove bookmark from this folder");
