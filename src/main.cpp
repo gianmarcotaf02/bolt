@@ -8246,9 +8246,15 @@ void GroupMenuDraw(AppState& app, const Layout& layout, GroupMenu& menu)
         std::string label = item.label;
         if (menu.detailed)
         {
+            // Il dettaglio prende quello che avanza dopo l'etichetta, e si taglia
+            // **davanti** — di un percorso la parte che dice dove si va e' la coda.
+            // Se non avanza niente, si tiene una scheggia e si accorcia l'etichetta:
+            // meglio due testi troncati che due testi sovrapposti.
             const std::string& raw = item.detail.empty() ? item.group : item.detail;
-            const std::string detail =
-                FitTextTail(app.smallFont, raw, scale, rowRect.w * 0.62f);
+            const float labelNeed = app.font.Measure(label, scale);
+            const float detailRoom = (std::max)(60.0f * scale,
+                                                rowRect.w - labelNeed - 34.0f * scale);
+            const std::string detail = FitTextTail(app.smallFont, raw, scale, detailRoom);
             const float width = app.smallFont.Measure(detail, scale);
             app.smallFont.Draw(r, rowRect.right() - width - 12.0f * scale,
                                TextY(layout, rowRect, app.smallFont), detail, t.textDim, scale);
