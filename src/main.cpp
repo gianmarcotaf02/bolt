@@ -4528,6 +4528,17 @@ void DrawInspector(AppState& app, const Layout& layout)
                            (std::min)(260.0f * scale, layout.inspector.h * 0.42f)};
     float imageHeight = 0.0f;
     const bool hasBigImage = DrawBigImage(app, layout, previewArea, &imageHeight);
+    {
+        static int lastStep = -1;
+        if (app.previewStep != lastStep)
+        {
+            lastStep = app.previewStep;
+            DiagLog(std::string("big: valid=") + (app.bigImage.Valid() ? "1" : "0") +
+                    " zoom=" + std::to_string(app.PreviewZoom()) +
+                    " step=" + std::to_string(app.previewStep) +
+                    " has=" + (hasBigImage ? "1" : "0"));
+        }
+    }
     if (hasBigImage)
         y += imageHeight;
 
