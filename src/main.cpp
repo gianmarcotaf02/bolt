@@ -8238,16 +8238,24 @@ void GroupMenuDraw(AppState& app, const Layout& layout, GroupMenu& menu)
             continue;
         }
 
-        app.font.Draw(r, rowRect.x + 14.0f * scale, TextY(layout, rowRect, app.font),
-                      item.label, t.text, scale);
-
+        // L'etichetta si accorcia prima di incontrare il dettaglio a destra: con
+        // un carattere largo scelto dalle opzioni le due si sovrapponevano, e due
+        // testi uno sopra l'altro non si leggono ne' l'uno ne' l'altro.
+        std::string label = item.label;
+        float labelRoom = rowRect.w - 28.0f * scale;
         if (menu.detailed)
         {
             const std::string& detail = item.detail.empty() ? item.group : item.detail;
             const float width = app.smallFont.Measure(detail, scale);
             app.smallFont.Draw(r, rowRect.right() - width - 12.0f * scale, TextY(layout, rowRect, app.smallFont),
                           detail, t.textDim, scale);
+            labelRoom = rowRect.right() - width - 20.0f * scale - (rowRect.x + 14.0f * scale);
         }
+        if (labelRoom > 10.0f * scale)
+            label = FitText(app.font, label, scale, labelRoom);
+
+        app.font.Draw(r, rowRect.x + 14.0f * scale, TextY(layout, rowRect, app.font),
+                      label, t.text, scale);
 
         ClickTarget target;
         target.rect  = rowRect;
