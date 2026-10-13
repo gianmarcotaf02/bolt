@@ -5811,8 +5811,7 @@ void RefreshOptionItems(const AppState& app, GroupMenu& menu)
 
 void ApplyFonts(AppState& app);
 
-void ApplyOptionFromItem(AppState& app, GroupMenuItem& item)
-{
+void ApplyOptionFromItem(AppState& app, GroupMenuItem& item){
     const OptionId id = static_cast<OptionId>(item.id);
     bool fontsChanged = false;
     bool saved        = true;
