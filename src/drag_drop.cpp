@@ -468,7 +468,7 @@ IDataObject* DataObjectForPidls(HWND owner, const std::vector<const BYTE*>& pidl
     return data;
 }
 
-void DragOutData(HWND window, IDataObject* data, size_t count, DWORD* effect)
+void DragOutData(HWND window, IDataObject* data, size_t count, DWORD* effect, DWORD allowed)
 {
     if (effect == nullptr)
         return;
@@ -500,8 +500,7 @@ void DragOutData(HWND window, IDataObject* data, size_t count, DWORD* effect)
     // risponde con quello che sa.
     DropSource* source = new DropSource();
     DWORD chosen = DROPEFFECT_NONE;
-    if (SUCCEEDED(DoDragDrop(data, source,
-                             DROPEFFECT_COPY | DROPEFFECT_MOVE | DROPEFFECT_LINK, &chosen)))
+    if (SUCCEEDED(DoDragDrop(data, source, allowed, &chosen)))
         *effect = chosen;
 
     // L'esito vero: quello restituito, e quello che la destinazione ha scritto

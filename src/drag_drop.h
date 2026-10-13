@@ -58,8 +58,12 @@ IDataObject* DataObjectForPidls(HWND owner, const std::vector<const BYTE*>& pidl
 void DragOut(HWND window, const std::vector<std::wstring>& paths, DWORD* effect);
 
 // Trascina un oggetto dati gia' costruito: |count| e' quante voci porta, e serve
-// solo al registro diagnostico.
-void DragOutData(HWND window, IDataObject* data, size_t count, DWORD* effect);
+// solo al registro diagnostico. |allowed| sono gli effetti che la **sorgente**
+// ammette: una voce del cestino si puo' ripristinare (spostare), non copiare,
+// quindi per quelle si offre il solo `MOVE` — altrimenti la destinazione sceglie
+// `COPY` e non fa niente.
+void DragOutData(HWND window, IDataObject* data, size_t count, DWORD* effect,
+                 DWORD allowed = DROPEFFECT_COPY | DROPEFFECT_MOVE | DROPEFFECT_LINK);
 
 // --- verso l'interno --------------------------------------------------------
 
