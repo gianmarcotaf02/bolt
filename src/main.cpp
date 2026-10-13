@@ -4491,8 +4491,8 @@ struct CommandDef
 const CommandDef kCommandTable[] = {
     // La lingua: due voci, non un interruttore. Con due si vede sempre quale e'
     // accesa, e non serve indovinare lo stato di partenza.
-    {"Language", "Lingua: italiano",            "Language: Italian",        CmdLanguageItalian},
-    {"Language", "Lingua: inglese",             "Language: English",        CmdLanguageEnglish},
+    {"Language", "Language: Italian",           CmdLanguageItalian},
+    {"Language", "Language: English",           CmdLanguageEnglish},
     {"Tabs",    "New tab",                     CmdNewTab},
     {"Tabs",    "Close tab and its children",   CmdCloseInTree},
     {"Tabs",    "Close the whole tab tree",     CmdCloseAllInTree},
@@ -4820,10 +4820,13 @@ void BuildPaletteMenu(AppState& app)
     std::vector<GroupMenuItem> items;
     for (const CommandDef& command : kCommandTable)
     {
-        std::string label = command.label;
+        // L'etichetta della tabella e' quella inglese, che e' anche il nome della
+        // chiave; in italiano la da' `CommandLabelIt`, e se non c'e' resta quella.
+        const char* translated = CommandLabelIt(command.id);
+        std::string label = (translated != nullptr) ? translated : command.label;
         // The one command whose wording depends on state. The table stays data.
         if (command.id == CmdToggleBookmark && IsBookmarked(app))
-            label = "Remove bookmark from this folder";
+            label = Tr("Togli questo posto dai segnalibri", "Remove bookmark from this folder");
         items.push_back(GroupMenuItem{command.group, label, "", command.id});
     }
 
@@ -4836,8 +4839,11 @@ void BuildPaletteMenu(AppState& app)
     }
 
     app.goTo.open = false;   // one menu at a time
-    GroupMenuOpen(app.palette, "COMMAND PALETTE", "Type to filter commands...", std::move(items));
-    app.palette.hint = "Enter runs   Esc closes   Ctrl+P toggles   Ctrl+Shift+P details";
+    GroupMenuOpen(app.palette, Tr("PALETTE DEI COMANDI", "COMMAND PALETTE"),
+                  Tr("Scrivi per filtrare i comandi...", "Type to filter commands..."),
+                  std::move(items));
+    app.palette.hint = Tr("Invio esegue   Esc chiude   Ctrl+P apre e chiude   Ctrl+Maiusc+P dettagli",
+                          "Enter runs   Esc closes   Ctrl+P toggles   Ctrl+Shift+P details");
 }
 
 void BuildGoToMenu(AppState& app)
@@ -5389,6 +5395,8 @@ void RunCommand(AppState& app, int command)
         case CmdActOnPress:             app.actOnPress             = !app.actOnPress; break;
         case CmdDoubleClickToParent:    app.doubleClickToParent    = !app.doubleClickToParent; break;
         case CmdShowCheckboxes:         app.showCheckboxes         = !app.showCheckboxes; break;
+        case CmdLanguageItalian: gLanguage = Language::Italian; break;
+        case CmdLanguageEnglish: gLanguage = Language::English; break;
         case CmdCloseInTree:
             CloseTabTree(app, app.tabs[static_cast<size_t>(app.activeTab)].id, /*wholeTree=*/false);
             break;
