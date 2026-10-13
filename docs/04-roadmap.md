@@ -1037,7 +1037,7 @@ incollato un file al suo interno e essere risaliti mostra `0 | 1 | 5 B`.
 
 ---
 
-## M8 — Inspector 🟡
+## M8 — Inspector ✅
 
 - [x] metadati di base: tipo, dimensione, **creazione, modifica, accesso**, percorso
 - [x] proprietà che il file system non dice, lette da `IPropertyStore`:
@@ -1062,11 +1062,39 @@ incollato un file al suo interno e essere risaliti mostra `0 | 1 | 5 B`.
       eliminazione arrivano dalle **colonne della shell**, con i nomi che usa lei —
       per una voce di spazio dei nomi l'inspector mostra *le sue* colonne, che sono
       la sua vista di quell'oggetto, invece di ripetere metà delle nostre
-- [ ] `InspectorHideGrid`: la chiave esiste, e cosa sia la "griglia" dell'inspector
-      non è ricostruito. Non si inventa
+- [x] **`InspectorHideGrid`** — la "griglia dell'inspector" e' quella **dietro
+      l'anteprima immagine**: serve a distinguere lo sfondo dell'immagine (spesso
+      bianco, o trasparente) da quello del pannello. Ricostruita dalle stringhe:
+      la chiave `InspectorHideGrid` sta nella tabella delle impostazioni accanto a
+      `InspectorHideLineNumbers` e `InspectorHideMinimap`, e il suo comando e'
+      `HK_InspectorToggleImageGrid`, con la descrizione «Toggle display of image
+      grid to better differentiate background from the image contents»
+      (`analysis/out/strings-all.txt`). Si disegna **sotto** l'immagine: un PNG
+      trasparente la lascia vedere, una foto la copre. Comando in palette
+      (`Image: toggle background grid`), preferenza ricordata in `settings.ini`
+      come `inspectorHideGrid`
 
 *Stima: 3 settimane.* Il rasterizzatore di font proprio dell'originale
 (`WinFontRasterizer.cpp`) resta fuori perimetro: GDI è sufficiente.
+
+### La griglia dell'immagine — *Ricostruito*
+
+Una chiave di M8 era rimasta senza risposta: `InspectorHideGrid`. Le stringhe del
+binario la sciolgono, e non era una cosa da indovinare. Nella tabella delle
+impostazioni compare accanto a `InspectorHideLineNumbers` e `InspectorHideMinimap`,
+ma il comando che le corrisponde e' `HK_InspectorToggleImageGrid`, e la sua
+descrizione e' esplicita: «Toggle display of image grid to better differentiate
+background from the image contents». Cioe': la griglia non e' del testo, e' **dietro
+l'anteprima dell'immagine**, ed esiste perche' un'immagine con lo sfondo bianco (o
+trasparente) si confonde col pannello.
+
+Il disegno la mette **sotto** l'immagine, non sopra: cosi' un PNG trasparente la
+lascia intravedere — che e' il caso in cui serve — e una foto la copre tutta. Il
+comando `Image: toggle background grid` la spegne, e la scelta si ricorda.
+
+**Verificato a schermo** con un PNG a sfondo trasparente creato apposta nella
+sandbox: acceso, il cerchio rosso sta su una griglia; spento, lo sfondo trasparente
+resta piatto.
 
 ### Il visualizzatore di testo — *Ricostruito*
 
