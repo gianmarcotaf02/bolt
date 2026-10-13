@@ -6394,9 +6394,27 @@ void RunCommand(AppState& app, int command)
         // In una cartella dello spazio dei nomi il genitore lo sa la shell: sopra
         // il cestino c'e' il desktop, e `ParentOf` su "::{...}" non troverebbe
         // niente da tagliare.
-        case CmdGoUp:      LoadDirectory(app, ShellLocation::IsNamespace(app.directory)
-                                                ? ShellLocation::ParentOf(app.directory)
-                                                : ParentOf(app.directory)); break;
+        //
+        // Da una **radice di volume** invece `ParentOf` non sale: `C:\` e' padre di
+        // se stesso, e salire da li' non faceva niente. Sopra un disco c'e' "This
+        // PC", che e' una cartella di spazio dei nomi: la stessa lista di unita'
+        // della barra laterale, raggiungibile col gesto che ci si aspetta.
+        case CmdGoUp:
+            if (ShellLocation::IsNamespace(app.directory))
+            {
+                const std::wstring up = ShellLocation::ParentOf(app.directory);
+                if (!up.empty())
+                    LoadDirectory(app, up);
+            }
+            else
+            {
+                const std::wstring up = ParentOf(app.directory);
+                if (up != app.directory)
+                    LoadDirectory(app, up);
+                else if (!app.thisPcPath.empty() && app.directory != app.thisPcPath)
+                    LoadDirectory(app, app.thisPcPath);
+            }
+            break;
         case CmdBack:      NavigateBack(app); break;
         case CmdForward:   NavigateForward(app); break;
         case CmdGoTo:      BuildGoToMenu(app); break;
@@ -9922,6 +9940,13 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
             if (app != nullptr && wparam == VK_RIGHT)
             {
                 NavigateForward(*app);
+                return 0;
+            }
+            // Alt+Su sale di un livello, e da una radice di volume porta a "This
+            // PC". Arriva come tasto di sistema come Alt+freccia laterale.
+            if (app != nullptr && wparam == VK_UP)
+            {
+                RunCommand(*app, CmdGoUp);
                 return 0;
             }
             break;
