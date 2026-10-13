@@ -1865,12 +1865,12 @@ const char* GroupModeName(GroupMode mode)
 {
     switch (mode)
     {
-        case GroupMode::Name:   return "Name";
-        case GroupMode::Date:   return "Date";
-        case GroupMode::Size:   return "Size";
-        case GroupMode::Count:  return "Count";
-        case GroupMode::Volume: return "Volume";
-        default:                return "None";
+        case GroupMode::Name:   return Tr("Nome", "Name");
+        case GroupMode::Date:   return Tr("Data", "Date");
+        case GroupMode::Size:   return Tr("Dimensione", "Size");
+        case GroupMode::Count:  return Tr("Conteggio", "Count");
+        case GroupMode::Volume: return Tr("Volume", "Volume");
+        default:                return Tr("No", "None");
     }
 }
 
@@ -3416,9 +3416,11 @@ void DrawFilterBar(AppState& app, const Layout& layout)
     r.Draw(UIDraw::Border(bar, app.filterActive ? t.accent.WithAlpha(0.75f) : t.panelBorder,
                           1.0f, 4.0f * scale));
 
-    const std::string text = app.filter.empty()
-        ? ("Filter " + std::to_string(app.entries.size()) + " files...")
-        : ToUtf8(app.filter);
+    const std::string text =
+        app.filter.empty()
+            ? (std::string(Tr("Filtra ", "Filter ")) + std::to_string(app.entries.size()) +
+               Tr(" file...", " files..."))
+            : ToUtf8(app.filter);
 
     const float textX = bar.x + 10.0f * scale;
     app.font.Draw(r, textX, TextY(layout, bar, app.font), text,
@@ -3435,7 +3437,7 @@ void DrawFilterBar(AppState& app, const Layout& layout)
     const std::string matchText = std::to_string(app.matchCount) + " / " +
                                   std::to_string(app.entries.size());
 
-    std::string groupText = std::string("Group: ") + GroupModeName(app.groupMode);
+    std::string groupText = std::string(Tr("Raggruppa: ", "Group: ")) + GroupModeName(app.groupMode);
     const float matchWidth = app.smallFont.Measure(matchText, scale);
     const float groupWidth = app.smallFont.Measure(groupText, scale);
     const float rightEdge  = bar.right() - 10.0f * scale;
