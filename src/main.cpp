@@ -10593,35 +10593,70 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, LPWSTR, int)
     DwmSetWindowAttribute(window, DWMWA_WINDOW_CORNER_PREFERENCE, &cornerPreference,
                           sizeof(cornerPreference));
 
-    HDC   dc      = nullptr;
-    HGLRC context = nullptr;
-    if (!CreateOpenGLContext(window, &dc, &context))
-    {
-        ShowError("Could not create an OpenGL context.");
-        return 1;
-    }
-
-    const char* missingFunction = nullptr;
-    if (!LoadOpenGLFunctions(&missingFunction))
-    {
-        ShowError(std::string("Missing OpenGL entry point: ") + (missingFunction ? missingFunction : "?"));
-        return 1;
-    }
-
+    // --- il backend: Direct3D 11 se c'e', altrimenti OpenGL ---------------------
+    //
+    // L'originale espone `GraphicsBackend` con `Direct3D` e `OpenGL` e lo sceglie a
+    // runtime; qui la scelta e' la stessa, con una variabile d'ambiente per
+    // forzarla (`BOLT_BACKEND=opengl` o `d3d11`) e il **fallback** sempre pronto: un
+    // backend che non parte non deve impedire di usare il programma.
     AppState app;
     std::string error;
 
-    // Il backend, dietro l'interfaccia. Oggi c'e' l'OpenGL: il contesto e' gia'
-    // pronto, e `Attach` glielo da'. Il Direct3D 11 e' la seconda implementazione
-    // della stessa interfaccia, e si sceglie a runtime con fallback (vedi sotto).
-    UIRenderer glRenderer;
-    glRenderer.Attach(window, dc, context);
-    app.renderer = &glRenderer;
-    if (!glRenderer.Initialize(REA_SHADER_DIR, &error))
+    HDC   dc      = nullptr;
+    HGLRC context = nullptr;
+    UIRenderer    glRenderer;
+    D3D11Renderer d3dRenderer(window);
+    bool usingOpenGL = false;
+
+    const char* requested = std::getenv("BOLT_BACKEND");
+    const bool wantOpenGl = (requested != nullptr && _stricmp(requested, "opengl") == 0);
+    const bool wantD3D    = (requested != nullptr && _stricmp(requested, "d3d11") == 0);
+
+    if (!wantOpenGl)
     {
-        ShowError(error);
-        return 1;
+        if (d3dRenderer.Initialize(&error))
+        {
+            app.renderer = &d3dRenderer;
+        }
+        else if (wantD3D)
+        {
+            ShowError(error);
+            return 1;
+        }
+        else
+        {
+            // Non e' un errore: il Direct3D non c'e', si ripiega sull'OpenGL.
+            error.clear();
+        }
     }
+
+    if (app.renderer == nullptr)
+    {
+        if (!CreateOpenGLContext(window, &dc, &context))
+        {
+            ShowError("Could not create an OpenGL context.");
+            return 1;
+        }
+
+        const char* missingFunction = nullptr;
+        if (!LoadOpenGLFunctions(&missingFunction))
+        {
+            ShowError(std::string("Missing OpenGL entry point: ") +
+                      (missingFunction ? missingFunction : "?"));
+            return 1;
+        }
+
+        glRenderer.Attach(window, dc, context);
+        if (!glRenderer.Initialize(REA_SHADER_DIR, &error))
+        {
+            ShowError(error);
+            return 1;
+        }
+        app.renderer = &glRenderer;
+        usingOpenGL  = true;
+    }
+
+    DiagLog(std::string("--- backend: ") + app.renderer->Name());
 
     // One atlas size for every layer, so the glyph, icon and thumbnail UVs
     // cannot diverge. Layer 0 holds the body glyphs, layer 1 the shell icons,
