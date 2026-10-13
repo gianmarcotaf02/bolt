@@ -2910,6 +2910,21 @@ void BuildSidebarRows(const AppState& app, std::vector<SidebarRow>* rows)
     if (!app.quickAccess.empty())
         section("QUICK ACCESS", app.quickAccess);
 
+    // I recenti: le cartelle visitate in questa sessione, la piu' recente per
+    // prima. E' il ranking dei recenti (M4) nella sua forma minima — solo cartelle,
+    // e solo per la sessione (`StoreRecents: Session`, `docs/06`).
+    {
+        std::vector<Place> recents;
+        for (const std::wstring& path : app.recents)
+        {
+            if (path.empty() || path == app.directory)
+                continue;   // dove si e' gia' non e' un "recente" da riproporre
+            recents.push_back(Place{ToUtf8(LocationLabel(app, path)), path});
+        }
+        if (!recents.empty())
+            section("RECENTS", recents);
+    }
+
     std::vector<Place> marks;
     marks.reserve(app.bookmarks.size());
     for (const std::wstring& path : app.bookmarks)
@@ -4528,17 +4543,6 @@ void DrawInspector(AppState& app, const Layout& layout)
                            (std::min)(260.0f * scale, layout.inspector.h * 0.42f)};
     float imageHeight = 0.0f;
     const bool hasBigImage = DrawBigImage(app, layout, previewArea, &imageHeight);
-    {
-        static int lastStep = -1;
-        if (app.previewStep != lastStep)
-        {
-            lastStep = app.previewStep;
-            DiagLog(std::string("big: valid=") + (app.bigImage.Valid() ? "1" : "0") +
-                    " zoom=" + std::to_string(app.PreviewZoom()) +
-                    " step=" + std::to_string(app.previewStep) +
-                    " has=" + (hasBigImage ? "1" : "0"));
-        }
-    }
     if (hasBigImage)
         y += imageHeight;
 
