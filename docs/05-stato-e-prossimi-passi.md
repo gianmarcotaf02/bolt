@@ -34,7 +34,7 @@ nello spazio dei nomi** col **ripristino dal cestino** e il **trascinamento sul
 riquadro di navigazione** (che sul cestino è il gesto per buttare via, non una
 copia). Mancano le cartelle riciclate (che si ripristinano, non si aprono) e il
 trascinamento **fuori** dal cestino, che resta un limite dichiarato |
-| M8 — inspector | ✅ metadati, proprietà `PROPSYS`, conteggio per tipo, **visualizzatore di testo** (righe, minimap, spazi visibili, andare a capo, ingrandimento, codifica) e **anteprima immagine** decodificata con adattamento e ingrandimento. Le voci di spazio dei nomi mostrano le colonne della shell (percorso originale, data di eliminazione). Unica chiave non ricostruita: `InspectorHideGrid` |
+| M8 — inspector | ✅ metadati, proprietà `PROPSYS`, conteggio per tipo, **visualizzatore di testo** (righe, minimap, spazi visibili, andare a capo, ingrandimento, codifica), **anteprima immagine** decodificata con adattamento e ingrandimento e **griglia di sfondo** (`InspectorHideGrid`). Le voci di spazio dei nomi mostrano le colonne della shell (percorso originale, data di eliminazione) |
 | M9 — configurazione e temi | 🟡 pannello delle opzioni (`Ctrl+,`) con i controlli tipizzati, preferenze ricordate in `%APPDATA%\Bolt\settings.ini` e **lingua su tutte le superfici**; mancano la mappa tasti rimappabile e i temi a 35 token |
 | M10 — backend D3D11 | ⬜ |
 
@@ -73,7 +73,7 @@ Ordinato per quanto morde.
 
 - **Quarantadue** difetti **trovati e risolti**: il registro è `docs/02` §7, uno per
   uno, con sintomo, causa e correzione. È un cumulativo, non una lista di lavoro.
-- **Quattro** cose **da fare**: la lista qui sotto.
+- **Tre** cose **da fare**: la lista qui sotto.
 - I **limiti dichiarati**: cose che si è scelto di non fare, scritte dove vivono con
   la ragione accanto (il tetto di 1 MB nella lettura dei testi, i modelli `ShellNew`
   con valore `Command`, le 23 colonne della specifica contro le 6 fatte, il ritaglio
@@ -89,14 +89,12 @@ In ordine di valore, non di facilità.
 
 > **M9 — il pannello delle opzioni** (`Ctrl+,`), **l'allineamento delle scorciatoie**
 > (`Ctrl+P`/`F4` al GoTo, `Ctrl+Shift+P` ai comandi, `Ctrl+,` alle opzioni), **finire
-> la lingua**, **salire da una radice di volume** e **le tre cose viste nell'originale**
-> (selettori di vista e anteprime in fondo, filtro del nome, `RECENTS`) erano voci di
-> questa lista, e sono fatte: vedi `docs/04` M9 e le sezioni «La lingua e' finita» e
-> «Le tre cose dell'originale che mancavano» e **l'albero dei tab** erano voci di
-> questa lista, e sono fatte: vedi `docs/04` M6 e la sezione «L'albero dei tab,
-> verificato», e §7.40/§7.41/§7.42 di `docs/02`. Restano della M9 la **mappa tasti
-> rimappabile** sui 319 comandi e i **temi a 35 token**; di M4 il **punteggio** dei
-> recenti, che adesso e' solo l'ordine di visita.
+> la lingua**, **salire da una radice di volume**, **le tre cose viste nell'originale**
+> (selettori di vista e anteprime in fondo, filtro del nome, `RECENTS`),
+> **l'albero dei tab** e **`InspectorHideGrid`** erano voci di questa lista, e sono
+> fatte: vedi `docs/04` M9, M6 e M8, e §7.40/§7.41/§7.42 di `docs/02`. Restano della
+> M9 la **mappa tasti rimappabile** sui 319 comandi e i **temi a 35 token**; di M4 il
+> **punteggio** dei recenti, che adesso e' solo l'ordine di visita.
 
 1. **M10 — backend D3D11** — l'ultima milestone del piano; il renderer è già
    dietro `ui_renderer.*`, quindi è un secondo backend, non una riscrittura.
@@ -104,9 +102,7 @@ In ordine di valore, non di facilità.
    normali escono davvero, ma una voce **riciclata** non viene presa (la
    destinazione dichiara "copia" e non copia). La causa non è ricostruita: §7.34 di
    `docs/02`. Se non si trova, resta un limite dichiarato.
-3. **`InspectorHideGrid`** — la sola chiave di M8 che resta senza risposta: cosa sia
-   la griglia dell'inspector non è ricostruito, e non si inventa.
-4. **Spezzare `main.cpp`** — **~10.731 righe** e dodici moduli: il confine c'è, ma il
+3. **Spezzare `main.cpp`** — **~10.731 righe** e dodici moduli: il confine c'è, ma il
    file che lo contiene resta il collo di bottiglia dichiarato fin dall'inizio.
 
 
