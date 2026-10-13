@@ -43,6 +43,8 @@ add_executable(Bolt WIN32
     src/drag_drop.h
     src/file_ops.cpp
     src/file_ops.h
+    src/language.cpp
+    src/language.h
     src/gl_loader.cpp
     src/gl_loader.h)
 
