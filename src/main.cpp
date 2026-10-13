@@ -641,6 +641,7 @@ struct AppState
     float             gridRectsScale = -1.0f;
     int               gridRectsView  = -1;
     int               gridRectsGroup = -1;
+    float             gridRectsIcon  = -1.0f;
 
     // --- operazioni su file (M7) -------------------------------------------
     //
@@ -694,6 +695,22 @@ struct AppState
     bool actOnPress             = false;   // ActOnPress
     bool doubleClickToParent    = false;   // DoubleClickToParent
     bool showCheckboxes         = false;   // ShowCheckboxes
+
+    // La misura delle celle nella griglia, in pixel **non** scalati: una sola, da
+    // cui discendono icona, cella ed etichetta.
+    //
+    // `Icons` e `Tiles` non sono due viste diverse: sono **due punti** della stessa
+    // misura — la piccola e la grande — ed e' la rotella con Ctrl a portarla dove
+    // si vuole, come in Esplora risorse. Prima erano due numeri fissi in una
+    // `switch`, e la cella era larga 104/64 di qua e 176/128 di la': due rapporti
+    // diversi per la stessa cosa.
+    float gridIconSize = 64.0f;
+    static constexpr float kGridIconMin = 32.0f;
+    static constexpr float kGridIconMax = 256.0f;
+    // Sotto questa misura la vista si chiama `Icons`, sopra `Tiles`. Serve al pie'
+    // di pagina e alla palette, che devono dire cosa si sta guardando adesso e non
+    // cosa si e' premuto l'ultima volta.
+    static constexpr float kGridIconSplit = 96.0f;
     float scroll   = 0.0f;
     float zoom     = 1.0f;
     float dpiScale = 1.0f;
@@ -2738,6 +2755,13 @@ void SetViewMode(AppState& app, ViewMode mode)
     app.viewDirty   = true;
     app.hovered     = -1;
     app.hoverStart  = NowSeconds();
+
+    // I due comandi a griglia portano la misura ai due punti noti: sono scorciatoie,
+    // non due modalita' separate.
+    if (mode == ViewMode::Icons)
+        app.gridIconSize = 64.0f;
+    else if (mode == ViewMode::Tiles)
+        app.gridIconSize = 128.0f;
 }
 
 void DrawFilterBar(AppState& app, const Layout& layout)
@@ -2808,17 +2832,15 @@ ViewMetrics ComputeViewMetrics(const AppState& app, const Layout& layout)
             metrics.iconSize  = 14.0f * scale;
             break;
 
+        // Le due viste a griglia condividono la misura: quello che cambia e' solo
+        // quanto e' grande. Tutto il resto si **deriva** da li' — la cella deve
+        // contenere l'icona e stare comoda per l'etichetta, e un numero derivato
+        // non puo' entrare in disaccordo con le sue parti.
         case ViewMode::Icons:
-            metrics.grid       = true;
-            metrics.iconSize   = 64.0f * scale;
-            metrics.cellWidth  = 104.0f * scale;
-            metrics.cellHeight = metrics.iconSize + labelHeight + 14.0f * scale;
-            break;
-
         case ViewMode::Tiles:
             metrics.grid       = true;
-            metrics.iconSize   = 128.0f * scale;
-            metrics.cellWidth  = 176.0f * scale;
+            metrics.iconSize   = app.gridIconSize * scale;
+            metrics.cellWidth  = (app.gridIconSize + 40.0f) * scale;
             metrics.cellHeight = metrics.iconSize + labelHeight + 16.0f * scale;
             break;
 
@@ -2858,7 +2880,8 @@ const std::vector<Rect>& GridRects(AppState& app, const Layout& layout)
     const ViewMetrics metrics = ComputeViewMetrics(app, layout);
     if (app.gridRectsRows == app.rows.size() && app.gridRectsWidth == layout.list.w &&
         app.gridRectsView == static_cast<int>(app.viewMode) &&
-        app.gridRectsGroup == static_cast<int>(app.groupMode) && app.gridRectsScale == layout.scale)
+        app.gridRectsGroup == static_cast<int>(app.groupMode) && app.gridRectsScale == layout.scale &&
+        app.gridRectsIcon == app.gridIconSize)
         return app.gridRects;
 
     app.gridRects.clear();
@@ -2902,6 +2925,7 @@ const std::vector<Rect>& GridRects(AppState& app, const Layout& layout)
     app.gridRectsView  = static_cast<int>(app.viewMode);
     app.gridRectsGroup = static_cast<int>(app.groupMode);
     app.gridRectsScale = layout.scale;
+    app.gridRectsIcon  = app.gridIconSize;
     return app.gridRects;
 }
 
@@ -7266,6 +7290,26 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
                 }
 
                 const ViewMetrics metrics = ComputeViewMetrics(*app, layout);
+
+                // Ctrl+rotella sopra la griglia: la cella si ingrandisce e si
+                // stringe di continuo. Il nome della vista segue la misura, cosi'
+                // il pie' di pagina e la palette dicono quello che si sta guardando
+                // invece di quello che si e' chiuso l'ultima volta.
+                if (metrics.grid && (GetKeyState(VK_CONTROL) & 0x8000) != 0)
+                {
+                    const float wanted = (std::max)(AppState::kGridIconMin,
+                                                    (std::min)(AppState::kGridIconMax,
+                                                               app->gridIconSize + steps * 16.0f));
+                    if (wanted != app->gridIconSize)
+                    {
+                        app->gridIconSize = wanted;
+                        app->viewMode = wanted <= AppState::kGridIconSplit ? ViewMode::Icons
+                                                                          : ViewMode::Tiles;
+                        app->viewDirty = true;
+                    }
+                    return 0;
+                }
+
                 const float stride = metrics.grid ? metrics.cellHeight : metrics.rowHeight;
                 ScrollBy(*app, layout, -steps * 3.0f * stride);
             }
