@@ -272,6 +272,8 @@ enum CommandId
     CmdToggleBookmark, CmdClearBookmarks, CmdClearRecents,
     // Operazioni su file (M7).
     CmdCopy, CmdCut, CmdPaste, CmdDelete, CmdDeletePermanent, CmdRename, CmdNewFolder,
+    // M9: il pannello delle opzioni, raggiungibile anche dalla palette.
+    CmdOpenOptions,
 };
 
 // Item ids below this are CommandId values; above it they are indexes into
@@ -3074,6 +3076,7 @@ const char* CommandLabelIt(CommandId id)
         case CmdLanguageItalian:        return "Lingua: italiano";
         case CmdLanguageEnglish:        return "Lingua: inglese";
         case CmdShowSettingsPath:       return "Dove sta il file delle impostazioni";
+        case CmdOpenOptions:            return "Apri le opzioni";
         default:                        return nullptr;
     }
 }
@@ -4823,6 +4826,7 @@ const CommandDef kCommandTable[] = {
     {"Bookmarks", "Bookmark this folder",      CmdToggleBookmark},
     {"Bookmarks", "Clear all bookmarks",       CmdClearBookmarks},
     {"Recents", "Clear recent locations",      CmdClearRecents},
+    {"Options", "Open options",                 CmdOpenOptions},
 };
 
 bool MenuMatch(const std::string& text, const std::wstring& filter)
@@ -5114,8 +5118,8 @@ void BuildPaletteMenu(AppState& app)
     GroupMenuOpen(app.palette, Tr("PALETTE DEI COMANDI", "COMMAND PALETTE"),
                   Tr("Scrivi per filtrare i comandi...", "Type to filter commands..."),
                   std::move(items));
-    app.palette.hint = Tr("Invio esegue   Esc chiude   Ctrl+P apre e chiude   Ctrl+Maiusc+P dettagli",
-                          "Enter runs   Esc closes   Ctrl+P toggles   Ctrl+Shift+P details");
+    app.palette.hint = Tr("Invio esegue   Esc chiude   Ctrl+Maiusc+P apre e chiude   Ctrl+, opzioni",
+                          "Enter runs   Esc closes   Ctrl+Shift+P toggles   Ctrl+, options");
 }
 
 void BuildGoToMenu(AppState& app)
@@ -5157,9 +5161,12 @@ void BuildGoToMenu(AppState& app)
         add("Recents", path, ToUtf8(LeafName(path)));
 
     app.palette.open = false;
-    GroupMenuOpen(app.goTo, "GO TO", "Type to filter locations...", std::move(items));
+    GroupMenuOpen(app.goTo, Tr("VAI A", "GO TO"),
+                  Tr("Scrivi per filtrare le cartelle...", "Type to filter locations..."),
+                  std::move(items));
     app.goTo.detailed = true;   // a location without its path is not much use
-    app.goTo.hint = "Enter goes   Esc closes   Ctrl+G toggles";
+    app.goTo.hint = Tr("Invio va   Esc chiude   Ctrl+P apre e chiude",
+                       "Enter goes   Esc closes   Ctrl+P toggles");
 }
 
 // --- operazioni su file (M7) ------------------------------------------------
@@ -6345,6 +6352,9 @@ void RunCommand(AppState& app, int command)
             ReportStatus(app, SettingsPath().empty()
                                  ? TrW(L"Impostazioni non disponibili", L"Settings unavailable")
                                  : TrW(L"Impostazioni in ", L"Settings in ") + SettingsPath());
+            break;
+        case CmdOpenOptions:
+            BuildOptionsMenu(app);
             break;
         case CmdCloseInTree:
             CloseTabTree(app, app.tabs[static_cast<size_t>(app.activeTab)].id, /*wholeTree=*/false);
@@ -10256,6 +10266,12 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, LPWSTR, int)
     // Le preferenze si rileggono **prima** della prima costruzione della vista: la
     // lingua e l'aspetto devono essere quelli giusti al primo fotogramma.
     LoadSettings(app);
+    // L'atlante dei glifi e' stato costruito con i valori di partenza; se il file
+    // delle impostazioni ne chiede altri, si rifa' adesso. Sono le stesse tre
+    // misure che comanda il pannello delle opzioni, e si validano la' dentro.
+    if (app.fontFace != L"Segoe UI" || app.uiFontSize != 15 ||
+        app.monoFace != L"Consolas" || app.monoFontSize != 14)
+        ApplyFonts(app);
     InitColumns(app);
     BuildPlaces(app);
     app.window = window;
