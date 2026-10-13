@@ -551,6 +551,11 @@ struct AppState
     int              dragTab       = -1;
     int              tabDropTarget = -1;
     bool             tabDropInto   = false;
+    bool             tabDropAfter  = false;
+    // Il tab premuto, prima che il gesto diventi un trascinamento: come per la
+    // lista, un clic non deve spostare niente finche' il mouse non si muove.
+    int              tabPress      = -1;
+    float            tabPressX     = 0.0f;
     bool             sidebarVisible = true;
     int              hoveredTab = -1;
     int              hoveredChrome = -1;   // 0 menu, 1 new tab, 2 min, 3 max, 4 close
@@ -1856,6 +1861,33 @@ bool TabIsDescendantOf(const AppState& app, int id, int ancestorId)
     return TabRootId(app, id) == ancestorId;
 }
 
+// Dove finirebbe il tab trascinato, dato il punto del puntatore. Sta qui e non nel
+// gestore del mouse perche' il marcatore disegnato e il rilascio devono leggere la
+// stessa risposta: due calcoli che devono coincidere prima o poi non coincidono.
+void UpdateTabDrop(AppState& app, float x, float y)
+{
+    app.tabDropTarget = -1;
+    const ClickTarget* hit = HitTest(app, x, y, ClickTarget::Kind::Tab);
+    if (hit == nullptr)
+        return;
+    const int index = hit->index;
+    if (app.tabs[static_cast<size_t>(index)].id == app.dragTab)
+        return;   // sopra se stesso non si va da nessuna parte
+
+    // Il terzo di mezzo vuol dire "dentro": e' la zona piu' stretta, cosi' i due
+    // bordi restano comodi per mettersi prima o dopo.
+    const float third = hit->rect.w / 3.0f;
+    const float left  = hit->rect.x;
+    app.tabDropTarget = index;
+    if (x >= left + third && x <= left + third * 2.0f)
+    {
+        app.tabDropInto = true;
+        return;
+    }
+    app.tabDropInto  = false;
+    app.tabDropAfter = (x > left + third);
+}
+
 // La fila come si vede: ogni coppia e' (indice del tab, quanto e' profondo).
 std::vector<std::pair<int, int>> TabOrder(const AppState& app)
 {
@@ -1941,6 +1973,53 @@ void CloseTab(AppState& app, int index)
         app.stats.CancelQueued();
         app.previews.CancelPending();
     }
+}
+
+// Sposta il tab trascinato dove il marcatore dice.
+void ApplyTabDrop(AppState& app)
+{
+    const int activeId = app.tabs[static_cast<size_t>(app.activeTab)].id;
+    const int dragged  = TabById(app, app.dragTab);
+    const int target   = app.tabDropTarget;
+    const bool into    = app.tabDropInto;
+    const bool after   = app.tabDropAfter;
+    app.dragTab       = -1;
+    app.tabPress      = -1;
+    app.tabDropTarget = -1;
+
+    if (dragged < 0 || target < 0 || target >= static_cast<int>(app.tabs.size()) ||
+        target == dragged)
+        return;
+
+    if (into)
+    {
+        // Dentro un altro tab: si diventa suoi figli. Un tab non puo' finire dentro
+        // un proprio discendente — sarebbe un anello, e un albero con un anello non
+        // e' piu' un albero.
+        if (TabIsDescendantOf(app, app.tabs[static_cast<size_t>(target)].id,
+                              app.tabs[static_cast<size_t>(dragged)].id))
+            return;
+        app.tabs[static_cast<size_t>(dragged)].parentId =
+            app.tabs[static_cast<size_t>(target)].id;
+        return;
+    }
+
+    // Prima o dopo: si diventa **fratelli** del bersaglio. Fra fratelli l'ordine e'
+    // l'ordine nel vettore, quindi qui il tab si sposta davvero nel vettore — con
+    // l'identita' che resta, che e' quello che tiene in piedi i legami.
+    Tab moved = app.tabs[static_cast<size_t>(dragged)];
+    moved.parentId = app.tabs[static_cast<size_t>(target)].parentId;
+    app.tabs.erase(app.tabs.begin() + dragged);
+    int at = (target > dragged) ? target - 1 : target;
+    if (after)
+        ++at;
+    at = (std::max)(0, (std::min)(at, static_cast<int>(app.tabs.size())));
+    app.tabs.insert(app.tabs.begin() + at, moved);
+
+    // L'indice attivo segue il **tab** che era attivo, non la sua posizione.
+    const int stillActive = TabById(app, activeId);
+    if (stillActive >= 0)
+        app.activeTab = stillActive;
 }
 
 // Le due chiusure dell'albero. `CloseInTree` chiude il tab **e i suoi figli**;
@@ -2185,8 +2264,12 @@ void DrawTitleBar(AppState& app, const Layout& layout)
     }
 
     float x = stripLeft;
-    for (int i = 0; i < static_cast<int>(app.tabs.size()); ++i)
+    // La fila si ricava dall'albero: un figlio si disegna subito dopo il genitore,
+    // rientrato. L'ordine di nascita non conta piu'.
+    for (const std::pair<int, int>& node : TabOrder(app))
     {
+        const int i     = node.first;
+        const int depth = node.second;
         const Tab& tab = app.tabs[static_cast<size_t>(i)];
         // The active tab's snapshot is empty while it is live: its entries were
         // moved out and only the live fields are current, so the title has to come
@@ -2212,16 +2295,26 @@ void DrawTitleBar(AppState& app, const Layout& layout)
             r.FillRect(tabRect, t.rowHover, 6.0f * scale);
         }
 
+        // Il rientro di un figlio, con la riga che lo lega al genitore: senza, un
+        // tab annidato e' indistinguibile da uno spostato.
+        const float indent = static_cast<float>(depth) * 12.0f * scale;
+        if (depth > 0)
+        {
+            r.FillRect(Rect{tabRect.x + indent - 8.0f * scale, tabRect.y + 6.0f * scale,
+                            1.0f * scale, tabRect.h - 12.0f * scale},
+                       t.separator);
+        }
+
         if (const ShellIconAtlas::IconUV* uv = app.icons.GetFor("", true))
         {
-            const Rect icon{tabRect.x + 10.0f * scale, tabRect.y + 6.0f * scale,
+            const Rect icon{tabRect.x + 10.0f * scale + indent, tabRect.y + 6.0f * scale,
                             16.0f * scale, 16.0f * scale};
             r.Draw(UIDraw::Image(icon, active ? t.text : t.textDim, kIconLayer,
                                  uv->u0, uv->v0, uv->u1, uv->v1));
         }
 
-        app.font.Draw(r, tabRect.x + 32.0f * scale, TextY(layout, tabRect, app.font),
-                      FitText(app.font, title, scale, tabRect.w - 56.0f * scale),
+        app.font.Draw(r, tabRect.x + 32.0f * scale + indent, TextY(layout, tabRect, app.font),
+                      FitText(app.font, title, scale, tabRect.w - 56.0f * scale - indent),
                       active ? t.text : t.textDim, scale);
 
         const Rect close{tabRect.right() - 24.0f * scale, tabRect.y + 5.0f * scale,
@@ -2234,6 +2327,26 @@ void DrawTitleBar(AppState& app, const Layout& layout)
         tabTarget.kind  = ClickTarget::Kind::Tab;
         tabTarget.index = i;
         app.clickTargets.push_back(tabTarget);
+
+        // Il marcatore del trascinamento: dove finirebbe il tab che si sta
+        // spostando. La riga dice "prima o dopo", il tab intero dice "dentro" — e
+        // non promette niente che il rilascio rifiuterebbe: dentro se stesso o
+        // dentro un proprio discendente non si va, o l'albero prende un anello.
+        if (app.dragTab >= 0 && app.tabDropTarget == i)
+        {
+            const bool refused = TabIsDescendantOf(app, tab.id, app.dragTab);
+            if (app.tabDropInto)
+            {
+                if (!refused)
+                    r.Draw(UIDraw::Fill(tabRect, t.accent.WithAlpha(0.18f), 6.0f * scale));
+            }
+            else
+            {
+                const float lineX = app.tabDropAfter ? tabRect.right() : tabRect.x;
+                r.FillRect(Rect{lineX - 1.0f * scale, tabRect.y, 2.0f * scale, tabRect.h},
+                           t.accent, 1.0f * scale);
+            }
+        }
 
         ClickTarget closeTarget;
         closeTarget.rect  = close;
@@ -7484,6 +7597,27 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
         }
 
         case WM_MOUSEMOVE:
+            // Il trascinamento di un tab: si arma al primo movimento oltre la
+            // soglia, e da li' in poi ogni movimento aggiorna dove finirebbe.
+            if (app != nullptr)
+            {
+                const float tx = static_cast<float>(GET_X_LPARAM(lparam));
+                const float ty = static_cast<float>(GET_Y_LPARAM(lparam));
+                if (app->tabPress >= 0 && app->dragTab < 0 &&
+                    std::fabs(tx - app->tabPressX) > 6.0f &&
+                    app->tabPress < static_cast<int>(app->tabs.size()))
+                {
+                    app->dragTab  = app->tabs[static_cast<size_t>(app->tabPress)].id;
+                    app->tabPress = -1;
+                }
+                if (app->dragTab >= 0)
+                {
+                    UpdateTabDrop(*app, tx, ty);
+                    InvalidateRect(window, nullptr, FALSE);
+                    return 0;
+                }
+            }
+
             // Il tempo del sovrappasso riparte quando il puntatore si muove: fermo
             // sulla stessa riga, il conto scorre; in movimento, no.
             if (app != nullptr)
@@ -7726,6 +7860,10 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
                 else if (const ClickTarget* tab = HitTest(*app, x, y, ClickTarget::Kind::Tab))
                 {
                     ActivateTab(*app, tab->index);
+                    // Il gesto puo' diventare un trascinamento, ma solo se il mouse
+                    // si muove: un clic non deve spostare niente.
+                    app->tabPress  = tab->index;
+                    app->tabPressX = x;
                 }
                 else if (HitTest(*app, x, y, ClickTarget::Kind::TabNew))
                 {
@@ -7863,6 +8001,14 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
             return 0;
 
         case WM_LBUTTONUP:
+            if (app != nullptr && app->dragTab >= 0)
+            {
+                ApplyTabDrop(*app);
+                InvalidateRect(window, nullptr, FALSE);
+                return 0;
+            }
+            if (app != nullptr)
+                app->tabPress = -1;
             if (app != nullptr && app->columnDrag > 0)
             {
                 app->columnDrag = -1;
