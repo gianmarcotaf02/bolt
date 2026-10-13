@@ -490,7 +490,10 @@ struct ColumnDef
 // Name, then the columns a directory entry already knows, then the three that
 // depend on the recursive statistics and arrive progressively.
 const ColumnDef kColumns[] = {
-    {"Name",     SortColumn::Name,     0.00f, false},
+    // Il nome ha il filtro come le altre colonne, ma il suo non e' un elenco di
+    // valori — ogni nome e' diverso. La sua linguetta accende la casella di
+    // **testo** in fondo, che e' il filtro del nome che serve davvero.
+    {"Name",     SortColumn::Name,     0.00f, true},
     {"Type",     SortColumn::Type,     0.38f, true},
     {"Modified", SortColumn::Modified, 0.56f, true},
     // `Folders` e `Files` avevano il titolo appena piu' largo della colonna, e
@@ -3310,7 +3313,8 @@ void DrawHeader(AppState& app, const Layout& layout, float* columnX)
                                 (i + 1 < kColumnCount ? app.columns[i + 1].fraction : 1.0f);
             const float glyphX = right - 16.0f * scale;
             const float glyphY = layout.header.y + layout.header.h * 0.5f;
-            const bool  filtered = !app.columns[static_cast<size_t>(i)].excluded.empty();
+            const bool  filtered = (i == 0) ? (!app.filter.empty() || app.filterActive)
+                                            : !app.columns[static_cast<size_t>(i)].excluded.empty();
             const Color ink = filtered ? t.accent : t.textDim;
             const float widths[3] = {8.0f, 5.5f, 3.0f};
             for (int bar = 0; bar < 3; ++bar)
