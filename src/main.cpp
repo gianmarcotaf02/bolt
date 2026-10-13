@@ -9745,7 +9745,10 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
                         }
                         else
                         {
-                            LoadDirectory(*app, ParentOf(app->directory));
+                            // Sale di un livello, e da una radice di volume va a
+                            // "This PC": la stessa strada del comando, non una
+                            // seconda che puo' divergere.
+                            RunCommand(*app, CmdGoUp);
                         }
                         break;
                     case VK_F5:
