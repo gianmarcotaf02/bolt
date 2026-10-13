@@ -243,6 +243,8 @@ enum CommandId
     CmdGroupNone, CmdGroupName, CmdGroupDate, CmdGroupSize, CmdGroupCount, CmdGroupVolume,
     CmdFocusFilter, CmdClearFilter, CmdScrollTop, CmdScrollBottom,
     CmdToggleHoverToSelect, CmdToggleUnderlineOnHover, CmdToggleTooltips,
+    CmdSingleClick, CmdSingleClickFoldersOnly, CmdActOnPress, CmdDoubleClickToParent,
+    CmdShowCheckboxes,
     CmdToggleBookmark, CmdClearBookmarks, CmdClearRecents,
     // Operazioni su file (M7).
     CmdCopy, CmdCut, CmdPaste, CmdDelete, CmdDeletePermanent, CmdRename, CmdNewFolder,
@@ -677,6 +679,21 @@ struct AppState
     bool hoverToSelect    = false;
     bool underlineOnHover = false;
     bool showTooltips     = true;
+
+    // --- comportamento del clic (M5d) ----------------------------------------
+    //
+    // Cinque chiavi dello spec, tutte **impostazioni** nell'originale: qui si
+    // accendono dalla palette. Tutte spente di partenza — il doppio clic e' il
+    // gesto che si aspetta chiunque, e cambiarlo senza che nessuno l'abbia chiesto
+    // vorrebbe dire cambiare il programma sotto le mani di chi lo usa.
+    //
+    // `SingleClickFoldersOnly` vale solo col primo acceso: senza, non vuol dire
+    // niente, e infatti da solo non fa niente.
+    bool singleClick            = false;   // SingleClick
+    bool singleClickFoldersOnly = false;   // SingleClickFoldersOnly
+    bool actOnPress             = false;   // ActOnPress
+    bool doubleClickToParent    = false;   // DoubleClickToParent
+    bool showCheckboxes         = false;   // ShowCheckboxes
     float scroll   = 0.0f;
     float zoom     = 1.0f;
     float dpiScale = 1.0f;
@@ -4066,6 +4083,14 @@ const CommandDef kCommandTable[] = {
     {"View",    "Hover to select",              CmdToggleHoverToSelect},
     {"View",    "Underline on hover",           CmdToggleUnderlineOnHover},
     {"View",    "Show tooltips",                CmdToggleTooltips},
+    // "Interaction" e' il nome del gruppo nella tabella delle chiavi. Sono cinque
+    // chiavi, non cinque funzioni: nessuna fa niente da sola, cambiano *come* si
+    // apre e si sceglie.
+    {"Interaction", "Single click opens",         CmdSingleClick},
+    {"Interaction", "Single click: folders only", CmdSingleClickFoldersOnly},
+    {"Interaction", "Act on press",               CmdActOnPress},
+    {"Interaction", "Double click on empty space goes up", CmdDoubleClickToParent},
+    {"Interaction", "Show checkboxes",            CmdShowCheckboxes},
     {"View",    "Zoom in",                     CmdZoomIn},
     // Le opzioni del visualizzatore di testo. Nella tabella delle chiavi
     // dell'originale sono `InspectorShowWhitespace`, `InspectorHideLineNumbers`,
@@ -4919,6 +4944,11 @@ void RunCommand(AppState& app, int command)
         case CmdToggleHoverToSelect:    app.hoverToSelect    = !app.hoverToSelect; break;
         case CmdToggleUnderlineOnHover: app.underlineOnHover = !app.underlineOnHover; break;
         case CmdToggleTooltips:         app.showTooltips     = !app.showTooltips; break;
+        case CmdSingleClick:            app.singleClick            = !app.singleClick; break;
+        case CmdSingleClickFoldersOnly: app.singleClickFoldersOnly = !app.singleClickFoldersOnly; break;
+        case CmdActOnPress:             app.actOnPress             = !app.actOnPress; break;
+        case CmdDoubleClickToParent:    app.doubleClickToParent    = !app.doubleClickToParent; break;
+        case CmdShowCheckboxes:         app.showCheckboxes         = !app.showCheckboxes; break;
         case CmdZoomIn:    app.zoom = (std::min)(2.0f, app.zoom + 0.1f); break;
 
         // Le quattro opzioni del visualizzatore. Cambiano il disegno del testo, non
@@ -5026,6 +5056,18 @@ Rect MenuPanel(const AppState& app, const Layout& layout, const GroupMenu& menu)
 
 // --- menu contestuale: geometria, disegno, interazione ----------------------
 void ActivateSelection(AppState& app);
+
+// Un clic solo attiva? Dipende da due chiavi, e la regola sta in un posto solo
+// perche' i tre gesti che la usano (pressione, rilascio, doppio clic) non possano
+// rispondere in modo diverso.
+bool SingleClickActivates(const AppState& app, const Entry& entry)
+{
+    if (!app.singleClick)
+        return false;
+    if (app.singleClickFoldersOnly && !entry.isDirectory)
+        return false;   // sui file serve ancora il doppio clic
+    return true;
+}
 
 // --- i livelli del menu contestuale ----------------------------------------
 //
@@ -7508,6 +7550,15 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
                     {
                         SelectOnly(*app, row->index);
                     }
+
+                    // `ActOnPress`: con il clic singolo acceso, agire *premendo*
+                    // invece che mollando. E' l'unica differenza fra le due chiavi.
+                    if (app->actOnPress &&
+                        SingleClickActivates(*app, app->entries[static_cast<size_t>(row->index)]))
+                    {
+                        app->dragArmed = false;   // il gesto e' finito qui: non parte un trascinamento
+                        ActivateSelection(*app);
+                    }
                 }
                 else if (const ClickTarget* group = HitTest(*app, x, y, ClickTarget::Kind::GroupHeader))
                 {
@@ -7591,7 +7642,25 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
             }
             if (app != nullptr)
             {
+                // `SingleClick`: mollare su una riga la apre, se non e' partito un
+                // trascinamento. `dragArmed` e' ancora vero solo se il mouse non si
+                // e' mosso abbastanza da armarlo — e allora il gesto era un clic,
+                // non un trascinamento.
+                const bool wasClick = app->dragArmed;
                 app->dragArmed = false;
+
+                if (wasClick && app->singleClick && !app->actOnPress)
+                {
+                    const float x = static_cast<float>(GET_X_LPARAM(lparam));
+                    const float y = static_cast<float>(GET_Y_LPARAM(lparam));
+                    if (const ClickTarget* row = HitTest(*app, x, y, ClickTarget::Kind::Row))
+                    {
+                        const Entry& entry = app->entries[static_cast<size_t>(row->index)];
+                        if (SingleClickActivates(*app, entry))
+                            ActivateSelection(*app);
+                    }
+                }
+
                 FinishRectSelection(*app);
             }
             return 0;
@@ -7618,6 +7687,15 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
                 {
                     SelectOnly(*app, row->index);
                     ActivateSelection(*app);
+                }
+                else if (app->doubleClickToParent &&
+                         ComputeLayout(*app).list.Contains(x, y))
+                {
+                    // `DoubleClickToParent`: il doppio clic sul fondo va su di un
+                    // livello. E' il gesto che Windows chiama "doppio clic per
+                    // salire", e vale solo sul fondo: su una riga il doppio clic
+                    // apre, che e' un'altra cosa.
+                    RunCommand(*app, CmdGoUp);
                 }
             }
             return 0;
