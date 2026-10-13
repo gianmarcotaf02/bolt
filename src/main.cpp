@@ -992,6 +992,7 @@ void LoadSettings(AppState& app)
     };
     readInt("uiFontSize", &app.uiFontSize, AppState::kUiFontSizeMin, AppState::kUiFontSizeMax);
     readInt("monoFontSize", &app.monoFontSize, AppState::kMonoFontSizeMin, AppState::kMonoFontSizeMax);
+    readInt("previewStep", &app.previewStep, 0, AppState::kPreviewStepCount - 1);
 
     std::string spacing;
     if (ReadSetting(text, "rowSpacing", &spacing))
@@ -1045,6 +1046,7 @@ bool SaveSettings(const AppState& app)
     text += "uiFontSize=" + std::to_string(app.uiFontSize) + "\n";
     text += "monoFontSize=" + std::to_string(app.monoFontSize) + "\n";
     text += "rowSpacing=" + std::to_string(static_cast<int>(app.rowSpacing)) + "\n";
+    text += "previewStep=" + std::to_string(app.previewStep) + "\n";
 
     DWORD written = 0;
     const BOOL ok = WriteFile(file, text.data(), static_cast<DWORD>(text.size()), &written, nullptr);
