@@ -4776,29 +4776,89 @@ void DrawStatusBar(AppState& app, const Layout& layout)
             position = visible;
     }
 
-    std::string right;
+    // --- la barra in fondo: viste, anteprime, ingrandimento --------------------
+    //
+    // Il riferimento mette qui i selettori di vista e la percentuale delle
+    // anteprime. Da noi la riga e' una sola — la barra di stato — e ci stanno
+    // tutti, costruiti da destra verso sinistra: ingrandimento, anteprime, viste,
+    // posizione.
+    const float textY = layout.statusBar.y + 4.0f * scale;
+    float penX = layout.statusBar.right() - 14.0f * scale;
+
+    const std::string zoomText =
+        std::to_string(static_cast<int>(app.zoom * 100.0f /
+                                        (app.dpiScale > 0.0f ? app.dpiScale : 1.0f))) + "%";
+    penX -= app.smallFont.Measure(zoomText, scale);
+    app.smallFont.Draw(r, penX, textY, zoomText, t.textDim, scale);
+    penX -= 18.0f * scale;
+
+    // Lo stepper delle anteprime: etichetta, −, valore, +.
+    {
+        const std::string percent =
+            std::to_string(static_cast<int>(app.PreviewZoom() * 100.0f)) + "%";
+        const float valueWidth = app.smallFont.Measure(percent, scale);
+        const float button     = 14.0f * scale;
+        const float plusX  = penX - button;
+        const float valueX = plusX - 8.0f * scale - valueWidth;
+        const float minusX = valueX - 8.0f * scale - button;
+        app.smallFont.Draw(r, plusX,  textY, "+", t.text, scale);
+        app.smallFont.Draw(r, valueX, textY, percent, t.text, scale);
+        app.smallFont.Draw(r, minusX, textY, "-", t.text, scale);
+        const std::string label = Tr("Anteprime", "Previews");
+        const float labelX = minusX - 10.0f * scale - app.smallFont.Measure(label, scale);
+        app.smallFont.Draw(r, labelX, textY, label, t.textDim, scale);
+
+        ClickTarget down;
+        down.rect  = Rect{minusX - 5.0f * scale, layout.statusBar.y, button + 10.0f * scale,
+                          layout.statusBar.h};
+        down.kind  = ClickTarget::Kind::PreviewDown;
+        app.clickTargets.push_back(down);
+        ClickTarget up;
+        up.rect = Rect{plusX - 5.0f * scale, layout.statusBar.y, button + 10.0f * scale,
+                       layout.statusBar.h};
+        up.kind = ClickTarget::Kind::PreviewUp;
+        app.clickTargets.push_back(up);
+
+        penX = labelX - 18.0f * scale;
+    }
+
+    // I quattro selettori di vista. E' l'unico posto dove si cambiano col
+    // puntatore, invece di passare dalla palette.
+    {
+        struct Choice { ViewMode mode; const char* it; const char* en; };
+        static const Choice kChoices[4] = {
+            {ViewMode::Details, "Dettagli", "Details"},
+            {ViewMode::List,    "Elenco",   "List"},
+            {ViewMode::Tiles,   "Riquadri", "Tiles"},
+            {ViewMode::Icons,   "Icone",    "Icons"},
+        };
+        for (int i = 3; i >= 0; --i)
+        {
+            const std::string label = Tr(kChoices[i].it, kChoices[i].en);
+            const float width = app.smallFont.Measure(label, scale) + 14.0f * scale;
+            const Rect chip{penX - width, layout.statusBar.y + 2.0f * scale, width,
+                            layout.statusBar.h - 4.0f * scale};
+            const bool active = (app.viewMode == kChoices[i].mode);
+            if (active)
+                r.FillRect(chip, t.accent.WithAlpha(0.22f), 3.0f * scale);
+            app.smallFont.Draw(r, chip.x + 7.0f * scale, TextY(layout, chip, app.smallFont),
+                               label, active ? t.text : t.textDim, scale);
+            ClickTarget target;
+            target.rect  = chip;
+            target.kind  = ClickTarget::Kind::ViewSelect;
+            target.index = static_cast<int>(kChoices[i].mode);
+            app.clickTargets.push_back(target);
+            penX -= width + 4.0f * scale;
+        }
+        penX -= 14.0f * scale;
+    }
+
     if (position > 0)
-        right = std::to_string(position) + " / " + std::to_string(visible);
-
-    // Le quattro viste dello spec, col nome che il riferimento da' loro nel menu.
-    // `List` c'era e non era nominata: cadeva su "Icons", quindi la vista a elenco si
-    // presentava come icona. Un nome che non c'e' non deve essere indovinato dal
-    // ramo di ripiego.
-    const char* view =
-        app.viewMode == ViewMode::Details ? Tr("Dettagli", "Details") :
-        app.viewMode == ViewMode::List    ? Tr("Elenco", "List") :
-        app.viewMode == ViewMode::Tiles   ? Tr("Riquadri", "Tiles") :
-                                            Tr("Icone", "Icons");
-    if (!right.empty())
-        right += "   |   ";
-    right += view;
-    right += "   |   ";
-    right += std::to_string(static_cast<int>(app.zoom * 100.0f / (app.dpiScale > 0.0f ? app.dpiScale : 1.0f)));
-    right += "%";
-
-    const float rightWidth = app.smallFont.Measure(right, scale);
-    app.smallFont.Draw(r, layout.statusBar.right() - rightWidth - 14.0f * scale,
-                       layout.statusBar.y + 4.0f * scale, right, t.textDim, scale);
+    {
+        const std::string pos = std::to_string(position) + " / " + std::to_string(visible);
+        const float width = app.smallFont.Measure(pos, scale);
+        app.smallFont.Draw(r, penX - width, textY, pos, t.textDim, scale);
+    }
 }
 
 // --- command palette: registry ----------------------------------------------
