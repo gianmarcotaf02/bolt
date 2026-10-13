@@ -4381,7 +4381,7 @@ void DrawInspector(AppState& app, const Layout& layout)
 
     if (selectedCount == 0 || cursorIndex < 0)
     {
-        app.font.Draw(r, layout.inspector.x + 14.0f * scale, y, "Nothing selected", t.textDim, scale);
+        app.font.Draw(r, layout.inspector.x + 14.0f * scale, y, Tr("Niente selezionato", "Nothing selected"), t.textDim, scale);
         return;
     }
 
@@ -4414,12 +4414,13 @@ void DrawInspector(AppState& app, const Layout& layout)
             }
         }
 
-        const std::string title = std::to_string(selectedCount) + " items selected";
+        const std::string title = std::to_string(selectedCount) + Tr(" elementi selezionati", " items selected");
         app.font.Draw(r, layout.inspector.x + 14.0f * scale, y, title, t.text, scale);
         y += 26.0f * scale;
 
         const std::string breakdown =
-            std::to_string(files) + " files, " + std::to_string(folders) + " folders";
+            std::to_string(files) + Tr(" file, ", " files, ") + std::to_string(folders) +
+            Tr(" cartelle", " folders");
         // Che tipi sono: "3 Documento di testo, 2 Cartella di file". Il conteggio
         // per tipo e' quello che dice cosa si sta per spostare o cancellare, e
         // l'inspector e' l'unico posto dove c'e' spazio per dirlo.
@@ -4436,8 +4437,8 @@ void DrawInspector(AppState& app, const Layout& layout)
                       return a.second > b.second;
                   });
         const std::pair<const char*, std::string> summary[] = {
-            {"Items", breakdown},
-            {"Size", HumanBytes(totalBytes)},
+            {Tr("Elementi", "Items"), breakdown},
+            {Tr("Dimensione", "Size"), HumanBytes(totalBytes)},
         };
         for (const auto& item : summary)
         {
@@ -4452,7 +4453,7 @@ void DrawInspector(AppState& app, const Layout& layout)
         for (size_t i = 0; i < types.size() && i < 4; ++i)
         {
             app.smallFont.Draw(r, layout.inspector.x + 14.0f * scale, y,
-                               (i == 0) ? "Types" : "", t.textDim, scale);
+                               (i == 0) ? Tr("Tipi", "Types") : "", t.textDim, scale);
             const float valueX = layout.inspector.x + 96.0f * scale;
             const float valueMax = layout.inspector.right() - valueX - 14.0f * scale;
             const std::string line = std::to_string(types[i].second) + " " + types[i].first;
@@ -4463,8 +4464,9 @@ void DrawInspector(AppState& app, const Layout& layout)
         if (types.size() > 4)
         {
             app.smallFont.Draw(r, layout.inspector.x + 96.0f * scale, y,
-                               "and " + std::to_string(types.size() - 4) + " more", t.textDim,
-                               scale);
+                               Tr("e altri ", "and ") + std::to_string(types.size() - 4) +
+                                   Tr("", " more"),
+                               t.textDim, scale);
         }
         return;
     }
@@ -7379,9 +7381,10 @@ void BuildContextMenu(AppState& app, float x, float y)
     menu.shellIsBackground = false;
 
     const size_t count = app.selection.size();
-    menu.subtitle = count == 0 ? std::string("niente selezionato")
-                               : std::to_string(count) +
-                                     (count == 1 ? " elemento" : " elementi");
+    menu.subtitle = count == 0
+                        ? std::string(Tr("niente selezionato", "nothing selected"))
+                        : std::to_string(count) +
+                              (count == 1 ? Tr(" elemento", " item") : Tr(" elementi", " items"));
 
     // Il menu si adatta al contesto: nel vuoto restano solo le voci che valgono
     // per la cartella, perche' offrire "Rinomina" senza niente da rinominare e'
@@ -7409,11 +7412,12 @@ void BuildContextMenu(AppState& app, float x, float y)
 
     if (count > 0)
     {
-        menu.items.push_back({"Apri", kContextOpen, false, namespaced && cursorIsFile});
-        menu.items.push_back({"Apri in Esplora risorse", CmdOpenExplorer, false, namespaced});
+        menu.items.push_back({Tr("Apri", "Open"), kContextOpen, false, namespaced && cursorIsFile});
+        menu.items.push_back({Tr("Apri in Esplora risorse", "Open in Explorer"), CmdOpenExplorer,
+                              false, namespaced});
         menu.items.push_back({"", 0, /*separator=*/true});
-        menu.items.push_back({"Taglia", CmdCut, false, namespaced});
-        menu.items.push_back({"Copia", CmdCopy, false, namespaced});
+        menu.items.push_back({Tr("Taglia", "Cut"), CmdCut, false, namespaced});
+        menu.items.push_back({Tr("Copia", "Copy"), CmdCopy, false, namespaced});
 
         // "Invia a" qui e non in fondo: e' dove sta in Esplora risorse, subito
         // dopo il blocco Taglia/Copia, e li' la mano lo cerca.
@@ -7422,17 +7426,18 @@ void BuildContextMenu(AppState& app, float x, float y)
         if (!ShellSendTo::Targets().empty())
         {
             ContextMenuItem sendTo;
-            sendTo.label      = "Invia a";
+            sendTo.label      = Tr("Invia a", "Send to");
             sendTo.lazySendTo = true;
             sendTo.disabled   = namespaced;
             menu.items.push_back(std::move(sendTo));
         }
         menu.items.push_back({"", 0, true});
-        menu.items.push_back({"Rinomina", CmdRename, false, namespaced});
-        menu.items.push_back({"Elimina", CmdDelete, false, namespaced});
-        menu.items.push_back({"Elimina definitivamente", CmdDeletePermanent, false, namespaced});
+        menu.items.push_back({Tr("Rinomina", "Rename"), CmdRename, false, namespaced});
+        menu.items.push_back({Tr("Elimina", "Delete"), CmdDelete, false, namespaced});
+        menu.items.push_back({Tr("Elimina definitivamente", "Delete permanently"),
+                              CmdDeletePermanent, false, namespaced});
         menu.items.push_back({"", 0, true});
-        menu.items.push_back({"Proprietà", kContextProperties, false, namespaced});
+        menu.items.push_back({Tr("Proprietà", "Properties"), kContextProperties, false, namespaced});
 
         // I verbi della shell stanno dopo i nostri: i nostri sono quelli che si
         // usano davvero, e non devono scendere sotto una lista lunga quanto le
@@ -7447,8 +7452,9 @@ void BuildContextMenu(AppState& app, float x, float y)
         AppendShellItems(app, menu);
     }
 
-    menu.items.push_back({count > 0 ? "Incolla qui" : "Incolla", CmdPaste, false, namespaced});
-    menu.items.push_back({"Nuova cartella", CmdNewFolder, false, namespaced});
+    menu.items.push_back({count > 0 ? Tr("Incolla qui", "Paste here") : Tr("Incolla", "Paste"),
+                          CmdPaste, false, namespaced});
+    menu.items.push_back({Tr("Nuova cartella", "New folder"), CmdNewFolder, false, namespaced});
 
     // "Nuovo file": i tipi che Windows sa creare, dal registro. Se il registro non
     // ne ha nessuno la voce non si mette, perche' un sottomenu vuoto non si spiega.
@@ -7457,15 +7463,16 @@ void BuildContextMenu(AppState& app, float x, float y)
     if (!ShellNew::Templates().empty())
     {
         ContextMenuItem newFile;
-        newFile.label       = "Nuovo file";
+        newFile.label       = Tr("Nuovo file", "New file");
         newFile.lazyNewFile = true;
         newFile.disabled    = namespaced;
         menu.items.push_back(std::move(newFile));
     }
 
     menu.items.push_back({"", 0, true});
-    menu.items.push_back({"Aggiorna", CmdRefresh});
-    menu.items.push_back({"Apri un terminale qui", CmdOpenConsole, false, namespaced});
+    menu.items.push_back({Tr("Aggiorna", "Refresh"), CmdRefresh});
+    menu.items.push_back({Tr("Apri un terminale qui", "Open a console here"), CmdOpenConsole, false,
+                          namespaced});
 
     DiagLog("  handle: dopo 'Nuovo file' +" +
             std::to_string(OpenHandleCount() - handlesStart));
