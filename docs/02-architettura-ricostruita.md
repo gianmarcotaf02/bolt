@@ -1347,10 +1347,13 @@ bastano per fortuna; appena il carattere cambia — ed e' proprio una delle opzi
 M9 aggiunge — la fortuna finisce.
 
 Nei titoli di colonna l'etichetta si accorcia con `FitText` allo spazio prima della
-colonna successiva, tolto il posto dell'imbuto del filtro. Nelle liste a gruppi
-l'etichetta e il dettaglio si dividono la riga: il dettaglio, quando c'e', si taglia
-**davanti** con `FitTextTail` — di un percorso la parte che dice dove si va e' la coda
-— e l'etichetta prende quello che avanza.
+colonna successiva, tolto il posto dell'imbuto del filtro, e le due colonne strette
+(`Folders`, `Files`) hanno ricevuto lo spazio che mancava: col carattere di partenza
+si legge il titolo intero accanto all'imbuto, e solo su una finestra stretta o con un
+carattere molto largo il titolo si accorcia invece di finire sopra il vicino. Nelle
+liste a gruppi l'etichetta e il dettaglio si dividono la riga: il dettaglio, quando
+c'e', si taglia **davanti** con `FitTextTail` — di un percorso la parte che dice dove
+si va e' la coda — e l'etichetta prende quello che avanza.
 
 **Verificato a schermo**, non dedotto: con `Consolas` 16 i titoli restano separati e
 il percorso lungo del GoTo diventa `...\analysis\tmp\sandbox` invece di finire sopra
