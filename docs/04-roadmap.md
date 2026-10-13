@@ -185,10 +185,14 @@ Feature separata e più piccola, dedotta dalla tabella `AT_*` e dagli import
 
 ---
 
-## M4 — Ranking dei recenti ⬜
+## M4 — Ranking dei recenti 🟡
 
 - [ ] ricostruire la formula da `Score`, `Decay`, `Ordinal`
+- [x] la sezione **`RECENTS`** nella barra laterale: le cartelle visitate, la piu'
+      recente per prima, col nome della cartella. E' l'ordine di visita, non ancora
+      un punteggio, e vale per la **sessione** (`StoreRecents: Session`)
 - [ ] distinguere i tre modi di `StoreRecents`: `LocalDisk`, `Persistent`, `Session`
+- [ ] i **file** aperti, non solo le cartelle
 - [ ] integrare con la finestra GoTo e i gruppi di accesso rapido
 
 **Domanda per REA:** nella funzione che scrive `"Score": %d,` e `"Decay": %d,`,
