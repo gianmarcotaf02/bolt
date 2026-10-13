@@ -49,7 +49,7 @@ lavorano i file — inclusa l'apertura delle proprietà di Windows.
 
 Ordinato per quanto morde.
 
-1. **`src/main.cpp` è a 10.731 righe.** I confini dei componenti ci sono
+1. **`src/main.cpp` è a 10.812 righe.** I confini dei componenti ci sono
    (`GroupMenu`, `ContextMenu`, `file_ops`, `dir_stats`, `shell_*`, `drag_drop`)
    ma quelli della vista vivono tutti nello stesso file. Spezzarlo richiede che
    `AppState` e i tipi condivisi escano dall'anonimo namespace in un header: è un
@@ -103,7 +103,7 @@ In ordine di valore, non di facilità.
    normali escono davvero, ma una voce **riciclata** non viene presa (la
    destinazione dichiara "copia" e non copia). La causa non è ricostruita: §7.34 di
    `docs/02`. Se non si trova, resta un limite dichiarato.
-3. **Spezzare `main.cpp`** — **~10.731 righe** e dodici moduli: il confine c'è, ma il
+3. **Spezzare `main.cpp`** — **~10.812 righe** e dodici moduli: il confine c'è, ma il
    file che lo contiene resta il collo di bottiglia dichiarato fin dall'inizio.
 
 

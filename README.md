@@ -25,7 +25,7 @@ reimplementato in modo indipendente.
 | **Navigazione**: doppio click, Backspace, Enter, F5 | ✅ funzionante |
 | **Breadcrumb cliccabile** | ✅ funzionante |
 | **Colonne ordinabili + troncamento** | ✅ funzionante |
-| **Inspector con metadati reali** | ✅ funzionante |
+| **Inspector con metadati reali** | ✅ funzionante (testo, anteprima immagine con griglia di sfondo `InspectorHideGrid`, proprietà shell) |
 | Quick access con cartelle note di sistema | ✅ funzionante, con la sezione **`RECENTS`** di sessione |
 | **Anteprime (thumbnail)** | ✅ funzionante (`IShellItemImageFactory`, atlas dedicato, cache LRU) |
 | **Statistiche di cartella** (job `SumDirStats`) | ✅ funzionante (worker per profilo di volume, budget di tempo, risultati progressivi) |
