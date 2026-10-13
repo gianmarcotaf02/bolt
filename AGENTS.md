@@ -487,6 +487,7 @@ rettangolo ha bordi continui a qualunque dimensione.
 | `src/shell_preview.*` | anteprime via `IShellItemImageFactory` → strato 2, worker MTA |
 | `src/dir_stats.*` | statistiche ricorsive: job, profili di volume, budget di tempo riprendibile |
 | `src/file_ops.*` | copia, sposta, rinomina, cestino via `IFileOperation`; clipboard `CF_HDROP` |
+| `src/language.*` | quale delle due lingue si mostra, con `Tr`/`TrW` e i conteggi (`Copiato 1 elemento` / `Copiati 3 elementi`); le coppie di stringhe restano dove si usano |
 | `src/gl_loader.*` | entry point OpenGL 3.3 caricate a runtime |
 | `src/bolt.rc`, `src/resource.h` | icona incorporata, da `brand/bolt.ico` |
 | `tools/` | cattura, input sintetico, `handle-count.ps1` (costo o perdita) |
@@ -496,7 +497,7 @@ rettangolo ha bordi continui a qualunque dimensione.
 
 - `docs/04-roadmap.md` — le milestone, con le caselle spuntate e i difetti aperti.
 - `docs/05-stato-e-prossimi-passi.md` — dove si è arrivati, cosa resta, le trappole.
-- `docs/02-architettura-ricostruita.md` — l'architettura e i **quaranta** difetti
+- `docs/02-architettura-ricostruita.md` — l'architettura e i **quarantuno** difetti
   trovati e risolti, §7.
 - `docs/03-spec-funzionale.md` — la spec ricostruita dall'originale: 1124 chiavi,
   319 comandi, 35 token di tema, 23 colonne.
