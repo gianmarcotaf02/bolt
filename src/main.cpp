@@ -8000,6 +8000,92 @@ bool ContextMenuHover(AppState& app, const Layout& layout, float x, float y)
     return true;
 }
 
+// Il disegno del controllo dentro una riga di opzione. Il tipo decide la forma,
+// e una opzione spenta si vede spenta invece di sparire: e' la lezione del
+// riferimento, dove `System Light / Dark Scheme` sta li' ma non si tocca.
+void DrawOptionControl(AppState& app, const Layout& layout, const GroupMenuItem& item,
+                       const Rect& control)
+{
+    UIRenderer& r = app.renderer;
+    const Theme& t = app.theme;
+    const float scale = layout.scale;
+    const Color ink  = item.enabled ? t.text : t.textDim.WithAlpha(0.55f);
+    const Color line = item.enabled ? t.panelBorder : t.separator;
+
+    switch (item.control)
+    {
+        case OptionControl::Toggle:
+        {
+            const Color track = item.enabled ? (item.toggleOn ? t.accent : t.panelBorder) : t.separator;
+            r.Draw(UIDraw::Fill(control, track, control.h * 0.5f));
+            const float knob = control.h - 4.0f * scale;
+            const float x = item.toggleOn ? control.right() - knob - 2.0f * scale
+                                          : control.x + 2.0f * scale;
+            r.Draw(UIDraw::Fill(Rect{x, control.y + 2.0f * scale, knob, knob},
+                                item.enabled ? Color{0.98f, 0.99f, 1.0f, 1.0f}
+                                             : t.textDim.WithAlpha(0.55f), knob * 0.5f));
+            break;
+        }
+        case OptionControl::Stepper:
+        {
+            r.Draw(UIDraw::Fill(control, t.windowBg, 4.0f * scale));
+            r.Draw(UIDraw::Border(control, line, 1.0f, 4.0f * scale));
+            const float box = control.w / 3.0f;
+            const float textY = TextY(layout, control, app.font);
+            app.font.Draw(r, control.x + box * 0.42f, textY, "-", ink, scale);
+            app.font.Draw(r, control.right() - box * 0.58f, textY, "+", ink, scale);
+            const float w = app.font.Measure(item.valueText, scale);
+            app.font.Draw(r, control.x + (control.w - w) * 0.5f, textY, item.valueText, ink, scale);
+            break;
+        }
+        case OptionControl::Slider:
+        {
+            const float knob   = control.h * 0.5f;
+            const float trackH = 4.0f * scale;
+            const Rect  track{control.x + knob, control.y + (control.h - trackH) * 0.5f,
+                              (std::max)(1.0f, control.w - knob * 2.0f), trackH};
+            r.Draw(UIDraw::Fill(track, item.enabled ? t.panelBorder : t.separator, trackH * 0.5f));
+            float fraction = item.fraction;
+            fraction = (fraction < 0.0f) ? 0.0f : (fraction > 1.0f ? 1.0f : fraction);
+            const float filled = track.w * fraction;
+            if (filled > 0.0f)
+                r.Draw(UIDraw::Fill(Rect{track.x, track.y, filled, track.h},
+                                    item.enabled ? t.accent : t.separator, trackH * 0.5f));
+            r.Draw(UIDraw::Fill(Rect{track.x + filled - knob, control.y, knob * 2.0f, knob * 2.0f},
+                                item.enabled ? Color{0.95f, 0.96f, 1.0f, 1.0f}
+                                             : t.textDim.WithAlpha(0.55f), knob));
+            break;
+        }
+        case OptionControl::Text:
+        {
+            const bool editing = app.optionEditActive && app.optionEditId == item.id;
+            r.Draw(UIDraw::Fill(control, t.windowBg, 4.0f * scale));
+            r.Draw(UIDraw::Border(control, editing ? t.accent : line, 1.0f, 4.0f * scale));
+            const std::string shown = editing ? app.optionEditText : item.valueText;
+            const float textY = TextY(layout, control, app.font);
+            app.font.Draw(r, control.x + 8.0f * scale, textY, shown, ink, scale);
+            if (editing)
+            {
+                const float caretX = control.x + 8.0f * scale + app.font.Measure(shown, scale) + 1.0f * scale;
+                r.FillRect(Rect{caretX, control.y + 4.0f * scale, 1.0f, control.h - 8.0f * scale}, t.text);
+            }
+            break;
+        }
+        case OptionControl::Choice:
+        {
+            r.Draw(UIDraw::Fill(control, t.windowBg, 4.0f * scale));
+            r.Draw(UIDraw::Border(control, line, 1.0f, 4.0f * scale));
+            const float textY = TextY(layout, control, app.smallFont);
+            app.smallFont.Draw(r, control.x + 10.0f * scale, textY, item.valueText, ink, scale);
+            app.smallFont.Draw(r, control.right() - 16.0f * scale,
+                               TextY(layout, control, app.smallFont), ">", ink, scale);
+            break;
+        }
+        default:
+            break;
+    }
+}
+
 void GroupMenuDraw(AppState& app, const Layout& layout, GroupMenu& menu)
 {
     if (!menu.open)
@@ -8032,15 +8118,11 @@ void GroupMenuDraw(AppState& app, const Layout& layout, GroupMenu& menu)
 
     const float listTop    = panel.y + 58.0f * scale;
     const float listBottom = panel.bottom() - 26.0f * scale;
-    const float rowHeight  = layout.rowHeight;
+    const float rowHeight  = MenuRowHeight(layout, menu);
     r.FillRect(Rect{panel.x + 1.0f, listTop - 4.0f * scale, panel.w - 2.0f, 1.0f}, t.separator);
 
-    const int visibleRows = (std::max)(1, static_cast<int>((listBottom - listTop) / rowHeight));
-    int firstVisible = 0;
-    if (menu.selected >= firstVisible + visibleRows)
-        firstVisible = menu.selected - visibleRows + 1;
-    if (menu.selected < firstVisible)
-        firstVisible = menu.selected;
+    const int firstVisible =
+        GroupMenuFirstVisible(menu, listTop, listBottom, rowHeight);
 
     for (int i = firstVisible; i < static_cast<int>(menu.rows.size()); ++i)
     {
@@ -8071,6 +8153,25 @@ void GroupMenuDraw(AppState& app, const Layout& layout, GroupMenu& menu)
         if (i == menu.selected)
             r.FillRect(rowRect, t.rowSelected, 3.0f * scale);
 
+        // La riga del pannello delle opzioni: nome, descrizione e controllo. Non
+        // lascia un bersaglio da clic perche' la geometria la rifa' `OptionsClick`:
+        // due calcoli della stessa riga sono due occasioni di non essere d'accordo.
+        if (menu.richRows)
+        {
+            const Color nameInk = item.enabled ? t.text : t.textDim.WithAlpha(0.6f);
+            const Color descInk = item.enabled ? t.textDim : t.textDim.WithAlpha(0.45f);
+            app.font.Draw(r, rowRect.x + 14.0f * scale, rowRect.y + 7.0f * scale,
+                          item.label, nameInk, scale);
+            const Rect control = OptionControlRect(layout, item, rowRect);
+            const float descMax = control.x - (rowRect.x + 14.0f * scale) - 16.0f * scale;
+            if (descMax > 24.0f)
+                app.smallFont.Draw(r, rowRect.x + 14.0f * scale, rowRect.y + 27.0f * scale,
+                                   FitText(app.smallFont, item.description, scale, descMax),
+                                   descInk, scale);
+            DrawOptionControl(app, layout, item, control);
+            continue;
+        }
+
         app.font.Draw(r, rowRect.x + 14.0f * scale, TextY(layout, rowRect, app.font),
                       item.label, t.text, scale);
 
@@ -8087,6 +8188,26 @@ void GroupMenuDraw(AppState& app, const Layout& layout, GroupMenu& menu)
         target.kind  = ClickTarget::Kind::MenuRow;
         target.index = row.item;
         app.clickTargets.push_back(target);
+    }
+
+    // La barra di scorrimento, quando le righe non ci stanno tutte: con venti
+    // opzioni il cursore va giu' ma il pollice e' l'unica cosa che dice quanto
+    // lungo sia l'elenco.
+    if (menu.richRows)
+    {
+        const float total = static_cast<float>(menu.rows.size()) * rowHeight;
+        const float room  = listBottom - listTop;
+        if (total > room)
+        {
+            const float barW = 4.0f * scale;
+            const Rect  track{panel.right() - 10.0f * scale, listTop, barW, room};
+            r.Draw(UIDraw::Fill(track, t.separator, barW * 0.5f));
+            const float thumbH = (std::max)(24.0f * scale, room * room / total);
+            const float maxOffset = (std::max)(1.0f, total - room);
+            const float offset = (firstVisible * rowHeight) / maxOffset;
+            r.Draw(UIDraw::Fill(Rect{track.x, track.y + (room - thumbH) * offset, barW, thumbH},
+                                t.scrollThumb, barW * 0.5f));
+        }
     }
 
     const std::string footer = std::to_string(menu.matchCount) + " of " +
