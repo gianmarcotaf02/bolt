@@ -177,7 +177,8 @@ float4 main(VSOutput input) : SV_Target
 
     float feather = max(input.softness, 1.0);
     float inset   = input.strokeWidth * 0.5;
-    float4 radius = max(input.radius, input.strokeWidth.xxxx);
+    float4 radius = max(input.radius, float4(input.strokeWidth, input.strokeWidth,
+                                            input.strokeWidth, input.strokeWidth));
 
     float2 innerHalf = max(halfSize - float2(inset + input.softness, inset + input.softness),
                            float2(0.0, 0.0));
@@ -209,9 +210,13 @@ bool CompileStage(const char* source, const char* entry, const char* target, std
     {
         if (error != nullptr)
         {
-            *error = std::string("HLSL ") + entry + " failed to compile:\n";
+            char code[48];
+            std::snprintf(code, sizeof(code), " (0x%08lX)", static_cast<unsigned long>(hr));
+            *error = std::string("HLSL ") + entry + " failed to compile" + code + ":\n";
             if (messages != nullptr)
                 *error += static_cast<const char*>(messages->GetBufferPointer());
+            else
+                *error += "(nessun messaggio dal compilatore)";
         }
         if (messages != nullptr)
             messages->Release();
@@ -278,8 +283,8 @@ bool D3D11Renderer::Initialize(std::string* error)
 
     ID3DBlob* vertexBlob = nullptr;
     ID3DBlob* pixelBlob  = nullptr;
-    if (!CompileStage(kVertexShader, "main", "vs_4_0", error, &vertexBlob) ||
-        !CompileStage(kPixelShader, "main", "ps_4_0", error, &pixelBlob))
+    if (!CompileStage(kVertexShader, "main", "vs_5_0", error, &vertexBlob) ||
+        !CompileStage(kPixelShader, "main", "ps_5_0", error, &pixelBlob))
     {
         if (vertexBlob != nullptr) vertexBlob->Release();
         if (pixelBlob != nullptr) pixelBlob->Release();
