@@ -26,16 +26,16 @@ reimplementato in modo indipendente.
 | **Breadcrumb cliccabile** | ✅ funzionante |
 | **Colonne ordinabili + troncamento** | ✅ funzionante |
 | **Inspector con metadati reali** | ✅ funzionante |
-| Quick access con cartelle note di sistema | ✅ funzionante |
+| Quick access con cartelle note di sistema | ✅ funzionante, con la sezione **`RECENTS`** di sessione |
 | **Anteprime (thumbnail)** | ✅ funzionante (`IShellItemImageFactory`, atlas dedicato, cache LRU) |
 | **Statistiche di cartella** (job `SumDirStats`) | ✅ funzionante (worker per profilo di volume, budget di tempo, risultati progressivi) |
-| **Filtro e raggruppamento** | ✅ funzionante (filtro incrementale e per tipo, 5 dimensioni di raggruppamento, bande collassabili) |
+| **Filtro e raggruppamento** | ✅ funzionante (filtro incrementale e per tipo, filtro del nome dalla linguetta della colonna, 5 dimensioni di raggruppamento, bande collassabili) |
 | **Selezione multipla e rettangolare** | ✅ funzionante (Ctrl/Shift+click, banda, Ctrl+A) |
-| **Modalità di visualizzazione** | ✅ Details, List, Tiles, Icons |
+| **Modalità di visualizzazione** | ✅ Details, List, Tiles, Icons, con i **selettori nella barra in fondo** e la misura delle anteprime (0/50/100%) |
 | **Sovrappasso del mouse** | ✅ evidenzia riga o cella, si spegne uscendo dalla finestra |
 | **Due corpi di testo** | ✅ 15 px per il contenuto, 13 px per il secondario |
 | **Tab multipli** con barra del titolo propria | ✅ funzionante (senza drag&drop né albero dei tab) |
-| **Command palette** a gruppi collassabili | ✅ funzionante (31 comandi + le cartelle note) |
+| **Command palette** a gruppi collassabili | ✅ funzionante (72 comandi + le cartelle note) |
 | **Finestra GoTo** con recenti e segnalibri | ✅ funzionante (di sessione) |
 | Cronologia di navigazione per tab | ✅ funzionante (`Alt`+`←` / `Alt`+`→`) |
 | Quick access pinnato, drag&drop dei tab | ⬜ milestone 6 |
