@@ -6431,11 +6431,15 @@ void RunCommand(AppState& app, int command)
     }
 }
 
-Rect GroupMenuPanel(const AppState& app, const Layout& layout)
+Rect GroupMenuPanel(const AppState& app, const Layout& layout, const GroupMenu& menu)
 {
     const float scale = layout.scale;
-    const float width  = (std::min)(560.0f * scale, static_cast<float>(app.viewportWidth) - 60.0f * scale);
-    const float height = (std::min)(420.0f * scale, static_cast<float>(app.viewportHeight) - 90.0f * scale);
+    // Il pannello delle opzioni ha bisogno di piu' larghezza: una descrizione
+    // accanto a un controllo, dentro 560 px, non ci sta.
+    const float maxWidth = menu.richRows ? 760.0f : 560.0f;
+    const float width  = (std::min)(maxWidth * scale, static_cast<float>(app.viewportWidth) - 60.0f * scale);
+    const float height = (std::min)((menu.richRows ? 560.0f : 420.0f) * scale,
+                                    static_cast<float>(app.viewportHeight) - 90.0f * scale);
     return Rect{(static_cast<float>(app.viewportWidth) - width) * 0.5f, 70.0f * scale, width, height};
 }
 
