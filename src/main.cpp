@@ -4509,6 +4509,126 @@ void DrawTextViewer(AppState& app, const Layout& layout, const Rect& area)
     }
 }
 
+// Riempie le righe che descrivono |entry|: le stesse per l'inspector e per il
+// pannello delle proprieta'. Non disegna e non sa dove finiranno, perche' quello
+// che sa e' chi le mostra. `app` non e' costante: chiedere le statistiche di una
+// cartella e' una richiesta, e la richiesta parte da qui.
+void BuildInspectorRows(AppState& app, const Entry& entry, std::vector<InspectorRow>* out)
+{
+    std::vector<InspectorRow>& rows = *out;
+    rows.clear();
+
+    // Un **volume** non e' una cartella: le sue dimensioni sono la capacita' del
+    // disco, non la somma di quello che c'e' dentro, e le statistiche ricorsive li'
+    // non hanno niente da camminare. Prima si chiedeva lo stesso il conto, e per un
+    // disco l'inspector rispondeva "0 B, 0 cartelle, 0 file": un numero falso detto
+    // con sicurezza, che e' peggio di nessun numero.
+    const std::wstring full = EntryLocation(app, entry);
+    const VolumeInfo volume = VolumeOf(full);
+    const bool fromNamespace = !entry.location.empty();
+
+    // Folder numbers, if the panel is counting them. Asking here covers the
+    // selected row even when it has scrolled out of view.
+    DirStats stats;
+    bool hasStats = false;
+    if (entry.isDirectory && !volume.isVolume && !fromNamespace)
+    {
+        app.stats.Request(full);
+        hasStats = app.stats.TryGet(full, &stats);
+    }
+
+    // Una voce di una cartella di spazio dei nomi — un file riciclato — la descrive
+    // **la shell**, con le sue colonne: tipo, dimensione, date, percorso originale,
+    // data di eliminazione, attributi, proprietario. Sono le stesse informazioni che
+    // darebbero le righe qui sotto, piu' quelle che solo il cestino sa. Mostrarle
+    // tutte e due riempirebbe il pannello di righe ripetute, quindi per queste voci
+    // si usa la vista della shell e basta.
+    const bool shellColumns = !entry.pidl.empty();
+    if (shellColumns)
+    {
+        for (const ShellLocation::Column& column : ShellLocation::Columns(entry.pidl))
+        {
+            if (rows.size() >= 11)
+                break;   // oltre, le righe uscirebbero dal pannello
+            rows.push_back({ToUtf8(column.title), ToUtf8(column.value), false});
+        }
+    }
+
+    if (!shellColumns)
+        rows.push_back({"Type", entry.typeText, false});
+    if (volume.isVolume)
+    {
+        if (!volume.totalText.empty())
+            rows.push_back({"Size", volume.totalText, false});
+    }
+    else if (!shellColumns && entry.isDirectory)
+    {
+        const bool growing = hasStats && stats.partial;
+        rows.push_back({"Size",    hasStats ? HumanBytes(stats.logicalBytes)
+                                               : Tr("conteggio...", "counting..."), growing});
+        rows.push_back({"Folders", hasStats ? HumanCount(stats.folders) : "--", growing});
+        rows.push_back({"Files",   hasStats ? HumanCount(stats.files) : "--", growing});
+    }
+    else if (!shellColumns)
+    {
+        rows.push_back({"Size", entry.sizeText, false});
+    }
+    // Le date che il file system da' e che non si vedevano: la creazione e l'ultimo
+    // accesso. Un tempo a zero non e' il 1601, e' "non lo so": la riga non si mette,
+    // e vale anche per la modifica — un volume non ne ha una, e una riga con
+    // l'etichetta e niente accanto non dice niente.
+    const auto dated = [](const FILETIME& time) {
+        return time.dwLowDateTime != 0 || time.dwHighDateTime != 0;
+    };
+    if (!shellColumns)
+    {
+        if (dated(entry.created))
+            rows.push_back({"Created", FormatFileTime(entry.created, /*withTime=*/true), false});
+        if (dated(entry.modified))
+            rows.push_back({"Modified", entry.modifiedFull, false});
+        if (dated(entry.accessed))
+            rows.push_back({"Accessed", FormatFileTime(entry.accessed, /*withTime=*/true), false});
+    }
+
+    // Le proprieta' che il file system non dice: le dimensioni di un'immagine le sa
+    // il gestore di quel tipo, e le risponde la shell.
+    const FileProperties& properties = PropertiesOf(app, full);
+    if (properties.imageWidth > 0 && properties.imageHeight > 0)
+    {
+        rows.push_back({"Image", std::to_string(properties.imageWidth) + " x " +
+                                     std::to_string(properties.imageHeight) + " px",
+                        false});
+    }
+
+    // Un volume: il file system e lo spazio. Sono proprieta' del volume, non del
+    // file che ci sta sopra, e si chiedono al sistema.
+    if (volume.isVolume)
+    {
+        if (!volume.fileSystem.empty())
+            rows.push_back({"System", volume.fileSystem, false});
+        if (!volume.freeText.empty())
+        {
+            char free[96];
+            std::snprintf(free, sizeof(free), Tr("%s liberi (%d%% usato)", "%s free (%d%% used)"),
+                          volume.freeText.c_str(),
+                          static_cast<int>(volume.usedFraction * 100.0f));
+            rows.push_back({"Space", free, false});
+        }
+    }
+
+    // Il percorso: e' la riga che si copia, e l'unica che dice *dove* si sta
+    // guardando. Si taglia davanti.
+    rows.push_back({"Path", ToUtf8(full), false, /*tail=*/true});
+
+    // "Ext" solo per quello che un'estensione ce l'ha: una riga con l'etichetta e
+    // niente accanto occupa lo spazio di una che direbbe qualcosa. E il trattino
+    // lungo che c'era prima non era nemmeno un carattere che l'atlante conosceva:
+    // a schermo si vedeva un buco, non un trattino.
+    if (!entry.extension.empty())
+        rows.push_back({"Ext", entry.extension, false});
+
+}
+
 void DrawInspector(AppState& app, const Layout& layout)
 {
     IRenderer& r = *app.renderer;
@@ -4681,121 +4801,11 @@ void DrawInspector(AppState& app, const Layout& layout)
         y += 46.0f * scale;
     }
 
-    // Un **volume** non e' una cartella: le sue dimensioni sono la capacita' del
-    // disco, non la somma di quello che c'e' dentro, e le statistiche ricorsive li'
-    // non hanno niente da camminare. Prima si chiedeva lo stesso il conto, e per un
-    // disco l'inspector rispondeva "0 B, 0 cartelle, 0 file": un numero falso detto
-    // con sicurezza, che e' peggio di nessun numero.
-    const std::wstring full = EntryLocation(app, entry);
-    const VolumeInfo volume = VolumeOf(full);
-    const bool fromNamespace = !entry.location.empty();
+    std::vector<InspectorRow> rows;
+    BuildInspectorRows(app, entry, &rows);
 
-    // Folder numbers, if the panel is counting them. Asking here covers the
-    // selected row even when it has scrolled out of view.
-    DirStats stats;
-    bool hasStats = false;
-    if (entry.isDirectory && !volume.isVolume && !fromNamespace)
-    {
-        app.stats.Request(full);
-        hasStats = app.stats.TryGet(full, &stats);
-    }
+    for (const InspectorRow& row : rows)
 
-    // L'etichetta non e' per forza una costante: le colonne della shell hanno i nomi
-    // che sceglie lei, e sono tradotti.
-    struct Row { std::string label; std::string value; bool growing; bool tail = false; };
-    std::vector<Row> rows;
-
-    // Una voce di una cartella di spazio dei nomi — un file riciclato — la descrive
-    // **la shell**, con le sue colonne: tipo, dimensione, date, percorso originale,
-    // data di eliminazione, attributi, proprietario. Sono le stesse informazioni che
-    // darebbero le righe qui sotto, piu' quelle che solo il cestino sa. Mostrarle
-    // tutte e due riempirebbe il pannello di righe ripetute, quindi per queste voci
-    // si usa la vista della shell e basta.
-    const bool shellColumns = !entry.pidl.empty();
-    if (shellColumns)
-    {
-        for (const ShellLocation::Column& column : ShellLocation::Columns(entry.pidl))
-        {
-            if (rows.size() >= 11)
-                break;   // oltre, le righe uscirebbero dal pannello
-            rows.push_back({ToUtf8(column.title), ToUtf8(column.value), false});
-        }
-    }
-
-    if (!shellColumns)
-        rows.push_back({"Type", entry.typeText, false});
-    if (volume.isVolume)
-    {
-        if (!volume.totalText.empty())
-            rows.push_back({"Size", volume.totalText, false});
-    }
-    else if (!shellColumns && entry.isDirectory)
-    {
-        const bool growing = hasStats && stats.partial;
-        rows.push_back({"Size",    hasStats ? HumanBytes(stats.logicalBytes)
-                                               : Tr("conteggio...", "counting..."), growing});
-        rows.push_back({"Folders", hasStats ? HumanCount(stats.folders) : "--", growing});
-        rows.push_back({"Files",   hasStats ? HumanCount(stats.files) : "--", growing});
-    }
-    else if (!shellColumns)
-    {
-        rows.push_back({"Size", entry.sizeText, false});
-    }
-    // Le date che il file system da' e che non si vedevano: la creazione e l'ultimo
-    // accesso. Un tempo a zero non e' il 1601, e' "non lo so": la riga non si mette,
-    // e vale anche per la modifica — un volume non ne ha una, e una riga con
-    // l'etichetta e niente accanto non dice niente.
-    const auto dated = [](const FILETIME& time) {
-        return time.dwLowDateTime != 0 || time.dwHighDateTime != 0;
-    };
-    if (!shellColumns)
-    {
-        if (dated(entry.created))
-            rows.push_back({"Created", FormatFileTime(entry.created, /*withTime=*/true), false});
-        if (dated(entry.modified))
-            rows.push_back({"Modified", entry.modifiedFull, false});
-        if (dated(entry.accessed))
-            rows.push_back({"Accessed", FormatFileTime(entry.accessed, /*withTime=*/true), false});
-    }
-
-    // Le proprieta' che il file system non dice: le dimensioni di un'immagine le sa
-    // il gestore di quel tipo, e le risponde la shell.
-    const FileProperties& properties = PropertiesOf(app, full);
-    if (properties.imageWidth > 0 && properties.imageHeight > 0)
-    {
-        rows.push_back({"Image", std::to_string(properties.imageWidth) + " x " +
-                                     std::to_string(properties.imageHeight) + " px",
-                        false});
-    }
-
-    // Un volume: il file system e lo spazio. Sono proprieta' del volume, non del
-    // file che ci sta sopra, e si chiedono al sistema.
-    if (volume.isVolume)
-    {
-        if (!volume.fileSystem.empty())
-            rows.push_back({"System", volume.fileSystem, false});
-        if (!volume.freeText.empty())
-        {
-            char free[96];
-            std::snprintf(free, sizeof(free), Tr("%s liberi (%d%% usato)", "%s free (%d%% used)"),
-                          volume.freeText.c_str(),
-                          static_cast<int>(volume.usedFraction * 100.0f));
-            rows.push_back({"Space", free, false});
-        }
-    }
-
-    // Il percorso: e' la riga che si copia, e l'unica che dice *dove* si sta
-    // guardando. Si taglia davanti.
-    rows.push_back({"Path", ToUtf8(full), false, /*tail=*/true});
-
-    // "Ext" solo per quello che un'estensione ce l'ha: una riga con l'etichetta e
-    // niente accanto occupa lo spazio di una che direbbe qualcosa. E il trattino
-    // lungo che c'era prima non era nemmeno un carattere che l'atlante conosceva:
-    // a schermo si vedeva un buco, non un trattino.
-    if (!entry.extension.empty())
-        rows.push_back({"Ext", entry.extension, false});
-
-    for (const Row& row : rows)
     {
         // L'etichetta si tronca alla colonna che ha: una colonna della shell puo'
         // chiamarsi "Posizione originale" e finire sopra il valore.
