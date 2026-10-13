@@ -22,6 +22,7 @@
 #include "file_ops.h"
 #include "font_atlas.h"
 #include "image_preview.h"
+#include "language.h"
 #include "gl_loader.h"
 #include "resource.h"
 #include "shell_icons.h"
@@ -236,38 +237,9 @@ struct Group
 // can actually carry out, which is the honest place to start.
 // --- lingua ------------------------------------------------------------------
 //
-// La lingua si sceglie dalla palette e vale per la **sessione**: `docs/06` vieta di
-// scrivere un file di impostazioni di nascosto, e prevede che la persistenza, se
-// servira' davvero, sia un comando esplicito che dice cosa salva. Predefinita:
-// italiano.
-enum class Language { Italian, English };
-Language gLanguage = Language::Italian;
-
-// Le due lingue di una stringa. Le coppie stanno **dove si usa la stringa**, non in
-// un file di traduzioni: si legge cosa diventa senza doverlo cercare altrove, e
-// aggiungere una stringa non e' un'operazione in due posti.
-const char* Tr(const char* italian, const char* english)
-{
-    return gLanguage == Language::English ? english : italian;
-}
-std::wstring TrW(const wchar_t* italian, const wchar_t* english)
-{
-    return gLanguage == Language::English ? english : italian;
-}
-
-// "3 elementi" / "1 elemento". I messaggi di stato e i contatori lo dicono
-// spesso, e un "1 elementi" si vede subito. L'inglese non cambia il verbo, quindi
-// |en| e' uno solo.
-std::wstring CountItems(size_t count)
-{
-    return std::to_wstring(count) + L" " +
-           TrW(count == 1 ? L"elemento" : L"elementi", count == 1 ? L"item" : L"items");
-}
-
-std::wstring VerbItems(size_t count, const wchar_t* oneIt, const wchar_t* manyIt, const wchar_t* en)
-{
-    return TrW(count == 1 ? oneIt : manyIt, en) + CountItems(count);
-}
+// Quale delle due lingue si mostra lo decide `language.h/.cpp`: la scelta vale per
+// tutta l'applicazione, e anche `file_ops.cpp` ha i suoi messaggi. Le coppie di
+// stringhe restano qui, accanto a chi le usa.
 
 enum CommandId
 {

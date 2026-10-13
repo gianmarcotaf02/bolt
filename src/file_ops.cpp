@@ -1,4 +1,5 @@
 #include "file_ops.h"
+#include "language.h"
 
 // WIN32_LEAN_AND_MEAN esclude shellapi.h da windows.h, ma shlobj.h ha bisogno
 // dei tipi che ci stanno dentro: HDROP, DragQueryFileW e i flag FOF_*.
@@ -229,7 +230,8 @@ FileOps::Result RunOperation(HWND owner, DWORD flags, std::vector<std::wstring>*
     if (FAILED(hr))
     {
         if (error != nullptr)
-            *error = L"Impossibile avviare l'operazione: " + DescribeHresult(hr);
+            *error = TrW(L"Impossibile avviare l'operazione: ",
+                         L"Could not start the operation: ") + DescribeHresult(hr);
         return FileOps::Result::Failed;
     }
 
@@ -277,7 +279,8 @@ FileOps::Result Transfer(HWND owner, const std::vector<std::wstring>& sources,
              destination[source.size()] == L'\\'))
         {
             if (error != nullptr)
-                *error = L"Non si puo' copiare una cartella dentro se stessa.";
+                *error = TrW(L"Non si puo' copiare una cartella dentro se stessa.",
+                             L"A folder cannot be copied into itself.");
             return FileOps::Result::Failed;
         }
     }
