@@ -446,15 +446,15 @@ movimento.
 - [x] finestra GoTo con recenti e segnalibri
 - [x] componente menu a gruppi, condiviso da palette e GoTo
 - [x] cronologia di navigazione per tab (`Alt`+`←` / `Alt`+`→`)
-- [ ] drag&drop dei tab (`TabDropMarker_*`)
-- [ ] albero dei tab (`CloseInTree`, `CloseAllInTree`)
+- [x] drag&drop dei tab (`TabDropMarker_*`): dentro un altro tab si diventa figli,
+      sui bordi fratelli prima o dopo; un tab non entra in un proprio discendente
+- [x] albero dei tab (`CloseInTree`, `CloseAllInTree`, `DetachTab`) — **verificato**
 - [x] **barra laterale a sezioni** — QUICK ACCESS (i fissaggi della shell),
       BOOKMARKS, STORAGE (i volumi con occupazione e spazio libero), PLACES — tutte
       richiudibili, e la stella nella barra strumenti che aggiunge un segnalibro
 - [x] **pulsanti di navigazione** nella barra strumenti: indietro, avanti, su,
       aggiorna, segnalibro — gli stessi comandi della tastiera e della palette
 - [x] il terzo contesto del componente a gruppi: il menu contestuale (fatto in M7)
-- [ ] drag&drop dei tab (`TabDropMarker_*`)
 
 ### La barra laterale a sezioni, e il confronto col riferimento — *Ricostruito*
 
