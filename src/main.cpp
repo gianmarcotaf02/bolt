@@ -162,7 +162,7 @@ struct ClickTarget
     enum class Kind
     {
         Column, ColumnEdge, ColumnFilter, ColumnFilterRow, Breadcrumb, NavButton, Place,
-        SidebarHeader, Row, GroupHeader, GroupMode,
+        SidebarHeader, Row, GroupHeader, GroupMode, Checkbox,
         Menu, Tab, TabClose, TabNew,
         WindowMinimize, WindowMaximize, WindowClose,
         MenuRow, MenuHeader,
@@ -2527,6 +2527,40 @@ void RefreshColumnMenuChecks(AppState& app)
     }
 }
 
+// La casella di scelta, quando `ShowCheckboxes` e' acceso. Riflette la selezione:
+// una casella accanto a una riga non selezionata sarebbe una seconda verita' da
+// tenere allineata alla prima, e prima o poi le due divergono.
+//
+// Si preme per scegliere: la casella prende il clic, la riga sotto no. E' il gesto
+// che serve a scegliere senza aprire, che e' tutto il motivo per cui le caselle
+// esistono accanto al clic singolo.
+float DrawCheckbox(AppState& app, const Rect& row, bool selected, float scale,
+                   float padding, int entryIndex)
+{
+    const Theme& t = app.theme;
+    const float side = 14.0f * scale;
+    const Rect box{row.x + padding, row.y + (row.h - side) * 0.5f, side, side};
+    app.renderer.Draw(UIDraw::Fill(box, selected ? t.accent : t.windowBg, 3.0f * scale));
+    app.renderer.Draw(UIDraw::Border(box, selected ? t.accent : t.panelBorder, 1.0f, 3.0f * scale));
+    if (selected)
+    {
+        // Il segno di spunta e' un quadrato pieno: nell'atlante dei glifi non c'e'
+        // un carattere di spunta, e scriverne uno fuori dall'insieme rasterizzato
+        // darebbe un buco (§7.32).
+        const float inner = 6.0f * scale;
+        app.renderer.Draw(UIDraw::Fill(Rect{box.x + (side - inner) * 0.5f,
+                                            box.y + (side - inner) * 0.5f, inner, inner},
+                                       t.windowBg, 1.0f * scale));
+    }
+
+    ClickTarget target;
+    target.rect  = Rect{box.x - 3.0f * scale, row.y, box.w + 6.0f * scale, row.h};
+    target.kind  = ClickTarget::Kind::Checkbox;
+    target.index = entryIndex;
+    app.clickTargets.push_back(target);
+    return box.w + padding;
+}
+
 void DrawHeader(AppState& app, const Layout& layout, float* columnX)
 {
     if (app.viewMode == ViewMode::Tiles || app.viewMode == ViewMode::Icons)
@@ -2945,6 +2979,9 @@ void DrawEntryCell(AppState& app, const Layout& layout, const ViewMetrics& metri
     const Entry& entry = app.entries[static_cast<size_t>(view.entry)];
 
     const Rect card = cell.Inset(metrics.padding * 0.5f, metrics.padding * 0.5f);
+    // Nella griglia il contenuto e' centrato, quindi la casella sta nell'angolo
+    // senza spostare niente.
+    const bool checkboxes = app.showCheckboxes;
     // La selezione vince sul sovrappasso: la riga sotto il mouse resta leggibile
     // anche quando e' selezionata, invece di cambiare colore sotto il puntatore.
     if (IsEntrySelected(app, entry))
@@ -2953,6 +2990,10 @@ void DrawEntryCell(AppState& app, const Layout& layout, const ViewMetrics& metri
         r.FillRect(card, t.rowHover, 4.0f * scale);
     if (view.entry == cursorIndex)
         r.Draw(UIDraw::Border(card, t.accent.WithAlpha(0.9f), 1.0f, 4.0f * scale));
+
+    if (checkboxes)
+        DrawCheckbox(app, cell, IsEntrySelected(app, entry), scale, metrics.padding * 0.5f,
+                     view.entry);
 
     // La destinazione di una caduta: tratteggio, cosi' si distingue sia dal
     // riempimento della selezione sia dalla linea continua del cursore.
@@ -3130,10 +3171,16 @@ void DrawList(AppState& app, const Layout& layout, const float* columnX)
         target.index = view.entry;
         app.clickTargets.push_back(target);
 
+        // Dopo la riga: `HitTest` cammina all'indietro, quindi la casella vince sul
+        // clic che aprirebbe.
+        if (app.showCheckboxes)
+            DrawCheckbox(app, row, IsEntrySelected(app, entry), scale, 6.0f * scale, view.entry);
+
         // A real thumbnail replaces the type icon when one is ready. Asking is
         // free: an unavailable type never reaches the worker, and the request is
         // de-duplicated while a decode is in flight.
-        const Rect icon{row.x + 6.0f * scale,
+        const Rect icon{row.x + 6.0f * scale +
+                            (app.showCheckboxes ? 22.0f * scale : 0.0f),
                         row.y + (rowHeight - metrics.iconSize) * 0.5f,
                         metrics.iconSize, metrics.iconSize};
         ShellPreviewCache::IconUV preview;
@@ -3172,9 +3219,10 @@ void DrawList(AppState& app, const Layout& layout, const float* columnX)
                            color.WithAlpha(0.6f));
         };
 
-        // Name starts clear of the icon; the header label above it does not need
-        // that offset because no icon is drawn there.
-        const float nameX   = row.x + 28.0f * scale;
+        // Con le caselle accese l'icona e il nome si spostano: la casella non
+        // copre niente, si prende il suo posto.
+        const float nameX   = row.x + 28.0f * scale +
+                              (app.showCheckboxes ? 22.0f * scale : 0.0f);
         const float nameMax = columnX[1] - nameX - 12.0f * scale;
 
         if (app.renameActive && entry.wideName == app.renameOriginal)
@@ -7524,6 +7572,13 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
                 else if (HitTest(*app, x, y, ClickTarget::Kind::WindowClose))
                 {
                     PostMessageW(window, WM_CLOSE, 0, 0);
+                }
+                else if (const ClickTarget* box = HitTest(*app, x, y, ClickTarget::Kind::Checkbox))
+                {
+                    // Sceglie e basta: non apre, non arma un trascinamento, e non
+                    // tocca il cursore. E' tutto quello che serve a una casella.
+                    ToggleSelection(*app, box->index);
+                    return 0;
                 }
                 else if (const ClickTarget* row = HitTest(*app, x, y, ClickTarget::Kind::Row))
                 {
