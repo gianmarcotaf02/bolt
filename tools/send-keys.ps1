@@ -80,6 +80,7 @@ switch ($Action) {
     # messaggio giusto da solo, perche' Alt e' premuto davvero.
     'alt+left'  { [BoltKeys]::Chord(0x12, 0, 0x25) }
     'alt+right' { [BoltKeys]::Chord(0x12, 0, 0x27) }
+    'alt+up'    { [BoltKeys]::Chord(0x12, 0, 0x26) }
     default {
         if ($Action -match '^ctrl\+([a-z])$') {
             [BoltKeys]::Chord(0x11, 0, [byte][char]$Matches[1].ToUpper())
