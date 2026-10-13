@@ -9,9 +9,10 @@ controlli tipizzati e le preferenze ricordate in `%APPDATA%\Bolt\settings.ini`,
 l'**allineamento delle scorciatoie** all'originale, la **lingua finita su tutte le
 superfici**, la **salita da una radice di volume**, le **tre cose viste
 nell'originale**, l'**albero dei tab verificato**,
-**`InspectorHideGrid` ricostruito** e i tre difetti che si sono visti facendoli
-(`docs/02` §7.40, §7.41 e §7.42). Registro: **quarantadue** difetti trovati e
-risolti, **tre** cose da fare, i limiti dichiarati sparsi dove vivono.
+**`InspectorHideGrid` ricostruito**, il **backend Direct3D 11** (M10) e i tre difetti
+che si sono visti facendoli (`docs/02` §7.40, §7.41 e §7.42). Registro:
+**quarantadue** difetti trovati e risolti, **due** cose da fare, i limiti dichiarati
+sparsi dove vivono.
 
 ---
 
@@ -49,7 +50,7 @@ lavorano i file — inclusa l'apertura delle proprietà di Windows.
 
 Ordinato per quanto morde.
 
-1. **`src/main.cpp` è a 10.812 righe.** I confini dei componenti ci sono
+1. **`src/main.cpp` è a 10.860 righe.** I confini dei componenti ci sono
    (`GroupMenu`, `ContextMenu`, `file_ops`, `dir_stats`, `shell_*`, `drag_drop`)
    ma quelli della vista vivono tutti nello stesso file. Spezzarlo richiede che
    `AppState` e i tipi condivisi escano dall'anonimo namespace in un header: è un
@@ -92,10 +93,11 @@ In ordine di valore, non di facilità.
 > (`Ctrl+P`/`F4` al GoTo, `Ctrl+Shift+P` ai comandi, `Ctrl+,` alle opzioni), **finire
 > la lingua**, **salire da una radice di volume**, **le tre cose viste nell'originale**
 > (selettori di vista e anteprime in fondo, filtro del nome, `RECENTS`),
-> **l'albero dei tab** e **`InspectorHideGrid`** erano voci di questa lista, e sono
-> fatte: vedi `docs/04` M9, M6 e M8, e §7.40/§7.41/§7.42 di `docs/02`. Restano della
-> M9 la **mappa tasti rimappabile** sui 319 comandi e i **temi a 35 token**; di M4 il
-> **punteggio** dei recenti, che adesso e' solo l'ordine di visita.
+> **l'albero dei tab**, **`InspectorHideGrid`** e il **backend Direct3D 11** erano voci
+> di questa lista, e sono fatte: vedi `docs/04` M9, M6, M8 e M10, e §7.40/§7.41/§7.42
+> di `docs/02`. Restano della M9 la **mappa tasti rimappabile** sui 319 comandi e i
+> **temi a 35 token**; di M4 il **punteggio** dei recenti, che adesso e' solo l'ordine
+> di visita.
 
 1. **Il trascinamento fuori dal cestino** — l'oggetto dati adesso c'è e le voci
    normali escono davvero, ma una voce **riciclata** non viene presa (la
