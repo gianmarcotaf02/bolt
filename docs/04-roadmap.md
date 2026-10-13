@@ -649,7 +649,10 @@ a gruppi, invece di scriverne tre.
 - [x] menu contestuale del tasto destro: si ancora al puntatore, alto quanto il
       contenuto, con separatori e navigazione da tastiera; la riga sotto il
       puntatore viene preselezionata
-- [x] Proprietà, che apre la finestra vera di Windows via `ShellExecuteEx`
+- [x] **Proprietà**, in due voci: `Proprietà` apre il **pannello in-app** (le stesse
+      righe dell'inspector, in una finestra nostra), `Proprietà di Windows` apre
+      ancora la finestra vera di Windows via `ShellExecuteEx`, per ciò che solo la
+      shell sa (permessi, versioni precedenti, pagine per tipo di file)
 - [x] le voci di **primo livello** della shell dentro il menu contestuale (Apri con,
       le voci delle estensioni installate), dopo i nostri comandi e dopo un
       separatore. La strada è quella del binario originale —
