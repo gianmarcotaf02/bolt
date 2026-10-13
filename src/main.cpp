@@ -4252,13 +4252,13 @@ void DrawTextViewer(AppState& app, const Layout& layout, const Rect& area)
     // cose che si vogliono sapere di un file di testo prima di leggerlo, e la codifica
     // e' quella che l'originale chiama `PanelInspector_TextEncodingUTF8`.
     char header[160];
-    std::snprintf(header, sizeof(header), "%s   %zu lines%s%s",
+    std::snprintf(header, sizeof(header), Tr("%s   %zu righe%s%s", "%s   %zu lines%s%s"),
                   TextView::EncodingName(document.encoding), document.lines.size(),
                   document.endings.empty() ? "" : "   ", document.endings.c_str());
     app.smallFont.Draw(r, area.x, area.y, header, t.textDim, scale);
     if (document.truncated)
         app.smallFont.Draw(r, area.x + app.smallFont.Measure(header, scale) + 12.0f * scale, area.y,
-                           "(first 1 MB)", t.textDim, scale);
+                           Tr("(primi 1 MB)", "(first 1 MB)"), t.textDim, scale);
 
     const float top = area.y + 18.0f * scale;
     const Rect body{area.x, top, area.w, area.bottom() - top};
