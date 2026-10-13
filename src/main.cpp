@@ -2691,7 +2691,7 @@ void DrawTitleBar(AppState& app, const Layout& layout)
         if (!parent.empty())
         {
             const float leafWidth = app.font.Measure(leaf, scale);
-            const float room = contentW - leafWidth - 8.0f * scale;
+            const float room = contentW - leafWidth - 12.0f * scale;
             if (room > 40.0f * scale)
             {
                 const std::string shownParent = FitTextTail(app.smallFont, parent, scale, room);
