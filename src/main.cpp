@@ -32,6 +32,7 @@
 #include "text_view.h"
 #include "shell_sendto.h"
 #include "ui_renderer.h"
+#include "d3d11_renderer.h"
 
 #include <windows.h>
 #include <dwmapi.h>
@@ -50,6 +51,7 @@
 #include <array>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <functional>
 #include <cwctype>
 #include <set>
