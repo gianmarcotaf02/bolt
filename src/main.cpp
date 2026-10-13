@@ -813,6 +813,7 @@ struct AppState
     // quella, e una miniatura piu' grande finirebbe sopra l'etichetta. E' il
     // controllo che il riferimento mette in fondo alla finestra.
     static constexpr float kPreviewSteps[3] = {0.0f, 0.5f, 1.0f};
+    static constexpr int   kPreviewStepCount = 3;
     int previewStep = 2;   // 100%
     float PreviewZoom() const { return kPreviewSteps[previewStep]; }
 
@@ -9380,6 +9381,30 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
                     {
                         BuildColumnMenu(*app, tab->index);
                     }
+                    return 0;
+                }
+
+                // I selettori di vista e lo stepper delle anteprime, nella barra in
+                // fondo. Cambiare vista da qui e' l'unico gesto col puntatore: prima
+                // c'era solo la palette.
+                if (const ClickTarget* v = HitTest(*app, x, y, ClickTarget::Kind::ViewSelect))
+                {
+                    app->viewMode  = static_cast<ViewMode>(v->index);
+                    app->viewDirty = true;
+                    return 0;
+                }
+                if (HitTest(*app, x, y, ClickTarget::Kind::PreviewDown))
+                {
+                    if (app->previewStep > 0)
+                        --app->previewStep;
+                    RememberSettings(*app);
+                    return 0;
+                }
+                if (HitTest(*app, x, y, ClickTarget::Kind::PreviewUp))
+                {
+                    if (app->previewStep + 1 < AppState::kPreviewStepCount)
+                        ++app->previewStep;
+                    RememberSettings(*app);
                     return 0;
                 }
 
