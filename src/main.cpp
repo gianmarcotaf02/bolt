@@ -2507,7 +2507,9 @@ Layout ComputeLayout(const AppState& app)
 
     Layout layout;
     layout.scale      = scale;
-    layout.rowHeight  = 24.0f * scale;
+    // `Spacing` e' una preferenza: l'altezza della riga di lista la segue, e per
+    // questo e' un valore derivato e non un 24 scritto a mano.
+    layout.rowHeight  = (app.rowSpacing > 0.0f ? app.rowSpacing : 24.0f) * scale;
     layout.titleBar   = Rect{0.0f, 0.0f, width, titleHeight};
     layout.toolbar    = Rect{0.0f, titleHeight, width, toolbarHeight};
     layout.sidebar    = Rect{gap, titleHeight + toolbarHeight + gap, sidebarWidth,
