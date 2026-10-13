@@ -74,7 +74,9 @@ Controlli a runtime:
 | rotella | scorre |
 | `Invio` | apre l'elemento selezionato |
 | `F5` | ricarica, e ricalcola le statistiche di cartella |
-| `Ctrl+P` / `Ctrl+Shift+P` | command palette (la seconda apre in modalità dettagli) |
+| `Ctrl+P` / `F4` | finestra GoTo (percorso, cartelle note, segnalibri, recenti) |
+| `Ctrl+Shift+P` | command palette |
+| `Ctrl+,` | pannello delle opzioni (lista cercabile, con i controlli tipizzati) |
 | `Ctrl+T` / `+` | nuovo tab sulla cartella corrente |
 | `Ctrl+W` / `✕` sul tab | chiude il tab (l'ultimo non è chiudibile) |
 | `Ctrl+Tab` / click sul tab | cambia tab |
@@ -86,9 +88,8 @@ Controlli a runtime:
 | `.pdf` o `*.png` nel filtro | filtra per tipo |
 | `Backspace` | cancella un carattere del filtro; a filtro vuoto risale |
 | `Esc` | azzera il filtro (non chiude: per chiudere la ✕ o `Alt+F4`) |
-| `Ctrl+G` | finestra GoTo (percorso, cartelle note, segnalibri, recenti) |
-| `Alt`+`←` / `Alt`+`→` | indietro / avanti nella cronologia del tab |
 | `Ctrl+Shift+G` o click su `Group:` | cambia la dimensione di raggruppamento |
+| `Alt`+`←` / `Alt`+`→` | indietro / avanti nella cronologia del tab |
 | `Ctrl+1` / `2` / `3` / `4` | Details / List / Tiles / Icons |
 | `Ctrl+C` / `Ctrl+X` / `Ctrl+V` | copia / taglia / incolla (clipboard di sistema) |
 | `F2` | rinomina sul posto |
