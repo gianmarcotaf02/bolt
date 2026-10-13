@@ -21,7 +21,7 @@ risolti, **otto** cose da fare, i limiti dichiarati sparsi dove vivono.
 | M2b — navigazione | ✅ |
 | M3 — statistiche di cartella | 🟡 mancano byte allocati e invalidazione da `ReadDirectoryChangesW` |
 | M5 — filtro, ordinamento, raggruppamento, selezione | ✅ |
-| M5c — modalità di visualizzazione | 🟡 quattro viste, celle di altezza derivata, raggruppamento in griglia e nell'elenco; manca il ridimensionamento continuo della cella |
+| M5c — modalità di visualizzazione | ✅ quattro viste, celle **derivate** da una misura continua (icona, larghezza e altezza), raggruppamento in griglia e nell'elenco, ridimensionamento continuo con `Ctrl`+rotella |
 | M5d — sovrappasso e comportamento del clic | ✅ evidenzia righe e celle, e le otto chiavi di interazione: `HoverToSelect`, `UnderlineOnHover`, `ShowTooltips`, `SingleClick`, `SingleClickFoldersOnly`, `ActOnPress`, `DoubleClickToParent`, `ShowCheckboxes` |
 | M5b — colonne | ✅ ridimensionabili col mouse, con filtri per valore nelle intestazioni |
 | M6 — tab, barra del titolo, palette, GoTo | 🟡 fatti tab, titolo, palette, GoTo, **barra laterale a sezioni** (fissaggi, segnalibri, volumi, cartelle standard) e **pulsanti di navigazione**; mancano drag&drop e albero dei tab |
@@ -71,7 +71,7 @@ Ordinato per quanto morde.
 
 - **Trentasette** difetti **trovati e risolti**: il registro è `docs/02` §7, uno per
   uno, con sintomo, causa e correzione. È un cumulativo, non una lista di lavoro.
-- **Sette** cose **da fare**: la lista qui sotto.
+- **Sei** cose **da fare**: la lista qui sotto.
 - I **limiti dichiarati**: cose che si è scelto di non fare, scritte dove vivono con
   la ragione accanto (il tetto di 1 MB nella lettura dei testi, i modelli `ShellNew`
   con valore `Command`, le 23 colonne della specifica contro le 6 fatte, il ritaglio
@@ -95,10 +95,8 @@ In ordine di valore, non di facilità.
    `docs/02`. Se non si trova, resta un limite dichiarato.
 4. **`InspectorHideGrid`** — la sola chiave di M8 che resta senza risposta: cosa sia
    la griglia dell'inspector non è ricostruito, e non si inventa.
-5. **Il ridimensionamento continuo della cella** (M5c) — la scala fra `Icons` e
-   `Tiles`: oggi sono due misure fisse e una derivata, non una che si trascina.
-6. **Drag&drop e albero dei tab** (`TabDropMarker_*`, `CloseInTree`).
-7. **Spezzare `main.cpp`** — **8.480 righe** e undici moduli: il confine c'è, ma il
+5. **Drag&drop e albero dei tab** (`TabDropMarker_*`, `CloseInTree`).
+6. **Spezzare `main.cpp`** — **8.480 righe** e undici moduli: il confine c'è, ma il
    file che lo contiene resta il collo di bottiglia dichiarato fin dall'inizio.
 
 

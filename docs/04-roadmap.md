@@ -300,7 +300,8 @@ quelle sono la stessa impaginazione a una scala diversa.
       `docs/02`), su un quarto layer dell'array di texture
 - [x] **raggruppamento in griglia**: le bande di gruppo stanno anche fra le celle,
       a piena larghezza, e la riga di celle sotto di loro ricomincia da sinistra
-- [ ] ridimensionamento continuo della cella (la scala fra `Icons` e `Tiles`)
+- [x] **ridimensionamento continuo della cella**: `Ctrl`+rotella sopra la griglia, da
+      32 a 256 px, e la griglia si reimpagina mentre si scorre
 
 ### Perché le celle sono alte quanto dicono di essere — *Ricostruito*
 
@@ -329,10 +330,29 @@ Tre conti separati che devono coincidere prima o poi non coincidono; uno solo no
 può sbagliare. Ed è anche il motivo per cui il lavoro è stato fatto in un giro
 suo: sotto le dita c'erano il disegno, il clic, la rotella e la tastiera.
 
-### Cosa manca di questa passata
+### `Icons` e `Tiles` erano due punti, non due viste — *Ricostruito*
 
-Il **ridimensionamento continuo** della cella, cioè la scala fra `Icons` e
-`Tiles`. Il secondo corpo di glifi è fatto.
+`Icons` e `Tiles` differivano **solo** per la misura: icona 64 px contro 128, cella
+104 contro 176. Ed erano due numeri fissi in una `switch`, con due rapporti diversi
+fra cella e icona (104/64 di qua, 176/128 di là) per la stessa cosa.
+
+Ora c'è **una misura sola** (`gridIconSize`) e tutto il resto si deriva: la cella è
+l'icona più lo spazio per l'etichetta, l'altezza è l'icona più due righe di testo. I
+due comandi restano, come **scorciatoie** ai due punti noti (64 e 128); `Ctrl`+rotella
+porta la misura dove si vuole, fra 32 e 256, e la griglia si reimpagina mentre si
+scorre.
+
+**Il nome della vista segue la misura**: sotto i 96 px si chiama `Icons`, sopra
+`Tiles`. È una conseguenza del principio di `AGENTS.md` §6 — un controllo che dichiara
+qualcosa che la vista non sta facendo è peggio di un controllo assente — perché
+altrimenti il piè di pagina avrebbe continuato a dire `Tiles` mentre si guardavano
+icone da 40 px. L'ingrandimento dell'interfaccia è un'altra cosa e resta il suo:
+`Ctrl`+rotella non lo tocca.
+
+**Verificato**: quattro celle per riga a 128 px, tre a 176, cinque a 80 — e a 80 il
+piè di pagina dice `Icons` mentre l'ingrandimento resta `100%`.
+
+Il secondo corpo di glifi è fatto.
 
 ---
 

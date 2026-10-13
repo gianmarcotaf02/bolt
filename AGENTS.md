@@ -244,8 +244,13 @@ anche se la finestra si sposta):
 
 ```bash
 powershell -ExecutionPolicy Bypass -File tools/send-mouse.ps1 -Action right -X 300 -Y 150
-powershell -ExecutionPolicy Bypass -File tools/send-mouse.ps1 -Action left|-move|-wheel -X … -Y … [-Clicks n]
+powershell -ExecutionPolicy Bypass -File tools/send-mouse.ps1 -Action left|-move|-wheel -X … -Y … [-Clicks n] [-Ctrl]
 ```
+
+`-Ctrl` tiene premuto il modificatore per tutta l'azione, con `keybd_event`: serve a
+`Ctrl`+rotella (la misura delle celle) e a `Ctrl`+clic, che sono gesti diversi dal
+clic semplice e non si provano senza. `GetKeyState` non vede un modificatore
+iniettato con un messaggio — vedi §5.
 
 **Cercare una finestra per titolo**, per verificare l'effetto di un comando che è
 un dialogo (proprietà, conferme, avvisi) senza catturare lo schermo e anche se la
