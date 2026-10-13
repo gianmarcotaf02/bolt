@@ -6277,6 +6277,13 @@ MenuAction OptionsClick(AppState& app, const Layout& layout, GroupMenu& menu, fl
                         panel.w - 12.0f * layout.scale, rowHeight};
     const Rect  control = OptionControlRect(layout, item, rowRect);
 
+    // Cambiare una preferenza vuole il puntatore **sul controllo**. Un clic sul
+    // resto della riga la sceglie e basta: sulla riga di `Spacing` un clic a
+    // sinistra avrebbe messo lo slider a zero, che non e' quello che si chiede
+    // cliccando un'etichetta.
+    if (!control.Contains(x, y))
+        return MenuAction::None;
+
     switch (item.control)
     {
         case OptionControl::Toggle:
