@@ -5825,6 +5825,8 @@ void RefreshOptionItems(const AppState& app, GroupMenu& menu)
         RefreshOptionItem(app, item);
 }
 
+void BuildOptionsMenu(AppState& app);
+
 void ApplyOptionFromItem(AppState& app, GroupMenuItem& item){
     const OptionId id = static_cast<OptionId>(item.id);
     bool fontsChanged = false;
@@ -5914,7 +5916,31 @@ void ApplyOptionFromItem(AppState& app, GroupMenuItem& item){
     if (fontsChanged)
         ApplyFonts(app);
 
-    RefreshOptionItems(app, app.options);
+    // Le etichette e le descrizioni del pannello sono scritte in una lingua:
+    // cambiandola, le righe costruite prima restano nella lingua vecchia. Si rifa'
+    // l'elenco e si rimette il cursore dove era, invece di riportarlo in cima.
+    if (id == OptLanguage)
+    {
+        const std::wstring filter = app.options.filter;
+        BuildOptionsMenu(app);
+        app.options.filter = filter;
+        app.options.dirty  = true;
+        GroupMenuRebuild(app.options);
+        for (int i = 0; i < static_cast<int>(app.options.rows.size()); ++i)
+        {
+            const GroupMenuRow& row = app.options.rows[static_cast<size_t>(i)];
+            if (!row.header && app.options.items[static_cast<size_t>(row.item)].id == item.id)
+            {
+                app.options.selected = i;
+                break;
+            }
+        }
+    }
+    else
+    {
+        RefreshOptionItems(app, app.options);
+    }
+
     if (saved)
         RememberSettings(app);
     app.viewDirty = true;
