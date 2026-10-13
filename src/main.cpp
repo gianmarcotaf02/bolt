@@ -230,6 +230,27 @@ struct Group
 // command is declared, and |RunCommand| is the single place it is executed. The
 // reference exposes 319 of them with a tooltip each; this is the subset the shell
 // can actually carry out, which is the honest place to start.
+// --- lingua ------------------------------------------------------------------
+//
+// La lingua si sceglie dalla palette e vale per la **sessione**: `docs/06` vieta di
+// scrivere un file di impostazioni di nascosto, e prevede che la persistenza, se
+// servira' davvero, sia un comando esplicito che dice cosa salva. Predefinita:
+// italiano.
+enum class Language { Italian, English };
+Language gLanguage = Language::Italian;
+
+// Le due lingue di una stringa. Le coppie stanno **dove si usa la stringa**, non in
+// un file di traduzioni: si legge cosa diventa senza doverlo cercare altrove, e
+// aggiungere una stringa non e' un'operazione in due posti.
+const char* Tr(const char* italian, const char* english)
+{
+    return gLanguage == Language::English ? english : italian;
+}
+std::wstring TrW(const wchar_t* italian, const wchar_t* english)
+{
+    return gLanguage == Language::English ? english : italian;
+}
+
 enum CommandId
 {
     CmdNewTab, CmdCloseTab, CmdNextTab, CmdPrevTab,
@@ -247,6 +268,7 @@ enum CommandId
     CmdSingleClick, CmdSingleClickFoldersOnly, CmdActOnPress, CmdDoubleClickToParent,
     CmdShowCheckboxes,
     CmdCloseInTree, CmdCloseAllInTree, CmdDetachTab,
+    CmdLanguageItalian, CmdLanguageEnglish,
     CmdToggleBookmark, CmdClearBookmarks, CmdClearRecents,
     // Operazioni su file (M7).
     CmdCopy, CmdCut, CmdPaste, CmdDelete, CmdDeletePermanent, CmdRename, CmdNewFolder,
@@ -2717,6 +2739,91 @@ void InitColumns(AppState& app)
 void GroupMenuOpen(GroupMenu& menu, std::string title, std::string placeholder,
                    std::vector<GroupMenuItem> items);
 
+// L'etichetta italiana di un comando. La tabella resta com'e' — con le sue
+// etichette in inglese, che sono anche i nomi delle chiavi del riferimento — e la
+// traduzione sta qui, accanto, in un posto solo.
+//
+// Se un comando non compare, la sua etichetta resta quella della tabella: mancare
+// una traduzione non deve rompere niente, e si vede subito a schermo. La lista e'
+// tenuta corta apposta, cosi' "cosa non e' tradotto" ha una risposta che si legge.
+const char* CommandLabelIt(CommandId id)
+{
+    switch (id)
+    {
+        case CmdNewTab:                 return "Nuova scheda";
+        case CmdCloseTab:               return "Chiudi scheda";
+        case CmdNextTab:                return "Scheda successiva";
+        case CmdPrevTab:                return "Scheda precedente";
+        case CmdCloseInTree:            return "Chiudi scheda e figli";
+        case CmdCloseAllInTree:         return "Chiudi tutto l'albero";
+        case CmdDetachTab:              return "Stacca la scheda dal genitore";
+        case CmdGoUp:                   return "Vai alla cartella superiore";
+        case CmdBack:                   return "Indietro";
+        case CmdForward:                return "Avanti";
+        case CmdRefresh:                return "Aggiorna";
+        case CmdRecalcStats:            return "Ricalcola le dimensioni";
+        case CmdOpenExplorer:           return "Apri in Esplora risorse";
+        case CmdOpenConsole:            return "Apri un terminale qui";
+        case CmdCopy:                   return "Copia";
+        case CmdCut:                    return "Taglia";
+        case CmdPaste:                  return "Incolla";
+        case CmdRename:                 return "Rinomina";
+        case CmdNewFolder:              return "Nuova cartella";
+        case CmdDelete:                 return "Elimina (nel cestino)";
+        case CmdDeletePermanent:        return "Elimina definitivamente";
+        case CmdGoTo:                   return "Vai a una cartella...";
+        case CmdViewDetails:            return "Vista: dettagli";
+        case CmdViewList:               return "Vista: elenco";
+        case CmdViewTiles:              return "Vista: riquadri";
+        case CmdViewIcons:              return "Vista: icone";
+        case CmdToggleSidebar:          return "Mostra la barra laterale";
+        case CmdToggleHoverToSelect:    return "Il passaggio seleziona";
+        case CmdToggleUnderlineOnHover: return "Sottolinea al passaggio";
+        case CmdToggleTooltips:         return "Mostra i suggerimenti";
+        case CmdSingleClick:            return "Un clic apre";
+        case CmdSingleClickFoldersOnly: return "Un clic: solo le cartelle";
+        case CmdActOnPress:             return "Agisci premendo";
+        case CmdDoubleClickToParent:    return "Doppio clic sul fondo: su di un livello";
+        case CmdShowCheckboxes:         return "Mostra le caselle di scelta";
+        case CmdZoomIn:                 return "Ingrandisci";
+        case CmdZoomOut:                return "Rimpicciolisci";
+        case CmdZoomReset:              return "Ingrandimento normale";
+        case CmdTextWhitespace:         return "Testo: segna spazi e tabulazioni";
+        case CmdTextLineNumbers:        return "Testo: numeri di riga";
+        case CmdTextMinimap:            return "Testo: minimappa";
+        case CmdTextWrap:               return "Testo: vai a capo";
+        case CmdTextZoomIn:             return "Testo: ingrandisci";
+        case CmdTextZoomOut:            return "Testo: rimpicciolisci";
+        case CmdImageZoomIn:            return "Immagine: ingrandisci";
+        case CmdImageZoomOut:           return "Immagine: rimpicciolisci";
+        case CmdImageZoomFit:           return "Immagine: adatta al pannello";
+        case CmdToggleDetails:          return "Palette: mostra i dettagli";
+        case CmdSortName:               return "Ordina per nome";
+        case CmdSortType:               return "Ordina per tipo";
+        case CmdSortModified:           return "Ordina per data";
+        case CmdSortFolders:            return "Ordina per sottocartelle";
+        case CmdSortFiles:              return "Ordina per file";
+        case CmdSortSize:               return "Ordina per dimensione";
+        case CmdSortDirection:          return "Inverti l'ordine";
+        case CmdGroupNone:              return "Raggruppa: no";
+        case CmdGroupName:              return "Raggruppa per nome";
+        case CmdGroupDate:              return "Raggruppa per data";
+        case CmdGroupSize:              return "Raggruppa per dimensione";
+        case CmdGroupCount:             return "Raggruppa per numero di voci";
+        case CmdGroupVolume:            return "Raggruppa per occupazione del disco";
+        case CmdFocusFilter:            return "Vai al filtro";
+        case CmdClearFilter:            return "Azzera il filtro";
+        case CmdScrollTop:              return "Vai in cima";
+        case CmdScrollBottom:           return "Vai in fondo";
+        case CmdToggleBookmark:         return "Aggiungi questo posto ai segnalibri";
+        case CmdClearBookmarks:         return "Togli tutti i segnalibri";
+        case CmdClearRecents:           return "Azzera i recenti";
+        case CmdLanguageItalian:        return "Lingua: italiano";
+        case CmdLanguageEnglish:        return "Lingua: inglese";
+        default:                        return nullptr;
+    }
+}
+
 // Il pannello dei valori di una colonna. I valori si contano **all'apertura** e
 // non si riordinano mai: togliendone uno, le caselle non devono saltare sotto il
 // puntatore. Per la stessa ragione l'ordine e' per frequenza decrescente, che non
@@ -4382,6 +4489,10 @@ struct CommandDef
 // Group names come from the reference key table (the 19 palette groups). Only the
 // groups this shell can carry out are present.
 const CommandDef kCommandTable[] = {
+    // La lingua: due voci, non un interruttore. Con due si vede sempre quale e'
+    // accesa, e non serve indovinare lo stato di partenza.
+    {"Language", "Lingua: italiano",            "Language: Italian",        CmdLanguageItalian},
+    {"Language", "Lingua: inglese",             "Language: English",        CmdLanguageEnglish},
     {"Tabs",    "New tab",                     CmdNewTab},
     {"Tabs",    "Close tab and its children",   CmdCloseInTree},
     {"Tabs",    "Close the whole tab tree",     CmdCloseAllInTree},
