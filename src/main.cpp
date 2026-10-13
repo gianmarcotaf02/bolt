@@ -10630,6 +10630,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, LPWSTR, int)
         else
         {
             // Non e' un errore: il Direct3D non c'e', si ripiega sull'OpenGL.
+            DiagLog(std::string("--- backend Direct3D 11 non disponibile: ") + error);
             error.clear();
         }
     }
