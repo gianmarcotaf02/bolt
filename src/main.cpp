@@ -5972,8 +5972,11 @@ void BuildOptionsMenu(AppState& app)
          "The language of the interface. Applied immediately.", OptLanguage, false},
     };
     // Le righe che il riferimento ha e che qui non sono applicate: si mostrano
-    // spente. La frase fra parentesi e' la ragione, scritta dove si legge.
-    static const char* kNotYet = " (non ancora applicata in Bolt)";
+    // spente: un'opzione che non si puo' applicare sta in vista e dice che non si
+    // tocca, invece di sparire e far credere che non esista. La ragione e' scritta
+    // accanto alla descrizione, dove si legge.
+    const char* notAppliedNote = Tr(" (non ancora applicata in Bolt)",
+                                    " (not yet applied in Bolt)");
 
     std::vector<GroupMenuItem> items;
     items.reserve(sizeof(kRows) / sizeof(kRows[0]));
@@ -5982,11 +5985,8 @@ void BuildOptionsMenu(AppState& app)
         GroupMenuItem item;
         item.group       = "";          // lista piatta, come il riferimento
         item.label       = row.label;
-        item.description = std::string(Tr(row.description, row.description)) + 
-                           ((row.id == OptAnimations || row.id == OptRoundCorners ||
-                             row.id == OptSystemScheme || row.id == OptColorScheme ||
-                             row.id == OptInactiveOpacity || row.id == OptFileExtension ||
-                             row.id == OptLongPaths || row.id == OptCompactPaths) ? kNotYet : "");
+        item.description = std::string(Tr(row.descriptionIt, row.descriptionEn)) +
+                           (row.notApplied ? notAppliedNote : "");
         item.id          = row.id;
         if (row.id == OptLanguage)
         {
