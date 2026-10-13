@@ -9031,7 +9031,13 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
                 // underneath is reachable.
                 if (GroupMenu* menu = OpenMenu(*app))
                 {
-                    const MenuAction action = GroupMenuClick(*app, ComputeLayout(*app), *menu, x, y);
+                    const Layout layout = ComputeLayout(*app);
+                    // Il pannello delle opzioni calcola da se' la riga e il
+                    // controllo sotto il puntatore: non lascia bersagli nella
+                    // lista, perche' la geometria ha una sola definizione.
+                    MenuAction action = (menu == &app->options)
+                                            ? OptionsClick(*app, layout, *menu, x, y)
+                                            : GroupMenuClick(*app, layout, *menu, x, y);
                     if (action == MenuAction::Close)
                         menu->open = false;
                     else if (action == MenuAction::Activate)
@@ -9040,6 +9046,8 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
                             RunPaletteSelection(*app);
                         else if (menu == &app->goTo)
                             RunGoToSelection(*app);
+                        else if (menu == &app->optionsChoice)
+                            RunOptionsChoiceSelection(*app);
                         else
                             RunColumnMenuSelection(*app);
                     }
@@ -9635,6 +9643,13 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
                         // cosi' l'errore lo spiega il sistema.
                         const std::wstring wide(1, character);
                         app->renameText += ToUtf8(wide);
+                    }
+                    else if (app->optionEditActive)
+                    {
+                        // Il campo di testo di un'opzione: il carattere va nel
+                        // nome, non nel filtro del pannello che lo contiene.
+                        const std::wstring wide(1, character);
+                        app->optionEditText += ToUtf8(wide);
                     }
                     else if (GroupMenu* menu = OpenMenu(*app))
                     {
