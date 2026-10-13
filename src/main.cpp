@@ -5023,7 +5023,7 @@ GroupMenu* OpenMenu(AppState& app)
 GroupMenu* OpenMenu(AppState& app);
 void       GroupMenuOpen(GroupMenu& menu, std::string title, std::string placeholder,
                          std::vector<GroupMenuItem> items);
-std::string CommandLabelIt(CommandId id);
+const char* CommandLabelIt(CommandId id);
 void       RunCommand(AppState& app, int command);
 void       ReportStatus(AppState& app, const std::wstring& message);
 void       RememberSettings(AppState& app);
