@@ -10177,7 +10177,8 @@ void Drop(HWND window, const std::vector<std::wstring>& sources, const DragDrop:
     if (result == FileOps::Result::Cancelled)
     {
         app->dropReported = true;
-        ReportStatus(*app, discard ? L"Eliminazione annullata" : L"Operazione annullata");
+        ReportStatus(*app, discard ? TrW(L"Eliminazione annullata", L"Delete cancelled")
+                                   : TrW(L"Operazione annullata", L"Operation cancelled"));
         return;
     }
 
@@ -10185,9 +10186,9 @@ void Drop(HWND window, const std::vector<std::wstring>& sources, const DragDrop:
     {
         DiagLog("  caduta non riuscita: " + ToUtf8(error));
         app->dropReported = true;
-        ReportStatus(*app, (discard ? L"Eliminazione non riuscita: "
-                                    : (move ? L"Spostamento non riuscito: "
-                                            : L"Copia non riuscita: ")) +
+        ReportStatus(*app, (discard ? TrW(L"Eliminazione non riuscita: ", L"Delete failed: ")
+                                    : (move ? TrW(L"Spostamento non riuscito: ", L"Move failed: ")
+                                            : TrW(L"Copia non riuscita: ", L"Copy failed: "))) +
                                error);
         return;
     }
@@ -10216,10 +10217,16 @@ void Drop(HWND window, const std::vector<std::wstring>& sources, const DragDrop:
             " di " + std::to_string(sources.size()) + " elementi" +
             (discard ? std::string()
                      : ", prodotti " + std::to_string(created.size())));
-    ReportStatus(*app, (discard ? L"Buttati via " : (move ? L"Spostati " : L"Copiati ")) +
-                           std::to_wstring(sources.size()) +
-                           (discard ? L" elementi nel cestino"
-                                    : L" elementi in " + LeafName(target.path)));
+    const wchar_t* action = discard ? TrW(L"Buttati via ", L"Thrown away ")
+                           : move    ? TrW(L"Spostati ", L"Moved ")
+                                     : TrW(L"Copiati ", L"Copied ");
+    const std::wstring tail = discard ? TrW(L" elementi nel cestino", L" items to the recycle bin")
+                                      : TrW(L" elementi in ", L" items into ") +
+                                            LeafName(target.path);
+    std::wstring outcome = action;
+    outcome += std::to_wstring(sources.size());
+    outcome += tail;
+    ReportStatus(*app, outcome);
 }
 
 } // namespace DragDrop
