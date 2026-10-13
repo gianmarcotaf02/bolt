@@ -784,6 +784,33 @@ struct AppState
     // di pagina e alla palette, che devono dire cosa si sta guardando adesso e non
     // cosa si e' premuto l'ultima volta.
     static constexpr float kGridIconSplit = 96.0f;
+
+    // --- M9: le preferenze che il pannello delle opzioni comanda ---------------
+    //
+    // Sono valori veri, non decorazione: ognuno di questi lo legge un pezzo di
+    // vista o di disegno. Un controllo che dichiara qualcosa che la vista non sta
+    // facendo e' peggio di un controllo assente.
+    std::wstring fontFace    = L"Segoe UI";   // Font
+    int          uiFontSize  = 15;             // Font Size (il corpo secondario sta due punti sotto)
+    std::wstring monoFace    = L"Consolas";   // Inspector Font
+    int          monoFontSize = 14;            // Inspector Font Size
+    float        rowSpacing  = 24.0f;          // Spacing: l'altezza di una riga di lista
+    bool         alternatingRows = true;       // Alternating Row Colors
+    static constexpr float kRowSpacingMin = 18.0f;
+    static constexpr float kRowSpacingMax = 40.0f;
+    static constexpr int   kUiFontSizeMin = 9;
+    static constexpr int   kUiFontSizeMax = 24;
+    static constexpr int   kMonoFontSizeMin = 8;
+    static constexpr int   kMonoFontSizeMax = 24;
+
+    // Il campo di testo di un controllo `Text`, mentre si scrive: il carattere
+    // digitato va qui e non nel filtro.
+    bool        optionEditActive = false;
+    int         optionEditId     = -1;
+    std::string optionEditText;
+    // Il cursore di uno slider mentre lo si trascina: -1 quando non si trascina.
+    int         optionSliderDrag = -1;
+
     float scroll   = 0.0f;
     float zoom     = 1.0f;
     float dpiScale = 1.0f;
@@ -800,8 +827,14 @@ struct AppState
     std::vector<Group> groups;
 
     // Two menus, one component.
-    GroupMenu palette;                       // Ctrl+P, item id = CommandId
-    GroupMenu goTo;                          // Ctrl+G, item id = index in goToTargets
+    GroupMenu palette;                       // Ctrl+Shift+P, item id = CommandId
+    GroupMenu goTo;                          // Ctrl+P / F4, item id = index in goToTargets
+    // Il pannello delle opzioni (Ctrl+,) e il sottoelenco che un controllo
+    // `Choice` apre: due `GroupMenu` distinti perche' il secondo si chiude da solo
+    // lasciando aperto il primo.
+    GroupMenu options;                       // Ctrl+, item id = OptionId
+    GroupMenu optionsChoice;                 // valori di un controllo Choice
+    int       optionsChoiceParent = -1;      // OptionId dell'opzione da cui e' nato
     ContextMenu contextMenu;                 // tasto destro
     std::vector<std::wstring> goToTargets;
     std::vector<std::wstring> recents;       // visited this run: StoreRecents = Session
@@ -900,6 +933,12 @@ void LoadSettings(AppState& app)
     if (ReadSetting(text, "language", &value))
         gLanguage = (value == "english") ? Language::English : Language::Italian;
 
+    // I nomi dei caratteri sono testo: si leggono cosi' come si scrivono.
+    if (ReadSetting(text, "fontFace", &value) && !value.empty())
+        app.fontFace = Widen(value);
+    if (ReadSetting(text, "monoFace", &value) && !value.empty())
+        app.monoFace = Widen(value);
+
     const auto readFlag = [&](const char* key, bool* target) {
         std::string v;
         if (ReadSetting(text, key, &v))
@@ -914,12 +953,36 @@ void LoadSettings(AppState& app)
     readFlag("doubleClickToParent", &app.doubleClickToParent);
     readFlag("showCheckboxes", &app.showCheckboxes);
     readFlag("sidebarVisible", &app.sidebarVisible);
+    readFlag("alternatingRows", &app.alternatingRows);
 
     std::string grid;
     if (ReadSetting(text, "gridIconSize", &grid))
         app.gridIconSize = static_cast<float>(atof(grid.c_str()));
     if (app.gridIconSize < AppState::kGridIconMin || app.gridIconSize > AppState::kGridIconMax)
         app.gridIconSize = 64.0f;
+
+    // Le misure si validano: un file modificato a mano non deve poter chiedere un
+    // carattere da zero punti o una riga alta un pixel.
+    const auto readInt = [&](const char* key, int* target, int low, int high) {
+        std::string v;
+        if (ReadSetting(text, key, &v))
+        {
+            const int parsed = atoi(v.c_str());
+            *target = (parsed < low) ? low : (parsed > high ? high : parsed);
+        }
+    };
+    readInt("uiFontSize", &app.uiFontSize, AppState::kUiFontSizeMin, AppState::kUiFontSizeMax);
+    readInt("monoFontSize", &app.monoFontSize, AppState::kMonoFontSizeMin, AppState::kMonoFontSizeMax);
+
+    std::string spacing;
+    if (ReadSetting(text, "rowSpacing", &spacing))
+    {
+        app.rowSpacing = static_cast<float>(atof(spacing.c_str()));
+        if (app.rowSpacing < AppState::kRowSpacingMin)
+            app.rowSpacing = AppState::kRowSpacingMin;
+        if (app.rowSpacing > AppState::kRowSpacingMax)
+            app.rowSpacing = AppState::kRowSpacingMax;
+    }
 }
 
 // Si scrive a ogni cambio di preferenza: il file e' minuscolo, e una preferenza che
@@ -943,6 +1006,8 @@ bool SaveSettings(const AppState& app)
         "# Non contengono nomi di file ne' cartelle visitate.\n";
     text += std::string("language=") +
             (gLanguage == Language::English ? "english" : "italian") + "\n";
+    text += "fontFace=" + ToUtf8(app.fontFace) + "\n";
+    text += "monoFace=" + ToUtf8(app.monoFace) + "\n";
 
     const auto writeFlag = [&](const char* key, bool value) {
         text += std::string(key) + "=" + (value ? "1" : "0") + "\n";
@@ -956,7 +1021,11 @@ bool SaveSettings(const AppState& app)
     writeFlag("doubleClickToParent", app.doubleClickToParent);
     writeFlag("showCheckboxes", app.showCheckboxes);
     writeFlag("sidebarVisible", app.sidebarVisible);
+    writeFlag("alternatingRows", app.alternatingRows);
     text += "gridIconSize=" + std::to_string(static_cast<int>(app.gridIconSize)) + "\n";
+    text += "uiFontSize=" + std::to_string(app.uiFontSize) + "\n";
+    text += "monoFontSize=" + std::to_string(app.monoFontSize) + "\n";
+    text += "rowSpacing=" + std::to_string(static_cast<int>(app.rowSpacing)) + "\n";
 
     DWORD written = 0;
     const BOOL ok = WriteFile(file, text.data(), static_cast<DWORD>(text.size()), &written, nullptr);
@@ -983,6 +1052,7 @@ int  CursorIndex(const AppState& app);
 bool IsEntrySelected(const AppState& app, const Entry& entry);
 std::wstring ParentOf(const std::wstring& path);
 double       NowSeconds();
+std::wstring Widen(const std::string& text);
 
 // --- string helpers --------------------------------------------------------
 std::string ToUtf8(const std::wstring& text)
