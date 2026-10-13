@@ -9339,6 +9339,18 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
             {
                 const Layout layout = ComputeLayout(*app);
 
+                // Il pannello delle proprieta' e' modale: la rotella lo scorre e
+                // basta.
+                if (app->propertiesOpen)
+                {
+                    const int steps = static_cast<int>(GET_WHEEL_DELTA_WPARAM(wparam)) / WHEEL_DELTA;
+                    app->propertiesScroll -= static_cast<float>(steps) * 44.0f;
+                    if (app->propertiesScroll < 0.0f)
+                        app->propertiesScroll = 0.0f;
+                    InvalidateRect(window, nullptr, FALSE);
+                    return 0;
+                }
+
                 // Con il menu aperto la rotella scorre il menu: e' l'unica cosa
                 // su cui si sta agendo, e la lista sotto e' coperta. Scorre il
                 // livello su cui si sta agendo, che e' il piu' profondo aperto.
