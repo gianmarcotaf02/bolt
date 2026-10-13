@@ -5595,6 +5595,646 @@ void RunGoToSelection(AppState& app)
     app.goTo.open = false;
 }
 
+// --- il pannello delle opzioni (M9) -----------------------------------------
+//
+// Il riferimento non mette le preferenze dentro la lista dei comandi: ha un
+// **pannello di opzioni**, una lista cercabile in cui ogni riga porta tre cose —
+// il nome, la ragione e il controllo del tipo giusto. Il componente c'e' gia':
+// `GroupMenu` filtra, raggruppa, naviga con Su/Giu' e si chiude con Esc. Quello
+// che gli mancava sono i **controlli tipizzati**, ed e' quello che si aggiunge
+// qui.
+//
+// La verita' di un'opzione sta in `AppState`: `RefreshOptionItem` e' l'unico
+// posto che la porta nella riga, e `ApplyOptionFromItem` l'unico che la riporta
+// indietro. Cosi' non esistono due copie di "i suggerimenti sono accesi".
+enum OptionId
+{
+    OptFont, OptFontSize, OptInspectorFont, OptInspectorFontSize,
+    OptSpacing, OptZoom, OptAnimations, OptRoundCorners, OptSystemScheme,
+    OptColorScheme, OptAlternatingRows, OptInactiveOpacity, OptFileExtension,
+    OptLongPaths, OptCompactPaths,
+    OptTooltips, OptHoverToSelect, OptUnderlineOnHover, OptSingleClick,
+    OptSingleClickFoldersOnly, OptActOnPress, OptDoubleClickToParent,
+    OptShowCheckboxes, OptSidebar, OptGridIconSize, OptLanguage,
+};
+
+// L'altezza di una riga del pannello: due linee di testo, e **non** `Spacing`.
+// Se seguisse la preferenza che sta comandando, lo slider si tirerebbe dietro le
+// proprie righe e il bersaglio si sposterebbe mentre lo si trascina.
+constexpr float kOptionRowHeight = 46.0f;
+
+float MenuRowHeight(const Layout& layout, const GroupMenu& menu)
+{
+    return menu.richRows ? kOptionRowHeight * layout.scale : layout.rowHeight;
+}
+
+// La prima riga visibile: la stessa formula per il disegno e per il clic, o le
+// due non sarebbero d'accordo su cosa sta sotto il puntatore.
+int GroupMenuFirstVisible(const GroupMenu& menu, float listTop, float listBottom, float rowHeight)
+{
+    const int visible = (std::max)(1, static_cast<int>((listBottom - listTop) / rowHeight));
+    int first = 0;
+    if (menu.selected >= first + visible)
+        first = menu.selected - visible + 1;
+    if (menu.selected < first)
+        first = menu.selected;
+    return first;
+}
+
+// Un nome di carattere esiste? `CreateFontW` sostituisce in silenzio quello che
+// non conosce, quindi la domanda non e' se la chiamata riesce: e' se la faccia
+// che torna e' quella chiesta. Senza questo controllo, un nome sbagliato
+// cambierebbe il carattere di tutta l'interfaccia senza dirlo.
+bool FontInstalled(const std::wstring& face)
+{
+    if (face.empty())
+        return false;
+    HDC dc = CreateCompatibleDC(nullptr);
+    if (dc == nullptr)
+        return false;
+    HFONT font = CreateFontW(-12, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
+                             OUT_TT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY,
+                             DEFAULT_PITCH | FF_DONTCARE, face.c_str());
+    bool installed = false;
+    if (font != nullptr)
+    {
+        HGDIOBJ previous = SelectObject(dc, font);
+        wchar_t actual[LF_FACESIZE] = {};
+        GetTextFaceW(dc, LF_FACESIZE, actual);
+        installed = _wcsicmp(actual, face.c_str()) == 0;
+        SelectObject(dc, previous);
+        DeleteObject(font);
+    }
+    DeleteDC(dc);
+    return installed;
+}
+
+// L'atlante dei glifi si rifa' solo quando una delle tre misure cambia davvero:
+// rasterizzarlo a ogni fotogramma sarebbe un lavoro che nessuno vede.
+void ApplyFonts(AppState& app)
+{
+    std::string error;
+    const int smallSize = (std::max)(AppState::kUiFontSizeMin, app.uiFontSize - 2);
+    app.font.Build(app.renderer, app.fontFace.c_str(), app.uiFontSize, kGlyphLayer,
+                   kTextureLayerSize, &error);
+    app.smallFont.Build(app.renderer, app.fontFace.c_str(), smallSize, kSmallGlyphLayer,
+                        kTextureLayerSize, &error);
+    app.monoFontOk = app.monoFont.Build(app.renderer, app.monoFace.c_str(), app.monoFontSize,
+                                        kMonoLayer, kTextureLayerSize, &error);
+}
+
+void RefreshOptionItem(const AppState& app, GroupMenuItem& item)
+{
+    item.enabled = true;
+    switch (static_cast<OptionId>(item.id))
+    {
+        case OptFont:
+            item.control   = OptionControl::Text;
+            item.valueText = ToUtf8(app.fontFace);
+            break;
+        case OptFontSize:
+            item.control   = OptionControl::Stepper;
+            item.valueText = std::to_string(app.uiFontSize);
+            break;
+        case OptInspectorFont:
+            item.control   = OptionControl::Text;
+            item.valueText = ToUtf8(app.monoFace);
+            break;
+        case OptInspectorFontSize:
+            item.control   = OptionControl::Stepper;
+            item.valueText = std::to_string(app.monoFontSize);
+            break;
+        case OptSpacing:
+            item.control  = OptionControl::Slider;
+            item.fraction = (app.rowSpacing - AppState::kRowSpacingMin) /
+                            (AppState::kRowSpacingMax - AppState::kRowSpacingMin);
+            item.valueText = std::to_string(static_cast<int>(app.rowSpacing + 0.5f));
+            break;
+        case OptZoom:
+            item.control  = OptionControl::Slider;
+            item.fraction = (app.zoom - 0.6f) / 1.4f;
+            item.valueText = std::to_string(static_cast<int>(app.zoom * 100.0f + 0.5f)) + "%";
+            break;
+        case OptAlternatingRows:
+            item.control = OptionControl::Toggle;
+            item.toggleOn = app.alternatingRows;
+            break;
+        case OptTooltips:
+            item.control = OptionControl::Toggle;
+            item.toggleOn = app.showTooltips;
+            break;
+        case OptHoverToSelect:
+            item.control = OptionControl::Toggle;
+            item.toggleOn = app.hoverToSelect;
+            break;
+        case OptUnderlineOnHover:
+            item.control = OptionControl::Toggle;
+            item.toggleOn = app.underlineOnHover;
+            break;
+        case OptSingleClick:
+            item.control = OptionControl::Toggle;
+            item.toggleOn = app.singleClick;
+            break;
+        case OptSingleClickFoldersOnly:
+            item.control = OptionControl::Toggle;
+            item.toggleOn = app.singleClickFoldersOnly;
+            item.enabled = app.singleClick;   // da sola non vuol dire niente
+            break;
+        case OptActOnPress:
+            item.control = OptionControl::Toggle;
+            item.toggleOn = app.actOnPress;
+            break;
+        case OptDoubleClickToParent:
+            item.control = OptionControl::Toggle;
+            item.toggleOn = app.doubleClickToParent;
+            break;
+        case OptShowCheckboxes:
+            item.control = OptionControl::Toggle;
+            item.toggleOn = app.showCheckboxes;
+            break;
+        case OptSidebar:
+            item.control = OptionControl::Toggle;
+            item.toggleOn = app.sidebarVisible;
+            break;
+        case OptGridIconSize:
+            item.control  = OptionControl::Slider;
+            item.fraction = (app.gridIconSize - AppState::kGridIconMin) /
+                            (AppState::kGridIconMax - AppState::kGridIconMin);
+            item.valueText = std::to_string(static_cast<int>(app.gridIconSize));
+            break;
+        case OptLanguage:
+            item.control   = OptionControl::Choice;
+            item.valueText = (gLanguage == Language::English) ? "English" : "Italiano";
+            break;
+        // Le opzioni che il riferimento ha e che qui non ci sono. Si mostrano
+        // **spente**: un'opzione che non si puo' applicare sta in vista e dice
+        // che non si tocca, invece di sparire e far credere che non esista.
+        case OptAnimations:
+        case OptRoundCorners:
+        case OptSystemScheme:
+        case OptLongPaths:
+            item.control  = OptionControl::Toggle;
+            item.toggleOn = true;
+            item.enabled  = false;
+            break;
+        case OptColorScheme:
+            item.control   = OptionControl::Choice;
+            item.valueText = "Voidstar";
+            item.enabled   = false;
+            break;
+        case OptInactiveOpacity:
+            item.control  = OptionControl::Slider;
+            item.fraction = 0.45f;
+            item.valueText = "45%";
+            item.enabled  = false;
+            break;
+        case OptFileExtension:
+            item.control  = OptionControl::Toggle;
+            item.toggleOn = true;
+            item.enabled  = false;
+            break;
+        case OptCompactPaths:
+            item.control  = OptionControl::Toggle;
+            item.toggleOn = false;
+            item.enabled  = false;
+            break;
+        default:
+            break;
+    }
+}
+
+void RefreshOptionItems(const AppState& app, GroupMenu& menu)
+{
+    for (GroupMenuItem& item : menu.items)
+        RefreshOptionItem(app, item);
+}
+
+void ApplyFonts(AppState& app);
+
+void ApplyOptionFromItem(AppState& app, GroupMenuItem& item)
+{
+    const OptionId id = static_cast<OptionId>(item.id);
+    bool fontsChanged = false;
+    bool saved        = true;
+
+    const auto clampInt = [](int value, int low, int high) {
+        return value < low ? low : (value > high ? high : value);
+    };
+
+    switch (id)
+    {
+        case OptFont:
+        case OptInspectorFont:
+        {
+            const std::wstring face = Widen(item.valueText);
+            if (!FontInstalled(face))
+            {
+                ReportStatus(app, TrW(L"Carattere inesistente: il nome non cambia",
+                                      L"No such font: the name is unchanged"));
+                saved = false;
+                break;
+            }
+            if (id == OptFont) app.fontFace = face;
+            else                app.monoFace = face;
+            fontsChanged = true;
+            break;
+        }
+        case OptFontSize:
+        {
+            const int size = clampInt(atoi(item.valueText.c_str()),
+                                      AppState::kUiFontSizeMin, AppState::kUiFontSizeMax);
+            if (size != app.uiFontSize)
+            {
+                app.uiFontSize = size;
+                fontsChanged   = true;
+            }
+            break;
+        }
+        case OptInspectorFontSize:
+        {
+            const int size = clampInt(atoi(item.valueText.c_str()),
+                                      AppState::kMonoFontSizeMin, AppState::kMonoFontSizeMax);
+            if (size != app.monoFontSize)
+            {
+                app.monoFontSize = size;
+                fontsChanged     = true;
+            }
+            break;
+        }
+        case OptSpacing:
+        {
+            const float value = AppState::kRowSpacingMin +
+                                item.fraction * (AppState::kRowSpacingMax - AppState::kRowSpacingMin);
+            app.rowSpacing = std::round(value);
+            break;
+        }
+        case OptZoom:
+            // A passi di 5%: uno zoom che cambia di un millesimo non si vede,
+            // e riempirebbe il file di impostazioni di cifre inutili.
+            app.zoom = std::round((0.6f + item.fraction * 1.4f) * 20.0f) / 20.0f;
+            break;
+        case OptGridIconSize:
+            app.gridIconSize = std::round((AppState::kGridIconMin +
+                                           item.fraction * (AppState::kGridIconMax - AppState::kGridIconMin)) /
+                                          2.0f) * 2.0f;
+            break;
+        case OptAlternatingRows: app.alternatingRows = item.toggleOn; break;
+        case OptTooltips:        app.showTooltips     = item.toggleOn; break;
+        case OptHoverToSelect:   app.hoverToSelect    = item.toggleOn; break;
+        case OptUnderlineOnHover: app.underlineOnHover = item.toggleOn; break;
+        case OptSingleClick:     app.singleClick      = item.toggleOn; break;
+        case OptSingleClickFoldersOnly: app.singleClickFoldersOnly = item.toggleOn; break;
+        case OptActOnPress:      app.actOnPress       = item.toggleOn; break;
+        case OptDoubleClickToParent: app.doubleClickToParent = item.toggleOn; break;
+        case OptShowCheckboxes:  app.showCheckboxes   = item.toggleOn; break;
+        case OptSidebar:         app.sidebarVisible   = item.toggleOn; break;
+        case OptLanguage:
+            // Le due lingue sono due voci, non un interruttore: la scelta mostra
+            // sempre quale delle due e' accesa.
+            gLanguage = (item.valueText == "English") ? Language::English : Language::Italian;
+            break;
+        default:
+            saved = false;   // una riga spenta non ha niente da applicare
+            break;
+    }
+
+    if (fontsChanged)
+        ApplyFonts(app);
+
+    RefreshOptionItems(app, app.options);
+    if (saved)
+        RememberSettings(app);
+    app.viewDirty = true;
+}
+
+void ApplyFonts(AppState& app)
+{
+    std::string error;
+    const int smallSize = (std::max)(AppState::kUiFontSizeMin, app.uiFontSize - 2);
+    app.font.Build(app.renderer, app.fontFace.c_str(), app.uiFontSize, kGlyphLayer,
+                   kTextureLayerSize, &error);
+    app.smallFont.Build(app.renderer, app.fontFace.c_str(), smallSize, kSmallGlyphLayer,
+                        kTextureLayerSize, &error);
+    app.monoFontOk = app.monoFont.Build(app.renderer, app.monoFace.c_str(), app.monoFontSize,
+                                        kMonoLayer, kTextureLayerSize, &error);
+}
+
+// Il pannello vero e proprio. Una lista piatta, come nel riferimento: il campo in
+// alto filtra, e i gruppi sarebbero una seconda gerarchia sopra una lista che si
+// cerca gia' per nome.
+void BuildOptionsMenu(AppState& app)
+{
+    struct OptionRow
+    {
+        const char*  label;
+        const char*  description;
+        OptionId     id;
+    };
+    static const OptionRow kRows[] = {
+        {"Font", "Il nome di un carattere installato, applicato a tutta l'interfaccia.", OptFont},
+        {"Font Size", "La misura del testo dell'interfaccia.", OptFontSize},
+        {"Inspector Font", "Il carattere usato per il testo nell'inspector.", OptInspectorFont},
+        {"Inspector Font Size", "La misura del testo nell'inspector.", OptInspectorFontSize},
+        {"Spacing", "Lo spazio fra le voci di una lista.", OptSpacing},
+        {"Zoom", "Ingrandisce o rimpicciolisce tutta l'interfaccia.", OptZoom},
+        {"Animations", "Animazioni delle aperture, dello scorrimento e del cursore di testo.", OptAnimations},
+        {"Round Corners", "Arrotonda gli angoli di pannelli, pulsanti e selezioni.", OptRoundCorners},
+        {"System Light / Dark Scheme", "Segue il tema chiaro o scuro del sistema.", OptSystemScheme},
+        {"Color Scheme", "Applica una tavolozza di colori a tutta l'interfaccia.", OptColorScheme},
+        {"Alternating Row Colors", "Colora a righe alterne per distinguere righe vicine.", OptAlternatingRows},
+        {"Inactive Panel Content Opacity", "Attenua il contenuto del pannello che non ha il fuoco.", OptInactiveOpacity},
+        {"Show File Extension", "Mostra o nasconde l'estensione nei nomi dei file.", OptFileExtension},
+        {"Long Paths Support", "Percorsi oltre i 260 caratteri.", OptLongPaths},
+        {"Display Compact Paths", "Accorcia i percorsi lunghi nella barra del percorso.", OptCompactPaths},
+        {"Show Tooltips", "Mostra un suggerimento quando il puntatore si ferma su una riga.", OptTooltips},
+        {"Hover To Select", "Seleziona la riga sotto il puntatore dopo una pausa.", OptHoverToSelect},
+        {"Underline On Hover", "Sottolinea il nome della riga sotto il puntatore.", OptUnderlineOnHover},
+        {"Single Click", "Apre con un clic invece che con due.", OptSingleClick},
+        {"Single Click Folders Only", "Con l'apertura a un clic, sui file ne servono ancora due.", OptSingleClickFoldersOnly},
+        {"Act On Press", "Agisce appena il pulsante scende, non quando risale.", OptActOnPress},
+        {"Double Click On Empty Space Goes Up", "Doppio clic sul fondo: va alla cartella superiore.", OptDoubleClickToParent},
+        {"Show Checkboxes", "Una casella di scelta su ogni riga.", OptShowCheckboxes},
+        {"Show The Sidebar", "Mostra il riquadro dei segnalibri e dei posti a sinistra.", OptSidebar},
+        {"Grid Icon Size", "La misura di una cella nelle viste a icone e a riquadri.", OptGridIconSize},
+        {"Language", "La lingua dell'interfaccia.", OptLanguage},
+    };
+    // Le righe che il riferimento ha e che qui non sono applicate: si mostrano
+    // spente. La frase fra parentesi e' la ragione, scritta dove si legge.
+    static const char* kNotYet = " (non ancora applicata in Bolt)";
+
+    std::vector<GroupMenuItem> items;
+    items.reserve(sizeof(kRows) / sizeof(kRows[0]));
+    for (const OptionRow& row : kRows)
+    {
+        GroupMenuItem item;
+        item.group       = "";          // lista piatta, come il riferimento
+        item.label       = row.label;
+        item.description = std::string(Tr(row.description, row.description)) + 
+                           ((row.id == OptAnimations || row.id == OptRoundCorners ||
+                             row.id == OptSystemScheme || row.id == OptColorScheme ||
+                             row.id == OptInactiveOpacity || row.id == OptFileExtension ||
+                             row.id == OptLongPaths || row.id == OptCompactPaths) ? kNotYet : "");
+        item.id          = row.id;
+        if (row.id == OptLanguage)
+        {
+            item.choices.push_back({"Italiano", 0});
+            item.choices.push_back({"English", 1});
+        }
+        RefreshOptionItem(app, item);
+        items.push_back(std::move(item));
+    }
+
+    app.palette.open = false;
+    app.goTo.open    = false;
+    app.optionsChoice.open = false;
+    GroupMenuOpen(app.options, Tr("OPZIONI", "OPTIONS"),
+                  Tr("Scegli un'opzione...", "Select an option..."), std::move(items));
+    app.options.richRows = true;
+    app.options.hint     = Tr("Su Giu' per navigare   Invio per usare   Esc per chiudere",
+                              "Up Down to navigate   Enter to use   Escape to dismiss");
+}
+
+Rect MenuPanel(const AppState& app, const Layout& layout, const GroupMenu& menu);
+
+// La riga sotto un punto, dentro il pannello delle opzioni.
+int OptionRowAt(const Layout& layout, const GroupMenu& menu, const Rect& panel, float y)
+{
+    const float rowHeight  = MenuRowHeight(layout, menu);
+    const float listTop    = panel.y + 58.0f * layout.scale;
+    const float listBottom = panel.bottom() - 26.0f * layout.scale;
+    if (y < listTop || y >= listBottom)
+        return -1;
+    const int first   = GroupMenuFirstVisible(menu, listTop, listBottom, rowHeight);
+    const int visible = (std::max)(1, static_cast<int>((listBottom - listTop) / rowHeight));
+    const int index   = first + static_cast<int>((y - listTop) / rowHeight);
+    if (index < first + visible || index < 0 || index >= static_cast<int>(menu.rows.size()))
+        return -1;
+    return index;
+}
+
+// Dove sta il controllo di una riga. Una funzione sola, perche' disegno e clic
+// devono scegliere lo stesso rettangolo.
+Rect OptionControlRect(const Layout& layout, const GroupMenuItem& item, const Rect& rowRect)
+{
+    const float scale = layout.scale;
+    const float height = 22.0f * scale;
+    float width = 0.0f;
+    switch (item.control)
+    {
+        case OptionControl::Text:    width = 200.0f * scale; break;
+        case OptionControl::Choice:  width = 170.0f * scale; break;
+        case OptionControl::Stepper: width = 128.0f * scale; break;
+        case OptionControl::Slider:  width = 150.0f * scale; break;
+        case OptionControl::Toggle:  width = 40.0f * scale;  break;
+        default:                     width = 0.0f;           break;
+    }
+    return Rect{rowRect.right() - width - 14.0f * scale,
+                rowRect.y + (rowRect.h - height) * 0.5f, width, height};
+}
+
+void BeginOptionEdit(AppState& app, const GroupMenuItem& item)
+{
+    app.optionEditActive = true;
+    app.optionEditId     = item.id;
+    app.optionEditText   = item.valueText;
+}
+
+void CancelOptionEdit(AppState& app)
+{
+    app.optionEditActive = false;
+    app.optionEditId     = -1;
+    app.optionEditText.clear();
+    RefreshOptionItems(app, app.options);
+}
+
+void CommitOptionEdit(AppState& app)
+{
+    if (!app.optionEditActive)
+        return;
+    const int id = app.optionEditId;
+    std::string text = app.optionEditText;
+    app.optionEditActive = false;
+    app.optionEditId     = -1;
+    app.optionEditText.clear();
+
+    // Gli spazi ai bordi non fanno parte di un nome di carattere.
+    while (!text.empty() && (text.front() == ' ' || text.front() == '\t'))
+        text.erase(text.begin());
+    while (!text.empty() && (text.back() == ' ' || text.back() == '\t'))
+        text.pop_back();
+
+    for (GroupMenuItem& item : app.options.items)
+    {
+        if (item.id == id)
+        {
+            item.valueText = text;
+            ApplyOptionFromItem(app, item);
+            return;
+        }
+    }
+}
+
+void OpenOptionChoice(AppState& app, const GroupMenuItem& item)
+{
+    std::vector<GroupMenuItem> items;
+    for (const std::pair<std::string, int>& choice : item.choices)
+        items.push_back(GroupMenuItem{"", choice.first, "", choice.second});
+
+    app.optionsChoiceParent = item.id;
+    GroupMenuOpen(app.optionsChoice, item.label, Tr("Filtra i valori...", "Filter values..."),
+                  std::move(items));
+    app.optionsChoice.richRows = false;
+    app.optionsChoice.hint =
+        Tr("Invio sceglie   Esc torna al pannello", "Enter chooses   Esc goes back");
+}
+
+void RunOptionsChoiceSelection(AppState& app)
+{
+    const int parent = app.optionsChoiceParent;
+    const int value  = GroupMenuSelectedId(app.optionsChoice);
+    app.optionsChoice.open = false;
+    if (parent < 0 || value < 0)
+        return;
+
+    for (GroupMenuItem& item : app.options.items)
+    {
+        if (item.id != parent)
+            continue;
+        for (const std::pair<std::string, int>& choice : item.choices)
+            if (choice.second == value)
+                item.valueText = choice.first;
+        ApplyOptionFromItem(app, item);
+        return;
+    }
+}
+
+// I tasti che riguardano il **controllo** della riga scelta. Ritorna vero se il
+// tasto e' stato consumato: Su/Giu'/Home/Fine restano al componente.
+bool OptionsKeyDown(AppState& app, GroupMenu& menu, WPARAM key)
+{
+    if (menu.selected < 0 || menu.selected >= static_cast<int>(menu.rows.size()))
+        return false;
+    const GroupMenuRow& row = menu.rows[static_cast<size_t>(menu.selected)];
+    if (row.header || row.item < 0)
+        return false;
+    GroupMenuItem& item = menu.items[static_cast<size_t>(row.item)];
+
+    if (!item.enabled)
+        return key == VK_RETURN || key == VK_SPACE;
+
+    switch (key)
+    {
+        case VK_RETURN:
+        case VK_SPACE:
+            if (item.control == OptionControl::Toggle)
+            {
+                item.toggleOn = !item.toggleOn;
+                ApplyOptionFromItem(app, item);
+            }
+            else if (item.control == OptionControl::Choice)
+            {
+                OpenOptionChoice(app, item);
+            }
+            else if (item.control == OptionControl::Text)
+            {
+                BeginOptionEdit(app, item);
+            }
+            // Uno stepper e uno slider non hanno un "invio": si muovono con le
+            // frecce, che sono il gesto di chi cambia un numero.
+            return true;
+
+        case VK_LEFT:
+        case VK_RIGHT:
+        {
+            const int delta = (key == VK_RIGHT) ? 1 : -1;
+            if (item.control == OptionControl::Stepper)
+            {
+                item.valueText = std::to_string(atoi(item.valueText.c_str()) + delta);
+                ApplyOptionFromItem(app, item);
+                return true;
+            }
+            if (item.control == OptionControl::Slider)
+            {
+                float fraction = item.fraction + delta * 0.05f;
+                fraction = (fraction < 0.0f) ? 0.0f : (fraction > 1.0f ? 1.0f : fraction);
+                item.fraction = fraction;
+                ApplyOptionFromItem(app, item);
+                return true;
+            }
+            return false;
+        }
+        default:
+            return false;
+    }
+}
+
+// Un clic dentro il pannello delle opzioni. Non chiude il pannello: si cambiano
+// piu' preferenze di seguito, ed e' tutto il motivo per cui e' un pannello e non
+// un singolo comando.
+MenuAction OptionsClick(AppState& app, const Layout& layout, GroupMenu& menu, float x, float y)
+{
+    if (!menu.open)
+        return MenuAction::None;
+
+    const Rect panel = MenuPanel(app, layout, menu);
+    if (!panel.Contains(x, y))
+        return MenuAction::Close;
+
+    const int index = OptionRowAt(layout, menu, panel, y);
+    if (index < 0 || menu.rows[static_cast<size_t>(index)].header)
+        return MenuAction::None;
+    const GroupMenuRow& row = menu.rows[static_cast<size_t>(index)];
+    if (row.item < 0)
+        return MenuAction::None;
+
+    menu.selected = index;
+    GroupMenuItem& item = menu.items[static_cast<size_t>(row.item)];
+    if (!item.enabled)
+        return MenuAction::None;
+
+    const float rowHeight = MenuRowHeight(layout, menu);
+    const float listTop   = panel.y + 58.0f * layout.scale;
+    const int   first     = GroupMenuFirstVisible(menu, listTop, panel.bottom() - 26.0f * layout.scale,
+                                                  rowHeight);
+    const Rect  rowRect{panel.x + 6.0f * layout.scale,
+                        listTop + (index - first) * rowHeight,
+                        panel.w - 12.0f * layout.scale, rowHeight};
+    const Rect  control = OptionControlRect(layout, item, rowRect);
+
+    switch (item.control)
+    {
+        case OptionControl::Toggle:
+            item.toggleOn = !item.toggleOn;
+            ApplyOptionFromItem(app, item);
+            break;
+        case OptionControl::Text:
+            BeginOptionEdit(app, item);
+            break;
+        case OptionControl::Choice:
+            OpenOptionChoice(app, item);
+            break;
+        case OptionControl::Stepper:
+            item.valueText = std::to_string(atoi(item.valueText.c_str()) +
+                                            (x < control.x + control.w * 0.5f ? -1 : 1));
+            ApplyOptionFromItem(app, item);
+            break;
+        case OptionControl::Slider:
+        {
+            const float knob  = control.h * 0.5f;
+            const float track = (std::max)(1.0f, control.w - knob * 2.0f);
+            float fraction = (x - (control.x + knob)) / track;
+            fraction = (fraction < 0.0f) ? 0.0f : (fraction > 1.0f ? 1.0f : fraction);
+            item.fraction = fraction;
+            app.optionSliderDrag = item.id;   // il trascinamento continua nel movimento
+            ApplyOptionFromItem(app, item);
+            break;
+        }
+        default:
+            break;
+    }
+    return MenuAction::None;
+}
+
 void RunCommand(AppState& app, int command)
 {
     const int cursorIndex = CursorIndex(app);
