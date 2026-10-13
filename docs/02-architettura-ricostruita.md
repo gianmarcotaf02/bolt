@@ -1247,3 +1247,55 @@ del testo i **numeri di riga** sparivano: stanno nella gutter, a sinistra. Un
 ritaglio stretto e' un difetto quanto uno largo, e si vede solo guardando — la
 lezione e' sempre la stessa e vale la pena ripeterla: dopo una correzione si
 rimisura il bordo attorno alla correzione.
+
+### 7.38 La shell interrogata due volte: un costo e una perdita
+
+Il menu contestuale chiede alla shell i suoi verbi: i gestori registrati su questa
+macchina rispondono in ~65 ms, e la prima apertura dopo l'avvio costa ~350 ms
+perche' le loro DLL si caricano in-process. Nel registro dei lavori quel
+`+22 handle di kernel per apertura` era annotato come un **costo**.
+
+**Non era un costo: era una perdita.** Dieci menu contestuali di fila, contando
+gli handle dopo ogni chiusura:
+
+    avvio  666
+    giro  1   menu aperto 1206 → chiuso 1135
+    giro  2                1261 →       1179
+    ...
+    giro 10                1430 →       1338
+
+Il contatore non tornava mai giu'. Non era nemmeno proporzionale ai gestori: la
+stessa crescita si misura su un `.txt` della sandbox e su un `.cpp` con quindici
+estensioni registrate, quindi non erano i gestori a essere tanti — era qualcosa che
+restava vivo **per il fatto stesso** di aver aperto il menu.
+
+**Dove, misurato e non dedotto.** Tre righe di registro con
+`GetProcessHandleCount` attorno alle tre parti della costruzione del menu:
+`Invia a` +0, `Nuovo file` +0, e tutto il resto sui verbi della shell. L'ipotesi
+precedente — le chiavi `ShellNew` lette a ogni apertura — era sbagliata, e la
+misura l'ha uccisa in un colpo: `+0`.
+
+**La correzione e' quella che i documenti chiedevano da M7**: chiedere la shell
+**una volta per selezione**, invece che a ogni tasto destro. Gli oggetti della
+shell (`IContextMenu` e `HMENU`) vivono ora in una memoria in `AppState`, il menu
+li prende in prestito e li restituisce, e a rilasciarli davvero e' la memoria
+quando la chiave cambia.
+
+**Perche' la memoria scade dopo 30 secondi.** Il registro diagnostico ha
+raccontato da solo il motivo: la prima interrogazione della sessione ha risposto
+`21 voci`, quella successiva — a estensioni ormai registrate — **`24 voci`**.
+Tenendo la prima risposta per sempre, tre verbi non sarebbero mai comparsi
+(`Apri nel Terminale`, `Apri con Code` sono fra questi: in Windows 11 i gestori
+moderni si registrano al secondo giro). Con la scadenza, la risposta incompleta si
+corregge da sola.
+
+**Verificato.** Dieci menu sulla **stessa** selezione: dal secondo in poi il
+registro dice `verbi della shell ripresi dalla memoria: 24 voci`, e il contatore
+degli handle resta fra 1243 e 1245. Dieci menu su **righe diverse** — il caso in
+cui una memoria per selezione non basterebbe — restano fra 1209 e 1238: ogni
+risultato nuovo rilascia il precedente. Il menu, guardato, ha ancora tutti i verbi,
+compresi quelli moderni.
+
+Resta dichiarato un costo che non e' una perdita: **ogni selezione nuova costa una
+interrogazione** (~65 ms). La shell e' l'unica autorita' sui propri verbi, e
+chiederli e' l'unico modo di averli.

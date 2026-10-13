@@ -877,12 +877,19 @@ shell e non difetti noti:
 | prima apertura dopo l'avvio | ~350 ms | le DLL delle estensioni si caricano in-process |
 | regime | ~65 ms | il costo di interrogare i gestori registrati, a ogni tasto destro |
 | fondo della cartella | ~220 ms la prima volta | `CreateViewObject` carica un altro giro di gestori |
-| handle di kernel | +22 per apertura | dentro le estensioni: i nostri oggetti USER non crescono |
+| handle di kernel | +22 per apertura — **una perdita, non un costo** | non tornavano mai giu': chiusa in §7.38 di `docs/02` con una memoria per selezione |
 | estensioni moderne Win11 | dalla **seconda** apertura | le voci dei gestori moderni (`Apri nel Terminale`, `Apri con Code`) si registrano solo al secondo giro |
 
-Gli ultimi due sono limiti dichiarati, non risolti: il primo non dipende da noi,
-il secondo è una scelta da fare (chiedere la shell **su richiesta** invece che a
-ogni tasto destro). Va decisa prima di M8, non dopo.
+L'ultimo è un limite dichiarato, non risolto: non dipende da noi.
+
+**La scelta è stata fatta** (§7.38 di `docs/02`): la shell si chiede **una volta per
+selezione** e il risultato si tiene in memoria per 30 secondi. Il tempo di una
+selezione nuova resta (~65 ms), ma aprirlo due volte non lo paga due volte — e
+soprattutto la perdita di handle è sparita: dieci menu di fila adesso lasciano il
+contatore fermo, sia sulla stessa selezione sia su dieci righe diverse. La scadenza
+di 30 secondi non è un numero a caso: la prima interrogazione della sessione
+risponde un elenco **incompleto** (21 voci contro 24) perché in Windows 11 i gestori
+moderni si registrano al secondo giro.
 
 **Difetto trovato contando le frecce.** Con otto pressioni la selezione si
 fermava su "Incolla qui" invece che su "Proprietà". `ContextMenuMove` partiva da

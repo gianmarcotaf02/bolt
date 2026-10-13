@@ -477,14 +477,14 @@ rettangolo ha bordi continui a qualunque dimensione.
 | `src/file_ops.*` | copia, sposta, rinomina, cestino via `IFileOperation`; clipboard `CF_HDROP` |
 | `src/gl_loader.*` | entry point OpenGL 3.3 caricate a runtime |
 | `src/bolt.rc`, `src/resource.h` | icona incorporata, da `brand/bolt.ico` |
-| `tools/` | cattura e input sintetico |
+| `tools/` | cattura, input sintetico, `handle-count.ps1` (costo o perdita) |
 | `brand/` | identità visiva, brief del logo, icona |
 
 ### Dove sta lo stato del lavoro
 
 - `docs/04-roadmap.md` — le milestone, con le caselle spuntate e i difetti aperti.
 - `docs/05-stato-e-prossimi-passi.md` — dove si è arrivati, cosa resta, le trappole.
-- `docs/02-architettura-ricostruita.md` — l'architettura e i **trentasette** difetti
+- `docs/02-architettura-ricostruita.md` — l'architettura e i **trentotto** difetti
   trovati e risolti, §7.
 - `docs/03-spec-funzionale.md` — la spec ricostruita dall'originale: 1124 chiavi,
   319 comandi, 35 token di tema, 23 colonne.

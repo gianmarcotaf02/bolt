@@ -71,7 +71,7 @@ Ordinato per quanto morde.
 
 - **Trentasette** difetti **trovati e risolti**: il registro è `docs/02` §7, uno per
   uno, con sintomo, causa e correzione. È un cumulativo, non una lista di lavoro.
-- **Otto** cose **da fare**: la lista qui sotto.
+- **Sette** cose **da fare**: la lista qui sotto.
 - I **limiti dichiarati**: cose che si è scelto di non fare, scritte dove vivono con
   la ragione accanto (il tetto di 1 MB nella lettura dei testi, i modelli `ShellNew`
   con valore `Command`, le 23 colonne della specifica contro le 6 fatte, il ritaglio
@@ -100,11 +100,7 @@ In ordine di valore, non di facilità.
    `SingleClick`, `SingleClickFoldersOnly`, `DoubleClickToParent`,
    `ShowCheckboxes`.
 6. **Drag&drop e albero dei tab** (`TabDropMarker_*`, `CloseInTree`).
-7. **Il costo dell'interrogazione della shell** — la prima apertura dopo l'avvio
-   costa ~350 ms e in regime ~65 ms, con **22 handle di kernel** per apertura dentro
-   le estensioni. Da decidere: chiedere la shell su richiesta invece che a ogni
-   tasto destro. Vedi `docs/04-roadmap.md`, sezione M7.
-8. **Spezzare `main.cpp`** — **8.480 righe** e undici moduli: il confine c'è, ma il
+7. **Spezzare `main.cpp`** — **8.480 righe** e undici moduli: il confine c'è, ma il
    file che lo contiene resta il collo di bottiglia dichiarato fin dall'inizio.
 
 
