@@ -1080,24 +1080,35 @@ versione la faceva lo stesso, riceveva zeri e li scriveva (§7.31 di `docs/02`).
 
 ---
 
-## M9 — Configurazione, hotkey, temi ⬜
+## M9 — Configurazione, hotkey, temi 🟡
 
-**Vincolo di progetto, deciso dall'autore: niente file di impostazioni, niente
-dati personali, niente tracce su disco.** Vedi `docs/06-privacy.md`. Questo
-cambia la milestone rispetto a come era stata pianificata: i tre file JSON
-sotto `%APPDATA%\Voidstar\FilePilot` sono il comportamento **dell'originale**, e
-copiarlo significherebbe scrivere su disco i percorsi che l'utente visita. Qui
-non si fa.
+**Vincolo di progetto, deciso dall'autore: niente dati personali, niente tracce di
+cosa si è guardato.** Vedi `docs/06-privacy.md`. I tre file JSON sotto
+`%APPDATA%\Voidstar\FilePilot` sono il comportamento **dell'originale**, e
+copiare quelli significherebbe scrivere su disco i percorsi visitati. Qui non si fa.
 
-Quindi le voci restano, ma la persistenza **non è il default e non è implicita**:
+La persistenza, quando c'è, è **esplicita e visibile**: `%APPDATA%\Bolt\settings.ini`,
+testo leggibile con una riga per preferenza, che non contiene nomi di file né
+cartelle — solo come si vuole che il programma si comporti. L'applicazione dice dove
+l'ha scritto, e cancellare il file riporta tutto ai valori di partenza. La scelta
+della lingua l'ha resa necessaria, ed è la stessa cosa che `docs/06` §4-bis prevede.
 
+- [x] il **pannello delle opzioni** (`Ctrl+,` e la voce «Open options» nella
+      palette): una **lista cercabile** a righe alte due linee, ognuna con nome,
+      descrizione e un **controllo tipizzato** — campo di testo, stepper, slider,
+      interruttore, scelta con sottoelenco. I tipi sono `OptionControl`, e la
+      verità sta in `AppState`: `RefreshOptionItem` la porta nella riga,
+      `ApplyOptionFromItem` la riporta indietro
+- [x] preferenze ricordate in `%APPDATA%\Bolt\settings.ini`
 - [ ] mappa tasti rimappabile sui 319 comandi — **in memoria**, per la sessione
 - [ ] temi a 35 token, con variante chiara e scura — **in memoria**
 - [ ] viste per cartella con ereditarietà e applicazione ricorsiva — **in memoria**
 - [ ] layout salvabili — **in memoria**
-- [ ] se un giorno la persistenza serve, dev'essere **esplicita, opt-in e locale**,
-      con l'utente che sceglie il file, e con scritto nell'interfaccia cosa viene
-      scritto e dove. Non una cartella creata di nascosto al primo avvio.
+- [ ] le opzioni che l'originale ha e qui **non** sono applicate (animazioni,
+      angoli arrotondati, schema di sistema, tavolozza, opacità dei pannelli
+      inattivi, estensione nei nomi, percorsi lunghi, percorsi compatti) si
+      mostrano **spente**, con la ragione accanto: un'opzione che non si applica
+      sta in vista e dice che non si tocca
 - [ ] nessun elenco di recenti, nessuna cronologia e nessuna anteprima lasciano la
       memoria del processo
 
@@ -1242,14 +1253,23 @@ una cosa che avevamo dato per buona.
 | `Options` | `Ctrl+,` |
 | `File Pilot Setup` | — |
 
-**Le nostre due scorciatoie sono scambiate rispetto all'originale**: da noi la
-palette dei comandi e' `Ctrl+P` e il GoTo e' `Ctrl+G`. Per allinearsi: `Ctrl+P` (e
-`F4`) al GoTo, `Ctrl+Shift+P` ai comandi, `Ctrl+,` alle opzioni. Piccola, precisa, e
-finora evasa.
+**Le nostre due scorciatoie erano scambiate rispetto all'originale**: da noi la
+palette dei comandi stava su `Ctrl+P` e il GoTo su `Ctrl+G`. Allineate: `Ctrl+P` (e
+`F4`) al GoTo, `Ctrl+Shift+P` ai comandi, `Ctrl+,` alle opzioni. `Ctrl+G` resta
+libero; ciclare il raggruppamento sta su `Ctrl+Shift+G`.
 
-**Il pannello delle opzioni** e' una **lista cercabile**, non una griglia di
-controlli: in cima un campo «Select an option...», sotto una voce per opzione, ognuna
-con tre cose —
+**Il pannello delle opzioni, adesso, c'e'.** E' una lista piatta e cercabile
+(`GroupMenu` con `richRows`), alta due linee per voce, aperta con `Ctrl+,`. I
+controlli sono tipizzati (`OptionControl`): testo (`Font`, `Inspector Font`),
+stepper (`Font Size`, `Inspector Font Size`), slider (`Spacing`, `Zoom`, misura
+della cella), interruttore (tutte le chiavi di interazione e `Alternating Row
+Colors`, `Show The Sidebar`), scelta con sottoelenco (`Language`). Le voci che
+l'originale ha e che qui non sono applicate si mostrano **spente**, con la ragione
+accanto.
+
+**Il pannello delle opzioni dell'originale** e' una **lista cercabile**, non una
+griglia di controlli: in cima un campo «Select an option...», sotto una voce per
+opzione, ognuna con tre cose —
 
 1. il **nome** (`Font`, `Font Size`, `Spacing`, `Animations`, ...),
 2. una **descrizione** che dice a cosa serve (`Defines the space between items in a
