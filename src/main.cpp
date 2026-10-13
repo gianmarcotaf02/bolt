@@ -4437,8 +4437,8 @@ void DrawInspector(AppState& app, const Layout& layout)
                       return a.second > b.second;
                   });
         const std::pair<const char*, std::string> summary[] = {
-            {Tr("Elementi", "Items"), breakdown},
-            {Tr("Dimensione", "Size"), HumanBytes(totalBytes)},
+            {"Items", breakdown},
+            {"Size", HumanBytes(totalBytes)},
         };
         for (const auto& item : summary)
         {
@@ -4453,7 +4453,7 @@ void DrawInspector(AppState& app, const Layout& layout)
         for (size_t i = 0; i < types.size() && i < 4; ++i)
         {
             app.smallFont.Draw(r, layout.inspector.x + 14.0f * scale, y,
-                               (i == 0) ? Tr("Tipi", "Types") : "", t.textDim, scale);
+                               (i == 0) ? "Types" : "", t.textDim, scale);
             const float valueX = layout.inspector.x + 96.0f * scale;
             const float valueMax = layout.inspector.right() - valueX - 14.0f * scale;
             const std::string line = std::to_string(types[i].second) + " " + types[i].first;
@@ -4545,7 +4545,7 @@ void DrawInspector(AppState& app, const Layout& layout)
 
     // L'etichetta non e' per forza una costante: le colonne della shell hanno i nomi
     // che sceglie lei, e sono tradotti.
-    struct Row { std::string label; std::string value; bool growing; };
+    struct Row { std::string label; std::string value; bool growing; bool tail = false; };
     std::vector<Row> rows;
 
     // Una voce di una cartella di spazio dei nomi — un file riciclato — la descrive
@@ -4575,7 +4575,8 @@ void DrawInspector(AppState& app, const Layout& layout)
     else if (!shellColumns && entry.isDirectory)
     {
         const bool growing = hasStats && stats.partial;
-        rows.push_back({"Size",    hasStats ? HumanBytes(stats.logicalBytes) : "counting...", growing});
+        rows.push_back({"Size",    hasStats ? HumanBytes(stats.logicalBytes)
+                                               : Tr("conteggio...", "counting..."), growing});
         rows.push_back({"Folders", hasStats ? HumanCount(stats.folders) : "--", growing});
         rows.push_back({"Files",   hasStats ? HumanCount(stats.files) : "--", growing});
     }
@@ -4627,7 +4628,7 @@ void DrawInspector(AppState& app, const Layout& layout)
 
     // Il percorso: e' la riga che si copia, e l'unica che dice *dove* si sta
     // guardando. Si taglia davanti.
-    rows.push_back({"Path", ToUtf8(full), false});
+    rows.push_back({"Path", ToUtf8(full), false, /*tail=*/true});
 
     // "Ext" solo per quello che un'estensione ce l'ha: una riga con l'etichetta e
     // niente accanto occupa lo spazio di una che direbbe qualcosa. E il trattino
@@ -4648,7 +4649,7 @@ void DrawInspector(AppState& app, const Layout& layout)
         const float valueMax = layout.inspector.right() - valueX - 14.0f * scale;
         // Un percorso si taglia davanti, tutto il resto dietro: le due cose che si
         // vogliono sapere sono "dove finisce" e "cosa c'e' scritto".
-        const std::string shown = (row.label == "Path")
+        const std::string shown = row.tail
                                       ? FitTextTail(app.smallFont, row.value, scale, valueMax)
                                       : FitText(app.smallFont, row.value, scale, valueMax);
         app.smallFont.Draw(r, valueX, y, shown, t.text, scale);
