@@ -8,9 +8,9 @@ Ultimo aggiornamento: dopo il **pannello delle opzioni** (M9, `Ctrl+,`) con i
 controlli tipizzati e le preferenze ricordate in `%APPDATA%\Bolt\settings.ini`,
 l'**allineamento delle scorciatoie** all'originale, la **lingua finita su tutte le
 superfici**, la **salita da una radice di volume**, le **tre cose viste
-nell'originale** e i tre difetti che si sono visti facendoli (`docs/02` §7.40,
-§7.41 e §7.42). Registro: **quarantadue** difetti trovati e risolti, **cinque** cose
-da fare, i limiti dichiarati sparsi dove vivono.
+nell'originale**, l'**albero dei tab verificato** e i tre difetti che si sono visti
+facendoli (`docs/02` §7.40, §7.41 e §7.42). Registro: **quarantadue** difetti trovati
+e risolti, **quattro** cose da fare, i limiti dichiarati sparsi dove vivono.
 
 ---
 
@@ -26,7 +26,7 @@ da fare, i limiti dichiarati sparsi dove vivono.
 | M5c — modalità di visualizzazione | ✅ quattro viste, celle **derivate** da una misura continua (icona, larghezza e altezza), raggruppamento in griglia e nell'elenco, ridimensionamento continuo con `Ctrl`+rotella, **selettori di vista e misura delle anteprime nella barra in fondo** |
 | M5d — sovrappasso e comportamento del clic | ✅ evidenzia righe e celle, e le otto chiavi di interazione: `HoverToSelect`, `UnderlineOnHover`, `ShowTooltips`, `SingleClick`, `SingleClickFoldersOnly`, `ActOnPress`, `DoubleClickToParent`, `ShowCheckboxes` |
 | M5b — colonne | ✅ ridimensionabili col mouse, con filtri per valore nelle intestazioni e **filtro di testo sul nome** |
-| M6 — tab, barra del titolo, palette, GoTo | 🟡 fatti tab, titolo, palette, GoTo, **barra laterale a sezioni** (fissaggi, **recenti**, segnalibri, volumi, cartelle standard) e **pulsanti di navigazione**; mancano drag&drop e albero dei tab |
+| M6 — tab, barra del titolo, palette, GoTo | 🟡 fatti tab, titolo, palette, GoTo, **barra laterale a sezioni** (fissaggi, recenti, segnalibri, volumi, cartelle standard), **pulsanti di navigazione** e **albero dei tab verificato** (creazione per trascinamento, chiusura per ramo, distacco); resta il quick access pinnato |
 | M7 — operazioni su file | 🟡 copia, sposta, rinomina, cestino, clipboard interoperabile, **menu contestuale a più livelli** con Proprietà di Windows, le **voci di primo livello della shell**, il **menu della cartella** sul fondo, i **sottomenu delle estensioni**, **`Nuovo file >`** (tipi dal registro, creazione con
 contenuto), **`Invia a >`** (destinazioni della cartella SendTo, eseguite lasciandoci
 cadere sopra la selezione), **drag&drop dentro e fuori** con OLE e la **navigazione
@@ -73,7 +73,7 @@ Ordinato per quanto morde.
 
 - **Quarantadue** difetti **trovati e risolti**: il registro è `docs/02` §7, uno per
   uno, con sintomo, causa e correzione. È un cumulativo, non una lista di lavoro.
-- **Cinque** cose **da fare**: la lista qui sotto.
+- **Quattro** cose **da fare**: la lista qui sotto.
 - I **limiti dichiarati**: cose che si è scelto di non fare, scritte dove vivono con
   la ragione accanto (il tetto di 1 MB nella lettura dei testi, i modelli `ShellNew`
   con valore `Command`, le 23 colonne della specifica contro le 6 fatte, il ritaglio
@@ -92,9 +92,11 @@ In ordine di valore, non di facilità.
 > la lingua**, **salire da una radice di volume** e **le tre cose viste nell'originale**
 > (selettori di vista e anteprime in fondo, filtro del nome, `RECENTS`) erano voci di
 > questa lista, e sono fatte: vedi `docs/04` M9 e le sezioni «La lingua e' finita» e
-> «Le tre cose dell'originale che mancavano», e §7.40/§7.41/§7.42 di `docs/02`.
-> Restano della M9 la **mappa tasti rimappabile** sui 319 comandi e i **temi a 35
-> token**; di M4 il **punteggio** dei recenti, che adesso e' solo l'ordine di visita.
+> «Le tre cose dell'originale che mancavano» e **l'albero dei tab** erano voci di
+> questa lista, e sono fatte: vedi `docs/04` M6 e la sezione «L'albero dei tab,
+> verificato», e §7.40/§7.41/§7.42 di `docs/02`. Restano della M9 la **mappa tasti
+> rimappabile** sui 319 comandi e i **temi a 35 token**; di M4 il **punteggio** dei
+> recenti, che adesso e' solo l'ordine di visita.
 
 1. **M10 — backend D3D11** — l'ultima milestone del piano; il renderer è già
    dietro `ui_renderer.*`, quindi è un secondo backend, non una riscrittura.
@@ -104,10 +106,7 @@ In ordine di valore, non di facilità.
    `docs/02`. Se non si trova, resta un limite dichiarato.
 3. **`InspectorHideGrid`** — la sola chiave di M8 che resta senza risposta: cosa sia
    la griglia dell'inspector non è ricostruito, e non si inventa.
-4. **Albero dei tab: finire di verificarlo.** Il modello, il disegno e il
-   trascinamento ci sono (`docs/04` M6); la chiusura dell'albero è scritta e
-   **non ancora vista**.
-5. **Spezzare `main.cpp`** — **~10.731 righe** e dodici moduli: il confine c'è, ma il
+4. **Spezzare `main.cpp`** — **~10.731 righe** e dodici moduli: il confine c'è, ma il
    file che lo contiene resta il collo di bottiglia dichiarato fin dall'inizio.
 
 
