@@ -2209,6 +2209,8 @@ void UpdateTabDrop(AppState& app, float x, float y)
     if (x >= left + third && x <= left + third * 2.0f)
     {
         app.tabDropInto = true;
+        DiagLog("  tab drop: DENTRO tab " + std::to_string(index) + " (x " +
+                std::to_string(x) + ")");
         return;
     }
     app.tabDropInto  = false;
@@ -2329,9 +2331,14 @@ void ApplyTabDrop(AppState& app)
         // e' piu' un albero.
         if (TabIsDescendantOf(app, app.tabs[static_cast<size_t>(target)].id,
                               app.tabs[static_cast<size_t>(dragged)].id))
+        {
+            DiagLog("  tab drop: rifiutato (discendente)");
             return;
+        }
         app.tabs[static_cast<size_t>(dragged)].parentId =
             app.tabs[static_cast<size_t>(target)].id;
+        DiagLog("  tab drop: " + std::to_string(app.tabs[static_cast<size_t>(dragged)].id) +
+                " figlio di " + std::to_string(app.tabs[static_cast<size_t>(target)].id));
         return;
     }
 
