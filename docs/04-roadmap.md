@@ -1233,17 +1233,46 @@ due.
 
 ---
 
-## M10 — Backend Direct3D 11 ⬜
+## M10 — Backend Direct3D 11 ✅
 
 L'originale espone `GraphicsBackend` con `Direct3D` e `OpenGL` e importa
 `D3DCompiler_47`. Un clone fedele deve poter scegliere.
 
-- [ ] astrazione del renderer dietro un'interfaccia
-- [ ] backend D3D11 con la stessa semantica di quad
-- [ ] compilazione HLSL degli stessi shader, con cache
-- [ ] selezione a runtime e fallback
+- [x] astrazione del renderer dietro un'interfaccia (`IRenderer` in
+      `ui_renderer.h`): `BeginFrame`, `Present`, `Begin`/`Draw`/`End`,
+      `SetScissor`/`ClearScissor`, la texture array. Il **formato di vertice** non
+      entra nell'interfaccia: e' la cosa che i due backend hanno in comune
+- [x] backend D3D11 (`d3d11_renderer.*`) con la stessa semantica di quad: stesso
+      batcher, stessi 30 float per vertice, stessa tabella di indici, chiaro e
+      presentato dal backend. La swap chain segue la finestra (`ResizeBuffers`)
+- [x] compilazione HLSL degli stessi shader (`D3DCompile`, `vs_5_0`/`ps_5_0`):
+      stessa SDF, stesso bordo, stessa ombra, stesso dash. **Non e' una seconda
+      implementazione visiva**, e' la stessa detta in un'altra lingua
+- [x] selezione a runtime e fallback: `BOLT_BACKEND=opengl|d3d11`, altrimenti
+      Direct3D 11 e, se non parte, OpenGL. Un backend che non c'e' non impedisce
+      di usare il programma, e la riga di registro dice quale sta disegnando
 
 *Stima: 2–3 settimane* se M1 ha definito bene l'interfaccia; molto di più se no.
+L'interfaccia c'era (un solo array di texture, un solo quad batcher), quindi il
+D3D11 e' stato un secondo consumatore, non una riscrittura.
+
+### Due trappole del port in HLSL — *Viste*
+
+- **La matrice in un `cbuffer` e' column-major per default.** Il codice caricava
+  la proiezione in ordine di riga, e il risultato era una finestra **vuota**: la
+  geometria finiva fuori dallo schermo. Dichiararla `row_major` (o trasporla) e'
+  l'unica cosa che serve, e senza saperlo si cerca a lungo.
+- **`point` e' una parola riservata dell'HLSL.** Un parametro chiamato `point`
+  produce un errore di sintassi, e — questa e' la parte peggiore — `D3DCompile`
+  risponde `E_FAIL` **senza un messaggio**. Il modo per vederlo e' compilare lo
+  shader con `fxc.exe` del Windows SDK, che il messaggio lo da': da li' in poi il
+  ciclo e' stato `fxc` prima, `D3DCompile` dopo.
+
+### Cosa resta
+
+Il cambio di backend e' **all'avvio** (`BOLT_BACKEND`), non un interruttore a
+caldo: ricreare il backend a finestra viva vuol dire ricreare texture e buffer di
+ogni atlante, ed e' un lavoro a se'. Dichiarato.
 
 ---
 
