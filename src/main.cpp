@@ -9315,7 +9315,13 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
                             app->draggingNamespaceItems = true;
                             if (IDataObject* data = DragDrop::DataObjectForPidls(window, pidls))
                             {
-                                DragDrop::DragOutData(window, data, pidls.size(), &effect);
+                                // Una voce del cestino si **ripristina**: e' uno
+                                // spostamento, non una copia. Offrendo anche
+                                // `COPY` la destinazione lo sceglieva e non faceva
+                                // niente; cosi' sceglie l'unica cosa che il cestino
+                                // sa fare.
+                                DragDrop::DragOutData(window, data, pidls.size(), &effect,
+                                                      DROPEFFECT_MOVE);
                                 data->Release();
                             }
                             else
