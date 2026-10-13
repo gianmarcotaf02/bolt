@@ -1360,3 +1360,21 @@ il percorso lungo del GoTo diventa `...\analysis\tmp\sandbox` invece di finire s
 il nome. Il caso con il carattere di partenza — l'unico che la correzione *cambia* —
 e' quello che conviene guardare: con `Segoe UI` 15 e' identico a prima, perche' il
 testo ci sta e `FitText` lo lascia intero.
+
+### 7.41 La vista a elenco si presentava come "Icons"
+
+**Trovato leggendo `DrawStatusBar` mentre si finiva la lingua**, non a schermo: il
+nome della vista era scelto con
+
+    const char* view = (app.viewMode == ViewMode::Details) ? "Details"
+                     : (app.viewMode == ViewMode::Tiles)   ? "Tiles"
+                                                           : "Icons";
+
+Le viste sono **quattro** (`Details`, `List`, `Tiles`, `Icons`), e `List` cadeva nel
+ramo di ripiego: la barra di stato diceva `Icons` mentre si guardava l'elenco. Un
+nome che non c'e' non si indovina con l'`else`: si nomina.
+
+Corretto con i quattro rami, e i nomi sono anche tradotti (`Elenco`/`List`,
+`Dettagli`/`Details`, `Riquadri`/`Tiles`, `Icone`/`Icons`). **Verificato a schermo**:
+con la vista a elenco la barra dice `Elenco` in italiano e `List` in inglese; prima
+diceva `Icons` in tutte e due.
