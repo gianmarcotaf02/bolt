@@ -9305,16 +9305,43 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
                 if (GroupMenu* menu = OpenMenu(*app))
                 {
                     const bool control = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
+                    const bool shift   = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
 
-                    // Each menu's own toggle key closes it again.
+                    // Il campo di testo di un'opzione, mentre si scrive, prende la
+                    // tastiera come la rinomina: Backspace cancella una lettera del
+                    // nome, non del filtro.
+                    if (app->optionEditActive)
+                    {
+                        switch (wparam)
+                        {
+                            case VK_RETURN: CommitOptionEdit(*app); break;
+                            case VK_ESCAPE: CancelOptionEdit(*app); break;
+                            case VK_BACK:
+                                if (!app->optionEditText.empty())
+                                    app->optionEditText.pop_back();
+                                break;
+                            default: break;
+                        }
+                        return 0;
+                    }
+
+                    // Ogni menu si richiude col suo tasto. Le scorciatoie sono
+                    // quelle del riferimento: Ctrl+P e F4 al GoTo, Ctrl+Maiusc+P ai
+                    // comandi, Ctrl+, alle opzioni.
                     const bool toggling = control &&
-                        ((menu == &app->palette && wparam == 'P') ||
-                         (menu == &app->goTo    && wparam == 'G'));
+                        ((menu == &app->goTo    && wparam == 'P' && !shift) ||
+                         (menu == &app->palette && wparam == 'P' && shift)  ||
+                         (menu == &app->options && wparam == VK_OEM_COMMA));
                     if (toggling)
                     {
                         menu->open = false;
                         return 0;
                     }
+
+                    // I tasti del **controllo** di una riga di opzione: Invio,
+                    // Spazio e frecce. Su/Giu'/Home/Fine/Esc restano al componente.
+                    if (menu == &app->options && OptionsKeyDown(*app, *menu, wparam))
+                        return 0;
 
                     const MenuAction action = GroupMenuKeyDown(*menu, wparam);
                     if (action == MenuAction::Close)
@@ -9325,6 +9352,8 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
                             RunPaletteSelection(*app);
                         else if (menu == &app->goTo)
                             RunGoToSelection(*app);
+                        else if (menu == &app->optionsChoice)
+                            RunOptionsChoiceSelection(*app);
                         else
                             RunColumnMenuSelection(*app);
                     }
