@@ -461,7 +461,7 @@ IDataObject* DataObjectForPidls(HWND owner, const std::vector<const BYTE*>& pidl
     return data;
 }
 
-void DragOutData(HWND window, IDataObject* data, size_t count, DWORD* effect, DWORD allowed)
+void DragOutData(HWND window, IDataObject* data, size_t count, DWORD* effect)
 {
     if (effect == nullptr)
         return;
@@ -469,31 +469,13 @@ void DragOutData(HWND window, IDataObject* data, size_t count, DWORD* effect, DW
     if (data == nullptr)
         return;
 
-    // Diagnostica: quali formati offre l'oggetto. Un trascinamento che la
-    // destinazione rifiuta (effetto `NONE`) e' quasi sempre un formato che manca.
-    {
-        IEnumFORMATETC* formats = nullptr;
-        std::string list;
-        if (data->EnumFormatEtc(DATADIR_GET, &formats) == S_OK && formats != nullptr)
-        {
-            FORMATETC f{};
-            ULONG fetched = 0;
-            while (formats->Next(1, &f, &fetched) == S_OK && fetched == 1)
-                list += std::to_string(static_cast<unsigned>(f.cfFormat)) + " ";
-            formats->Release();
-        }
-        const FORMATETC hdrop{CF_HDROP, nullptr, DVASPECT_CONTENT, -1, TYMED_HGLOBAL};
-        const bool hasHdrop = data->QueryGetData(const_cast<FORMATETC*>(&hdrop)) == S_OK;
-        DiagLog("--- formati dell'oggetto in uscita: [" + list + "] hdrop=" +
-                (hasHdrop ? "1" : "0"));
-    }
-
     // Ammessi tutti e tre: la destinazione sceglie. `LINK` c'e' perche' e' quello
     // che serve a creare un collegamento (Ctrl+Maiusc), e chi non lo sa fare
     // risponde con quello che sa.
     DropSource* source = new DropSource();
     DWORD chosen = DROPEFFECT_NONE;
-    if (SUCCEEDED(DoDragDrop(data, source, allowed, &chosen)))
+    if (SUCCEEDED(DoDragDrop(data, source,
+                             DROPEFFECT_COPY | DROPEFFECT_MOVE | DROPEFFECT_LINK, &chosen)))
         *effect = chosen;
 
     // L'esito vero: quello restituito, e quello che la destinazione ha scritto
