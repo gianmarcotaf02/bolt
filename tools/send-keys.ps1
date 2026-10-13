@@ -65,6 +65,7 @@ switch ($Action) {
     'escape' { [BoltKeys]::Key(0x1B) }
     'delete' { [BoltKeys]::Key(0x2E) }
     'f2'     { [BoltKeys]::Key(0x71) }
+    'f4'     { [BoltKeys]::Key(0x73) }
     'f5'     { [BoltKeys]::Key(0x74) }
     'down'   { [BoltKeys]::Key(0x28) }
     'up'     { [BoltKeys]::Key(0x26) }
@@ -82,6 +83,11 @@ switch ($Action) {
     default {
         if ($Action -match '^ctrl\+([a-z])$') {
             [BoltKeys]::Chord(0x11, 0, [byte][char]$Matches[1].ToUpper())
+        }
+        elseif ($Action -eq 'ctrl+comma') {
+            # La virgola e' VK_OEM_COMMA: non e' una lettera, quindi non entra
+            # nella regola generale. E' la scorciatoia delle opzioni.
+            [BoltKeys]::Chord(0x11, 0, 0xBC)
         }
         elseif ($Action -match '^ctrl\+shift\+([a-z])$') {
             [BoltKeys]::Chord(0x11, 0x10, [byte][char]$Matches[1].ToUpper())
