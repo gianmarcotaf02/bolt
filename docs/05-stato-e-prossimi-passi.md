@@ -69,33 +69,29 @@ Ordinato per quanto morde.
 
 **Tre numeri, che sono tre cose diverse e non vanno confusi.**
 
-- **Trentasette** difetti **trovati e risolti**: il registro è `docs/02` §7, uno per
+- **Quaranta** difetti **trovati e risolti**: il registro è `docs/02` §7, uno per
   uno, con sintomo, causa e correzione. È un cumulativo, non una lista di lavoro.
-- **Dieci** cose **da fare**: la lista qui sotto.
+- **Otto** cose **da fare**: la lista qui sotto.
 - I **limiti dichiarati**: cose che si è scelto di non fare, scritte dove vivono con
   la ragione accanto (il tetto di 1 MB nella lettura dei testi, i modelli `ShellNew`
   con valore `Command`, le 23 colonne della specifica contro le 6 fatte, il ritaglio
-  per-quad in `AGENTS.md` §8). Ogni volta che nei documenti c'è scritto "dichiarato",
-  vuol dire questo: non risolto, e detto.
+  per-quad in `AGENTS.md` §8, le otto opzioni che il pannello mostra spente). Ogni
+  volta che nei documenti c'è scritto "dichiarato", vuol dire questo: non risolto, e
+  detto.
 
-Qualche voce dei trentasette porta con sé un residuo dichiarato — §7.34 ha risolto
+Qualche voce dei quaranta porta con sé un residuo dichiarato — §7.34 ha risolto
 l'oggetto dati ma la voce riciclata che non viene presa resta un limite — e il
 conteggio non lo nasconde: il residuo è scritto nella voce stessa.
 
 In ordine di valore, non di facilità.
 
-1. **M9 — il pannello delle opzioni.** L'originale ha una **lista cercabile** di
-   opzioni, ognuna con nome, descrizione e un **controllo del tipo giusto** (campo di
-   testo, stepper, slider, interruttore, scelta), aperta con `Ctrl+,`: vedi `docs/04`,
-   «L'originale ha un pannello di opzioni». Il componente c'è già — `GroupMenu` ha
-   filtro, `Su`/`Giù`, `Invio`, `Esc` — mancano i **controlli tipizzati** dentro le
-   righe, che oggi sono tutte testo. Restano anche i **35 token di tema** e la mappa
-   tasti sui 319 comandi. Le preferenze si ricordano: `%APPDATA%\Bolt\settings.ini`,
-   `docs/06` §4-bis.
-2. **Allineare le scorciatoie all'originale** — `Ctrl+P` e `F4` al GoTo,
-   `Ctrl+Shift+P` ai comandi, `Ctrl+,` alle opzioni. Da noi sono **scambiate**: la
-   palette sta su `Ctrl+P` e il GoTo su `Ctrl+G`.
-3. **M10 — backend D3D11** — l'ultima milestone del piano; il renderer è già
+> **M9 — il pannello delle opzioni** (`Ctrl+,`) e **l'allineamento delle scorciatoie**
+> (`Ctrl+P`/`F4` al GoTo, `Ctrl+Shift+P` ai comandi, `Ctrl+,` alle opzioni) erano le
+> prime due voci di questa lista, e sono fatte: vedi `docs/04` M9 e §7.40 di `docs/02`.
+> Restano della milestone la **mappa tasti rimappabile** sui 319 comandi e i **temi a
+> 35 token**.
+
+1. **M10 — backend D3D11** — l'ultima milestone del piano; il renderer è già
    dietro `ui_renderer.*`, quindi è un secondo backend, non una riscrittura.
 4. **Il trascinamento fuori dal cestino** — l'oggetto dati adesso c'è e le voci
    normali escono davvero, ma una voce **riciclata** non viene presa (la
