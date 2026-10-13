@@ -64,7 +64,7 @@ public:
     // Allocates no GPU memory by itself: |layer| must be one of the layers the
     // renderer's texture array already has. |cellSize| is the square cell side
     // in pixels, |cacheCapacity| the number of live previews before eviction.
-    bool Initialize(UIRenderer& renderer, int layer, int atlasSize, int cellSize,
+    bool Initialize(IRenderer& renderer, int layer, int atlasSize, int cellSize,
                     int cacheCapacity, std::string* error);
 
     // Stops the worker and joins it. Safe to call twice.
@@ -97,7 +97,7 @@ private:
     int  AcquireCell();
     void InsertReady(const std::wstring& key, const std::vector<uint8_t>& rgba);
 
-    UIRenderer* renderer_ = nullptr;
+    IRenderer* renderer_ = nullptr;
     int layer_     = 0;
     int atlasSize_ = 0;
     int cellSize_  = 0;

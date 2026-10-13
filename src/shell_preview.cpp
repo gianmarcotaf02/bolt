@@ -138,7 +138,7 @@ ShellPreviewCache::~ShellPreviewCache()
     Shutdown();
 }
 
-bool ShellPreviewCache::Initialize(UIRenderer& renderer, int layer, int atlasSize, int cellSize,
+bool ShellPreviewCache::Initialize(IRenderer& renderer, int layer, int atlasSize, int cellSize,
                                    int cacheCapacity, std::string* error)
 {
     if (cellSize <= padding_ * 2 || atlasSize < cellSize)

@@ -89,7 +89,7 @@ int RoundUp(int value, int multiple)
 
 FontAtlas::~FontAtlas() = default;
 
-bool FontAtlas::Build(UIRenderer& renderer, const wchar_t* faceName, int pixelHeight, int layer,
+bool FontAtlas::Build(IRenderer& renderer, const wchar_t* faceName, int pixelHeight, int layer,
                       int textureLayerSize, std::string* error)
 {
     if (pixelHeight <= 0)
@@ -327,7 +327,7 @@ float FontAtlas::Measure(const std::string& text, float scale) const
     return width * scale;
 }
 
-void FontAtlas::Draw(UIRenderer& renderer, float x, float y, const std::string& text, Color color, float scale) const
+void FontAtlas::Draw(IRenderer& renderer, float x, float y, const std::string& text, Color color, float scale) const
 {
     float penX = x;
     for (size_t i = 0; i < text.size(); i = Utf8::Next(text, i))

@@ -48,7 +48,7 @@ public:
     // bitmap itself is only as large as the glyph grid needs, but UVs must be
     // normalised against the layer, not against the bitmap: mixing the two makes
     // every glyph sample the wrong part of the atlas.
-    bool Build(UIRenderer& renderer, const wchar_t* faceName, int pixelHeight, int layer,
+    bool Build(IRenderer& renderer, const wchar_t* faceName, int pixelHeight, int layer,
                int textureLayerSize, std::string* error);
 
     // Il glifo di un carattere, cercato per punto di codice e non per byte.
@@ -65,7 +65,7 @@ public:
     float MeasureOne(uint32_t codepoint, float scale) const;
 
     // Queues one quad per glyph. |x|, |y| name the top-left corner of the line box.
-    void Draw(UIRenderer& renderer, float x, float y, const std::string& text, Color color, float scale) const;
+    void Draw(IRenderer& renderer, float x, float y, const std::string& text, Color color, float scale) const;
 
 private:
     std::unordered_map<uint32_t, Glyph> glyphs_;

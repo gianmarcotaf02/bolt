@@ -43,7 +43,7 @@ public:
 
     // Allocates the atlas layer and warms the cache with the icons for folders
     // and for entries without an extension.
-    bool Initialize(UIRenderer& renderer, int layer, int atlasSize, std::string* error);
+    bool Initialize(IRenderer& renderer, int layer, int atlasSize, std::string* error);
 
     // Returns the atlas rectangle for one entry. |extension| is matched case
     // insensitively and may be empty. Never returns null: unknown extensions fall
@@ -58,7 +58,7 @@ private:
     // the shell has no icon for the key.
     const IconUV* Rasterize(const std::string& key, const std::wstring& syntheticName, DWORD attributes);
 
-    UIRenderer* renderer_ = nullptr;
+    IRenderer* renderer_ = nullptr;
     int layer_ = 0;
     int atlasSize_ = 0;
     int cellSize_ = 0;

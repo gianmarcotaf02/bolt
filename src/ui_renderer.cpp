@@ -236,6 +236,57 @@ bool UIRenderer::Initialize(const std::string& shaderDir, std::string* error)
     return true;
 }
 
+// L'entrata dell'interfaccia: il percorso degli shader lo conosce il backend, non
+// chi lo costruisce. `REA_SHADER_DIR` e' una definizione di compilazione (vedi
+// `CMakeLists.txt`), quindi vale anche qui.
+#ifndef REA_SHADER_DIR
+#define REA_SHADER_DIR "shaders"
+#endif
+
+bool UIRenderer::Initialize(std::string* error)
+{
+    return Initialize(REA_SHADER_DIR, error);
+}
+
+void UIRenderer::BeginFrame(int width, int height)
+{
+    viewportWidth_  = width;
+    viewportHeight_ = height;
+    if (dc_ == nullptr)
+        return;
+    glViewport(0, 0, width, height);
+    // Lo stesso colore di sfondo di prima, quello del tema scuro: e' il colore che
+    // si vede per un istante prima che il primo fotogramma sia disegnato.
+    glClearColor(0.106f, 0.110f, 0.122f, 1.0f);
+    glClear(GL_COLOR_BUFFER_BIT);
+}
+
+void UIRenderer::Present()
+{
+    if (dc_ != nullptr)
+        SwapBuffers(dc_);
+}
+
+void UIRenderer::SetScissor(Rect rect)
+{
+    if (rect.w <= 0.0f || rect.h <= 0.0f)
+    {
+        ClearScissor();
+        return;
+    }
+    glEnable(GL_SCISSOR_TEST);
+    // `glScissor` conta dal basso a sinistra; lo spazio dell'interfaccia da in
+    // alto a sinistra. La conversione sta qui, una volta sola.
+    glScissor(static_cast<GLint>(rect.x),
+              static_cast<GLint>(static_cast<float>(viewportHeight_) - rect.bottom()),
+              static_cast<GLsizei>(rect.w), static_cast<GLsizei>(rect.h));
+}
+
+void UIRenderer::ClearScissor()
+{
+    glDisable(GL_SCISSOR_TEST);
+}
+
 void UIRenderer::Shutdown()
 {
     if (texture_ != 0) { glDeleteTextures(1, &texture_); texture_ = 0; }

@@ -519,7 +519,7 @@ struct AppState
     // anche fuori dal ciclo principale (vedi `RenderFrame`).
     HDC deviceContext = nullptr;
 
-    UIRenderer      renderer;
+    IRenderer*       renderer = nullptr;
     FontAtlas       font;
     // Testo secondario: intestazioni, etichette, barra di stato. Rasterizzato
     // alla sua dimensione invece che ricampionato dal corpo.
@@ -2592,7 +2592,7 @@ float TextY(const Layout& layout, const Rect& row, const FontAtlas& font)
 // milestone, plus the three window buttons and the menu button.
 void DrawTitleBar(AppState& app, const Layout& layout)
 {
-    UIRenderer& r = app.renderer;
+    IRenderer& r = *app.renderer;
     const Theme& t = app.theme;
     const float scale = layout.scale;
     const Rect bar = layout.titleBar;
@@ -2814,7 +2814,7 @@ void DrawTitleBar(AppState& app, const Layout& layout)
 
 void DrawToolbar(AppState& app, const Layout& layout, const std::wstring& displayPath)
 {
-    UIRenderer& r = app.renderer;
+    IRenderer& r = *app.renderer;
     const Theme& t = app.theme;
     const float scale = layout.scale;
 
@@ -3004,7 +3004,7 @@ void DrawSidebar(AppState& app, const Layout& layout)
     if (!app.sidebarVisible)
         return;
 
-    UIRenderer& r = app.renderer;
+    IRenderer& r = *app.renderer;
     const Theme& t = app.theme;
     const float scale = layout.scale;
 
@@ -3286,18 +3286,18 @@ float DrawCheckbox(AppState& app, const Rect& row, bool selected, float scale,
     const Theme& t = app.theme;
     const float side = 14.0f * scale;
     const Rect box{row.x + padding, row.y + (row.h - side) * 0.5f, side, side};
-    app.renderer.Draw(UIDraw::Fill(box, selected ? t.accent : t.windowBg, 3.0f * scale));
+    app.renderer->Draw(UIDraw::Fill(box, selected ? t.accent : t.windowBg, 3.0f * scale));
     // Il bordo di una casella vuota e' in tono spento ma **visibile**: su una riga
     // scura un bordo del colore del pannello sparisce, e una casella che non si vede
     // e' una casella che non c'e'.
-    app.renderer.Draw(UIDraw::Border(box, selected ? t.accent : t.textDim, 1.0f, 3.0f * scale));
+    app.renderer->Draw(UIDraw::Border(box, selected ? t.accent : t.textDim, 1.0f, 3.0f * scale));
     if (selected)
     {
         // Il segno di spunta e' un quadrato pieno: nell'atlante dei glifi non c'e'
         // un carattere di spunta, e scriverne uno fuori dall'insieme rasterizzato
         // darebbe un buco (§7.32).
         const float inner = 6.0f * scale;
-        app.renderer.Draw(UIDraw::Fill(Rect{box.x + (side - inner) * 0.5f,
+        app.renderer->Draw(UIDraw::Fill(Rect{box.x + (side - inner) * 0.5f,
                                             box.y + (side - inner) * 0.5f, inner, inner},
                                        t.windowBg, 1.0f * scale));
     }
@@ -3315,7 +3315,7 @@ void DrawHeader(AppState& app, const Layout& layout, float* columnX)
     if (app.viewMode == ViewMode::Tiles || app.viewMode == ViewMode::Icons)
         return;   // nothing to head, and the list already has the space
 
-    UIRenderer& r = app.renderer;
+    IRenderer& r = *app.renderer;
     const Theme& t = app.theme;
     const float scale = layout.scale;
 
@@ -3471,7 +3471,7 @@ void DrawTooltip(AppState& app, const Layout& layout)
     const Rect box{(std::max)(8.0f * scale, x), (std::max)(8.0f * scale, y),
                    width + pad * 2.0f, height};
 
-    UIRenderer& r = app.renderer;
+    IRenderer& r = *app.renderer;
     const Theme& t = app.theme;
     r.Draw(UIDraw::Shadow(Rect{box.x + 2.0f * scale, box.y + 4.0f * scale, box.w, box.h},
                           Color{0.0f, 0.0f, 0.0f, 0.45f}, 16.0f * scale, 6.0f * scale));
@@ -3507,7 +3507,7 @@ void SetViewMode(AppState& app, ViewMode mode)
 
 void DrawFilterBar(AppState& app, const Layout& layout)
 {
-    UIRenderer& r = app.renderer;
+    IRenderer& r = *app.renderer;
     const Theme& t = app.theme;
     const float scale = layout.scale;
     const Rect bar = layout.filterBar;
@@ -3743,7 +3743,7 @@ std::vector<std::string> WrapName(const FontAtlas& font, const std::string& text
 void DrawEntryCell(AppState& app, const Layout& layout, const ViewMetrics& metrics,
                    const Rect& cell, const Row& view, int cursorIndex)
 {
-    UIRenderer& r = app.renderer;
+    IRenderer& r = *app.renderer;
     const Theme& t = app.theme;
     const float scale = layout.scale;
     const Entry& entry = app.entries[static_cast<size_t>(view.entry)];
@@ -3836,7 +3836,7 @@ void DrawEntryCell(AppState& app, const Layout& layout, const ViewMetrics& metri
 
 void DrawList(AppState& app, const Layout& layout, const float* columnX)
 {
-    UIRenderer& r = app.renderer;
+    IRenderer& r = *app.renderer;
     const Theme& t = app.theme;
     const float scale = layout.scale;
     const int cursorIndex = CursorIndex(app);
@@ -4165,7 +4165,7 @@ bool DrawBigImage(AppState& app, const Layout& layout, const Rect& area, float* 
 
     if (!app.bigImageUploaded)
     {
-        app.renderer.UploadLayerRegion(kBigImageLayer, app.bigImage.rgba.data(), app.bigImage.width,
+        app.renderer->UploadLayerRegion(kBigImageLayer, app.bigImage.rgba.data(), app.bigImage.width,
                                        app.bigImage.height, 0, 0);
         app.bigImageUploaded = true;
     }
@@ -4178,7 +4178,7 @@ bool DrawBigImage(AppState& app, const Layout& layout, const Rect& area, float* 
     const float width  = static_cast<float>(app.bigImage.width) * scale;
     const float height = static_cast<float>(app.bigImage.height) * scale;
 
-    UIRenderer& r = app.renderer;
+    IRenderer& r = *app.renderer;
     const Theme& t = app.theme;
     const Rect frame{area.x, area.y, area.w, (std::min)(area.h, height + 8.0f * layout.scale)};
     r.Draw(UIDraw::Fill(frame, Color::FromHex(0x131417), 6.0f * layout.scale));
@@ -4331,7 +4331,7 @@ std::string OneChar(uint32_t codepoint)
 // Una riga di testo, con gli spazi visibili se accesi: un punto dove c'e' uno spazio,
 // una freccia dove c'e' una tabulazione. E' l'unico modo di vedere *cosa* c'e' dove
 // sembra non esserci niente, ed e' quello per cui esiste `InspectorShowWhitespace`.
-void DrawTextRow(UIRenderer& r, const FontAtlas& font, const std::string& line, const TextRow& row,
+void DrawTextRow(IRenderer& r, const FontAtlas& font, const std::string& line, const TextRow& row,
                  float x, float y, float scale, bool whitespace, Color color, float maxWidth)
 {
     const float space = font.MeasureOne(' ', scale);
@@ -4373,7 +4373,7 @@ void DrawTextRow(UIRenderer& r, const FontAtlas& font, const std::string& line, 
 
 void DrawTextViewer(AppState& app, const Layout& layout, const Rect& area)
 {
-    UIRenderer& r = app.renderer;
+    IRenderer& r = *app.renderer;
     const Theme& t = app.theme;
     const float scale = layout.scale;
     const FontAtlas& font = (app.monoFontOk ? app.monoFont : app.smallFont);
@@ -4428,12 +4428,12 @@ void DrawTextViewer(AppState& app, const Layout& layout, const Rect& area)
     // Il ritaglio parte dal bordo del pannello, non da quello del testo: i numeri di
     // riga stanno nella gutter, a sinistra, e ritagliando sul solo testo sparivano —
     // un ritaglio stretto e' un difetto quanto uno largo.
-    app.renderer.End();
+    app.renderer->End();
     glEnable(GL_SCISSOR_TEST);
     glScissor(static_cast<GLint>(body.x),
               static_cast<GLint>(static_cast<float>(app.viewportHeight) - text.bottom()),
               static_cast<GLsizei>(text.right() - body.x), static_cast<GLsizei>(text.h));
-    app.renderer.Begin(app.viewportWidth, app.viewportHeight);
+    app.renderer->Begin(app.viewportWidth, app.viewportHeight);
 
     for (int row = first; row < last; ++row)
     {
@@ -4453,9 +4453,9 @@ void DrawTextViewer(AppState& app, const Layout& layout, const Rect& area)
                     app.textShowWhitespace, t.text, text.w);
     }
 
-    app.renderer.End();
+    app.renderer->End();
     glDisable(GL_SCISSOR_TEST);
-    app.renderer.Begin(app.viewportWidth, app.viewportHeight);
+    app.renderer->Begin(app.viewportWidth, app.viewportHeight);
 
     // La minimap: una barra per riga di schermo, lunga quanto la riga piu' lunga che
     // ci sta dentro, e la parte che si sta guardando evidenziata. Serve a orientarsi in
@@ -4493,7 +4493,7 @@ void DrawTextViewer(AppState& app, const Layout& layout, const Rect& area)
 
 void DrawInspector(AppState& app, const Layout& layout)
 {
-    UIRenderer& r = app.renderer;
+    IRenderer& r = *app.renderer;
     const Theme& t = app.theme;
     const float scale = layout.scale;
 
@@ -4826,7 +4826,7 @@ void DrawInspector(AppState& app, const Layout& layout)
 
 void DrawStatusBar(AppState& app, const Layout& layout)
 {
-    UIRenderer& r = app.renderer;
+    IRenderer& r = *app.renderer;
     const Theme& t = app.theme;
     const float scale = layout.scale;
 
@@ -4869,7 +4869,7 @@ void DrawStatusBar(AppState& app, const Layout& layout)
         char dev[192];
         std::snprintf(dev, sizeof(dev), "%.0f fps | %.0f quads | %d icons, %d previews | %d jobs",
                       static_cast<double>(app.framesPerSecond),
-                      static_cast<double>(app.renderer.QuadCount()), app.icons.IconCount(),
+                      static_cast<double>(app.renderer->QuadCount()), app.icons.IconCount(),
                       app.previews.ReadyCount(), app.stats.ActiveJobs());
         const float x = 12.0f * scale + app.font.Measure("0000 items", scale) +
                         app.smallFont.Measure("000 selected", scale) + 40.0f * scale;
@@ -8184,7 +8184,7 @@ void ContextMenuActivate(AppState& app)
 void ContextMenuDrawLevel(AppState& app, const Layout& layout, int depth)
 {
     ContextMenu& menu = app.contextMenu;
-    UIRenderer& r = app.renderer;
+    IRenderer& r = *app.renderer;
     const Theme& t = app.theme;
     const float scale = layout.scale;
     const Rect panel = ContextMenuPanel(app, layout, depth);
@@ -8356,7 +8356,7 @@ bool ContextMenuHover(AppState& app, const Layout& layout, float x, float y)
 void DrawOptionControl(AppState& app, const Layout& layout, const GroupMenuItem& item,
                        const Rect& control)
 {
-    UIRenderer& r = app.renderer;
+    IRenderer& r = *app.renderer;
     const Theme& t = app.theme;
     const float scale = layout.scale;
     const Color ink  = item.enabled ? t.text : t.textDim.WithAlpha(0.55f);
@@ -8441,7 +8441,7 @@ void GroupMenuDraw(AppState& app, const Layout& layout, GroupMenu& menu)
     if (!menu.open)
         return;
 
-    UIRenderer& r = app.renderer;
+    IRenderer& r = *app.renderer;
     const Theme& t = app.theme;
     const float scale = layout.scale;
     const Rect panel = MenuPanel(app, layout, menu);
@@ -8592,7 +8592,7 @@ void DrawFrame(AppState& app, const Layout& layout)
 
     float columnX[kColumnCount] = {};
 
-    app.renderer.FillRect(Rect{0.0f, 0.0f, static_cast<float>(app.viewportWidth),
+    app.renderer->FillRect(Rect{0.0f, 0.0f, static_cast<float>(app.viewportWidth),
                                static_cast<float>(app.viewportHeight)}, app.theme.windowBg);
 
     DrawTitleBar(app, layout);
@@ -8610,18 +8610,18 @@ void DrawFrame(AppState& app, const Layout& layout)
     // I quadrilateri si accumulano in un batch solo, quindi il batch va chiuso e
     // riaperto attorno al ritaglio: tre disegni per fotogramma invece di uno. E' il
     // prezzo del ritaglio, e si paga.
-    app.renderer.End();
+    app.renderer->End();
     glEnable(GL_SCISSOR_TEST);
     glScissor(static_cast<GLint>(layout.list.x),
               static_cast<GLint>(static_cast<float>(app.viewportHeight) - layout.list.bottom()),
               static_cast<GLsizei>(layout.list.w), static_cast<GLsizei>(layout.list.h));
-    app.renderer.Begin(app.viewportWidth, app.viewportHeight);
+    app.renderer->Begin(app.viewportWidth, app.viewportHeight);
 
     DrawList(app, layout, columnX);
 
-    app.renderer.End();
+    app.renderer->End();
     glDisable(GL_SCISSOR_TEST);
-    app.renderer.Begin(app.viewportWidth, app.viewportHeight);
+    app.renderer->Begin(app.viewportWidth, app.viewportHeight);
 
     // The rubber band is drawn over the rows it is about to select, and only over
     // the list: it is clamped to that region so dragging past the edge does not
@@ -8631,8 +8631,8 @@ void DrawFrame(AppState& app, const Layout& layout)
         const float x0 = (std::min)(app.rectX0, app.rectX1);
         const float y0 = (std::min)(app.rectY0, app.rectY1);
         const Rect band{x0, y0, std::fabs(app.rectX1 - app.rectX0), std::fabs(app.rectY1 - app.rectY0)};
-        app.renderer.FillRect(band, app.theme.accent.WithAlpha(0.18f), 2.0f * layout.scale);
-        app.renderer.BorderRect(band, app.theme.accent.WithAlpha(0.7f), 1.0f, 2.0f * layout.scale);
+        app.renderer->FillRect(band, app.theme.accent.WithAlpha(0.18f), 2.0f * layout.scale);
+        app.renderer->BorderRect(band, app.theme.accent.WithAlpha(0.7f), 1.0f, 2.0f * layout.scale);
     }
 
     DrawFilterBar(app, layout);
@@ -8680,10 +8680,10 @@ void RenderFrame(AppState& app)
     // contesto OpenGL.
     app.previews.Pump();
 
-    app.renderer.Begin(app.viewportWidth, app.viewportHeight);
-    app.renderer.ReserveQuads(app.entries.size() * 8 + 512);
+    app.renderer->Begin(app.viewportWidth, app.viewportHeight);
+    app.renderer->ReserveQuads(app.entries.size() * 8 + 512);
     DrawFrame(app, ComputeLayout(app));
-    app.renderer.End();
+    app.renderer->End();
 
     SwapBuffers(app.deviceContext);
 }
@@ -10618,7 +10618,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, LPWSTR, int)
 
     AppState app;
     std::string error;
-    if (!app.renderer.Initialize(REA_SHADER_DIR, &error))
+    if (!app.renderer->Initialize(REA_SHADER_DIR, &error))
     {
         ShowError(error);
         return 1;
@@ -10634,7 +10634,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, LPWSTR, int)
 
     // Sei strati: i quattro di sempre, il carattere a spaziatura fissa e l'immagine
     // dell'anteprima grande.
-    if (!app.renderer.CreateTextureArray(/*layers=*/6, kTextureLayerSize, &error))
+    if (!app.renderer->CreateTextureArray(/*layers=*/6, kTextureLayerSize, &error))
     {
         ShowError(error);
         return 1;
@@ -10801,7 +10801,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, LPWSTR, int)
     app.stats.Stop();
     OleUninitialize();
     app.previews.Shutdown();
-    app.renderer.Shutdown();
+    app.renderer->Shutdown();
     wglMakeCurrent(nullptr, nullptr);
     if (context != nullptr)
         wglDeleteContext(context);

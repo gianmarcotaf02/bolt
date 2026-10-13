@@ -97,7 +97,7 @@ std::wstring Widen(const std::string& text)
 
 ShellIconAtlas::~ShellIconAtlas() = default;
 
-bool ShellIconAtlas::Initialize(UIRenderer& renderer, int layer, int atlasSize, std::string* error)
+bool ShellIconAtlas::Initialize(IRenderer& renderer, int layer, int atlasSize, std::string* error)
 {
     renderer_  = &renderer;
     layer_     = layer;
