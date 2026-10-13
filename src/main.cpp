@@ -1419,7 +1419,9 @@ std::string ShellTypeName(const std::string& extension, bool isDirectory)
         result = ToUtf8(info.szTypeName);
 
     if (result.empty())
-        result = isDirectory ? "File folder" : (extension.empty() ? "File" : extension + " file");
+        result = isDirectory ? Tr("Cartella di file", "File folder")
+                             : (extension.empty() ? Tr("File", "File")
+                                                  : extension + Tr(" file", " file"));
 
     cache.emplace(key, result);
     return result;
