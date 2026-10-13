@@ -7,9 +7,9 @@ una compattazione del contesto.
 Ultimo aggiornamento: dopo il **pannello delle opzioni** (M9, `Ctrl+,`) con i
 controlli tipizzati e le preferenze ricordate in `%APPDATA%\Bolt\settings.ini`,
 l'**allineamento delle scorciatoie** all'originale, la **lingua finita su tutte le
-superfici**, e i due difetti che si sono visti facendoli (`docs/02` §7.40 e §7.41).
-Registro: **quarantuno** difetti trovati e risolti, **sette** cose da fare, i limiti
-dichiarati sparsi dove vivono.
+superfici**, la **salita da una radice di volume** e i tre difetti che si sono visti
+facendoli (`docs/02` §7.40, §7.41 e §7.42). Registro: **quarantadue** difetti trovati
+e risolti, **sei** cose da fare, i limiti dichiarati sparsi dove vivono.
 
 ---
 
@@ -47,7 +47,7 @@ lavorano i file — inclusa l'apertura delle proprietà di Windows.
 
 Ordinato per quanto morde.
 
-1. **`src/main.cpp` è a 10.460 righe.** I confini dei componenti ci sono
+1. **`src/main.cpp` è a 10.585 righe.** I confini dei componenti ci sono
    (`GroupMenu`, `ContextMenu`, `file_ops`, `dir_stats`, `shell_*`, `drag_drop`)
    ma quelli della vista vivono tutti nello stesso file. Spezzarlo richiede che
    `AppState` e i tipi condivisi escano dall'anonimo namespace in un header: è un
@@ -108,7 +108,7 @@ In ordine di valore, non di facilità.
 5. **Albero dei tab: finire di verificarlo.** Il modello, il disegno e il
    trascinamento ci sono (`docs/04` M6); la chiusura dell'albero è scritta e
    **non ancora vista**.
-6. **Spezzare `main.cpp`** — **~10.500 righe** e dodici moduli: il confine c'è, ma il
+6. **Spezzare `main.cpp`** — **~10.585 righe** e dodici moduli: il confine c'è, ma il
    file che lo contiene resta il collo di bottiglia dichiarato fin dall'inizio.
 
 
