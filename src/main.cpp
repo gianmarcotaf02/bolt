@@ -3230,6 +3230,17 @@ void DrawHeader(AppState& app, const Layout& layout, float* columnX)
         if (sorted)
             label += app.sortAscending ? " ^" : " v";
 
+        // Il titolo si accorcia se non ci sta. Con il carattere di partenza ci
+        // stava per fortuna; con un carattere piu' largo scelto dalle opzioni (o
+        // con una colonna stretta trascinata) i titoli si sovrapponevano, e un
+        // titolo sopra un altro e' peggio di un titolo troncato.
+        const float nextX = layout.header.x + 10.0f * scale + layout.header.w *
+                            (i + 1 < kColumnCount ? app.columns[static_cast<size_t>(i) + 1].fraction
+                                                  : 1.0f);
+        const float room = nextX - x - (kColumns[i].filterable ? 26.0f * scale : 8.0f * scale);
+        if (room > 10.0f * scale)
+            label = FitText(app.smallFont, label, scale, room);
+
         app.smallFont.Draw(r, x, TextY(layout, layout.header, app.smallFont), label,
                       sorted ? t.text : t.textDim, scale);
 
