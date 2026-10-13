@@ -10221,9 +10221,9 @@ void Drop(HWND window, const std::vector<std::wstring>& sources, const DragDrop:
             " di " + std::to_string(sources.size()) + " elementi" +
             (discard ? std::string()
                      : ", prodotti " + std::to_string(created.size())));
-    const wchar_t* action = discard ? TrW(L"Buttati via ", L"Thrown away ")
-                           : move    ? TrW(L"Spostati ", L"Moved ")
-                                     : TrW(L"Copiati ", L"Copied ");
+    const std::wstring action = discard ? TrW(L"Buttati via ", L"Thrown away ")
+                             : move    ? TrW(L"Spostati ", L"Moved ")
+                                       : TrW(L"Copiati ", L"Copied ");
     const std::wstring tail = discard ? TrW(L" elementi nel cestino", L" items to the recycle bin")
                                       : TrW(L" elementi in ", L" items into ") +
                                             LeafName(target.path);
