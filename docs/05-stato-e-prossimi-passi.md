@@ -6,9 +6,10 @@ una compattazione del contesto.
 
 Ultimo aggiornamento: dopo il **pannello delle opzioni** (M9, `Ctrl+,`) con i
 controlli tipizzati e le preferenze ricordate in `%APPDATA%\Bolt\settings.ini`,
-l'**allineamento delle scorciatoie** all'originale e il difetto di testo sovrapposto
-che si e' visto provandolo (`docs/02` §7.40). Registro: **quaranta** difetti trovati e
-risolti, **otto** cose da fare, i limiti dichiarati sparsi dove vivono.
+l'**allineamento delle scorciatoie** all'originale, la **lingua finita su tutte le
+superfici**, e i due difetti che si sono visti facendoli (`docs/02` §7.40 e §7.41).
+Registro: **quarantuno** difetti trovati e risolti, **sette** cose da fare, i limiti
+dichiarati sparsi dove vivono.
 
 ---
 
@@ -33,7 +34,7 @@ riquadro di navigazione** (che sul cestino è il gesto per buttare via, non una
 copia). Mancano le cartelle riciclate (che si ripristinano, non si aprono) e il
 trascinamento **fuori** dal cestino, che resta un limite dichiarato |
 | M8 — inspector | ✅ metadati, proprietà `PROPSYS`, conteggio per tipo, **visualizzatore di testo** (righe, minimap, spazi visibili, andare a capo, ingrandimento, codifica) e **anteprima immagine** decodificata con adattamento e ingrandimento. Le voci di spazio dei nomi mostrano le colonne della shell (percorso originale, data di eliminazione). Unica chiave non ricostruita: `InspectorHideGrid` |
-| M9 — configurazione e temi | 🟡 pannello delle opzioni (`Ctrl+,`) con i controlli tipizzati e le preferenze ricordate in `%APPDATA%\Bolt\settings.ini`; mancano la mappa tasti rimappabile e i temi a 35 token |
+| M9 — configurazione e temi | 🟡 pannello delle opzioni (`Ctrl+,`) con i controlli tipizzati, preferenze ricordate in `%APPDATA%\Bolt\settings.ini` e **lingua su tutte le superfici**; mancano la mappa tasti rimappabile e i temi a 35 token |
 | M10 — backend D3D11 | ⬜ |
 
 L'applicazione è **usabile**: si naviga, si filtra, si raggruppa, si seleziona, si
@@ -69,9 +70,9 @@ Ordinato per quanto morde.
 
 **Tre numeri, che sono tre cose diverse e non vanno confusi.**
 
-- **Quaranta** difetti **trovati e risolti**: il registro è `docs/02` §7, uno per
+- **Quarantuno** difetti **trovati e risolti**: il registro è `docs/02` §7, uno per
   uno, con sintomo, causa e correzione. È un cumulativo, non una lista di lavoro.
-- **Otto** cose **da fare**: la lista qui sotto.
+- **Sette** cose **da fare**: la lista qui sotto.
 - I **limiti dichiarati**: cose che si è scelto di non fare, scritte dove vivono con
   la ragione accanto (il tetto di 1 MB nella lettura dei testi, i modelli `ShellNew`
   con valore `Command`, le 23 colonne della specifica contro le 6 fatte, il ritaglio
@@ -79,17 +80,17 @@ Ordinato per quanto morde.
   volta che nei documenti c'è scritto "dichiarato", vuol dire questo: non risolto, e
   detto.
 
-Qualche voce dei quaranta porta con sé un residuo dichiarato — §7.34 ha risolto
+Qualche voce dei quarantuno porta con sé un residuo dichiarato — §7.34 ha risolto
 l'oggetto dati ma la voce riciclata che non viene presa resta un limite — e il
 conteggio non lo nasconde: il residuo è scritto nella voce stessa.
 
 In ordine di valore, non di facilità.
 
-> **M9 — il pannello delle opzioni** (`Ctrl+,`) e **l'allineamento delle scorciatoie**
-> (`Ctrl+P`/`F4` al GoTo, `Ctrl+Shift+P` ai comandi, `Ctrl+,` alle opzioni) erano le
-> prime due voci di questa lista, e sono fatte: vedi `docs/04` M9 e §7.40 di `docs/02`.
-> Restano della milestone la **mappa tasti rimappabile** sui 319 comandi e i **temi a
-> 35 token**.
+> **M9 — il pannello delle opzioni** (`Ctrl+,`), **l'allineamento delle scorciatoie**
+> (`Ctrl+P`/`F4` al GoTo, `Ctrl+Shift+P` ai comandi, `Ctrl+,` alle opzioni) e **finire
+> la lingua** erano le prime voci di questa lista, e sono fatte: vedi `docs/04` M9 e la
+> sezione «La lingua e' finita», e §7.40/§7.41 di `docs/02`. Restano della milestone
+> la **mappa tasti rimappabile** sui 319 comandi e i **temi a 35 token**.
 
 1. **M10 — backend D3D11** — l'ultima milestone del piano; il renderer è già
    dietro `ui_renderer.*`, quindi è un secondo backend, non una riscrittura.
@@ -103,19 +104,13 @@ In ordine di valore, non di facilità.
    guardato dal vivo): la **barra inferiore** con filtro, selettori di vista e
    ingrandimento delle anteprime; il **filtro sulla colonna del nome**; la sezione
    **Recents** nella barra laterale (che è il ranking dei recenti di M4).
-5. **Finire la lingua.** Il meccanismo c'è, la **palette** si traduce tutta e il
-   **pannello delle opzioni** pure — è la superficie delle preferenze, dove la lingua
-   si sceglie. Restano le altre superfici, e finché non sono fatte la modalità inglese
-   le lascia in italiano: menu contestuale (19 voci), inspector (15 righe), messaggi di
-   stato (31), intestazioni delle colonne (6), piè di pagina. La lingua **si ricorda**
-   già nella `settings.ini`; quello che resta è tradurre le superfici, non salvarla.
-6. **Albero dei tab: finire di verificarlo.** Il modello, il disegno e il
+5. **Albero dei tab: finire di verificarlo.** Il modello, il disegno e il
    trascinamento ci sono (`docs/04` M6); la chiusura dell'albero è scritta e
    **non ancora vista**.
-7. **Salire da una radice di volume**: `Alt`+↑ su `C:\` non va a "This PC" — la
+6. **Salire da una radice di volume**: `Alt`+↑ su `C:\` non va a "This PC" — la
    lista delle unità si raggiunge solo dalla palette, e il nome della voce è quello
    localizzato ("Questo PC"), non "This PC".
-8. **Spezzare `main.cpp`** — **10.460 righe** e undici moduli: il confine c'è, ma il
+7. **Spezzare `main.cpp`** — **10.460 righe** e undici moduli: il confine c'è, ma il
    file che lo contiene resta il collo di bottiglia dichiarato fin dall'inizio.
 
 
