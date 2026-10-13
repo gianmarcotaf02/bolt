@@ -9681,6 +9681,28 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
                 const float x = static_cast<float>(GET_X_LPARAM(lparam));
                 const float y = static_cast<float>(GET_Y_LPARAM(lparam));
 
+                // Il pannello delle proprieta' e' modale: il clic o cade sul suo
+                // pulsante, o lo chiude, o non fa altro.
+                if (app->propertiesOpen)
+                {
+                    const Layout layout = ComputeLayout(*app);
+                    const Rect panel = PropertiesPanelRect(*app, layout);
+                    if (PropertiesWindowsButton(*app, layout, panel).Contains(x, y))
+                    {
+                        app->propertiesOpen = false;
+                        const std::vector<std::wstring> paths = SelectedPaths(*app);
+                        if (paths.empty() || ShowProperties(app->window, paths) == 0)
+                            ReportStatus(*app,
+                                         TrW(L"Proprietà non disponibili per la selezione.",
+                                             L"Properties unavailable for the selection."));
+                    }
+                    else if (!panel.Contains(x, y))
+                    {
+                        app->propertiesOpen = false;
+                    }
+                    return 0;
+                }
+
                 // Un bordo d'intestazione si prende e si trascina. La presa viene
                 // prima di tutto il resto: mentre si trascina, la lista sotto non
                 // deve rispondere ai clic.
@@ -10031,6 +10053,14 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
         case WM_KEYDOWN:
             if (app != nullptr)
             {
+                // Il pannello delle proprieta' e' modale come un menu: prende la
+                // tastiera prima di tutto il resto, e non lascia passare niente.
+                if (app->propertiesOpen)
+                {
+                    PropertiesPanelKey(*app, wparam);
+                    return 0;
+                }
+
                 const Layout layout = ComputeLayout(*app);
 
                 // An open menu is modal, so it takes the keyboard first. Returning
