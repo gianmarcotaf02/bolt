@@ -585,6 +585,21 @@ snapshot è vuoto mentre il tab è attivo, perché le sue voci sono state sposta
 fuori. È un dettaglio che si vede subito: il tab dell'appena avviato programma
 mostrava "This PC" al posto della cartella.
 
+### Salire da una radice di volume — *Visto*
+
+`Backspace` e `Alt`+`↑` salgono di un livello; da `C:\` il genitore di un percorso
+non esiste, e sopra un disco c'e' **"This PC"**, la cartella di spazio dei nomi dove
+si scelgono le unita'. Ci si arriva con
+`ShellLocation::ParsingNameOf(FOLDERID_ComputerFolder)`, che non ha un CLSID scritto a
+mano nel nostro codice.
+
+L'etichetta e' **"This PC"** e non il "Questo PC" che la shell risponde in italiano:
+e' il nome del riferimento (`AGENTS.md` §3), ed e' anche la voce che apre la sezione
+`PLACES` della barra laterale, prima di `Home`.
+
+Le tre vie — pulsante, `Backspace`, `Alt`+`↑` — eseguono lo stesso comando. Prima
+`Backspace` ne aveva una sua, ed e' la ragione per cui §7.42 di `docs/02` esiste.
+
 *Stima: 3–5 settimane.* È qui che va speso il tempo per unificare il componente
 a gruppi, invece di scriverne tre.
 
