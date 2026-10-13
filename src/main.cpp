@@ -5360,7 +5360,9 @@ void ReloadKeeping(AppState& app, const std::unordered_set<std::wstring>& keep,
 }
 
 // Nome predefinito di una cartella nuova, come quello di Esplora risorse.
-constexpr wchar_t kNewFolderName[] = L"Nuova cartella";
+// Il nome di partenza di una cartella nuova: e' l'unico nome di file che scriviamo
+// noi, quindi segue la lingua dell'interfaccia, come fa Esplora risorse.
+std::wstring NewFolderName() { return TrW(L"Nuova cartella", L"New folder"); }
 
 void BeginRename(AppState& app)
 {
@@ -5526,13 +5528,13 @@ void DoNewFolder(AppState& app)
     const float scroll = app.scroll;
     std::vector<std::wstring> created;
     std::wstring error;
+    const std::wstring wanted = NewFolderName();
     const FileOps::Result result = FileOps::CreateFolder(
-        app.window, app.directory, kNewFolderName, &created, &error);
+        app.window, app.directory, wanted.c_str(), &created, &error);
 
     if (result == FileOps::Result::Ok)
     {
-        const std::wstring name = created.empty() ? std::wstring(kNewFolderName)
-                                                  : LeafName(created.front());
+        const std::wstring name = created.empty() ? wanted : LeafName(created.front());
         std::unordered_set<std::wstring> keep;
         keep.insert(name);
         ReloadKeeping(app, keep, name, scroll);
