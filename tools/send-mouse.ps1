@@ -11,7 +11,10 @@ param(
     [Parameter(Mandatory = $true)][ValidateSet('right', 'left', 'move', 'wheel')][string]$Action,
     [int]$X = 0,
     [int]$Y = 0,
-    [int]$Clicks = 1
+    [int]$Clicks = 1,
+    # Tiene premuto Ctrl durante l'azione: serve a Ctrl+rotella e a Ctrl+clic, che
+    # sono gesti diversi dal clic semplice e non si provano senza.
+    [switch]$Ctrl
 )
 
 Add-Type -AssemblyName System.Windows.Forms
@@ -26,6 +29,10 @@ public static class BoltMouse {
     [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
     [DllImport("user32.dll")] public static extern bool ClientToScreen(IntPtr h, ref POINT p);
     [DllImport("user32.dll")] public static extern void mouse_event(uint flags, int dx, int dy, int data, IntPtr extra);
+    // `keybd_event` e non `SendMessage`: `GetKeyState` — che e' quello che
+    // l'applicazione legge — non vede un modificatore iniettato con un messaggio
+    // (AGENTS.md §5), e con Ctrl premuto la rotella fa un'altra cosa.
+    [DllImport("user32.dll")] public static extern void keybd_event(byte vk, byte scan, uint flags, IntPtr extra);
 
     [StructLayout(LayoutKind.Sequential)]
     public struct POINT { public int X; public int Y; }
@@ -63,6 +70,12 @@ if ([BoltMouse]::GetForegroundWindow() -ne $handle) {
     Write-Output 'ATTENZIONE: la finestra non e'' in primo piano'
 }
 
+$VK_CONTROL = 0x11
+if ($Ctrl) {
+    [BoltMouse]::keybd_event($VK_CONTROL, 0, 0, [IntPtr]::Zero)
+    Start-Sleep -Milliseconds 60
+}
+
 $point = [BoltMouse]::Screen($handle, $X, $Y)
 [System.Windows.Forms.Cursor]::Position = New-Object System.Drawing.Point($point.X, $point.Y)
 Start-Sleep -Milliseconds 150
@@ -73,6 +86,11 @@ switch ($Action) {
     'left'  { for ($i = 0; $i -lt $Clicks; $i++) { [BoltMouse]::Click([BoltMouse]::LEFTDOWN,  [BoltMouse]::LEFTUP) } }
     # Clicks e' il numero di tacche, il segno e' la direzione: positivo in su.
     'wheel' { [BoltMouse]::mouse_event([BoltMouse]::WHEEL, 0, 0, $Clicks * 120, [IntPtr]::Zero) }
+}
+
+if ($Ctrl) {
+    [BoltMouse]::keybd_event($VK_CONTROL, 0, 2, [IntPtr]::Zero)
+    Start-Sleep -Milliseconds 60
 }
 
 Write-Output "ok: $Action ($X,$Y) -> schermo ($($point.X),$($point.Y))"
