@@ -5809,8 +5809,6 @@ void RefreshOptionItems(const AppState& app, GroupMenu& menu)
         RefreshOptionItem(app, item);
 }
 
-void ApplyFonts(AppState& app);
-
 void ApplyOptionFromItem(AppState& app, GroupMenuItem& item){
     const OptionId id = static_cast<OptionId>(item.id);
     bool fontsChanged = false;
@@ -5906,18 +5904,6 @@ void ApplyOptionFromItem(AppState& app, GroupMenuItem& item){
     app.viewDirty = true;
 }
 
-void ApplyFonts(AppState& app)
-{
-    std::string error;
-    const int smallSize = (std::max)(AppState::kUiFontSizeMin, app.uiFontSize - 2);
-    app.font.Build(app.renderer, app.fontFace.c_str(), app.uiFontSize, kGlyphLayer,
-                   kTextureLayerSize, &error);
-    app.smallFont.Build(app.renderer, app.fontFace.c_str(), smallSize, kSmallGlyphLayer,
-                        kTextureLayerSize, &error);
-    app.monoFontOk = app.monoFont.Build(app.renderer, app.monoFace.c_str(), app.monoFontSize,
-                                        kMonoLayer, kTextureLayerSize, &error);
-}
-
 // Il pannello vero e proprio. Una lista piatta, come nel riferimento: il campo in
 // alto filtra, e i gruppi sarebbero una seconda gerarchia sopra una lista che si
 // cerca gia' per nome.
@@ -6006,7 +5992,7 @@ int OptionRowAt(const Layout& layout, const GroupMenu& menu, const Rect& panel, 
     const int first   = GroupMenuFirstVisible(menu, listTop, listBottom, rowHeight);
     const int visible = (std::max)(1, static_cast<int>((listBottom - listTop) / rowHeight));
     const int index   = first + static_cast<int>((y - listTop) / rowHeight);
-    if (index < first + visible || index < 0 || index >= static_cast<int>(menu.rows.size()))
+    if (index >= first + visible || index < 0 || index >= static_cast<int>(menu.rows.size()))
         return -1;
     return index;
 }
