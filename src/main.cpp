@@ -250,7 +250,7 @@ enum CommandId
     CmdGoTo,
     CmdToggleSidebar, CmdZoomIn, CmdZoomOut, CmdZoomReset, CmdToggleDetails,
     CmdTextWhitespace, CmdTextLineNumbers, CmdTextMinimap, CmdTextWrap, CmdTextZoomIn,
-    CmdTextZoomOut, CmdImageZoomIn, CmdImageZoomOut, CmdImageZoomFit,
+    CmdTextZoomOut, CmdImageZoomIn, CmdImageZoomOut, CmdImageZoomFit, CmdToggleImageGrid,
     CmdViewDetails, CmdViewList, CmdViewTiles, CmdViewIcons,
     CmdSortName, CmdSortType, CmdSortModified, CmdSortFolders, CmdSortFiles,
     CmdSortSize, CmdSortDirection,
@@ -982,6 +982,7 @@ void LoadSettings(AppState& app)
     readFlag("showCheckboxes", &app.showCheckboxes);
     readFlag("sidebarVisible", &app.sidebarVisible);
     readFlag("alternatingRows", &app.alternatingRows);
+    readFlag("inspectorHideGrid", &app.inspectorHideGrid);
 
     std::string grid;
     if (ReadSetting(text, "gridIconSize", &grid))
@@ -1051,6 +1052,7 @@ bool SaveSettings(const AppState& app)
     writeFlag("showCheckboxes", app.showCheckboxes);
     writeFlag("sidebarVisible", app.sidebarVisible);
     writeFlag("alternatingRows", app.alternatingRows);
+    writeFlag("inspectorHideGrid", app.inspectorHideGrid);
     text += "gridIconSize=" + std::to_string(static_cast<int>(app.gridIconSize)) + "\n";
     text += "uiFontSize=" + std::to_string(app.uiFontSize) + "\n";
     text += "monoFontSize=" + std::to_string(app.monoFontSize) + "\n";
@@ -3162,6 +3164,7 @@ const char* CommandLabelIt(CommandId id)
         case CmdImageZoomIn:            return "Immagine: ingrandisci";
         case CmdImageZoomOut:           return "Immagine: rimpicciolisci";
         case CmdImageZoomFit:           return "Immagine: adatta al pannello";
+        case CmdToggleImageGrid:        return "Immagine: griglia di sfondo";
         case CmdToggleDetails:          return "Palette: mostra i dettagli";
         case CmdSortName:               return "Ordina per nome";
         case CmdSortType:               return "Ordina per tipo";
@@ -4180,6 +4183,22 @@ bool DrawBigImage(AppState& app, const Layout& layout, const Rect& area, float* 
     const Rect frame{area.x, area.y, area.w, (std::min)(area.h, height + 8.0f * layout.scale)};
     r.Draw(UIDraw::Fill(frame, Color::FromHex(0x131417), 6.0f * layout.scale));
 
+    // La griglia dietro l'immagine. Serve a distinguere lo sfondo dell'immagine —
+    // spesso bianco, o trasparente — da quello del pannello, ed e' la "griglia
+    // dell'inspector" della chiave `InspectorHideGrid` (`analysis/out`). Si disegna
+    // **sotto** l'immagine: un PNG trasparente la lascia intravedere, una foto la
+    // copre. Un quad per linea, e solo dove serve: e' la stessa griglia di sempre.
+    if (!app.inspectorHideGrid)
+    {
+        const float step = 16.0f * layout.scale;
+        const Color line = t.panelBorder.WithAlpha(0.6f);
+        const float inset = 5.0f * layout.scale;
+        for (float x = frame.x + step; x < frame.right() - inset; x += step)
+            r.FillRect(Rect{x, frame.y + inset, 1.0f, frame.h - inset * 2.0f}, line);
+        for (float y = frame.y + step; y < frame.bottom() - inset; y += step)
+            r.FillRect(Rect{frame.x + inset, y, frame.w - inset * 2.0f, 1.0f}, line);
+    }
+
     // Il quad si disegna solo per la parte che entra: con l'ingrandimento acceso
     // l'immagine puo' essere piu' larga del pannello, e lasciarla uscire la farebbe
     // disegnare sopra il resto della finestra.
@@ -5025,6 +5044,7 @@ const CommandDef kCommandTable[] = {
     {"Inspector", "Image: zoom in",              CmdImageZoomIn},
     {"Inspector", "Image: zoom out",             CmdImageZoomOut},
     {"Inspector", "Image: fit to panel",         CmdImageZoomFit},
+    {"Inspector", "Image: toggle background grid", CmdToggleImageGrid},
     {"View",    "Zoom out",                    CmdZoomOut},
     {"View",    "Reset zoom",                  CmdZoomReset},
     {"View",    "Toggle command details",      CmdToggleDetails},
@@ -6693,6 +6713,13 @@ void RunCommand(AppState& app, int command)
         case CmdImageZoomIn:  app.imageZoom = (std::min)(4.0f, app.imageZoom + 0.25f); break;
         case CmdImageZoomOut: app.imageZoom = (std::max)(0.25f, app.imageZoom - 0.25f); break;
         case CmdImageZoomFit: app.imageZoom = 1.0f; break;
+        // La griglia dietro l'anteprima dell'immagine: si vede dove finisce lo sfondo
+        // dell'immagine e comincia quello del pannello. Si ricorda, come le altre
+        // preferenze.
+        case CmdToggleImageGrid:
+            app.inspectorHideGrid = !app.inspectorHideGrid;
+            RememberSettings(app);
+            break;
         case CmdZoomOut:   app.zoom = (std::max)(0.6f, app.zoom - 0.1f); break;
         case CmdZoomReset: app.zoom = app.dpiScale; break;
         case CmdToggleDetails: app.palette.detailed = !app.palette.detailed; break;
