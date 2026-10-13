@@ -12,6 +12,9 @@ param(
     [int]$X = 0,
     [int]$Y = 0,
     [int]$Clicks = 1,
+    # Il processo a cui mandare il clic. Serve per confrontarsi con un'altra
+    # applicazione, che e' esattamente il caso in cui si guarda il riferimento.
+    [string]$ProcessName = 'Bolt',
     # Tiene premuto Ctrl durante l'azione: serve a Ctrl+rotella e a Ctrl+clic, che
     # sono gesti diversi dal clic semplice e non si provano senza.
     [switch]$Ctrl
@@ -59,7 +62,7 @@ public static class BoltMouse {
 }
 '@
 
-$process = Get-Process Bolt -ErrorAction Stop | Select-Object -First 1
+$process = Get-Process -Name $ProcessName -ErrorAction Stop | Select-Object -First 1
 $handle = $process.MainWindowHandle
 
 [void][BoltMouse]::SetWindowPos($handle, [IntPtr](-1), 0, 0, 0, 0, 3)
