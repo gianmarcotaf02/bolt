@@ -382,6 +382,13 @@ public:
     {
         // Esc annulla, il tasto lasciato conclude: sono le due sole cose che
         // decidono la fine di un trascinamento.
+        static int calls = 0;
+        if (calls < 6)
+        {
+            ++calls;
+            DiagLog("    QueryContinueDrag: keys " + std::to_string(keys) + " escape " +
+                    std::to_string(escape ? 1 : 0));
+        }
         if (escape)
             return DRAGDROP_S_CANCEL;
         if ((keys & (MK_LBUTTON | MK_RBUTTON)) == 0)
