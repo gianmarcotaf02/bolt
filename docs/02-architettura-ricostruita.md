@@ -1378,3 +1378,25 @@ Corretto con i quattro rami, e i nomi sono anche tradotti (`Elenco`/`List`,
 `Dettagli`/`Details`, `Riquadri`/`Tiles`, `Icone`/`Icons`). **Verificato a schermo**:
 con la vista a elenco la barra dice `Elenco` in italiano e `List` in inglese; prima
 diceva `Icons` in tutte e due.
+
+### 7.42 Il tasto "sali" e il comando "sali" erano due implementazioni
+
+**Trovato facendo salire da una radice di volume.** La correzione stava nel comando
+(`CmdGoUp`): da `C:\` il genitore e' se stesso, e sopra un disco c'e' "This PC". Ma
+**Backspace non passava da li'**: aveva la sua riga,
+
+    LoadDirectory(*app, ParentOf(app->directory));
+
+e chiamava direttamente il calcolo del genitore. Finche' il comando e il tasto
+facevano la stessa cosa la copia non si vedeva; appena il comando ha imparato a
+salire da una radice, il tasto e' rimasto indietro. Due strade per la stessa azione
+divergono sempre, prima o poi: e' la stessa regola per cui i pulsanti di navigazione
+eseguono i comandi invece di reimplementarli.
+
+Backspace adesso esegue `RunCommand(app, CmdGoUp)`, come i pulsanti e come
+`Alt`+`↑` — la terza via, aggiunta perche' e' il gesto che il riferimento usa.
+
+**Verificato a schermo** con `BOLT_DIAG=1` (una riga di registro diceva quale
+cartella e quale genitore, invece di dedurlo): da `C:\`, `Backspace` e `Alt`+`↑`
+portano entrambi a "This PC". L'etichetta e' **"This PC"** e non il "Questo PC" che
+risponde la shell, perche' e' il nome del riferimento (`AGENTS.md` §3).

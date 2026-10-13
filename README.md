@@ -86,7 +86,8 @@ Controlli a runtime:
 | `Ctrl+A` | seleziona tutto ciò che il filtro lascia a schermo |
 | digita un carattere | avvia il filtro incrementale |
 | `.pdf` o `*.png` nel filtro | filtra per tipo |
-| `Backspace` | cancella un carattere del filtro; a filtro vuoto risale |
+| `Backspace` | cancella un carattere del filtro; a filtro vuoto risale (da una radice di volume va a "This PC") |
+| `Alt`+`↑` | sale di un livello; da `C:\` porta a "This PC" |
 | `Esc` | azzera il filtro (non chiude: per chiudere la ✕ o `Alt+F4`) |
 | `Ctrl+Shift+G` o click su `Group:` | cambia la dimensione di raggruppamento |
 | `Alt`+`←` / `Alt`+`→` | indietro / avanti nella cronologia del tab |
