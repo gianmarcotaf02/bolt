@@ -4997,11 +4997,23 @@ void GroupMenuChar(GroupMenu& menu, wchar_t character)
 
 GroupMenu* OpenMenu(AppState& app)
 {
-    if (app.palette.open)    return &app.palette;
-    if (app.goTo.open)       return &app.goTo;
-    if (app.columnMenu.open) return &app.columnMenu;
+    // Il piu' profondo per primo: un controllo `Choice` aperto sta sopra le
+    // opzioni, e finche' c'e' e' lui a prendere tastiera e clic.
+    if (app.optionsChoice.open) return &app.optionsChoice;
+    if (app.options.open)       return &app.options;
+    if (app.palette.open)       return &app.palette;
+    if (app.goTo.open)          return &app.goTo;
+    if (app.columnMenu.open)    return &app.columnMenu;
     return nullptr;
 }
+
+GroupMenu* OpenMenu(AppState& app);
+void       GroupMenuOpen(GroupMenu& menu, std::string title, std::string placeholder,
+                         std::vector<GroupMenuItem> items);
+std::string CommandLabelIt(CommandId id);
+void       RunCommand(AppState& app, int command);
+void       ReportStatus(AppState& app, const std::wstring& message);
+void       RememberSettings(AppState& app);
 
 // Cosa fa l'Invio, o un clic, dentro il pannello dei valori. Non lo chiude: una
 // lista di caselle si spunta **a piu' riprese**, ed e' tutto il motivo per cui e'
