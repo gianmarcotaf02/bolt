@@ -5141,6 +5141,7 @@ void BuildPaletteMenu(AppState& app)
     }
 
     app.goTo.open = false;   // one menu at a time
+    app.options.open = false;
     GroupMenuOpen(app.palette, Tr("PALETTE DEI COMANDI", "COMMAND PALETTE"),
                   Tr("Scrivi per filtrare i comandi...", "Type to filter commands..."),
                   std::move(items));
@@ -5187,6 +5188,7 @@ void BuildGoToMenu(AppState& app)
         add("Recents", path, ToUtf8(LeafName(path)));
 
     app.palette.open = false;
+    app.options.open = false;
     GroupMenuOpen(app.goTo, Tr("VAI A", "GO TO"),
                   Tr("Scrivi per filtrare le cartelle...", "Type to filter locations..."),
                   std::move(items));
