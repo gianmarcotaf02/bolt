@@ -10407,6 +10407,12 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
         case WM_CHAR:
             if (app != nullptr)
             {
+                // Il pannello delle proprieta' e' modale, e i suoi tasti li ha gia'
+                // presi `WM_KEYDOWN`: senza questo, un carattere digitato andrebbe
+                // nel filtro della lista **sotto** il pannello.
+                if (app->propertiesOpen)
+                    return 0;
+
                 // CharacterKeyAction defaults to typing into the filter rather
                 // than triggering a command, so a printable character over the
                 // list starts filtering. Backspace is handled in WM_KEYDOWN: not
