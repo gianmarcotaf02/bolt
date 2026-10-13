@@ -3788,7 +3788,7 @@ void DrawList(AppState& app, const Layout& layout, const float* columnX)
             r.FillRect(row, t.rowSelected, 3.0f * scale);
         else if (view.entry == app.hovered)
             r.FillRect(row, t.rowHover, 3.0f * scale);
-        else if (rowIndex % 2 == 1)
+        else if (app.alternatingRows && rowIndex % 2 == 1)
             r.FillRect(row, t.rowOdd, 3.0f * scale);
 
         // The selection has a fill; the cursor has an outline. The reference theme
