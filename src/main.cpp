@@ -282,12 +282,40 @@ constexpr int kPalettePlaceBase = 1000;
 // nothing about what an item means — |id| is the caller's business — which is
 // what lets the same component serve the command palette and the GoTo window.
 // It became a component when the second caller arrived, not before.
+//
+// M9 aggiunge i **controlli tipizzati**: una riga del pannello delle opzioni non
+// e' solo una cosa da scegliere, e' una preferenza con il suo comando. Il tipo
+// sta qui e non in un `if` sul chiamante perche' disegno, clic e tastiera devono
+// leggere la stessa parola.
+enum class OptionControl
+{
+    None,     // riga di solo testo
+    Toggle,   // interruttore
+    Stepper,  // valore numerico con − e +
+    Slider,   // valore continuo
+    Text,     // campo di testo modificabile
+    Choice,   // pulsante con freccia: apre un elenco di valori
+};
+
 struct GroupMenuItem
 {
     std::string group;
     std::string label;
     std::string detail;   // shown right aligned in detailed mode
     int         id = 0;   // meaningful only to the caller
+
+    // --- M9: il controllo dentro la riga -------------------------------------
+    // `description` e' il *perche'* accanto alla scelta: il riferimento lo mette
+    // sotto il nome, non nella documentazione.
+    OptionControl control = OptionControl::None;
+    std::string   description;
+    std::string   valueText;      // Stepper / Text / Choice: cosa mostra il controllo
+    bool          toggleOn  = false;
+    float         fraction  = 0.0f;   // Slider, 0..1
+    // Un'opzione che non si puo' applicare si mostra **spenta**, non sparisce:
+    // e' la lezione del riferimento (`System Light / Dark Scheme` li' e' cosi').
+    bool          enabled   = true;
+    std::vector<std::pair<std::string, int>> choices;   // Choice: (etichetta, valore)
 };
 
 struct GroupMenuRow
@@ -304,6 +332,9 @@ struct GroupMenu
     bool         open      = false;
     bool         detailed  = false;
     bool         dirty     = true;
+    // Il pannello delle opzioni: righe a due linee (nome e descrizione) con il
+    // controllo a destra, alte una misura fissa che **non** segue `Spacing`.
+    bool         richRows  = false;
     // Dove appoggiarlo. Vuoto: al centro, come la palette. Riempito: sotto
     // quell'angolo, come il pannello dei valori di una colonna, che deve stare
     // attaccato all'intestazione da cui e' nato.
