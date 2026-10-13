@@ -255,6 +255,18 @@ std::wstring TrW(const wchar_t* italian, const wchar_t* english)
     return gLanguage == Language::English ? english : italian;
 }
 
+// "3 elementi" / "1 elemento", col verbo giusto: "Copiati 3 elementi" ma "Copiato
+// 1 elemento". I messaggi di stato e i contatori lo dicono spesso, e un "1
+// elementi" si vede subito. L'inglese non cambia il verbo, quindi |en| e' uno solo.
+std::wstring VerbItems(size_t count, const wchar_t* oneIt, const wchar_t* manyIt, const wchar_t* en)
+{
+    std::wstring text = TrW(oneIt, en);
+    text += std::to_wstring(count);
+    text += L" ";
+    text += TrW(count == 1 ? L"elemento" : L"elementi", count == 1 ? L"item" : L"items");
+    return text;
+}
+
 enum CommandId
 {
     CmdNewTab, CmdCloseTab, CmdNextTab, CmdPrevTab,
