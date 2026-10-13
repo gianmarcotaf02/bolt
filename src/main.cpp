@@ -10610,7 +10610,14 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, LPWSTR, int)
 
     AppState app;
     std::string error;
-    if (!app.renderer->Initialize(REA_SHADER_DIR, &error))
+
+    // Il backend, dietro l'interfaccia. Oggi c'e' l'OpenGL: il contesto e' gia'
+    // pronto, e `Attach` glielo da'. Il Direct3D 11 e' la seconda implementazione
+    // della stessa interfaccia, e si sceglie a runtime con fallback (vedi sotto).
+    UIRenderer glRenderer;
+    glRenderer.Attach(window, dc, context);
+    app.renderer = &glRenderer;
+    if (!glRenderer.Initialize(REA_SHADER_DIR, &error))
     {
         ShowError(error);
         return 1;
