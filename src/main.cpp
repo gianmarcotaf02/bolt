@@ -184,6 +184,17 @@ struct ClickTarget
     std::string  label;          // for group headers
 };
 
+// Una riga di proprieta': etichetta a sinistra, valore a destra. Le stesse righe
+// servono all'inspector e al pannello delle proprieta': sono due viste della
+// stessa cosa, e costruirle in due posti sarebbe il modo di farle divergere.
+struct InspectorRow
+{
+    std::string label;
+    std::string value;
+    bool        growing = false;   // il numero sta ancora crescendo: si sottolinea
+    bool        tail    = false;   // un percorso si taglia davanti, non dietro
+};
+
 // --- view model -------------------------------------------------------------
 // The list is not the directory. A filter removes entries and a grouping inserts
 // headers between them, so what gets drawn and hit tested is a list of rows over
@@ -859,6 +870,16 @@ struct AppState
     GroupMenu optionsChoice;                 // valori di un controllo Choice
     int       optionsChoiceParent = -1;      // OptionId dell'opzione da cui e' nato
     ContextMenu contextMenu;                 // tasto destro
+
+    // Il pannello delle **proprieta' in-app**: le stesse righe dell'inspector, ma
+    // in una finestra nostra, per la sola voce scelta. `Proprieta` del menu lo
+    // apre; `Proprieta di Windows` apre ancora quello di sistema, per le cose che
+    // solo lui sa (permessi, versioni precedenti, pagine per tipo di file).
+    bool                       propertiesOpen = false;
+    float                      propertiesScroll = 0.0f;
+    std::wstring               propertiesTitle;
+    std::wstring               propertiesSubtitle;
+    std::vector<InspectorRow>  propertiesRows;
     std::vector<std::wstring> goToTargets;
     std::vector<std::wstring> recents;       // visited this run: StoreRecents = Session
     std::vector<std::wstring> bookmarks;     // this run; persistence is milestone 9
