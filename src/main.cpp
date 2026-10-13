@@ -9408,7 +9408,16 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
                 // colonna, o richiude quello che c'e' gia'.
                 if (const ClickTarget* tab = HitTest(*app, x, y, ClickTarget::Kind::ColumnFilter))
                 {
-                    if (app->columnPanel == tab->index && app->columnMenu.open)
+                    // Il nome e' la prima colonna, e il suo filtro non e' un elenco di
+                    // valori: la linguetta accende la casella di testo in fondo, che
+                    // e' il filtro del nome che serve davvero.
+                    if (tab->index == 0)
+                    {
+                        app->columnMenu.open = false;
+                        app->columnPanel     = -1;
+                        app->filterActive    = true;
+                    }
+                    else if (app->columnPanel == tab->index && app->columnMenu.open)
                     {
                         app->columnMenu.open = false;
                         app->columnPanel     = -1;
