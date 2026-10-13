@@ -40,8 +40,8 @@ reimplementato in modo indipendente.
 | Cronologia di navigazione per tab | ✅ funzionante (`Alt`+`←` / `Alt`+`→`) |
 | Quick access pinnato, drag&drop dei tab | 🟡 albero dei tab fatto e verificato; resta il quick access pinnato |
 | Operazioni su file (copia, sposta, rinomina, cestino) | ✅ funzionanti, clipboard interoperabile con Esplora risorse |
-| Drag&drop, menu contestuale della shell | ⬜ milestone 7 |
-| Persistenza configurazione, temi, hotkey | ⬜ milestone 9 |
+| Drag&drop, menu contestuale della shell | ✅ funzionanti (OLE dentro e fuori, menu a più livelli con Proprietà di Windows) |
+| Persistenza configurazione, temi, hotkey | 🟡 pannello delle opzioni e `settings.ini`; mancano temi e mappa tasti rimappabile |
 | Backend Direct3D 11 | ⬜ milestone 10 |
 
 Vedi [docs/04-roadmap.md](docs/04-roadmap.md) per la sequenza completa,
