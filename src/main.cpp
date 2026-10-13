@@ -2623,10 +2623,28 @@ void DrawTitleBar(AppState& app, const Layout& layout)
         // moved out and only the live fields are current, so the title has to come
         // from there.
         const std::wstring& source = (i == app.activeTab) ? app.directory : tab.directory;
-        const std::string title = ToUtf8(LocationLabel(app, source));
-        const float width = (std::min)(220.0f * scale,
-                                       (std::max)(130.0f * scale,
-                                                  app.font.Measure(title, scale) + 66.0f * scale));
+        // Il tab mostra il **nome della cartella**, non tutto il percorso: un
+        // percorso lungo non ci sta e diventa illeggibile proprio nella parte che
+        // identifica. Il pezzo che viene prima si mostra in piccolo e spento, e solo
+        // se avanza spazio.
+        const std::wstring leafW = ShellLocation::IsNamespace(source)
+                                       ? LocationLabel(app, source)
+                                       : LeafName(source);
+        std::wstring parentW;
+        if (!ShellLocation::IsNamespace(source))
+        {
+            const size_t slash = source.find_last_of(L'\\');
+            if (slash != std::wstring::npos && slash + 1 < source.size())
+                parentW = source.substr(0, slash + 1);
+        }
+        const std::string leaf   = ToUtf8(leafW);
+        const std::string parent = ToUtf8(parentW);
+
+        // La larghezza si misura sul **nome**: il percorso che precede prende solo lo
+        // spazio che avanza, invece di allungare il tab fino a renderlo illeggibile.
+        const float width = (std::min)(210.0f * scale,
+                                       (std::max)(110.0f * scale,
+                                                  app.font.Measure(leaf, scale) + 66.0f * scale));
         if (x + width > stripRight)
             break;   // no overflow menu yet: extra tabs are simply not drawn
 
@@ -2661,8 +2679,28 @@ void DrawTitleBar(AppState& app, const Layout& layout)
                                  uv->u0, uv->v0, uv->u1, uv->v1));
         }
 
-        app.font.Draw(r, tabRect.x + 32.0f * scale + indent, TextY(layout, tabRect, app.font),
-                      FitText(app.font, title, scale, tabRect.w - 56.0f * scale - indent),
+        // Il nome in evidenza; il percorso che precede, in piccolo e spento, solo
+        // se c'e' spazio per leggerlo. Se non ce n'e', sparisce invece di stringere
+        // il nome.
+        const float contentX = tabRect.x + 32.0f * scale + indent;
+        const float contentW = tabRect.w - 56.0f * scale - indent;
+        float leafX = contentX;
+        if (!parent.empty())
+        {
+            const float leafWidth = app.font.Measure(leaf, scale);
+            const float room = contentW - leafWidth - 8.0f * scale;
+            if (room > 40.0f * scale)
+            {
+                const std::string shownParent = FitTextTail(app.smallFont, parent, scale, room);
+                app.smallFont.Draw(r, contentX, TextY(layout, tabRect, app.smallFont),
+                                   shownParent,
+                                   active ? t.textDim : t.textDim.WithAlpha(0.6f), scale);
+                leafX = contentX + app.smallFont.Measure(shownParent, scale) + 8.0f * scale;
+            }
+        }
+        app.font.Draw(r, leafX, TextY(layout, tabRect, app.font),
+                      FitText(app.font, leaf, scale,
+                              tabRect.right() - 28.0f * scale - leafX),
                       active ? t.text : t.textDim, scale);
 
         const Rect close{tabRect.right() - 24.0f * scale, tabRect.y + 5.0f * scale,
