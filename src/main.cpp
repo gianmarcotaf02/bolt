@@ -2640,11 +2640,14 @@ void DrawTitleBar(AppState& app, const Layout& layout)
         const std::string leaf   = ToUtf8(leafW);
         const std::string parent = ToUtf8(parentW);
 
-        // La larghezza si misura sul **nome**: il percorso che precede prende solo lo
-        // spazio che avanza, invece di allungare il tab fino a renderlo illeggibile.
-        const float width = (std::min)(210.0f * scale,
+        // La larghezza si misura sul **nome**, piu' un margine per il pezzo di
+        // percorso che precede (fino a un tetto): un nome corto in una cartella
+        // profonda resta un tab stretto, e il percorso non lo allunga oltre il tetto.
+        const float parentExtra = (std::min)(app.smallFont.Measure(parent, scale), 110.0f * scale);
+        const float width = (std::min)(200.0f * scale,
                                        (std::max)(110.0f * scale,
-                                                  app.font.Measure(leaf, scale) + 66.0f * scale));
+                                                  app.font.Measure(leaf, scale) + 66.0f * scale +
+                                                      parentExtra));
         if (x + width > stripRight)
             break;   // no overflow menu yet: extra tabs are simply not drawn
 
