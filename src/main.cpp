@@ -5270,8 +5270,10 @@ bool RefuseInNamespace(AppState& app, const wchar_t* action)
     if (!ShellLocation::IsNamespace(app.directory))
         return false;
     ReportStatus(app, std::wstring(action) +
-                          L": qui non si puo', questa cartella non e' un percorso. "
-                          L"Le voci si gestiscono coi comandi del menu contestuale.");
+                          TrW(L": qui non si puo', questa cartella non e' un percorso. "
+                              L"Le voci si gestiscono coi comandi del menu contestuale.",
+                              L": not here, this folder is not a path. "
+                              L"Use the context menu commands for these items."));
     return true;
 }
 
@@ -10439,7 +10441,8 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, LPWSTR, int)
     // non vuole registrarla lo si dice: un trascinamento che non arriva sembra un
     // difetto dell'applicazione, ed e' un limite del sistema.
     if (!DragDrop::Register(window))
-        ReportStatus(app, L"Trascinamento in entrata non disponibile su questo sistema.");
+        ReportStatus(app, TrW(L"Trascinamento in entrata non disponibile su questo sistema.",
+                              L"Incoming drag and drop is not available on this system."));
 
     ShowWindow(window, SW_SHOW);
 
