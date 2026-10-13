@@ -120,13 +120,13 @@ struct VSOutput
 static const float FLAG_TEXTURED = 1.0;
 static const float FLAG_MONO     = 2.0;
 
-float roundedBoxDistance(float2 point, float2 halfSize, float4 radius)
+float roundedBoxDistance(float2 local, float2 halfSize, float4 radius)
 {
-    float r = point.x > 0.0
-        ? (point.y > 0.0 ? radius.z : radius.y)
-        : (point.y > 0.0 ? radius.w : radius.x);
+    float r = local.x > 0.0
+        ? (local.y > 0.0 ? radius.z : radius.y)
+        : (local.y > 0.0 ? radius.w : radius.x);
     r = clamp(r, 0.0, min(halfSize.x, halfSize.y));
-    float2 offset = abs(point) - halfSize + r;
+    float2 offset = abs(local) - halfSize + r;
     return min(max(offset.x, offset.y), 0.0) + length(max(offset, float2(0.0, 0.0))) - r;
 }
 
@@ -159,7 +159,7 @@ float4 main(VSOutput input) : SV_Target
 
     float2 halfSize = input.shapeSize * 0.5;
     float2 centre   = input.shapeMin + halfSize;
-    float2 point    = centre - frag;
+    float2 local    = centre - frag;
 
     if ((input.dashOn + input.dashOff) > 0.0 &&
         !isOnDash(frag, input.shapeMin, input.shapeSize, input.strokeWidth, input.dashOn,
@@ -187,7 +187,7 @@ float4 main(VSOutput input) : SV_Target
 
     float2 innerHalf = max(halfSize - float2(inset + input.softness, inset + input.softness),
                            float2(0.0, 0.0));
-    float distance = roundedBoxDistance(point, innerHalf, radius);
+    float distance = roundedBoxDistance(local, innerHalf, radius);
 
     float alpha;
     if (input.strokeWidth > 0.0)
