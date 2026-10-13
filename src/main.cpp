@@ -172,6 +172,8 @@ struct ClickTarget
         Menu, Tab, TabClose, TabNew,
         WindowMinimize, WindowMaximize, WindowClose,
         MenuRow, MenuHeader,
+        // I selettori di vista e lo stepper delle anteprime, nella barra in fondo.
+        ViewSelect, PreviewDown, PreviewUp,
     };
     Rect         rect;
     Kind         kind = Kind::Row;
@@ -804,6 +806,15 @@ struct AppState
     static constexpr int   kUiFontSizeMax = 24;
     static constexpr int   kMonoFontSizeMin = 8;
     static constexpr int   kMonoFontSizeMax = 24;
+
+    // La misura delle anteprime, in percentuale: 0 le spegne, 100 e' la misura
+    // piena, 50 le disegna a meta' — **dove c'e' spazio**, cioe' nella slot
+    // dell'icona di una cella o di una riga. Oltre il 100 non si sale: la slot e'
+    // quella, e una miniatura piu' grande finirebbe sopra l'etichetta. E' il
+    // controllo che il riferimento mette in fondo alla finestra.
+    static constexpr float kPreviewSteps[3] = {0.0f, 0.5f, 1.0f};
+    int previewStep = 2;   // 100%
+    float PreviewZoom() const { return kPreviewSteps[previewStep]; }
 
     // Il campo di testo di un controllo `Text`, mentre si scrive: il carattere
     // digitato va qui e non nel filtro.
