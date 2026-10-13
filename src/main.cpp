@@ -6065,6 +6065,7 @@ void CreateNewItem(AppState& app, size_t index)
 
 // --- menu execution ---------------------------------------------------------
 void RunCommand(AppState& app, int command);
+int  ShowProperties(HWND owner, const std::vector<std::wstring>& paths);
 
 void RunPaletteSelection(AppState& app)
 {
