@@ -5507,7 +5507,7 @@ void DoNewFolder(AppState& app)
     }
     else if (result == FileOps::Result::Failed)
     {
-        ReportStatus(app, L"Cartella non creata: " + error);
+        ReportStatus(app, TrW(L"Cartella non creata: ", L"Folder not created: ") + error);
     }
 }
 
@@ -5534,8 +5534,10 @@ void FillNewItemContent(AppState& app, const ShellNew::Template& model,
         // (un .pub sono sessanta kilobyte), e questa e' una copia di file sola.
         if (!CopyFileW(model.templatePath.c_str(), path.c_str(), FALSE))
         {
-            ReportStatus(app, L"Il modello di questo tipo non si e' potuto copiare: "
-                              L"il file e' stato creato vuoto.");
+            ReportStatus(app, TrW(L"Il modello di questo tipo non si e' potuto copiare: "
+                                  L"il file e' stato creato vuoto.",
+                                  L"The template for this type could not be copied: "
+                                  L"the file was created empty."));
             return;
         }
     }
@@ -5545,7 +5547,8 @@ void FillNewItemContent(AppState& app, const ShellNew::Template& model,
                                   FILE_ATTRIBUTE_NORMAL, nullptr);
         if (file == INVALID_HANDLE_VALUE)
         {
-            ReportStatus(app, L"Il file e' stato creato, ma il contenuto del modello no.");
+            ReportStatus(app, TrW(L"Il file e' stato creato, ma il contenuto del modello no.",
+                                  L"The file was created, but not the template content."));
             return;
         }
 
@@ -5557,7 +5560,8 @@ void FillNewItemContent(AppState& app, const ShellNew::Template& model,
         CloseHandle(file);
         if (!wrote)
         {
-            ReportStatus(app, L"Il file e' stato creato, ma il contenuto del modello no.");
+            ReportStatus(app, TrW(L"Il file e' stato creato, ma il contenuto del modello no.",
+                                  L"The file was created, but not the template content."));
             return;
         }
     }
@@ -5568,8 +5572,10 @@ void FillNewItemContent(AppState& app, const ShellNew::Template& model,
     if (GetFileAttributesExW(path.c_str(), GetFileExInfoStandard, &info) &&
         info.nFileSizeHigh == 0 && info.nFileSizeLow == 0)
     {
-        ReportStatus(app, L"Il modello di questo tipo e' vuoto: " + LeafName(path) +
-                              L" e' stato creato vuoto.");
+        ReportStatus(app, TrW(L"Il modello di questo tipo e' vuoto: ",
+                              L"The template for this type is empty: ") +
+                              LeafName(path) + TrW(L" e' stato creato vuoto.",
+                                                   L" was created empty."));
     }
 }
 
@@ -5592,7 +5598,7 @@ void CreateNewItem(AppState& app, size_t index)
     if (result != FileOps::Result::Ok)
     {
         if (result == FileOps::Result::Failed)
-            ReportStatus(app, L"File non creato: " + error);
+            ReportStatus(app, TrW(L"File non creato: ", L"File not created: ") + error);
         return;
     }
 
@@ -6418,12 +6424,12 @@ void RunCommand(AppState& app, int command)
         case CmdLanguageItalian:
             gLanguage = Language::Italian;
             RememberSettings(app);
-            ReportStatus(app, L"Impostazioni salvate in " + SettingsPath());
+            ReportStatus(app, TrW(L"Impostazioni salvate in ", L"Settings saved to ") + SettingsPath());
             break;
         case CmdLanguageEnglish:
             gLanguage = Language::English;
             RememberSettings(app);
-            ReportStatus(app, L"Impostazioni salvate in " + SettingsPath());
+            ReportStatus(app, TrW(L"Impostazioni salvate in ", L"Settings saved to ") + SettingsPath());
             break;
         case CmdShowSettingsPath:
             ReportStatus(app, SettingsPath().empty()
@@ -7701,7 +7707,9 @@ void SendToTargets(AppState& app, size_t index, const std::vector<std::wstring>&
         // Nel registro va l'indice, **non l'etichetta**: le destinazioni dicono
         // quali programmi ha installato chi usa il computer. Vedi `AGENTS.md` §0.
         DiagLog("  invio a voce " + std::to_string(index) + ": non riuscito");
-        ReportStatus(app, L"\"" + targets[index].label + L"\" non ha accettato i file.");
+        ReportStatus(app, L"\"" + targets[index].label +
+                              TrW(L"\" non ha accettato i file.",
+                                  L"\" did not accept the files."));
         return;
     }
 
