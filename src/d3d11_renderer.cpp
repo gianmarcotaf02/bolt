@@ -130,23 +130,24 @@ float roundedBoxDistance(float2 point, float2 halfSize, float4 radius)
     return min(max(offset.x, offset.y), 0.0) + length(max(offset, float2(0.0, 0.0))) - r;
 }
 
-bool isOnDash(float2 frag, VSOutput input)
+bool isOnDash(float2 frag, float2 shapeMin, float2 shapeSize, float strokeWidth,
+              float dashOn, float dashOff)
 {
-    float period = input.dashOn + input.dashOff;
+    float period = dashOn + dashOff;
     if (period <= 0.0)
         return true;
 
-    float2 local = frag - input.shapeMin;
-    float w = input.shapeSize.x;
-    float h = input.shapeSize.y;
+    float2 local = frag - shapeMin;
+    float w = shapeSize.x;
+    float h = shapeSize.y;
     float along;
 
-    if (local.y <= input.strokeWidth)          along = local.x;
-    else if (local.x >= w - input.strokeWidth) along = w + local.y;
-    else if (local.y >= h - input.strokeWidth) along = w + h + (w - local.x);
-    else                                       along = 2.0 * w + h + (h - local.y);
+    if (local.y <= strokeWidth)          along = local.x;
+    else if (local.x >= w - strokeWidth) along = w + local.y;
+    else if (local.y >= h - strokeWidth) along = w + h + (w - local.x);
+    else                                 along = 2.0 * w + h + (h - local.y);
 
-    return fmod(along, period) < input.dashOn;
+    return fmod(along, period) < dashOn;
 }
 
 float4 main(VSOutput input) : SV_Target
@@ -160,7 +161,9 @@ float4 main(VSOutput input) : SV_Target
     float2 centre   = input.shapeMin + halfSize;
     float2 point    = centre - frag;
 
-    if ((input.dashOn + input.dashOff) > 0.0 && !isOnDash(frag, input))
+    if ((input.dashOn + input.dashOff) > 0.0 &&
+        !isOnDash(frag, input.shapeMin, input.shapeSize, input.strokeWidth, input.dashOn,
+                  input.dashOff))
         discard;
 
     float4 color = input.color;
