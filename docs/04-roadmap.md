@@ -710,6 +710,29 @@ a gruppi, invece di scriverne tre.
       `Apri con …` e le voci delle estensioni
 - [ ] dialogo di progressione con annullamento proprio
 
+### Le proprietà, in-app e di Windows — *Ricostruito*
+
+`Proprietà` non apre più la finestra di Windows: apre un **pannello nostro**, modale,
+con le stesse righe che mostra l'inspector. E' la scelta di chi usa il programma —
+il dialogo di sistema è modale, bianco e fuori dal tema — e **non** quella di
+rinunciare a quello di sistema, che resta nella voce accanto.
+
+Due voci, perché sono due cose diverse:
+
+- **`Proprietà`** — il pannello in-app. Le righe le costruisce `BuildInspectorRows`,
+  **la stessa funzione dell'inspector**: due viste della stessa cosa con un solo
+  calcolo, o prima o poi mostrerebbero numeri diversi. Per una selezione multipla
+  mostra l'aggregato (conteggio, somma, tipi), come l'inspector.
+- **`Proprietà di Windows`** — la finestra di sistema via `ShellExecuteEx`. E'
+  l'unico posto per **Sicurezza/permessi, Versioni precedenti, Compatibilità**, le
+  pagine registrate dai gestori dei tipi di file, e la **scrittura**. Il pannello
+  in-app è in sola lettura: rifare quelle pagine sarebbe un altro mestiere, e
+  peggiore.
+
+Il pannello è modale come un menu: `Su`/`Giù`/`PagSu`/`PagGiù`/`Home`/`Fine`
+scorrono, la rotella scorre, `Esc` chiude, un clic fuori chiude. In fondo ha il
+pulsante **`Proprietà di Windows...`**, perché la voce che apre la shell non sparisca.
+
 ### Il menu contestuale non è un `GroupMenu` — *Scelta*
 
 Condividono l'idea di "una lista di righe etichettate", ma differiscono in tutto

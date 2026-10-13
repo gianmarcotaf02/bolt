@@ -29,7 +29,7 @@ sparsi dove vivono.
 | M5d — sovrappasso e comportamento del clic | ✅ evidenzia righe e celle, e le otto chiavi di interazione: `HoverToSelect`, `UnderlineOnHover`, `ShowTooltips`, `SingleClick`, `SingleClickFoldersOnly`, `ActOnPress`, `DoubleClickToParent`, `ShowCheckboxes` |
 | M5b — colonne | ✅ ridimensionabili col mouse, con filtri per valore nelle intestazioni e **filtro di testo sul nome** |
 | M6 — tab, barra del titolo, palette, GoTo | 🟡 fatti tab, titolo, palette, GoTo, **barra laterale a sezioni** (fissaggi, recenti, segnalibri, volumi, cartelle standard), **pulsanti di navigazione** e **albero dei tab verificato** (creazione per trascinamento, chiusura per ramo, distacco); resta il quick access pinnato |
-| M7 — operazioni su file | 🟡 copia, sposta, rinomina, cestino, clipboard interoperabile, **menu contestuale a più livelli** con Proprietà di Windows, le **voci di primo livello della shell**, il **menu della cartella** sul fondo, i **sottomenu delle estensioni**, **`Nuovo file >`** (tipi dal registro, creazione con
+| M7 — operazioni su file | 🟡 copia, sposta, rinomina, cestino, clipboard interoperabile, **menu contestuale a più livelli** con **`Proprietà` in-app** e **`Proprietà di Windows`**, le **voci di primo livello della shell**, il **menu della cartella** sul fondo, i **sottomenu delle estensioni**, **`Nuovo file >`** (tipi dal registro, creazione con
 contenuto), **`Invia a >`** (destinazioni della cartella SendTo, eseguite lasciandoci
 cadere sopra la selezione), **drag&drop dentro e fuori** con OLE e la **navigazione
 nello spazio dei nomi** col **ripristino dal cestino** e il **trascinamento sul
@@ -50,7 +50,7 @@ lavorano i file — inclusa l'apertura delle proprietà di Windows.
 
 Ordinato per quanto morde.
 
-1. **`src/main.cpp` è a 10.860 righe.** I confini dei componenti ci sono
+1. **`src/main.cpp` è a 11.161 righe.** I confini dei componenti ci sono
    (`GroupMenu`, `ContextMenu`, `file_ops`, `dir_stats`, `shell_*`, `drag_drop`)
    ma quelli della vista vivono tutti nello stesso file. Spezzarlo richiede che
    `AppState` e i tipi condivisi escano dall'anonimo namespace in un header: è un
@@ -103,7 +103,7 @@ In ordine di valore, non di facilità.
    normali escono davvero, ma una voce **riciclata** non viene presa (la
    destinazione dichiara "copia" e non copia). La causa non è ricostruita: §7.34 di
    `docs/02`. Se non si trova, resta un limite dichiarato.
-2. **Spezzare `main.cpp`** — **~10.860 righe** e tredici moduli: il confine c'è, ma il
+2. **Spezzare `main.cpp`** — **~11.161 righe** e tredici moduli: il confine c'è, ma il
    file che lo contiene resta il collo di bottiglia dichiarato fin dall'inizio.
 
 
