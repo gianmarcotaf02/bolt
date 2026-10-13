@@ -5827,8 +5827,12 @@ void RefreshOptionItems(const AppState& app, GroupMenu& menu)
 
 void BuildOptionsMenu(AppState& app);
 
-void ApplyOptionFromItem(AppState& app, GroupMenuItem& item){
+void ApplyOptionFromItem(AppState& app, GroupMenuItem& item)
+{
     const OptionId id = static_cast<OptionId>(item.id);
+    // `BuildOptionsMenu` ricostruisce l'elenco, quindi ogni riferimento a `item`
+    // scade da li' in poi: l'id si prende subito.
+    const int changedId = item.id;
     bool fontsChanged = false;
     bool saved        = true;
 
@@ -5929,7 +5933,7 @@ void ApplyOptionFromItem(AppState& app, GroupMenuItem& item){
         for (int i = 0; i < static_cast<int>(app.options.rows.size()); ++i)
         {
             const GroupMenuRow& row = app.options.rows[static_cast<size_t>(i)];
-            if (!row.header && app.options.items[static_cast<size_t>(row.item)].id == item.id)
+            if (!row.header && app.options.items[static_cast<size_t>(row.item)].id == changedId)
             {
                 app.options.selected = i;
                 break;
