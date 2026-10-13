@@ -6400,8 +6400,6 @@ void RunCommand(AppState& app, int command)
         // PC", che e' una cartella di spazio dei nomi: la stessa lista di unita'
         // della barra laterale, raggiungibile col gesto che ci si aspetta.
         case CmdGoUp:
-            DiagLog("goUp dir=" + ToUtf8(app.directory) + " thisPc=" + ToUtf8(app.thisPcPath) +
-                    " ns=" + (ShellLocation::IsNamespace(app.directory) ? "y" : "n"));
             if (ShellLocation::IsNamespace(app.directory))
             {
                 const std::wstring up = ShellLocation::ParentOf(app.directory);
