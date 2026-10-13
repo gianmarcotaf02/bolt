@@ -4430,13 +4430,17 @@ void DrawInspector(AppState& app, const Layout& layout)
             }
         }
 
-        const std::string title = std::to_string(selectedCount) + Tr(" elementi selezionati", " items selected");
+        const std::string title =
+            std::to_string(selectedCount) +
+            (selectedCount == 1 ? Tr(" elemento selezionato", " item selected")
+                                : Tr(" elementi selezionati", " items selected"));
         app.font.Draw(r, layout.inspector.x + 14.0f * scale, y, title, t.text, scale);
         y += 26.0f * scale;
 
         const std::string breakdown =
-            std::to_string(files) + Tr(" file, ", " files, ") + std::to_string(folders) +
-            Tr(" cartelle", " folders");
+            std::to_string(files) + Tr(" file, ", files == 1 ? " file, " : " files, ") +
+            std::to_string(folders) +
+            (folders == 1 ? Tr(" cartella", " folder") : Tr(" cartelle", " folders"));
         // Che tipi sono: "3 Documento di testo, 2 Cartella di file". Il conteggio
         // per tipo e' quello che dice cosa si sta per spostare o cancellare, e
         // l'inspector e' l'unico posto dove c'e' spazio per dirlo.
@@ -4724,13 +4728,18 @@ void DrawStatusBar(AppState& app, const Layout& layout)
     // motore — fotogrammi, quadrilateri, lavori in corso — che servono a chi scrive
     // il programma e non a chi lo usa: adesso stanno dietro `BOLT_DEV_HUD=1`.
     char counts[96];
-    std::snprintf(counts, sizeof(counts), Tr("%zu voci", "%zu items"), app.entries.size());
+    std::snprintf(counts, sizeof(counts),
+                  app.entries.size() == 1 ? Tr("%zu voce", "%zu item")
+                                          : Tr("%zu voci", "%zu items"),
+                  app.entries.size());
     app.smallFont.Draw(r, 12.0f * scale, layout.statusBar.y + 4.0f * scale, counts, t.textDim, scale);
 
     if (!app.selection.empty())
     {
         char chosen[96];
-        std::snprintf(chosen, sizeof(chosen), Tr("%zu selezionati", "%zu selected"),
+        std::snprintf(chosen, sizeof(chosen),
+                      app.selection.size() == 1 ? Tr("%zu selezionato", "%zu selected")
+                                                : Tr("%zu selezionati", "%zu selected"),
                       app.selection.size());
         const float x = 12.0f * scale + app.smallFont.Measure(counts, scale) + 16.0f * scale;
         app.smallFont.Draw(r, x, layout.statusBar.y + 4.0f * scale, chosen, t.text, scale);
