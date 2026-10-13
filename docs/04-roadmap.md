@@ -1242,6 +1242,21 @@ superfici. Adesso la lingua copre:
   (`Tutti`/`Nessuno`, `Scrivi per filtrare i valori...`);
 - il **nome di partenza di una cartella nuova** (`Nuova cartella` / `New folder`).
 
+**Un secondo passaggio, guardando le superfici una per una.** La prima stesura ne
+aveva lasciate fuori cinque, tutte visibili e nessuna deducibile dal codice senza
+cercarla — sono esattamente il tipo di cosa che «la lingua e' finita» nasconde:
+
+- il **conto delle voci nella barra del percorso** (`5 voci`, dove c'era `5 items`);
+- i **conti delle bande di gruppo** (`2 voci` / `1 voce`, con il singolare giusto);
+- il **numero nel pie' di pagina della palette** (`84 di 84`, dove c'era `84 of 84`);
+- i **liberi di un volume** nella barra laterale (`202,3 GB liberi`, dove c'era
+  `202.3 GB free`) e i **conteggi del suggerimento** di una cartella
+  (`0 cartelle   1 file`);
+- gli **errori di lettura** di una cartella (`Accesso negato`, `Non si riesce a
+  leggere questa cartella`) e delle posizioni di spazio dei nomi, che finiscono
+  nell'area della lista; e i **terminatori di riga** del visualizzatore
+  (`misto` / `mixed`).
+
 Il modulo sta in `src/language.h`/`.cpp` perche' anche `file_ops.cpp` ha i suoi due o
 tre messaggi: il secondo utilizzatore e' la ragione per cui e' un file a se'.
 
@@ -1251,11 +1266,22 @@ laterale, le righe dell'inspector (`Type`, `Size`, `Created`, ...), i gruppi del
 palette, i nomi delle bande di raggruppamento (`GroupByLabel_*`). Sono *i suoi nomi*,
 e cambiarli renderebbe il clone meno fedele, non piu' tradotto.
 
+Resta in inglese anche la **diagnostica di avvio** (`ShowError`, il MessageBox
+`Startup failed` e il registro `startup-error.log`): parla prima che esista
+un'interfaccia, e i suoi messaggi vengono dai moduli del motore (shader, D3D11,
+atlante), non da testi che si scrivono qui. Tradurla vorrebbe dire mettere
+`language.h` dentro il renderer per un errore che si vede una volta nella vita,
+quando il programma non parte.
+
 **Verificato a schermo in tutte e due le lingue**: pie' di pagina, barra di stato,
 menu contestuale, inspector a selezione multipla, messaggio di copia, e la testata
-del visualizzatore (`2 righe` / `2 lines`, `UTF-8`). Vedi anche §7.41 di `docs/02`,
-per il nome della vista a elenco che l'inglese ha fatto vedere sbagliato in tutte e
-due.
+del visualizzatore (`2 righe` / `2 lines`, `UTF-8`). Del secondo passaggio sono state
+viste a schermo la barra del percorso (`5 voci`), i liberi di un volume
+(`202,3 GB liberi`), il pie' di pagina della palette (`84 di 84`), le bande di gruppo
+(`2 voci`, `1 voce`), il suggerimento di una cartella (`0 cartelle   1 file`) e i
+terminatori di riga del visualizzatore (`3 righe   misto`). Vedi anche §7.41 di
+`docs/02`, per il nome della vista a elenco che l'inglese ha fatto vedere sbagliato
+in tutte e due.
 
 ---
 
