@@ -8608,16 +8608,13 @@ void DrawFrame(AppState& app, const Layout& layout)
     // riaperto attorno al ritaglio: tre disegni per fotogramma invece di uno. E' il
     // prezzo del ritaglio, e si paga.
     app.renderer->End();
-    glEnable(GL_SCISSOR_TEST);
-    glScissor(static_cast<GLint>(layout.list.x),
-              static_cast<GLint>(static_cast<float>(app.viewportHeight) - layout.list.bottom()),
-              static_cast<GLsizei>(layout.list.w), static_cast<GLsizei>(layout.list.h));
+    app.renderer->SetScissor(layout.list);
     app.renderer->Begin(app.viewportWidth, app.viewportHeight);
 
     DrawList(app, layout, columnX);
 
     app.renderer->End();
-    glDisable(GL_SCISSOR_TEST);
+    app.renderer->ClearScissor();
     app.renderer->Begin(app.viewportWidth, app.viewportHeight);
 
     // The rubber band is drawn over the rows it is about to select, and only over
@@ -8665,16 +8662,14 @@ void DrawFrame(AppState& app, const Layout& layout)
 // callback di OLE, cioe' mai dentro un fotogramma gia' in corso.
 void RenderFrame(AppState& app)
 {
-    if (app.deviceContext == nullptr || app.viewportWidth <= 0 || app.viewportHeight <= 0)
+    if (app.renderer == nullptr || app.viewportWidth <= 0 || app.viewportHeight <= 0)
         return;
 
-    glViewport(0, 0, app.viewportWidth, app.viewportHeight);
-    glClearColor(0.106f, 0.110f, 0.122f, 1.0f);
-    glClear(GL_COLOR_BUFFER_BIT);
+    app.renderer->BeginFrame(app.viewportWidth, app.viewportHeight);
 
     // Le anteprime pronte si caricano prima del fotogramma che le disegna: e' il
     // solo punto in cui l'atlante viene toccato, e gira sul thread che possiede il
-    // contesto OpenGL.
+    // contesto grafico.
     app.previews.Pump();
 
     app.renderer->Begin(app.viewportWidth, app.viewportHeight);
@@ -8682,7 +8677,7 @@ void RenderFrame(AppState& app)
     DrawFrame(app, ComputeLayout(app));
     app.renderer->End();
 
-    SwapBuffers(app.deviceContext);
+    app.renderer->Present();
 }
 
 // --- input -----------------------------------------------------------------
