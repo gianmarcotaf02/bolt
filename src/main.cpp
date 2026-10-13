@@ -3710,9 +3710,17 @@ void DrawEntryCell(AppState& app, const Layout& layout, const ViewMetrics& metri
     const ShellPreviewCache::State state =
         app.previews.Query(EntryLocation(app, entry), entry.extension, &preview);
 
-    if (state == ShellPreviewCache::State::Ready)
+    // La misura delle anteprime: 0 le spegne (resta l'icona), 50 le disegna a
+    // meta' nella loro casella. Oltre la casella non si va, o la miniatura
+    // finirebbe sopra l'etichetta.
+    const float previewZoom = app.PreviewZoom();
+    const Rect  previewIcon{icon.x + icon.w * (1.0f - previewZoom) * 0.5f,
+                            icon.y + icon.h * (1.0f - previewZoom) * 0.5f,
+                            icon.w * previewZoom, icon.h * previewZoom};
+
+    if (state == ShellPreviewCache::State::Ready && previewZoom > 0.0f)
     {
-        r.Draw(UIDraw::Image(icon, Color{1.0f, 1.0f, 1.0f, 1.0f}, kPreviewLayer,
+        r.Draw(UIDraw::Image(previewIcon, Color{1.0f, 1.0f, 1.0f, 1.0f}, kPreviewLayer,
                              preview.u0, preview.v0, preview.u1, preview.v1));
     }
     else if (const ShellIconAtlas::IconUV* uv = app.icons.GetFor(entry.extension, entry.isDirectory))
@@ -3874,9 +3882,13 @@ void DrawList(AppState& app, const Layout& layout, const float* columnX)
         const ShellPreviewCache::State previewState =
             app.previews.Query(EntryLocation(app, entry), entry.extension, &preview);
 
-        if (previewState == ShellPreviewCache::State::Ready)
+        const float previewZoom = app.PreviewZoom();
+        const Rect  previewIcon{icon.x + icon.w * (1.0f - previewZoom) * 0.5f,
+                                icon.y + icon.h * (1.0f - previewZoom) * 0.5f,
+                                icon.w * previewZoom, icon.h * previewZoom};
+        if (previewState == ShellPreviewCache::State::Ready && previewZoom > 0.0f)
         {
-            r.Draw(UIDraw::Image(icon, Color{1.0f, 1.0f, 1.0f, 1.0f}, kPreviewLayer,
+            r.Draw(UIDraw::Image(previewIcon, Color{1.0f, 1.0f, 1.0f, 1.0f}, kPreviewLayer,
                                  preview.u0, preview.v0, preview.u1, preview.v1));
         }
         else if (const ShellIconAtlas::IconUV* uv = app.icons.GetFor(entry.extension, entry.isDirectory))
@@ -4062,7 +4074,10 @@ void EnsureBigImage(AppState& app)
 // visualizzatore di testo o alle righe.
 bool DrawBigImage(AppState& app, const Layout& layout, const Rect& area, float* usedHeight)
 {
-    if (!app.bigImage.Valid() || area.w < 40.0f || area.h < 40.0f)
+    // `0%` spegne le anteprime: anche l'immagine grande lascia il posto all'icona,
+    // perche' e' la stessa scelta detta una volta sola.
+    if (!app.bigImage.Valid() || app.PreviewZoom() <= 0.0f ||
+        area.w < 40.0f || area.h < 40.0f)
         return false;
 
     if (!app.bigImageUploaded)
