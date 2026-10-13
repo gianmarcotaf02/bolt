@@ -90,6 +90,10 @@ constexpr int kMonoLayer = 4;
 // e non serve ne' un secondo campionatore ne' un ramo nel frammento.
 constexpr int kBigImageLayer = 5;
 constexpr int kBigImageSide  = 1024;
+// Il lato di ogni strato dell'array. E' una costante di tutto il file e non di
+// `wWinMain` perche' `ApplyFonts` — che rifa' l'atlante quando cambia il
+// carattere scelto nelle opzioni — la usa da fuori.
+constexpr int kTextureLayerSize = 1024;
 
 // --- theme -----------------------------------------------------------------
 struct Theme
@@ -873,6 +877,11 @@ struct AppState
 // cancellarlo riporta tutto ai valori di partenza, e l'applicazione **dice dove
 // l'ha scritto**. Non contiene nomi di file, cartelle visitate o altre tracce di
 // cosa si e' guardato: solo come si vuole che il programma si comporti.
+// Il primo tratto del file di impostazioni si legge da una funzione che sta piu'
+// in basso: la conversione UTF-8 <-> UTF-16 serve prima della sua definizione.
+std::string  ToUtf8(const std::wstring& text);
+std::wstring Widen(const std::string& text);
+
 std::wstring SettingsPath()
 {
     PWSTR roaming = nullptr;
@@ -10199,7 +10208,8 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, LPWSTR, int)
     // One atlas size for every layer, so the glyph, icon and thumbnail UVs
     // cannot diverge. Layer 0 holds the body glyphs, layer 1 the shell icons,
     // layer 2 the file thumbnails, layer 3 the secondary glyphs.
-    constexpr int kTextureLayerSize = 1024;
+    // Il livello delle texture serve anche a `ApplyFonts`, quindi la costante sta
+    // in cima al file; qui restano le due misure dell'anteprima.
     constexpr int kPreviewCellSize  = 128;
     constexpr int kPreviewCapacity  = 64;
 
