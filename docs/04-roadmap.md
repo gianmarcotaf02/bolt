@@ -1285,6 +1285,30 @@ abbiamo: la palette è la superficie delle preferenze, perché è lì che si acc
 le chiavi; e le preferenze **si ricordano** in `%APPDATA%\Bolt\settings.ini`,
 testo leggibile con una riga per preferenza, che si cancella a mano.
 
+### Le tre cose dell'originale che mancavano — *Viste*
+
+**1. I selettori di vista e la percentuale delle anteprime, nella barra in fondo.**
+Da noi la riga in fondo è la barra di stato, che è larga quanto la finestra, ed è
+lì che stanno adesso: quattro pastiglie `Dettagli`/`Elenco`/`Riquadri`/`Icone` (la
+vista attiva è accesa) e uno stepper `Anteprime − % +`. La percentuale va da **0 a
+100**: `0%` spegne le anteprime e lascia l'icona del tipo, `50%` disegna la
+miniatura a metà della sua casella, `100%` è la misura piena. Oltre il 100 non si
+sale **dichiaratamente**: la casella di una cella è quella, e una miniatura più
+grande finirebbe sopra l'etichetta. La scelta si ricorda in `settings.ini`.
+
+**2. Il filtro sulla colonna `Name`.** Il nome non ha un elenco di valori — ogni
+nome è diverso — quindi la sua linguetta non apre il pannello delle caselle come le
+altre colonne: **accende la casella di testo in fondo**, che è il filtro del nome
+che serve. La linguetta si accende quando il filtro è in uso, come quella delle
+altre colonne quando filtrano.
+
+**3. La sezione `RECENTS` nella barra laterale.** Le cartelle visitate in questa
+sessione, la più recente per prima, con il nome della cartella (non il percorso). È
+il **ranking dei recenti di M4** nella sua forma minima: solo cartelle, e solo la
+sessione (`StoreRecents: Session`), perché `docs/06` vieta di lasciare traccia di
+cosa si è aperto. Un recente che è la cartella aperta non si mostra: riproporre dove
+si è già non serve.
+
 ### L'originale ha un pannello di opzioni, non una lista di comandi — *Visto*
 
 L'autore ha aperto il prodotto originale e ne ha mandato due catture, su sua
