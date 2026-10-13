@@ -517,9 +517,8 @@ constexpr float kMinColumnWidth = 44.0f;
 
 struct AppState
 {
-    // Il contesto di disegno della finestra, per poter disegnare un fotogramma
-    // anche fuori dal ciclo principale (vedi `RenderFrame`).
-    HDC deviceContext = nullptr;
+    // Il backend di disegno, dietro l'interfaccia: OpenGL o Direct3D 11. Lo
+    // possiede `wWinMain`, che lo sceglie e lo distrugge alla fine.
     IRenderer*       renderer = nullptr;
     FontAtlas       font;
     // Testo secondario: intestazioni, etichette, barra di stato. Rasterizzato
