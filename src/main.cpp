@@ -1497,6 +1497,7 @@ std::vector<Entry> ReadNamespaceDirectory(const std::wstring& directory, std::st
         // aperta: chiedere il tipo di un'unita' puo' far girare un lettore ottico, e
         // una riga si ridisegna sessanta volte al secondo.
         entry.volumeRoot = !entry.location.empty() && VolumeOf(entry.location).isVolume;
+
         // Un tempo a zero non e' il 1601: e' "la shell non lo sa". Scriverlo come
         // data faceva comparire `1601-01-01` in ogni riga di "Questo PC", che e'
         // una data vera solo per chi guarda il calendario di Windows.
