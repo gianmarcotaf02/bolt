@@ -3972,6 +3972,7 @@ void DrawEntryCell(AppState& app, const Layout& layout, const ViewMetrics& metri
                     iconSize, iconSize};
 
     ShellPreviewCache::IconUV preview;
+    ShellPreviewCache::IconUV largeIcon;
     // Fuori da una cartella normale un'anteprima non c'e': `Query` riceve il nome
     // di spazio dei nomi, se c'e', e risponde "niente" invece di leggere un
     // percorso che non esiste.
@@ -3990,6 +3991,19 @@ void DrawEntryCell(AppState& app, const Layout& layout, const ViewMetrics& metri
     {
         r.Draw(UIDraw::Image(previewIcon, Color{1.0f, 1.0f, 1.0f, 1.0f}, kPreviewLayer,
                              preview.u0, preview.v0, preview.u1, preview.v1));
+    }
+    // Oltre la misura dell'atlante — che rasterizza a `SM_CXICON`, 32 px — l'icona
+    // si chiede **grande alla shell** invece di essere ingrandita: e' li' che la
+    // vista a icone grandi si sgranava. La misura la da' la shell, quindi regge
+    // anche a 128 px. Il ripiego resta quello piccolo: mentre si aspetta, e se la
+    // shell non risponde, un'icona un po' morbida e' meglio di un buco.
+    else if (iconSize > static_cast<float>(app.icons.IconPixels()) * scale &&
+             app.previews.QueryIcon(entry.extension, entry.isDirectory,
+                                    EntryLocation(app, entry), &largeIcon) ==
+                 ShellPreviewCache::State::Ready)
+    {
+        r.Draw(UIDraw::Image(icon, Color{1.0f, 1.0f, 1.0f, 1.0f}, kPreviewLayer,
+                             largeIcon.u0, largeIcon.v0, largeIcon.u1, largeIcon.v1));
     }
     else if (const ShellIconAtlas::IconUV* uv = IconFor(app, entry))
     {
