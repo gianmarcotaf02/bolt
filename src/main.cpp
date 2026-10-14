@@ -3245,7 +3245,8 @@ void DrawSidebar(AppState& app, const Layout& layout)
                 // legge a quello che si e' chiesto, che e' l'unico modo di sapere se due
                 // righe che sembrano la stessa cosa chiedono la stessa icona.
                 static std::unordered_set<std::string> seen;
-                const std::string mark = item.label + "|" + ToUtf8(item.icon);
+                const std::string mark = item.label + "|" + ToUtf8(item.icon) + "|" +
+                                         std::to_string(uv->u0) + "," + std::to_string(uv->v0);
                 if (seen.insert(mark).second)
                     DiagLog("--- " + DiagClock() + " barra laterale: [" + item.label +
                             "] chiave=[" + ToUtf8(item.icon) + "] uv=" +
