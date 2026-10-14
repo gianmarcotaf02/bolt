@@ -1416,45 +1416,88 @@ cartella e quale genitore, invece di dedurlo): da `C:\`, `Backspace` e `Alt`+`�
 portano entrambi a "This PC". L'etichetta e' **"This PC"** e non il "Questo PC" che
 risponde la shell, perche' e' il nome del riferimento (`AGENTS.md` §3).
 
-### 7.43 L'icona della shell tinta con un colore del tema
+### 7.43 L'icona di una voce della barra laterale era sempre quella di cartella
 
-**Trovato guardando la barra laterale**, non leggendo il codice: era l'ultima voce
-aperta di M2, e il percorso `textureIsMono` esisteva nella shader dal primo giorno
-senza che nessuno lo usasse. La roadmap diceva di aspettare «un caso d'uso vero — un
-glifo monocromatico da tingere». Il caso d'uso era già scritto, due volte:
+**Trovato guardando la barra laterale**, non leggendo il codice: il disco `C:` si
+disegnava come una cartella, e con lui ogni voce dei luoghi. Una riga sola, la
+stessa per tutte:
 
-    // barra laterale, e la stessa riga nella striscia dei tab
-    r.Draw(UIDraw::Image(icon, active ? t.text : t.textDim, kIconLayer,
-                         uv->u0, uv->v0, uv->u1, uv->v1));
+    const ShellIconAtlas::IconUV* uv = app.icons.GetFor("", true);   // <dir>
 
-Il tint c'è, la maschera no. Nel frammento `color *= texel` moltiplica il **giallo
-della cartella di sistema** per un grigio del tema, e il risultato è **oro spento**:
-né l'icona che la shell disegna (quella che la lista mostra, due centimetri più a
-destra) né un glifo monocromatico. Due toni della stessa cartella nella stessa
-finestra, e nessuno dei due voluto.
+Sopra quella riga c'era scritto — ed e' ancora li' — che «l'icona di un volume e'
+quella che la shell da' all'unita': un disco, non una cartella». Il commento
+descriveva l'intenzione, il codice chiamava `GetFor("", true)`, che per costruzione
+risponde *cartella*: il disco, il cestino, `Questo PC`, la cartella personale e le
+cartelle di sistema erano disegnati tutti uguali. Un commento che dice il falso non
+fa rumore, e per questo e' la forma di difetto peggiore.
 
-**La causa** non è nel codice della barra laterale: è che l'atlante aveva **una
-sola forma per chiave**, quella a colori, e chi voleva tingere non aveva altro da
-chiedere.
+**La causa** e' che l'atlante sapeva rispondere solo a due domande — «che icona ha
+questa estensione» e «che icona ha una cartella» — mentre una barra laterale non
+elenca estensioni: elenca **oggetti**, ognuno con l'icona che Windows gli da'. Il
+disco e' un disco perche' e' un disco, non perche' finisce in una certa maniera.
 
-**La correzione** è nell'atlante, dove sta il dato. `GetFor` prende un terzo
-argomento `mono`, e la chiave della seconda forma è la prima più un suffisso
-(`<dir>:mono`): sono **due celle**, quindi chiederne una non sfratta l'altra — un
-`<dir>` e un `<dir>:mono` convivono, e la forma a colori resta quella dei riquadri,
-della lista e dell'inspector. In forma mono la cella tiene la **copertura** in ogni
-canale, e la shader la legge dal rosso come già sapeva fare. La barra laterale e i
-tab chiedono la forma mascherata e disegnano con `monoMask`; la cartella mascherata
-si scalda in `Initialize`, perché è quella che si disegna al primo fotogramma.
+**La correzione** aggiunge la domanda che mancava: `GetForObject(location)` chiede
+alla shell l'icona di **quell'oggetto**, per percorso (la radice di un'unita') o per
+nome di spazio dei nomi (il CLSID di `Questo PC`, quello del cestino). Il PIDL e'
+l'unico modo di farla rispondere per il cestino e per `Questo PC`, perche' un
+percorso non ce l'hanno. Ogni voce della barra laterale porta con se' *quale oggetto
+e'* (`Place::icon`) e smette di tingere l'icona: e' la sua, e si disegna com'e'.
 
-**Verificato a schermo**, non dedotto: barra laterale e tab sono sagome grigie nel
-colore del tema, la voce attiva più chiara, e la lista ha ancora le cartelle gialle
-e l'icona di Excel. La prova è nella sandbox, con `QUICK ACCESS` chiusa — la barra
-laterale contiene i fissaggi di chi lavora, e una cattura li copierebbe
-(`AGENTS.md` §0).
+Due cose che la correzione doveva rispettare. La prima: l'atlante **non ha
+sfratto**, quindi l'icona per oggetto si usa dove l'insieme e' piccolo e chiuso —
+le lettere di unita', le voci dei luoghi — e non per le righe di una lista, che
+restano per estensione. La seconda: chiedere il tipo di un'unita' puo' far girare un
+lettore ottico, quindi per una voce di spazio dei nomi la domanda si fa **quando si
+apre la cartella**, una volta, e non a ogni fotogramma.
 
-**Un commento che dice il falso si vede nella cattura.** Sopra quella riga c'è
-scritto che un volume riceve dalla shell l'icona del **disco**, «un disco, non una
-cartella»; il codice chiede `GetFor("", true)` per tutte le righe, volumi compresi,
-e nella cattura `Windows (C:)` ha la stessa cartella di `This PC`. Il commento è
-vecchio. Non è stato corretto qui perché la scelta — implementare l'icona del disco
-o ammettere la cartella — è dell'autore: resta scritto in `docs/04`, M2.
+**Verificato a schermo**: `Windows (C:)` ha l'icona del disco sia nella barra
+laterale sia nella lista di `Questo PC`, `Questo PC` ha il computer, il cestino ha
+il cestino, e `Documenti`, `Immagini`, `Musica`, `Video`, `Download` hanno le loro.
+
+**Il tentativo monocromatico, e perche' non c'e' piu'.** La voce aperta di M2
+chiedeva la resa monocromatica, e il percorso `textureIsMono` esisteva nella shader
+dal primo giorno senza che nessuno lo usasse: e' stato acceso — maschera di
+copertura per chiave, barra laterale e striscia dei tab — e **visto a schermo**. Poi
+l'autore ha chiesto le icone classiche di Esplora risorse, a colori. La scelta e'
+sua, e va dove dice lui: la maschera e' stata **tolta**, non lasciata inerte —
+`textureIsMono` resta quello che era, una capacita' della shader senza utilizzatore,
+e questo e' scritto invece di essere nascosto. Vedi `docs/04`, M2.
+
+### 7.44 L'icona di un file non era quella dell'applicazione che lo apre
+
+**Trovato guardando la lista**: `dati.csv` usciva con il documento bianco generico,
+mentre nella stessa riga la colonna Tipo diceva `Excel.CSV`. Se il tipo e' di Excel,
+l'icona di Excel deve esserci.
+
+**La causa, misurata e non dedotta.** `SHGetFileInfoW` con `SHGFI_USEFILEATTRIBUTES`
+non tocca il disco — e' cio' che la rende economica, ed e' scritto in `shell_icons.h`
+— e l'icona di Excel **non e' un file**: e' una **risorsa dentro** un file. La
+catena, letta con una sonda usa e getta (`analysis/tmp/probe-assoc.ps1`):
+
+| domanda | risposta della shell |
+|---|---|
+| icona di `.csv` | `shell32.dll,0` — il documento generico |
+| icona di `Excel.CSV`, il **ProgID** | `xlicons.exe,9` — l'icona di Excel |
+| icona di `.png` | `i_view64.exe,0` — IrfanView |
+| icona di `.txt` | `@{Microsoft.WindowsNotepad_...?ms-resource://...}` |
+
+Chiesta a un'**estensione**, la shell si ferma prima del ProgID, e per diverse
+estensioni risponde con il documento generico. Chiesta a un **ProgID**, risponde
+l'icona vera. Per questo la colonna Tipo era giusta e l'icona no: sono due domande
+diverse, e prima se ne faceva una sola.
+
+**La correzione**, in `IconForExtension`: si risolve il ProgID — la scelta
+dell'utente (`FileExts`, `UserChoice`) e, se non c'e', quella di sistema — e l'icona
+si chiede a quello. Poi si estrae da dove la shell dice (`SHDefExtractIconW`),
+sciogliendo le virgolette e l'indice dopo la virgola. Una risorsa di
+un'applicazione del pacchetto (`@...?ms-resource://...`) si fa risolvere con
+`SHLoadIndirectString`; se non si risolve si **rinuncia** e si ripiega sul documento
+generico, perche' un'icona sbagliata e' peggio di una anonima.
+
+**Verificato a schermo**: `dati.csv` adesso ha l'icona verde di Excel, nella stessa
+riga che dice `Excel.CSV`. Le altre voci della sandbox non cambiano, e va bene: la
+loro associazione non porta a un'icona estraibile.
+
+**Cosa questo non fa**, ed e' un limite dichiarato: l'icona resta quella
+**dell'estensione**, non quella di quel singolo file. Il contenuto vero — l'anteprima
+— e' un'altra cosa e c'e' gia' (`IShellItemImageFactory`, strato 2).
