@@ -93,6 +93,20 @@ std::wstring Widen(const std::string& text)
     return out;
 }
 
+// Il verso opposto, per le chiavi della cache: una posizione di spazio dei nomi
+// viene da una stringa larga, e la chiave e' una stringa stretta.
+std::string Utf8(const std::wstring& text)
+{
+    if (text.empty())
+        return {};
+    const int needed = WideCharToMultiByte(CP_UTF8, 0, text.data(), static_cast<int>(text.size()),
+                                          nullptr, 0, nullptr, nullptr);
+    std::string out(static_cast<size_t>(needed), '\0');
+    WideCharToMultiByte(CP_UTF8, 0, text.data(), static_cast<int>(text.size()), out.data(), needed,
+                        nullptr, nullptr);
+    return out;
+}
+
 } // namespace
 
 ShellIconAtlas::~ShellIconAtlas() = default;
@@ -118,19 +132,15 @@ bool ShellIconAtlas::Initialize(IRenderer& renderer, int layer, int atlasSize, s
     cache_.clear();
     cells_.clear();
 
-    // Warm the two entries every listing needs, plus the masked folder: the
-    // navigation pane draws it on the first frame, and it is not the same cell as
-    // the coloured one.
+    // Warm the two entries every listing needs.
     GetFor("", true);
     GetFor("", false);
-    GetFor("", true, /*mono=*/true);
 
     return true;
 }
 
-const ShellIconAtlas::IconUV* ShellIconAtlas::Rasterize(const std::string& key,
-                                                        const std::wstring& syntheticName,
-                                                        DWORD attributes, bool mono)
+const ShellIconAtlas::IconUV* ShellIconAtlas::Rasterize(const std::string& key, LPCWSTR name,
+                                                        DWORD attributes, Source source)
 {
     if (renderer_ == nullptr)
         return nullptr;
@@ -140,8 +150,15 @@ const ShellIconAtlas::IconUV* ShellIconAtlas::Rasterize(const std::string& key,
         return nullptr;   // full: callers keep the last resolved icon as fallback
 
     SHFILEINFOW info{};
-    const DWORD flags = SHGFI_ICON | SHGFI_LARGEICON | SHGFI_USEFILEATTRIBUTES;
-    if (SHGetFileInfoW(syntheticName.c_str(), attributes, &info, sizeof(info), flags) == 0)
+    DWORD flags = SHGFI_ICON | SHGFI_LARGEICON;
+    switch (source)
+    {
+        case Source::SyntheticName: flags |= SHGFI_USEFILEATTRIBUTES; break;
+        case Source::Pidl:          flags |= SHGFI_PIDL;             break;
+        case Source::RealPath:                                       break;
+    }
+
+    if (SHGetFileInfoW(name, attributes, &info, sizeof(info), flags) == 0)
         return nullptr;
     if (info.hIcon == nullptr)
         return nullptr;
@@ -212,15 +229,6 @@ const ShellIconAtlas::IconUV* ShellIconAtlas::Rasterize(const std::string& key,
 
                     const size_t destination =
                         (static_cast<size_t>(y + kCellPadding) * cellSize_ + (x + kCellPadding)) * 4;
-
-                    // Mono form: the coverage becomes the picture, in every
-                    // channel. The shader reads the red one as the coverage and
-                    // multiplies it by the tint the caller passed (ui.frag,
-                    // FLAG_MONO), so a mask drawn white is a mask drawn in the
-                    // theme colour.
-                    if (mono)
-                        red = green = blue = alpha;
-
                     cell[destination + 0] = red;
                     cell[destination + 1] = green;
                     cell[destination + 2] = blue;
@@ -255,25 +263,17 @@ const ShellIconAtlas::IconUV* ShellIconAtlas::Rasterize(const std::string& key,
     return it == cache_.end() ? nullptr : &it->second;
 }
 
-// La chiave della forma mono e' quella della forma a colori piu' un suffisso:
-// sono due celle diverse, e chiederne una non deve sfrattare l'altra. Il suffisso
-// sta nel nome della chiave, non in un campo a parte, perche' e' la cache che
-// deve distinguerle.
-static std::string MonoKey(const std::string& key, bool mono)
-{
-    return mono ? key + ":mono" : key;
-}
-
-const ShellIconAtlas::IconUV* ShellIconAtlas::GetFor(const std::string& extension, bool isDirectory,
-                                                     bool mono)
+const ShellIconAtlas::IconUV* ShellIconAtlas::GetFor(const std::string& extension, bool isDirectory)
 {
     if (isDirectory)
     {
-        const std::string key = MonoKey("<dir>", mono);
-        const auto it = cache_.find(key);
+        const auto it = cache_.find("<dir>");
         if (it != cache_.end())
             return &it->second;
-        return Rasterize(key, L"folder", FILE_ATTRIBUTE_DIRECTORY, mono);
+        if (const IconUV* uv =
+                Rasterize("<dir>", L"folder", FILE_ATTRIBUTE_DIRECTORY, Source::SyntheticName))
+            return uv;
+        return nullptr;
     }
 
     std::string key = "<file>";
@@ -286,19 +286,51 @@ const ShellIconAtlas::IconUV* ShellIconAtlas::GetFor(const std::string& extensio
         key.insert(key.begin(), '.');
         synthetic = L"x" + Widen(key);
     }
-    key = MonoKey(key, mono);
 
     const auto it = cache_.find(key);
     if (it != cache_.end())
         return &it->second;
 
-    if (const IconUV* uv = Rasterize(key, synthetic, FILE_ATTRIBUTE_NORMAL, mono))
+    if (const IconUV* uv = Rasterize(key, synthetic.c_str(), FILE_ATTRIBUTE_NORMAL, Source::SyntheticName))
         return uv;
 
     // Unknown extension: fall back to the generic file icon, warming it if needed.
-    const std::string genericKey = MonoKey("<file>", mono);
-    const auto generic = cache_.find(genericKey);
+    const auto generic = cache_.find("<file>");
     if (generic != cache_.end())
         return &generic->second;
-    return Rasterize(genericKey, L"file", FILE_ATTRIBUTE_NORMAL, mono);
+    return Rasterize("<file>", L"file", FILE_ATTRIBUTE_NORMAL, Source::SyntheticName);
+}
+
+const ShellIconAtlas::IconUV* ShellIconAtlas::GetForObject(const std::wstring& location)
+{
+    if (renderer_ == nullptr || location.empty())
+        return nullptr;
+
+    const std::string key = "obj:" + Utf8(location);
+    const auto it = cache_.find(key);
+    if (it != cache_.end())
+        return &it->second;
+
+    // Un nome di spazio dei nomi comincia per `::` — il cestino, "Questo PC". La
+    // shell lo sa leggere, e da li' si arriva al PIDL, che e' l'unico modo di
+    // chiederle l'icona **sua**: senza, `SHGetFileInfoW` risponde con quella di
+    // una cartella qualunque.
+    if (location.size() >= 2 && location[0] == L':' && location[1] == L':')
+    {
+        PIDLIST_ABSOLUTE pidl = nullptr;
+        if (SUCCEEDED(SHParseDisplayName(location.c_str(), nullptr, &pidl, 0, nullptr)) &&
+            pidl != nullptr)
+        {
+            const IconUV* uv =
+                Rasterize(key, reinterpret_cast<LPCWSTR>(pidl), 0, Source::Pidl);
+            CoTaskMemFree(pidl);
+            if (uv != nullptr)
+                return uv;
+        }
+        return nullptr;
+    }
+
+    // Un percorso vero, guardato davvero: e' cosi' che si ottiene l'icona di
+    // un'unita', che non dipende dall'estensione ma dal tipo di disco.
+    return Rasterize(key, location.c_str(), 0, Source::RealPath);
 }
