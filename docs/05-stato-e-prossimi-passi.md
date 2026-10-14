@@ -27,7 +27,7 @@ dichiarati sparsi dove vivono.
 | M2b — navigazione | ✅ |
 | M3 — statistiche di cartella | 🟡 mancano byte allocati e invalidazione da `ReadDirectoryChangesW` |
 | M5 — filtro, ordinamento, raggruppamento, selezione | ✅ |
-| M5c — modalità di visualizzazione | ✅ quattro viste, celle **derivate** da una misura continua (icona, larghezza e altezza), raggruppamento in griglia e nell'elenco, ridimensionamento continuo con `Ctrl`+rotella, **selettori di vista e misura delle anteprime nella barra in fondo** |
+| M5c — modalità di visualizzazione | ✅ quattro viste, celle **derivate** da una misura continua (icona, larghezza e altezza), raggruppamento in griglia e nell'elenco, ridimensionamento continuo con `Ctrl`+rotella, **selettori di vista e misura delle anteprime nella barra in fondo**, e **icone grandi chieste alla misura giusta** invece di ingrandite (`docs/02` §7.45) |
 | M5d — sovrappasso e comportamento del clic | ✅ evidenzia righe e celle, e le otto chiavi di interazione: `HoverToSelect`, `UnderlineOnHover`, `ShowTooltips`, `SingleClick`, `SingleClickFoldersOnly`, `ActOnPress`, `DoubleClickToParent`, `ShowCheckboxes` |
 | M5b — colonne | ✅ ridimensionabili col mouse, con filtri per valore nelle intestazioni e **filtro di testo sul nome** |
 | M6 — tab, barra del titolo, palette, GoTo | 🟡 fatti tab, titolo, palette, GoTo, **barra laterale a sezioni** (fissaggi, recenti, segnalibri, volumi, cartelle standard), **pulsanti di navigazione** e **albero dei tab verificato** (creazione per trascinamento, chiusura per ramo, distacco); resta il quick access pinnato |

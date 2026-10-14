@@ -1501,3 +1501,57 @@ loro associazione non porta a un'icona estraibile.
 **Cosa questo non fa**, ed e' un limite dichiarato: l'icona resta quella
 **dell'estensione**, non quella di quel singolo file. Il contenuto vero — l'anteprima
 — e' un'altra cosa e c'e' gia' (`IShellItemImageFactory`, strato 2).
+
+### 7.45 L'icona della vista a icone grandi si sgranava, e in grande era un'altra icona
+
+**Trovato guardando la lista a icone grandi**, su richiesta dell'autore. Due sintomi
+che sembravano uno:
+
+- a 64 px e a 128 px le icone erano **morbide**, con i bordi a scalini;
+- e il `.csv` che in elenco aveva l'icona di Excel, in grande mostrava il documento
+  generico — **la stessa voce, due icone**.
+
+**Le cause sono due, e vanno tenute separate.**
+
+La prima: l'atlante delle icone rasterizza a `SM_CXICON`, **32 px**, e da li' non si
+muove. Disegnare a 128 px vuol dire ingrandire di quattro volte, e un ingrandimento
+di quattro volte si vede. Non e' un difetto dell'atlante: e' che per la vista a
+icone grandi serviva un'icona **di quella misura**, e l'atlante non poteva darla.
+
+La seconda: la misura grande la si chiedeva alla shell
+(`IShellItemImageFactory` con `SIIGBF_ICONONLY`), e la shell risponde con l'icona
+che da' **a un file**. Che per un `.csv` su questa macchina e' il documento generico
+— e' la stessa cosa misurata in §7.44, da un'altra porta. Le icone piccole, nel
+frattempo, erano gia' passate dall'associazione: da qui le due icone diverse.
+
+**La correzione** fa in modo che la misura grande venga dalla **stessa fonte** di
+quella piccola, e che non sia un ingrandimento:
+
+- `ExtensionIconPixels(extension, size, …)` estrae l'icona dell'associazione **alla
+  misura chiesta** (`SHDefExtractIconW` con `nIconSize`): a 128 px si vede un disegno
+  a 128 px, non uno da 32 gonfiato. La sonda lo conferma: chiesta 128, la bitmap che
+  torna e' 128x128;
+- il worker delle anteprime ha ora **due domande distinte**, e la differenza conta:
+  `SIIGBF_THUMBNAILONLY` per una miniatura — che deve fallire se il tipo non ha un
+  provider, o sarebbe un'icona spacciata per anteprima — e `SIIGBF_ICONONLY` per
+  un'icona. Prima ce n'era una sola, e chi voleva l'icona grande non aveva di meglio
+  che chiedere una miniatura;
+- si chiede **per tipo e non per file** (`icon:.<estensione>`, `icon:<dir>`), quindi
+  duecento `.txt` sono una cella sola, e il prefisso tiene le icone separate dai
+  percorsi delle miniature: due spazi di nomi in una cache sola si sfrattano a
+  vicenda.
+
+L'atlante ora dichiara la sua misura (`IconPixels()`), e chi disegna decide con
+quella invece che con un 32 scritto a mano: e' la stessa regola dei numeri derivati.
+
+**Verificato a schermo**, non a impressione: nella sandbox a 128 px le cartelle hanno
+il bordo continuo e il `.csv` ha l'icona di Excel come in elenco. E misurato, perche'
+"mi sembra piu' nitido" non e' una prova: lungo il bordo curvo di una cartella le
+variazioni di colore misurano **1-3 pixel**, non multipli di 4 — un ingrandimento di
+quattro volte le farebbe cadere tutte a multipli di 4.
+
+**Limite dichiarato:** la cella grande e' di 128 px, e la vista a icone arriva a 256,
+quindi **all'ingrandimento massimo l'icona e' ancora ingrandita di due volte**. Alzare
+la cella vorrebbe dire 16 celle invece di 64 nell'atlante delle anteprime, cioe'
+buttare via tre quarti delle miniature che ci stanno: non conviene, e si dice invece
+di nasconderlo.
