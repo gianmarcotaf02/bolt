@@ -3186,6 +3186,28 @@ void DrawSidebar(AppState& app, const Layout& layout)
     std::vector<SidebarRow> rows;
     BuildSidebarRows(app, &rows);
 
+    // Diagnostica: quando l'elenco cambia, si scrive **tutto** — etichetta, chiave e
+    // coordinate — perche' una riga per volta non dice cosa sta accanto a cosa.
+    static size_t lastRowHash = 0;
+    size_t rowHash = 1469598103934665603ull;
+    for (const SidebarRow& entry : rows)
+    {
+        for (const char c : entry.label)
+            rowHash = (rowHash ^ static_cast<size_t>(c)) * 1099511628211ull;
+        for (const wchar_t c : entry.icon)
+            rowHash = (rowHash ^ static_cast<size_t>(c)) * 1099511628211ull;
+    }
+    const bool dumpRows = DiagEnabled() && rowHash != lastRowHash;
+    if (dumpRows)
+    {
+        lastRowHash = rowHash;
+        DiagLog("--- " + DiagClock() + " barra laterale, elenco cambiato (" +
+                std::to_string(rows.size()) + " righe), cartella=[" + ToUtf8(app.directory) + "]");
+        for (const SidebarRow& entry : rows)
+            DiagLog("      " + entry.label + " | sezione=" + entry.key + " | chiave=[" +
+                    ToUtf8(entry.icon) + "]");
+    }
+
     float y = layout.sidebar.y + 8.0f * scale;
     for (size_t i = 0; i < rows.size(); ++i)
     {
