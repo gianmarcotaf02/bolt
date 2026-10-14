@@ -1489,6 +1489,12 @@ std::vector<Entry> ReadNamespaceDirectory(const std::wstring& directory, std::st
         entry.pidl        = item.pidl;
         entry.navigable   = item.navigable;
 
+        // Un'unita' dentro "Questo PC" e' un disco, non una cartella, e l'icona
+        // gliela sa dare solo la shell. Si decide **adesso**, una volta per cartella
+        // aperta: chiedere il tipo di un'unita' puo' far girare un lettore ottico, e
+        // una riga si ridisegna sessanta volte al secondo.
+        entry.volumeRoot = !entry.location.empty() && VolumeOf(entry.location).isVolume;
+
         // Un tempo a zero non e' il 1601: e' "la shell non lo sa". Scriverlo come
         // data faceva comparire `1601-01-01` in ogni riga di "Questo PC", che e'
         // una data vera solo per chi guarda il calendario di Windows.
@@ -2053,6 +2059,21 @@ std::wstring LeafName(const std::wstring& path)
 std::wstring EntryLocation(const AppState& app, const Entry& entry)
 {
     return entry.location.empty() ? JoinPath(app.directory, entry.wideName) : entry.location;
+}
+
+// L'icona di una voce della lista. Per quasi tutte e' quella della **sua
+// estensione**, che la shell risolve senza toccare il disco: la lista puo' avere
+// migliaia di righe e l'atlante non ha sfratto. Per un'unita' invece l'icona dipende
+// dal disco — un disco fisso, uno rimovibile, uno di rete — e si chiede guardandola;
+// l'insieme e' chiuso (una per lettera di unita'), quindi si puo' fare.
+const ShellIconAtlas::IconUV* IconFor(const AppState& app, const Entry& entry)
+{
+    if (entry.volumeRoot)
+    {
+        if (const ShellIconAtlas::IconUV* uv = app.icons.GetForObject(entry.location))
+            return uv;
+    }
+    return app.icons.GetFor(entry.extension, entry.isDirectory);
 }
 
 // Come si chiama una posizione: il suo nome se e' un percorso, il nome che le da'
@@ -3907,7 +3928,7 @@ void DrawEntryCell(AppState& app, const Layout& layout, const ViewMetrics& metri
         r.Draw(UIDraw::Image(previewIcon, Color{1.0f, 1.0f, 1.0f, 1.0f}, kPreviewLayer,
                              preview.u0, preview.v0, preview.u1, preview.v1));
     }
-    else if (const ShellIconAtlas::IconUV* uv = app.icons.GetFor(entry.extension, entry.isDirectory))
+    else if (const ShellIconAtlas::IconUV* uv = IconFor(app, entry))
     {
         r.Draw(UIDraw::Image(icon, Color{1.0f, 1.0f, 1.0f, 1.0f}, kIconLayer,
                              uv->u0, uv->v0, uv->u1, uv->v1));
