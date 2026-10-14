@@ -221,17 +221,6 @@ enum class GroupMode { None, Name, Date, Size, Count, Volume };
 // those are the same layout at a different size.
 enum class ViewMode { Details, List, Tiles, Icons };
 
-const char* ViewModeName(ViewMode mode)
-{
-    switch (mode)
-    {
-        case ViewMode::List:  return "List";
-        case ViewMode::Tiles: return "Tiles";
-        case ViewMode::Icons: return "Icons";
-        default:              return "Details";
-    }
-}
-
 // Geometry of the current view. |columns| is only meaningful in a grid.
 struct ViewMetrics
 {
@@ -1944,6 +1933,56 @@ const char* GroupModeName(GroupMode mode)
         case GroupMode::Volume: return Tr("Volume", "Volume");
         default:                return Tr("No", "None");
     }
+}
+
+// Il nome di un gruppo si legge in due lingue. La **chiave** resta quella inglese,
+// perche' e' con quella che si ricorda se il gruppo e' chiuso: tradurre la chiave
+// vorrebbe dire riaprire da soli i gruppi che l'utente aveva chiuso, al cambio di
+// lingua. Una fascia di percentuale non e' una parola e resta com'e'.
+const char* GroupLabelIt(const std::string& key)
+{
+    struct Label { const char* key; const char* italian; };
+    static const Label kLabels[] = {
+        {"Other", "Altro"},
+        {"Today", "Oggi"},
+        {"Yesterday", "Ieri"},
+        {"EarlierThisWeek", "Inizio settimana"},
+        {"LastWeek", "Settimana scorsa"},
+        {"EarlierThisMonth", "Inizio mese"},
+        {"LastMonth", "Mese scorso"},
+        {"EarlierThisYear", "Inizio anno"},
+        {"LastYear", "Anno scorso"},
+        {"Older", "Pi\xc3\xb9 vecchi"},
+        {"Unspecified", "Non calcolato"},
+        {"Empty", "Vuoto"},
+        {"Tiny", "Minuscolo"},
+        {"Small", "Piccolo"},
+        {"Medium", "Medio"},
+        {"Large", "Grande"},
+        {"Huge", "Enorme"},
+        {"Gigantic", "Gigantesco"},
+        {"Few", "Pochi"},
+        {"Dozens", "Decine"},
+        {"Hundreds", "Centinaia"},
+        {"Thousands", "Migliaia"},
+        {"TensOfThousands", "Decine di migliaia"},
+        {"HundredsOfThousands", "Centinaia di migliaia"},
+        {"Millions", "Milioni"},
+    };
+    for (const Label& label : kLabels)
+    {
+        if (key == label.key)
+            return Tr(label.italian, label.key);
+    }
+    return nullptr;
+}
+
+// Quello che si legge in testa a un gruppo: la traduzione se c'e', altrimenti la
+// chiave — che per una fascia di percentuale e' gia' quello che si vuole leggere.
+std::string GroupLabel(const std::string& key)
+{
+    const char* italian = GroupLabelIt(key);
+    return italian != nullptr ? std::string(italian) : key;
 }
 
 void RebuildView(AppState& app)
@@ -4033,7 +4072,7 @@ void DrawList(AppState& app, const Layout& layout, const float* columnX)
             const bool collapsed = app.collapsedGroups.count(group.label) != 0;
 
             r.FillRect(row, t.headerBg);
-            const std::string title = (collapsed ? "> " : "v ") + group.label;
+            const std::string title = (collapsed ? "> " : "v ") + GroupLabel(group.label);
             app.smallFont.Draw(r, row.x + 8.0f * scale, TextY(layout, row, app.smallFont),
                           title, t.text, scale);
 
