@@ -2746,12 +2746,18 @@ void DrawTitleBar(AppState& app, const Layout& layout)
                        t.separator);
         }
 
-        if (const ShellIconAtlas::IconUV* uv = app.icons.GetFor("", true, /*mono=*/true))
+        // L'icona e' quella dell'oggetto che il tab mostra: un disco per `C:`, un
+        // cestino per il cestino, una cartella per una cartella. Non si tinge: e' la
+        // sua, come nel riquadro di navigazione.
+        const ShellIconAtlas::IconUV* tabIcon = app.icons.GetForObject(source);
+        if (tabIcon == nullptr)
+            tabIcon = app.icons.GetFor("", true);
+        if (tabIcon != nullptr)
         {
             const Rect icon{tabRect.x + 10.0f * scale + indent, tabRect.y + 6.0f * scale,
                             16.0f * scale, 16.0f * scale};
-            r.Draw(UIDraw::Image(icon, active ? t.text : t.textDim, kIconLayer,
-                                 uv->u0, uv->v0, uv->u1, uv->v1, /*monoMask=*/true));
+            r.Draw(UIDraw::Image(icon, Color{1.0f, 1.0f, 1.0f, 1.0f}, kIconLayer,
+                                 tabIcon->u0, tabIcon->v0, tabIcon->u1, tabIcon->v1));
         }
 
         // Il nome in evidenza; il percorso che precede, in piccolo e spento, solo
