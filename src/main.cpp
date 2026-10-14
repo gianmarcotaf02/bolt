@@ -513,17 +513,22 @@ const ColumnDef kColumns[] = {
     // valori — ogni nome e' diverso. La sua linguetta accende la casella di
     // **testo** in fondo, che e' il filtro del nome che serve davvero.
     {"Name",     "Nome",           SortColumn::Name,     0.00f, true},
-    {"Type",     "Tipo",           SortColumn::Type,     0.32f, true},
-    {"Modified", "Data modifica",  SortColumn::Modified, 0.50f, true},
+    {"Type",     "Tipo",           SortColumn::Type,     0.28f, true},
+    {"Modified", "Data modifica",  SortColumn::Modified, 0.42f, true},
     // `Folders` e `Files` avevano il titolo appena piu' largo della colonna, e
     // l'imbuto del filtro si mangiava la coda: con il carattere di partenza si
     // sovrapponevano di pochi pixel, con un carattere piu' largo si leggeva
     // `ModifedFoldersFilesSize`. Qui le due colonne hanno lo spazio per il titolo
     // **e** per l'imbuto; se la finestra si stringe, il titolo si accorcia (vedi
     // `DrawHeader`) invece di finire sopra quello vicino.
-    {"Folders",  "Cartelle",       SortColumn::Folders,  0.64f, true},
-    {"Files",    "File",           SortColumn::Files,    0.73f, true},
-    {"Size",     "Dimensione",     SortColumn::Size,     0.82f, true},
+    //
+    // La frazione e' il **bordo sinistro** della colonna, quindi la larghezza e' la
+    // differenza fra questa e la prossima: e i titoli italiani sono piu' lunghi di
+    // quelli inglesi ("Dimensione" contro "Size"), per cui le misure sono quelle
+    // che fanno entrare il titolo **piu' lungo delle due lingue**, non quello corto.
+    {"Folders",  "Cartelle",       SortColumn::Folders,  0.60f, true},
+    {"Files",    "File",           SortColumn::Files,    0.735f, true},
+    {"Size",     "Dimensione",     SortColumn::Size,     0.825f, true},
 };
 constexpr int kColumnCount = static_cast<int>(sizeof(kColumns) / sizeof(kColumns[0]));
 
