@@ -3458,7 +3458,7 @@ void DrawHeader(AppState& app, const Layout& layout, float* columnX)
         columnX[i] = x;
 
         const bool sorted = (app.sortColumn == kColumns[i].sort);
-        std::string label = kColumns[i].label;
+        std::string label = ColumnLabel(i);
         if (sorted)
             label += app.sortAscending ? " ^" : " v";
 
