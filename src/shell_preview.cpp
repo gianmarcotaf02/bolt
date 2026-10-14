@@ -201,7 +201,7 @@ void ShellPreviewCache::WorkerMain()
         }
 
         std::vector<uint8_t> rgba;
-        const bool decoded = RasterizeCell(request.path, request.iconOnly, rgba);
+        const bool decoded = RasterizeCell(request, rgba);
 
         {
             std::lock_guard<std::mutex> lock(mutex_);

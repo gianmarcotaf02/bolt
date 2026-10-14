@@ -446,7 +446,7 @@ const ShellIconAtlas::IconUV* ShellIconAtlas::GetFor(const std::string& extensio
     // documento qualunque. Se l'associazione non porta a niente — o l'icona non si
     // riesce a estrarre — si ripiega sul nome finto di prima, che almeno da' il
     // documento generico invece di niente.
-    if (HICON icon = IconForExtension(extension))
+    if (HICON icon = IconForExtension(extension, iconPixels_))
     {
         const IconUV* uv = UploadIcon(key, icon);
         DestroyIcon(icon);
