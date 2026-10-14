@@ -103,6 +103,18 @@ public:
     int Capacity() const { return capacity_; }
 
 private:
+    // Una richiesta al worker. |iconOnly| distingue le due domande: una miniatura
+    // ("cosa c'e' dentro questo file") da un'icona ("di che tipo e'"), che sono
+    // due modi diversi di chiedere la stessa cosa alla shell.
+    struct Request
+    {
+        std::wstring key;
+        std::wstring path;
+        std::string  extension;
+        bool         isDirectory = false;
+        bool         iconOnly = false;
+    };
+
     void WorkerMain();
     bool RasterizeCell(const Request& request, std::vector<uint8_t>& rgba);
     int  AcquireCell();
@@ -134,18 +146,6 @@ private:
     {
         std::wstring          key;
         std::vector<uint8_t>  rgba;
-    };
-
-    // Una richiesta al worker. |iconOnly| distingue le due domande: una miniatura
-    // ("cosa c'e' dentro questo file") da un'icona ("di che tipo e'"), che sono
-    // due modi diversi di chiedere la stessa cosa alla shell.
-    struct Request
-    {
-        std::wstring key;
-        std::wstring path;
-        std::string  extension;
-        bool         isDirectory = false;
-        bool         iconOnly = false;
     };
 
     std::mutex                             mutex_;
