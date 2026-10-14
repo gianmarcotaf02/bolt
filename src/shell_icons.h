@@ -16,6 +16,14 @@
 //
 //  * The atlas is rasterised at 32x32 and drawn at roughly half that, so it
 //    still looks correct when the UI is zoomed in.
+//
+//  * An icon has two forms, and the caller says which one it wants. The colour
+//    form is the shell's own drawing, and it is what the list, the tiles and
+//    the inspector show. The monochrome form is the icon's **coverage** kept as
+//    a mask, for the places that draw it in a theme colour (the navigation pane,
+//    the tab strip): tinting the shell's yellow folder with a grey text colour
+//    gives mud, not a monochrome icon. Both forms live in the cache under
+//    different keys, so asking for one never evicts the other.
 // ---------------------------------------------------------------------------
 #pragma once
 
@@ -46,17 +54,20 @@ public:
     bool Initialize(IRenderer& renderer, int layer, int atlasSize, std::string* error);
 
     // Returns the atlas rectangle for one entry. |extension| is matched case
-    // insensitively and may be empty. Never returns null: unknown extensions fall
-    // back to the generic file icon.
-    const IconUV* GetFor(const std::string& extension, bool isDirectory);
+    // insensitively and may be empty. |mono| asks for the coverage mask instead
+    // of the shell's colours, for callers that tint it themselves. Never returns
+    // null: unknown extensions fall back to the generic file icon.
+    const IconUV* GetFor(const std::string& extension, bool isDirectory, bool mono = false);
 
     int IconCount() const { return static_cast<int>(cells_.size()); }
 
 private:
     // Rasterises one icon identified by a synthetic name plus attributes and
-    // uploads it into the next free cell. Returns null when the atlas is full or
-    // the shell has no icon for the key.
-    const IconUV* Rasterize(const std::string& key, const std::wstring& syntheticName, DWORD attributes);
+    // uploads it into the next free cell. In mono form only the coverage is kept,
+    // in the red channel. Returns null when the atlas is full or the shell has no
+    // icon for the key.
+    const IconUV* Rasterize(const std::string& key, const std::wstring& syntheticName,
+                            DWORD attributes, bool mono);
 
     IRenderer* renderer_ = nullptr;
     int layer_ = 0;

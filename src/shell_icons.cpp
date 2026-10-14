@@ -127,7 +127,7 @@ bool ShellIconAtlas::Initialize(IRenderer& renderer, int layer, int atlasSize, s
 
 const ShellIconAtlas::IconUV* ShellIconAtlas::Rasterize(const std::string& key,
                                                         const std::wstring& syntheticName,
-                                                        DWORD attributes)
+                                                        DWORD attributes, bool mono)
 {
     if (renderer_ == nullptr)
         return nullptr;
@@ -209,6 +209,15 @@ const ShellIconAtlas::IconUV* ShellIconAtlas::Rasterize(const std::string& key,
 
                     const size_t destination =
                         (static_cast<size_t>(y + kCellPadding) * cellSize_ + (x + kCellPadding)) * 4;
+
+                    // Mono form: the coverage becomes the picture, in every
+                    // channel. The shader reads the red one as the coverage and
+                    // multiplies it by the tint the caller passed (ui.frag,
+                    // FLAG_MONO), so a mask drawn white is a mask drawn in the
+                    // theme colour.
+                    if (mono)
+                        red = green = blue = alpha;
+
                     cell[destination + 0] = red;
                     cell[destination + 1] = green;
                     cell[destination + 2] = blue;
