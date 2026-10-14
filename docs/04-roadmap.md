@@ -3,11 +3,10 @@
 Sequenza di lavoro, ordinata in modo che ogni milestone produca qualcosa di
 funzionante e verificabile. Le stime sono per lavoro part-time.
 
-Stato corrente: **M1, M2, M2b, M3 (nucleo), M5 e M5c (in gran parte) completate;
-M6 a metà.** Della 2 resta la resa monocromatica delle icone, della 3
-l'invalidazione da notifiche del file system e i byte allocati, della 6 GoTo fatto
-e restano quick access pinnato, drag&drop e albero dei tab, della 5c il secondo
-corpo di glifi e il raggruppamento in griglia.
+Stato corrente: **M1, M2, M2b, M5, M5b, M5c, M5d, M8 e M10 completate**; M3, M4,
+M6, M7 e M9 parziali; M3b non iniziata. Questo riassunto invecchia a ogni
+milestone: la tabella viva è in `docs/05-stato-e-prossimi-passi.md` §1, che si
+aggiorna a ogni pausa lunga.
 
 ---
 
@@ -47,13 +46,21 @@ percorso monocromatico.
 - [x] dimensione dell'atlas limitata da `AssetCacheSize` ed eventuale sfratto:
       atlas di 64 celle da 128 px e politica least-recently-used con riuso della
       cella
-- [ ] resa monocromatica delle icone in tema scuro (percorso `textureIsMono`)
+- [x] resa monocromatica delle icone in tema scuro (percorso `textureIsMono`)
 
-*Nota sull'ultima voce.* Il percorso `textureIsMono` esiste nella shader ed è
-pronto, ma non è ancora usato: le icone di sistema sono a colori (cartelle
-gialle, note musicali rosa) e applicarlo a quelle le appiattirebbe. Serve un
-caso d'uso vero — un glifo monocromatico da tingere — prima di accenderlo,
-altrimenti è solo un flag che nasconde un errore.
+*Nota sull'ultima voce.* Il caso d'uso c'era già, ed era la ragione per cui il
+percorso serviva: la **barra laterale** e la **striscia dei tab** disegnano l'icona
+**nel colore del tema**, e con la forma a colori il giallo della cartella
+moltiplicato per un grigio diventa oro spento — né icona della shell né glifo
+monocromatico. L'atlante adesso tiene **due celle per chiave**: la forma a colori
+(lista, riquadri, inspector) e la maschera di copertura (`<dir>:mono`), e chi tinge
+chiede la seconda. La cartella mascherata si scalda all'avvio, perché è quella che
+la barra laterale disegna al primo fotogramma. Vedi §7.43 di `docs/02`.
+
+*Residuo dichiarato.* Il commento sopra l'icona della barra laterale dice che un
+volume riceve dalla shell l'icona del **disco**; il codice chiede quella di
+**cartella** per tutte le righe, volumi compresi, e la cattura lo conferma. Il
+commento è vecchio, non il codice: si decide se implementarlo o correggerlo.
 
 *Il nucleo è fatto: icone reali per estensione, anteprime reali per immagini e
 video, e la memoria dell'atlas resta limitata mentre si scorre una cartella
