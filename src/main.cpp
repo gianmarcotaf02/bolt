@@ -4749,7 +4749,8 @@ void DrawInspector(AppState& app, const Layout& layout)
     r.Draw(UIDraw::Border(layout.inspector, t.panelBorder, 1.0f, 8.0f * scale));
 
     float y = layout.inspector.y + 13.0f * scale;
-    app.smallFont.Draw(r, layout.inspector.x + 14.0f * scale, y, "INSPECTOR", t.textDim, scale);
+    app.smallFont.Draw(r, layout.inspector.x + 14.0f * scale, y,
+                       Tr("ISPETTORE", "INSPECTOR"), t.textDim, scale);
     y += 24.0f * scale;
 
     // Il documento del visualizzatore, se ce n'e' uno da leggere: la lettura avviene
@@ -4821,8 +4822,8 @@ void DrawInspector(AppState& app, const Layout& layout)
                       return a.second > b.second;
                   });
         const std::pair<const char*, std::string> summary[] = {
-            {"Items", breakdown},
-            {"Size", HumanBytes(totalBytes)},
+            {Tr("Elementi", "Items"), breakdown},
+            {Tr("Dimensione", "Size"), HumanBytes(totalBytes)},
         };
         for (const auto& item : summary)
         {
@@ -4837,7 +4838,7 @@ void DrawInspector(AppState& app, const Layout& layout)
         for (size_t i = 0; i < types.size() && i < 4; ++i)
         {
             app.smallFont.Draw(r, layout.inspector.x + 14.0f * scale, y,
-                               (i == 0) ? "Types" : "", t.textDim, scale);
+                               (i == 0) ? Tr("Tipi", "Types") : "", t.textDim, scale);
             const float valueX = layout.inspector.x + 96.0f * scale;
             const float valueMax = layout.inspector.right() - valueX - 14.0f * scale;
             const std::string line = std::to_string(types[i].second) + " " + types[i].first;
@@ -5014,13 +5015,15 @@ void OpenPropertiesPanel(AppState& app)
         app.propertiesSubtitle = std::to_wstring(selectedCount) +
                                  TrW(L" elementi selezionati", L" items selected");
         app.propertiesRows.push_back(
-            {"Items", std::to_string(files) + Tr(" file, ", " files, ") +
-                          std::to_string(folders) +
-                          (folders == 1 ? Tr(" cartella", " folder") : Tr(" cartelle", " folders")),
+            {Tr("Elementi", "Items"), std::to_string(files) + Tr(" file, ", " files, ") +
+                                       std::to_string(folders) +
+                                       (folders == 1 ? Tr(" cartella", " folder")
+                                                     : Tr(" cartelle", " folders")),
              false, false});
-        app.propertiesRows.push_back({"Size", HumanBytes(totalBytes), false, false});
+        app.propertiesRows.push_back(
+            {Tr("Dimensione", "Size"), HumanBytes(totalBytes), false, false});
         for (size_t i = 0; i < types.size(); ++i)
-            app.propertiesRows.push_back({(i == 0) ? "Types" : "",
+            app.propertiesRows.push_back({(i == 0) ? Tr("Tipi", "Types") : "",
                                           std::to_string(types[i].second) + " " + types[i].first,
                                           false, false});
     }
