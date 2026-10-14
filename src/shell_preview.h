@@ -84,6 +84,17 @@ public:
     // is free and never queues a second decode.
     State Query(const std::wstring& path, const std::string& extension, IconUV* outUV);
 
+    // L'icona **alla misura della cella**, per le viste a icone grandi. Non e' una
+    // miniatura — dentro un `.txt` non c'e' niente da guardare — ma nemmeno
+    // l'icona dell'atlante ingrandita: quella e' rasterizzata a 32 px, e a 128 si
+    // vede. Qui la misura la da' la shell.
+    //
+    // Si chiede per **tipo** e non per file, quindi duecento `.txt` sono una cella
+    // sola; |path| e' il primo file di quel tipo che si incontra e serve solo a
+    // dare alla shell qualcosa da guardare.
+    State QueryIcon(const std::string& extension, bool isDirectory, const std::wstring& path,
+                    IconUV* outUV);
+
     // True when the type is worth asking the shell about. Text and executables
     // are never previewed, which keeps the queue short while scrolling.
     static bool IsPreviewable(const std::string& extension);
@@ -93,7 +104,7 @@ public:
 
 private:
     void WorkerMain();
-    bool RasterizeCell(const std::wstring& path, std::vector<uint8_t>& rgba);
+    bool RasterizeCell(const std::wstring& path, bool iconOnly, std::vector<uint8_t>& rgba);
     int  AcquireCell();
     void InsertReady(const std::wstring& key, const std::vector<uint8_t>& rgba);
 
@@ -125,9 +136,19 @@ private:
         std::vector<uint8_t>  rgba;
     };
 
+    // Una richiesta al worker. |iconOnly| distingue le due domande: una miniatura
+    // ("cosa c'e' dentro questo file") da un'icona ("di che tipo e'"), che sono
+    // due modi diversi di chiedere la stessa cosa alla shell.
+    struct Request
+    {
+        std::wstring key;
+        std::wstring path;
+        bool         iconOnly = false;
+    };
+
     std::mutex                             mutex_;
     std::condition_variable                wake_;
-    std::deque<std::pair<std::wstring, std::wstring>> requests_;   // key, path
+    std::deque<Request>                    requests_;
     std::unordered_set<std::wstring>       inFlight_;   // requested but not yet uploaded
     std::deque<Result>                     results_;
     std::unordered_set<std::wstring>       failed_;

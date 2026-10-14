@@ -66,6 +66,12 @@ public:
 
     int IconCount() const { return static_cast<int>(cells_.size()); }
 
+    // Quanti pixel misura il disegno dentro una celletta. E' la misura oltre la
+    // quale un'icona va chiesta **grande** invece di essere ingrandita: ingrandire
+    // questo valore si vede, ed e' il punto in cui la vista a icone grandi si
+    // sgranava. Derivato dalla cella, non scelto a occhio.
+    int IconPixels() const { return cellSize_ - kCellPadding * 2; }
+
 private:
     // How the icon is asked for, which decides the flags: a synthetic name plus
     // attributes (no disk access), a real path, or a PIDL.
