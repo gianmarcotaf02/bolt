@@ -17,13 +17,13 @@
 //  * The atlas is rasterised at 32x32 and drawn at roughly half that, so it
 //    still looks correct when the UI is zoomed in.
 //
-//  * An icon has two forms, and the caller says which one it wants. The colour
-//    form is the shell's own drawing, and it is what the list, the tiles and
-//    the inspector show. The monochrome form is the icon's **coverage** kept as
-//    a mask, for the places that draw it in a theme colour (the navigation pane,
-//    the tab strip): tinting the shell's yellow folder with a grey text colour
-//    gives mud, not a monochrome icon. Both forms live in the cache under
-//    different keys, so asking for one never evicts the other.
+//  * There are two ways of asking, and they are not interchangeable. `GetFor`
+//    names an **extension**, the shell answers without touching the disk, and
+//    the cache stays small however long the list is. `GetForObject` names a
+//    **shell object** — a drive, a known folder, the recycle bin — and the shell
+//    looks at it: it is the only way to get the icon a drive really has, and it
+//    is meant for the places where the set is small and closed, because this
+//    atlas has no eviction and one icon per file would fill it.
 // ---------------------------------------------------------------------------
 #pragma once
 
@@ -54,20 +54,28 @@ public:
     bool Initialize(IRenderer& renderer, int layer, int atlasSize, std::string* error);
 
     // Returns the atlas rectangle for one entry. |extension| is matched case
-    // insensitively and may be empty. |mono| asks for the coverage mask instead
-    // of the shell's colours, for callers that tint it themselves. Never returns
-    // null: unknown extensions fall back to the generic file icon.
-    const IconUV* GetFor(const std::string& extension, bool isDirectory, bool mono = false);
+    // insensitively and may be empty. Never returns null: unknown extensions fall
+    // back to the generic file icon.
+    const IconUV* GetFor(const std::string& extension, bool isDirectory);
+
+    // The icon of one shell object, looked at rather than guessed from a name:
+    // a drive root ("D:\\"), a known folder, "This PC", the recycle bin — either a
+    // real path or a namespace name (`::{...}`). Null when the shell has no icon
+    // for it, so the caller keeps its own fallback.
+    const IconUV* GetForObject(const std::wstring& location);
 
     int IconCount() const { return static_cast<int>(cells_.size()); }
 
 private:
-    // Rasterises one icon identified by a synthetic name plus attributes and
-    // uploads it into the next free cell. In mono form only the coverage is kept,
-    // in the red channel. Returns null when the atlas is full or the shell has no
-    // icon for the key.
-    const IconUV* Rasterize(const std::string& key, const std::wstring& syntheticName,
-                            DWORD attributes, bool mono);
+    // How the icon is asked for, which decides the flags: a synthetic name plus
+    // attributes (no disk access), a real path, or a PIDL.
+    enum class Source { SyntheticName, RealPath, Pidl };
+
+    // Rasterises one icon and uploads it into the next free cell. |name| is a
+    // path, or a synthetic name, or a PIDL — never a string that was built from a
+    // PIDL, because a PIDL has NULs inside it. Returns null when the atlas is
+    // full or the shell has no icon for the key.
+    const IconUV* Rasterize(const std::string& key, LPCWSTR name, DWORD attributes, Source source);
 
     IRenderer* renderer_ = nullptr;
     int layer_ = 0;
