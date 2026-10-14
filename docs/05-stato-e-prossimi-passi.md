@@ -4,14 +4,15 @@ Documento di lavoro, non di progetto: serve a riprendere senza rileggere la
 conversazione. Aggiornarlo è l'ultima cosa da fare prima di una pausa lunga o di
 una compattazione del contesto.
 
-Ultimo aggiornamento: dopo il **pannello delle opzioni** (M9, `Ctrl+,`) con i
-controlli tipizzati e le preferenze ricordate in `%APPDATA%\Bolt\settings.ini`,
+Ultimo aggiornamento: dopo la **resa monocromatica delle icone** — l'ultima voce
+aperta di M2, `docs/02` §7.43 — che segue il **pannello delle opzioni** (M9, `Ctrl+,`)
+con i controlli tipizzati e le preferenze ricordate in `%APPDATA%\Bolt\settings.ini`,
 l'**allineamento delle scorciatoie** all'originale, la **lingua finita su tutte le
 superfici**, la **salita da una radice di volume**, le **tre cose viste
 nell'originale**, l'**albero dei tab verificato**,
 **`InspectorHideGrid` ricostruito**, il **backend Direct3D 11** (M10) e i tre difetti
 che si sono visti facendoli (`docs/02` §7.40, §7.41 e §7.42). Registro:
-**quarantadue** difetti trovati e risolti, **due** cose da fare, i limiti dichiarati
+**quarantatré** difetti trovati e risolti, **due** cose da fare, i limiti dichiarati
 sparsi dove vivono.
 
 ---
@@ -21,7 +22,7 @@ sparsi dove vivono.
 | Milestone | Stato |
 |---|---|
 | M1 — shell e rendering | ✅ |
-| M2 — icone e anteprime | 🟡 mancano solo le icone monocromatiche per tema scuro |
+| M2 — icone e anteprime | ✅ resa monocromatica compresa (`docs/02` §7.43) |
 | M2b — navigazione | ✅ |
 | M3 — statistiche di cartella | 🟡 mancano byte allocati e invalidazione da `ReadDirectoryChangesW` |
 | M5 — filtro, ordinamento, raggruppamento, selezione | ✅ |
@@ -73,7 +74,7 @@ Ordinato per quanto morde.
 
 **Tre numeri, che sono tre cose diverse e non vanno confusi.**
 
-- **Quarantadue** difetti **trovati e risolti**: il registro è `docs/02` §7, uno per
+- **Quarantatré** difetti **trovati e risolti**: il registro è `docs/02` §7, uno per
   uno, con sintomo, causa e correzione. È un cumulativo, non una lista di lavoro.
 - **Due** cose **da fare**: la lista qui sotto.
 - I **limiti dichiarati**: cose che si è scelto di non fare, scritte dove vivono con
@@ -83,7 +84,7 @@ Ordinato per quanto morde.
   volta che nei documenti c'è scritto "dichiarato", vuol dire questo: non risolto, e
   detto.
 
-Qualche voce dei quarantadue porta con sé un residuo dichiarato — §7.34 ha risolto
+Qualche voce dei quarantatré porta con sé un residuo dichiarato — §7.34 ha risolto
 l'oggetto dati ma la voce riciclata che non viene presa resta un limite — e il
 conteggio non lo nasconde: il residuo è scritto nella voce stessa.
 
@@ -181,6 +182,12 @@ finestra ha un menu di sistema.
 
 **Un `Esc` che chiude l'app** è una trappola: corretto, ora azzera il filtro e si
 ferma.
+
+**Il pixel più esterno della finestra è vetro, e si vede cosa c'è dietro.** Il
+bordo di 1 px che `DwmExtendFrameIntoClientArea` rende trasparente mostra ciò che
+sta **dietro** la finestra: spostandola, quel pixel cambia colore. È voluto (ombra e
+angoli arrotondati, `docs/02` §7.14), ma vuol dire che un confronto al pixel sul
+**bordo** della finestra misura anche il desktop, non solo l'applicazione.
 
 **Le riscritture massive di chiamate annidate duplicano il testo.** Sostituendo
 `app.font.Draw(...)` con un secondo atlante, una regex che trova sia la chiamata

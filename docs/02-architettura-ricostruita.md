@@ -1415,3 +1415,46 @@ Backspace adesso esegue `RunCommand(app, CmdGoUp)`, come i pulsanti e come
 cartella e quale genitore, invece di dedurlo): da `C:\`, `Backspace` e `Alt`+`↑`
 portano entrambi a "This PC". L'etichetta e' **"This PC"** e non il "Questo PC" che
 risponde la shell, perche' e' il nome del riferimento (`AGENTS.md` §3).
+
+### 7.43 L'icona della shell tinta con un colore del tema
+
+**Trovato guardando la barra laterale**, non leggendo il codice: era l'ultima voce
+aperta di M2, e il percorso `textureIsMono` esisteva nella shader dal primo giorno
+senza che nessuno lo usasse. La roadmap diceva di aspettare «un caso d'uso vero — un
+glifo monocromatico da tingere». Il caso d'uso era già scritto, due volte:
+
+    // barra laterale, e la stessa riga nella striscia dei tab
+    r.Draw(UIDraw::Image(icon, active ? t.text : t.textDim, kIconLayer,
+                         uv->u0, uv->v0, uv->u1, uv->v1));
+
+Il tint c'è, la maschera no. Nel frammento `color *= texel` moltiplica il **giallo
+della cartella di sistema** per un grigio del tema, e il risultato è **oro spento**:
+né l'icona che la shell disegna (quella che la lista mostra, due centimetri più a
+destra) né un glifo monocromatico. Due toni della stessa cartella nella stessa
+finestra, e nessuno dei due voluto.
+
+**La causa** non è nel codice della barra laterale: è che l'atlante aveva **una
+sola forma per chiave**, quella a colori, e chi voleva tingere non aveva altro da
+chiedere.
+
+**La correzione** è nell'atlante, dove sta il dato. `GetFor` prende un terzo
+argomento `mono`, e la chiave della seconda forma è la prima più un suffisso
+(`<dir>:mono`): sono **due celle**, quindi chiederne una non sfratta l'altra — un
+`<dir>` e un `<dir>:mono` convivono, e la forma a colori resta quella dei riquadri,
+della lista e dell'inspector. In forma mono la cella tiene la **copertura** in ogni
+canale, e la shader la legge dal rosso come già sapeva fare. La barra laterale e i
+tab chiedono la forma mascherata e disegnano con `monoMask`; la cartella mascherata
+si scalda in `Initialize`, perché è quella che si disegna al primo fotogramma.
+
+**Verificato a schermo**, non dedotto: barra laterale e tab sono sagome grigie nel
+colore del tema, la voce attiva più chiara, e la lista ha ancora le cartelle gialle
+e l'icona di Excel. La prova è nella sandbox, con `QUICK ACCESS` chiusa — la barra
+laterale contiene i fissaggi di chi lavora, e una cattura li copierebbe
+(`AGENTS.md` §0).
+
+**Un commento che dice il falso si vede nella cattura.** Sopra quella riga c'è
+scritto che un volume riceve dalla shell l'icona del **disco**, «un disco, non una
+cartella»; il codice chiede `GetFor("", true)` per tutte le righe, volumi compresi,
+e nella cattura `Windows (C:)` ha la stessa cartella di `This PC`. Il commento è
+vecchio. Non è stato corretto qui perché la scelta — implementare l'icona del disco
+o ammettere la cartella — è dell'autore: resta scritto in `docs/04`, M2.
