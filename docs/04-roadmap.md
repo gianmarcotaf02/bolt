@@ -313,6 +313,11 @@ quelle sono la stessa impaginazione a una scala diversa.
       a piena larghezza, e la riga di celle sotto di loro ricomincia da sinistra
 - [x] **ridimensionamento continuo della cella**: `Ctrl`+rotella sopra la griglia, da
       32 a 256 px, e la griglia si reimpagina mentre si scorre
+- [x] **icona grande chiesta grande**: oltre la misura dell'atlante (32 px) l'icona la
+      da' la shell **alla misura della cella**, dalla stessa associazione che nutre le
+      icone piccole, cosi' la stessa voce non ha due icone diverse (`docs/02` §7.45).
+      *Limite dichiarato:* la cella grande e' 128 px e la vista arriva a 256, quindi
+      all'ingrandimento massimo c'e' ancora un ingrandimento di due volte
 
 ### Perché le celle sono alte quanto dicono di essere — *Ricostruito*
 
