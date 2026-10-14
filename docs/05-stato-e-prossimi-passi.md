@@ -5,15 +5,16 @@ conversazione. Aggiornarlo è l'ultima cosa da fare prima di una pausa lunga o d
 una compattazione del contesto.
 
 Ultimo aggiornamento: dopo le **icone** — quella dell'oggetto giusto per ogni voce,
-quella dell'applicazione che apre un file, i titoli in italiano che ci stanno, e la
-barra laterale in doppia lingua (`docs/02` §7.43 e §7.44). Prima di questo: il
+quella dell'applicazione che apre un file, i titoli in italiano che ci stanno, la
+barra laterale in doppia lingua e le **icone grandi chieste alla misura giusta**
+invece di ingrandite (`docs/02` §7.43, §7.44 e §7.45). Prima di questo: il
 **pannello delle opzioni** (M9, `Ctrl+,`) con i controlli tipizzati e le preferenze
 ricordate in `%APPDATA%\Bolt\settings.ini`, l'**allineamento delle scorciatoie**
 all'originale, la **lingua finita su tutte le superfici**, la **salita da una radice
 di volume**, le **tre cose viste nell'originale**, l'**albero dei tab verificato**,
 **`InspectorHideGrid` ricostruito**, il **backend Direct3D 11** (M10) e i tre difetti
 che si sono visti facendoli (`docs/02` §7.40, §7.41 e §7.42). Registro:
-**quarantaquattro** difetti trovati e risolti, **due** cose da fare, i limiti
+**quarantacinque** difetti trovati e risolti, **due** cose da fare, i limiti
 dichiarati sparsi dove vivono.
 
 ---
@@ -75,7 +76,7 @@ Ordinato per quanto morde.
 
 **Tre numeri, che sono tre cose diverse e non vanno confusi.**
 
-- **Quarantaquattro** difetti **trovati e risolti**: il registro è `docs/02` §7, uno per
+- **Quarantacinque** difetti **trovati e risolti**: il registro è `docs/02` §7, uno per
   uno, con sintomo, causa e correzione. È un cumulativo, non una lista di lavoro.
 - **Due** cose **da fare**: la lista qui sotto.
 - I **limiti dichiarati**: cose che si è scelto di non fare, scritte dove vivono con
@@ -85,7 +86,7 @@ Ordinato per quanto morde.
   volta che nei documenti c'è scritto "dichiarato", vuol dire questo: non risolto, e
   detto.
 
-Qualche voce dei quarantaquattro porta con sé un residuo dichiarato — §7.34 ha risolto
+Qualche voce dei quarantacinque porta con sé un residuo dichiarato — §7.34 ha risolto
 l'oggetto dati ma la voce riciclata che non viene presa resta un limite — e il
 conteggio non lo nasconde: il residuo è scritto nella voce stessa.
 
