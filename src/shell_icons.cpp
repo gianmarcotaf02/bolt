@@ -117,18 +117,47 @@ std::wstring Unquote(const std::wstring& text)
     return text;
 }
 
+// Il ProgID che Windows usa per un'estensione: la scelta **dell'utente** se c'e'
+// (`UserChoice`), altrimenti quella di sistema. Serve perche' l'icona va chiesta al
+// ProgID, non all'estensione: `.csv` risponde `shell32.dll,0` — il documento
+// generico — mentre `Excel.CSV` risponde `xlicons.exe,9`, che e' l'icona di Excel.
+// La shell, quando le si chiede l'icona di un'estensione, si ferma un passo prima
+// del ProgID, ed e' per questo che un `.csv` usciva anonimo.
+std::wstring ProgIdOfExtension(const std::wstring& extension)
+{
+    const std::wstring userChoice =
+        L"Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\FileExts\\" + extension +
+        L"\\UserChoice";
+    HKEY  key = nullptr;
+    DWORD size = 0;
+    DWORD type = 0;
+    if (RegOpenKeyExW(HKEY_CURRENT_USER, userChoice.c_str(), 0, KEY_QUERY_VALUE, &key) ==
+        ERROR_SUCCESS)
+    {
+        wchar_t progId[256]{};
+        size = sizeof(progId);
+        const LONG status = RegQueryValueExW(key, L"ProgId", nullptr, &type,
+                                             reinterpret_cast<LPBYTE>(progId), &size);
+        RegCloseKey(key);
+        if (status == ERROR_SUCCESS && type == REG_SZ && progId[0] != L'\0')
+            return progId;
+    }
+
+    wchar_t progId[256]{};
+    size = sizeof(progId);
+    if (RegGetValueW(HKEY_CLASSES_ROOT, extension.c_str(), nullptr, RRF_RT_REG_SZ, nullptr,
+                     progId, &size) == ERROR_SUCCESS && progId[0] != L'\0')
+        return progId;
+    return {};
+}
+
 // L'icona che Windows usa **davvero** per un'estensione: quella dell'applicazione
 // che apre quei file.
 //
-// `SHGetFileInfoW` non basta, ed e' il motivo per cui un `.csv` usciva con il
-// documento generico mentre Esplora risorse mostra Excel: con
-// `SHGFI_USEFILEATTRIBUTES` la shell non tocca il disco, e l'icona di Excel **sta
-// dentro `EXCEL.EXE`** — aprirla e' un accesso al file system, che in quella
-// modalita' non si fa. Il tipo lo risolve lo stesso (`Excel.CSV`), l'icona no.
-//
-// Qui la strada e' quella di Esplora risorse: si chiede l'associazione (che tiene
-// conto della scelta **dell'utente**, non solo di quella di sistema) e si estrae
-// l'icona da dove dice lei.
+// `SHGetFileInfoW` non basta: con `SHGFI_USEFILEATTRIBUTES` la shell non tocca il
+// disco, e un'icona che vive dentro `EXCEL.EXE` — o dentro `xlicons.exe` — aprirla
+// e' un accesso al file system, che in quella modalita' non si fa. Il **tipo** lo
+// risolve lo stesso (`Excel.CSV`), l'icona no.
 HICON IconForExtension(const std::string& extension)
 {
     if (extension.empty())
@@ -140,13 +169,28 @@ HICON IconForExtension(const std::string& extension)
     for (const char c : extension)
         lower.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(c))));
 
+    const std::wstring narrow = Widen(lower);
+    const std::wstring progId = ProgIdOfExtension(narrow);
+    const std::wstring assoc  = progId.empty() ? narrow : progId;
+
     wchar_t iconPath[1024]{};
     DWORD length = sizeof(iconPath);
-    if (FAILED(AssocQueryStringW(ASSOCF_NONE, ASSOCSTR_DEFAULTICON, Widen(lower).c_str(), nullptr,
+    if (FAILED(AssocQueryStringW(ASSOCF_NONE, ASSOCSTR_DEFAULTICON, assoc.c_str(), nullptr,
                                  iconPath, &length)))
         return nullptr;
     if (iconPath[0] == L'\0')
         return nullptr;
+
+    // Un'applicazione del pacchetto non nomina un file, nomina una **risorsa**:
+    // `@{Microsoft.WindowsNotepad_...?ms-resource://...}`. La si fa risolvere alla
+    // shell; se non si risolve, si rinuncia invece di indovinare.
+    if (iconPath[0] == L'@')
+    {
+        wchar_t resolved[1024]{};
+        if (FAILED(SHLoadIndirectString(iconPath, resolved, 1024, nullptr)) || resolved[0] == L'\0')
+            return nullptr;
+        wcscpy_s(iconPath, resolved);
+    }
 
     // `"C:\...\EXCEL.EXE",0` — il numero dopo la virgola e' l'indice dell'icona
     // dentro il file; senza virgola, un `.ico` che ne ha una sola.
