@@ -285,6 +285,10 @@ bool ReadIconPixels(HICON icon, int width, int height, std::vector<uint32_t>* ou
 bool ExtensionIconPixels(const std::string& extension, int size, int* width, int* height,
                          std::vector<uint32_t>* pixels)
 {
+    // L'icona dell'applicazione che apre il tipo, **alla misura che serve a chi
+    // disegna**: la stessa di prima, un'altra dimensione. Non e' un ingrandimento:
+    // `SHDefExtractIconW` estrae la risorsa alla misura chiesta, quindi a 128 px si
+    // vede un disegno a 128 px.
     HICON icon = IconForExtension(extension, size);
     if (icon == nullptr)
         return false;
@@ -364,52 +368,45 @@ const ShellIconAtlas::IconUV* ShellIconAtlas::UploadIcon(const std::string& key,
     if (cells_.size() >= capacity)
         return nullptr;   // full: callers keep the last resolved icon as fallback
 
-    ICONINFO iconInfo{};
-    if (GetIconInfo(icon, &iconInfo))
+    const int width  = cellSize_ - kCellPadding * 2;
+    const int height = cellSize_ - kCellPadding * 2;
+
+    std::vector<uint32_t> pixels;
+    if (ReadIconPixels(icon, width, height, &pixels))
     {
-        const int width  = cellSize_ - kCellPadding * 2;
-        const int height = cellSize_ - kCellPadding * 2;
+        // Stage one cell, then upload just that cell. Il margine e' il gutter che
+        // impedisce al filtro di pescare il pixel dell'icona accanto.
+        std::vector<uint8_t> cell(static_cast<size_t>(cellSize_) * cellSize_ * 4, 0);
 
-        std::vector<uint32_t> pixels;
-        if (ReadIconPixels(icon, width, height, &pixels))
+        for (int y = 0; y < height; ++y)
         {
-            // Stage one cell, then upload just that cell.
-            std::vector<uint8_t> cell(static_cast<size_t>(cellSize_) * cellSize_ * 4, 0);
-
-            for (int y = 0; y < height; ++y)
+            for (int x = 0; x < width; ++x)
             {
-                for (int x = 0; x < width; ++x)
-                {
-                    const uint32_t pixel = pixels[static_cast<size_t>(y) * width + x];
-
-                    const size_t destination =
-                        (static_cast<size_t>(y + kCellPadding) * cellSize_ + (x + kCellPadding)) * 4;
-                    cell[destination + 0] = static_cast<uint8_t>((pixel >> 16) & 0xFF);   // red
-                    cell[destination + 1] = static_cast<uint8_t>((pixel >> 8) & 0xFF);    // green
-                    cell[destination + 2] = static_cast<uint8_t>(pixel & 0xFF);           // blue
-                    cell[destination + 3] = static_cast<uint8_t>((pixel >> 24) & 0xFF);   // alpha
-                }
+                const uint32_t pixel = pixels[static_cast<size_t>(y) * width + x];
+                const size_t destination =
+                    (static_cast<size_t>(y + kCellPadding) * cellSize_ + (x + kCellPadding)) * 4;
+                cell[destination + 0] = static_cast<uint8_t>((pixel >> 16) & 0xFF);   // red
+                cell[destination + 1] = static_cast<uint8_t>((pixel >> 8) & 0xFF);    // green
+                cell[destination + 2] = static_cast<uint8_t>(pixel & 0xFF);           // blue
+                cell[destination + 3] = static_cast<uint8_t>((pixel >> 24) & 0xFF);   // alpha
             }
-
-            const int cellIndex = static_cast<int>(cells_.size());
-            const int cellX = (cellIndex % columns_) * cellSize_;
-            const int cellY = (cellIndex / columns_) * cellSize_;
-
-            renderer_->UploadLayerRegion(layer_, cell.data(), cellSize_, cellSize_, cellX, cellY);
-
-            const float atlas = static_cast<float>(atlasSize_);
-            IconUV uv;
-            uv.u0 = static_cast<float>(cellX + kCellPadding) / atlas;
-            uv.v0 = static_cast<float>(cellY + kCellPadding) / atlas;
-            uv.u1 = static_cast<float>(cellX + cellSize_ - kCellPadding) / atlas;
-            uv.v1 = static_cast<float>(cellY + cellSize_ - kCellPadding) / atlas;
-
-            cells_.push_back(key);
-            cache_.emplace(key, uv);
         }
 
-        if (iconInfo.hbmColor != nullptr) DeleteObject(iconInfo.hbmColor);
-        if (iconInfo.hbmMask != nullptr)  DeleteObject(iconInfo.hbmMask);
+        const int cellIndex = static_cast<int>(cells_.size());
+        const int cellX = (cellIndex % columns_) * cellSize_;
+        const int cellY = (cellIndex / columns_) * cellSize_;
+
+        renderer_->UploadLayerRegion(layer_, cell.data(), cellSize_, cellSize_, cellX, cellY);
+
+        const float atlas = static_cast<float>(atlasSize_);
+        IconUV uv;
+        uv.u0 = static_cast<float>(cellX + kCellPadding) / atlas;
+        uv.v0 = static_cast<float>(cellY + kCellPadding) / atlas;
+        uv.u1 = static_cast<float>(cellX + cellSize_ - kCellPadding) / atlas;
+        uv.v1 = static_cast<float>(cellY + cellSize_ - kCellPadding) / atlas;
+
+        cells_.push_back(key);
+        cache_.emplace(key, uv);
     }
 
     const auto it = cache_.find(key);
