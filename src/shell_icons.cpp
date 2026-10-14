@@ -1,5 +1,7 @@
 #include "shell_icons.h"
 
+#include "diag.h"
+
 #include <shellapi.h>
 #include <shlobj.h>
 
@@ -148,6 +150,12 @@ const ShellIconAtlas::IconUV* ShellIconAtlas::Rasterize(const std::string& key, 
     const size_t capacity = static_cast<size_t>(columns_) * columns_;
     if (cells_.size() >= capacity)
         return nullptr;   // full: callers keep the last resolved icon as fallback
+
+    // Una riga per icona **nuova**, non per fotogramma: serve a leggere cosa la
+    // shell risponde a una chiave, e a scoprire se due righe che sembrano la stessa
+    // cosa chiedono due cose diverse. Vedi `AGENTS.md` §2.
+    if (source != Source::SyntheticName)
+        DiagLog("--- " + DiagClock() + " icona di oggetto: " + key);
 
     SHFILEINFOW info{};
     DWORD flags = SHGFI_ICON | SHGFI_LARGEICON;
