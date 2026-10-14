@@ -1498,6 +1498,14 @@ std::vector<Entry> ReadNamespaceDirectory(const std::wstring& directory, std::st
         // una riga si ridisegna sessanta volte al secondo.
         entry.volumeRoot = !entry.location.empty() && VolumeOf(entry.location).isVolume;
 
+        // Diagnostica temporanea: il nome che la shell da' a un'unita'. Corto per
+        // costruzione ("C:" o "C:"), quindi non porta con se' niente di personale.
+        if (DiagEnabled() && entry.location.size() <= 4)
+            DiagLog("--- " + DiagClock() + " voce di spazio dei nomi: nome=[" +
+                    ToUtf8(entry.location) + "] lunghezza=" +
+                    std::to_string(entry.location.size()) + " volumeRoot=" +
+                    (entry.volumeRoot ? "si" : "no"));
+
         // Un tempo a zero non e' il 1601: e' "la shell non lo sa". Scriverlo come
         // data faceva comparire `1601-01-01` in ogni riga di "Questo PC", che e'
         // una data vera solo per chi guarda il calendario di Windows.
