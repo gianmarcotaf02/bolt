@@ -70,7 +70,7 @@ public:
     // quale un'icona va chiesta **grande** invece di essere ingrandita: ingrandire
     // questo valore si vede, ed e' il punto in cui la vista a icone grandi si
     // sgranava. Derivato dalla cella, non scelto a occhio.
-    int IconPixels() const { return cellSize_ - kCellPadding * 2; }
+    int IconPixels() const { return iconPixels_; }
 
 private:
     // How the icon is asked for, which decides the flags: a synthetic name plus
@@ -91,6 +91,7 @@ private:
     int layer_ = 0;
     int atlasSize_ = 0;
     int cellSize_ = 0;
+    int iconPixels_ = 32;   // il disegno dentro la celletta, senza il margine
     int columns_ = 0;
 
     std::unordered_map<std::string, IconUV> cache_;

@@ -188,7 +188,7 @@ void ShellPreviewCache::WorkerMain()
 
     for (;;)
     {
-        std::pair<std::wstring, std::wstring> request;
+        Request request;
         {
             std::unique_lock<std::mutex> lock(mutex_);
             wake_.wait(lock, [this] { return stopping_ || !requests_.empty(); });
@@ -199,7 +199,7 @@ void ShellPreviewCache::WorkerMain()
         }
 
         std::vector<uint8_t> rgba;
-        const bool decoded = RasterizeCell(request.second, rgba);
+        const bool decoded = RasterizeCell(request.path, request.iconOnly, rgba);
 
         {
             std::lock_guard<std::mutex> lock(mutex_);
@@ -207,12 +207,12 @@ void ShellPreviewCache::WorkerMain()
             {
                 // |inFlight_| is cleared by Pump, after the upload, so a second
                 // query arriving in between cannot queue a duplicate decode.
-                results_.push_back(Result{request.first, std::move(rgba)});
+                results_.push_back(Result{request.key, std::move(rgba)});
             }
             else
             {
-                inFlight_.erase(request.first);
-                failed_.insert(request.first);
+                inFlight_.erase(request.key);
+                failed_.insert(request.key);
             }
         }
     }
@@ -221,7 +221,8 @@ void ShellPreviewCache::WorkerMain()
         CoUninitialize();
 }
 
-bool ShellPreviewCache::RasterizeCell(const std::wstring& path, std::vector<uint8_t>& rgba)
+bool ShellPreviewCache::RasterizeCell(const std::wstring& path, bool iconOnly,
+                                     std::vector<uint8_t>& rgba)
 {
     IShellItemImageFactory* factory = nullptr;
     HRESULT hr = SHCreateItemFromParsingName(path.c_str(), nullptr,
@@ -231,10 +232,15 @@ bool ShellPreviewCache::RasterizeCell(const std::wstring& path, std::vector<uint
 
     const int inner = cellSize_ - padding_ * 2;
     const SIZE size{inner, inner};
-    // THUMBNAILONLY keeps the shell from handing back the type icon as a
-    // "preview": a file with no provider must fail here so the caller falls back
-    // to the icon atlas instead of duplicating it.
-    const SIIGBF flags = static_cast<SIIGBF>(SIIGBF_RESIZETOFIT | SIIGBF_THUMBNAILONLY);
+    // Due domande diverse, e scambiarle si vede. THUMBNAILONLY tiene la shell dal
+    // consegnare l'icona del tipo spacciandola per un'anteprima: un file senza
+    // provider deve fallire qui, cosi' chi chiama ripiega sull'atlante invece di
+    // vedersi due volte la stessa icona. ICONONLY e' il contrario: e' l'icona che
+    // si vuole, **alla misura chiesta** — ed e' quello che rende nitida la vista a
+    // icone grandi invece di ingrandire una rasterizzazione da 32 px.
+    const SIIGBF flags = iconOnly
+        ? static_cast<SIIGBF>(SIIGBF_RESIZETOFIT | SIIGBF_ICONONLY)
+        : static_cast<SIIGBF>(SIIGBF_RESIZETOFIT | SIIGBF_THUMBNAILONLY);
 
     HBITMAP bitmap = nullptr;
     hr = factory->GetImage(size, flags, &bitmap);
@@ -410,7 +416,53 @@ ShellPreviewCache::State ShellPreviewCache::Query(const std::wstring& path, cons
         return State::Pending;
 
     inFlight_.insert(path);
-    requests_.emplace_back(path, path);
+    requests_.push_back(Request{path, path, /*iconOnly=*/false});
+    wake_.notify_one();
+    return State::Pending;
+}
+
+ShellPreviewCache::State ShellPreviewCache::QueryIcon(const std::string& extension,
+                                                      bool isDirectory,
+                                                      const std::wstring& path, IconUV* outUV)
+{
+    if (renderer_ == nullptr || path.empty())
+        return State::Unavailable;
+
+    // La chiave nomina il **tipo**, non il file: e il prefisso la tiene separata dai
+    // percorsi delle miniature, cosi' un'icona e una miniatura non si sfrattano a
+    // vicenda per un nome che si assomiglia.
+    std::wstring key = L"icon:";
+    if (isDirectory)
+    {
+        key += L"<dir>";
+    }
+    else
+    {
+        key += L'.';
+        for (const char c : extension)
+            key.push_back(static_cast<wchar_t>(std::tolower(static_cast<unsigned char>(c))));
+    }
+
+    std::lock_guard<std::mutex> lock(mutex_);
+
+    const auto cached = cache_.find(key);
+    if (cached != cache_.end())
+    {
+        lru_.erase(cached->second.lru);
+        lru_.push_front(key);
+        cached->second.lru = lru_.begin();
+        if (outUV != nullptr)
+            *outUV = cached->second.uv;
+        return State::Ready;
+    }
+
+    if (failed_.count(key) != 0)
+        return State::Unavailable;
+    if (inFlight_.count(key) != 0)
+        return State::Pending;
+
+    inFlight_.insert(key);
+    requests_.push_back(Request{key, path, /*iconOnly=*/true});
     wake_.notify_one();
     return State::Pending;
 }

@@ -223,7 +223,8 @@ bool ShellIconAtlas::Initialize(IRenderer& renderer, int layer, int atlasSize, s
     // The shell hands back icons at the system large-icon size; the atlas cell
     // is sized to match so no resampling happens on upload.
     const int iconSize = GetSystemMetrics(SM_CXICON);
-    cellSize_ = (iconSize > 0 ? iconSize : 32) + kCellPadding * 2;
+    iconPixels_ = (iconSize > 0 ? iconSize : 32);
+    cellSize_   = iconPixels_ + kCellPadding * 2;
     columns_  = atlasSize_ / cellSize_;
 
     if (columns_ <= 0)
