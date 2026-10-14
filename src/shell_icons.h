@@ -77,6 +77,10 @@ private:
     // full or the shell has no icon for the key.
     const IconUV* Rasterize(const std::string& key, LPCWSTR name, DWORD attributes, Source source);
 
+    // L'icona gia' in mano, ovunque sia stata presa: la converte in RGBA e la
+    // carica nella prima celletta libera. Non distrugge |icon|.
+    const IconUV* UploadIcon(const std::string& key, HICON icon);
+
     IRenderer* renderer_ = nullptr;
     int layer_ = 0;
     int atlasSize_ = 0;

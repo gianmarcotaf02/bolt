@@ -109,6 +109,64 @@ std::string Utf8(const std::wstring& text)
     return out;
 }
 
+// Toglie le virgolette da un percorso che ne porta: l'associazione di Windows
+// scrive `"C:\...\EXCEL.EXE",0`, e le virgolette fanno parte della stringa.
+std::wstring Unquote(const std::wstring& text)
+{
+    if (text.size() >= 2 && text.front() == L'"' && text.back() == L'"')
+        return text.substr(1, text.size() - 2);
+    return text;
+}
+
+// L'icona che Windows usa **davvero** per un'estensione: quella dell'applicazione
+// che apre quei file.
+//
+// `SHGetFileInfoW` non basta, ed e' il motivo per cui un `.csv` usciva con il
+// documento generico mentre Esplora risorse mostra Excel: con
+// `SHGFI_USEFILEATTRIBUTES` la shell non tocca il disco, e l'icona di Excel **sta
+// dentro `EXCEL.EXE`** — aprirla e' un accesso al file system, che in quella
+// modalita' non si fa. Il tipo lo risolve lo stesso (`Excel.CSV`), l'icona no.
+//
+// Qui la strada e' quella di Esplora risorse: si chiede l'associazione (che tiene
+// conto della scelta **dell'utente**, non solo di quella di sistema) e si estrae
+// l'icona da dove dice lei.
+HICON IconForExtension(const std::string& extension)
+{
+    if (extension.empty())
+        return nullptr;
+
+    std::string lower;
+    lower.reserve(extension.size() + 1);
+    lower.push_back('.');
+    for (const char c : extension)
+        lower.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(c))));
+
+    wchar_t iconPath[1024]{};
+    DWORD length = sizeof(iconPath);
+    if (FAILED(AssocQueryStringW(ASSOCF_NONE, ASSOCSTR_DEFAULTICON, Widen(lower).c_str(), nullptr,
+                                 iconPath, &length)))
+        return nullptr;
+    if (iconPath[0] == L'\0')
+        return nullptr;
+
+    // `"C:\...\EXCEL.EXE",0` — il numero dopo la virgola e' l'indice dell'icona
+    // dentro il file; senza virgola, un `.ico` che ne ha una sola.
+    std::wstring file = iconPath;
+    int index = 0;
+    const size_t comma = file.rfind(L',');
+    if (comma != std::wstring::npos)
+    {
+        index = _wtoi(file.c_str() + comma + 1);
+        file.erase(comma);
+    }
+
+    HICON icon = nullptr;
+    if (FAILED(SHDefExtractIconW(Unquote(file).c_str(), index, 0, &icon, nullptr,
+                                 static_cast<UINT>(GetSystemMetrics(SM_CXICON)))))
+        return nullptr;
+    return icon;
+}
+
 } // namespace
 
 ShellIconAtlas::~ShellIconAtlas() = default;
@@ -144,19 +202,6 @@ bool ShellIconAtlas::Initialize(IRenderer& renderer, int layer, int atlasSize, s
 const ShellIconAtlas::IconUV* ShellIconAtlas::Rasterize(const std::string& key, LPCWSTR name,
                                                         DWORD attributes, Source source)
 {
-    if (renderer_ == nullptr)
-        return nullptr;
-
-    const size_t capacity = static_cast<size_t>(columns_) * columns_;
-    if (cells_.size() >= capacity)
-        return nullptr;   // full: callers keep the last resolved icon as fallback
-
-    // Una riga per icona **nuova**, non per fotogramma: serve a leggere cosa la
-    // shell risponde a una chiave, e a scoprire se due righe che sembrano la stessa
-    // cosa chiedono due cose diverse. Vedi `AGENTS.md` §2.
-    if (source != Source::SyntheticName)
-        DiagLog("--- " + DiagClock() + " icona di oggetto: " + key);
-
     SHFILEINFOW info{};
     DWORD flags = SHGFI_ICON | SHGFI_LARGEICON;
     switch (source)
@@ -171,8 +216,24 @@ const ShellIconAtlas::IconUV* ShellIconAtlas::Rasterize(const std::string& key, 
     if (info.hIcon == nullptr)
         return nullptr;
 
+    const IconUV* uv = UploadIcon(key, info.hIcon);
+    DestroyIcon(info.hIcon);
+    return uv;
+}
+
+// L'icona gia' in mano: da qui in giu' non si sa piu' da dove viene — un nome
+// finto, un percorso, un PIDL o l'associazione di un'estensione.
+const ShellIconAtlas::IconUV* ShellIconAtlas::UploadIcon(const std::string& key, HICON icon)
+{
+    if (renderer_ == nullptr || icon == nullptr)
+        return nullptr;
+
+    const size_t capacity = static_cast<size_t>(columns_) * columns_;
+    if (cells_.size() >= capacity)
+        return nullptr;   // full: callers keep the last resolved icon as fallback
+
     ICONINFO iconInfo{};
-    if (GetIconInfo(info.hIcon, &iconInfo))
+    if (GetIconInfo(icon, &iconInfo))
     {
         const int width  = cellSize_ - kCellPadding * 2;
         const int height = cellSize_ - kCellPadding * 2;
@@ -265,8 +326,6 @@ const ShellIconAtlas::IconUV* ShellIconAtlas::Rasterize(const std::string& key, 
         if (iconInfo.hbmMask != nullptr)  DeleteObject(iconInfo.hbmMask);
     }
 
-    DestroyIcon(info.hIcon);
-
     const auto it = cache_.find(key);
     return it == cache_.end() ? nullptr : &it->second;
 }
@@ -298,6 +357,19 @@ const ShellIconAtlas::IconUV* ShellIconAtlas::GetFor(const std::string& extensio
     const auto it = cache_.find(key);
     if (it != cache_.end())
         return &it->second;
+
+    // Prima l'icona dell'applicazione che apre questo tipo: e' quella che si vede
+    // in Esplora risorse, ed e' l'unica che distingue un `.csv` di Excel da un
+    // documento qualunque. Se l'associazione non porta a niente — o l'icona non si
+    // riesce a estrarre — si ripiega sul nome finto di prima, che almeno da' il
+    // documento generico invece di niente.
+    if (HICON icon = IconForExtension(extension))
+    {
+        const IconUV* uv = UploadIcon(key, icon);
+        DestroyIcon(icon);
+        if (uv != nullptr)
+            return uv;
+    }
 
     if (const IconUV* uv = Rasterize(key, synthetic.c_str(), FILE_ATTRIBUTE_NORMAL, Source::SyntheticName))
         return uv;
