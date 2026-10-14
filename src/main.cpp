@@ -2461,6 +2461,7 @@ void BuildQuickAccess(AppState& app)
             Place place;
             place.label = ToUtf8(item.name);
             place.path  = item.location;
+            place.icon  = item.location;   // il fissaggio e' un oggetto, non una cartella
             app.quickAccess.push_back(std::move(place));
         }
     }
@@ -2494,6 +2495,7 @@ void RefreshVolumes(AppState& app)
 
         Place place;
         place.path = letter;
+        place.icon = letter;   // l'unita' stessa: l'icona la sceglie la shell per quel disco
 
         SHFILEINFOW info{};
         if (SHGetFileInfoW(letter, 0, &info, sizeof(info), SHGFI_DISPLAYNAME) != 0 &&
@@ -2535,11 +2537,22 @@ void BuildPlaces(AppState& app)
     for (const Known& item : known)
     {
         PWSTR path = nullptr;
-        if (SUCCEEDED(SHGetKnownFolderPath(item.id, 0, nullptr, &path)) && path != nullptr)
-        {
-            app.places.push_back(Place{item.label, path});
-            CoTaskMemFree(path);
-        }
+        if (FAILED(SHGetKnownFolderPath(item.id, 0, nullptr, &path)) || path == nullptr)
+            continue;
+
+        Place place;
+        place.path = path;
+        CoTaskMemFree(path);
+
+        // Il nome e l'icona di una cartella nota li sa la shell, ed e' lei che li
+        // traduce: "Documenti", "Scaricati", "Immagini". Chiederli a lei invece di
+        // scriverli qui vuol dire essere d'accordo con Esplora risorse in ogni
+        // lingua, comprese quelle che non sappiamo.
+        place.icon = ShellLocation::ParsingNameOf(item.id);
+        const std::wstring shown = ShellLocation::DisplayName(place.icon);
+        place.label = shown.empty() ? item.label : ToUtf8(shown);
+
+        app.places.push_back(std::move(place));
     }
 
     // Il cestino va **in fondo**, e non per ordine alfabetico: non e' una cartella in
@@ -2552,18 +2565,29 @@ void BuildPlaces(AppState& app)
         if (!bin.empty())
         {
             const std::wstring name = ShellLocation::DisplayName(bin);
-            app.places.push_back(
-                Place{ToUtf8(name.empty() ? std::wstring(L"Recycle Bin") : name), bin});
+            Place place;
+            place.label = ToUtf8(name.empty() ? std::wstring(L"Recycle Bin") : name);
+            place.path  = bin;
+            place.icon  = bin;   // e l'icona e' quella sua, non una cartella
+            app.places.push_back(std::move(place));
         }
     }
 
-    // "This PC" sta **prima** di tutto: e' dove si scelgono le unita', e da li' si
-    // entra in un disco. E' una cartella di spazio dei nomi, non un percorso, e
-    // l'etichetta e' quella del riferimento: la shell in italiano risponde "Questo
-    // PC", ma il nome con cui il prodotto lo chiama e' "This PC".
+    // "Questo PC" sta **prima** di tutto: e' dove si scelgono le unita', e da li' si
+    // entra in un disco. E' una cartella di spazio dei nomi, non un percorso; il
+    // nome e l'icona sono quelli che la shell da' a quella cartella — un computer,
+    // non una cartella — cosi' la barra laterale e Esplora risorse dicono la stessa
+    // cosa.
     app.thisPcPath = ShellLocation::ParsingNameOf(FOLDERID_ComputerFolder);
     if (!app.thisPcPath.empty())
-        app.places.insert(app.places.begin(), Place{"This PC", app.thisPcPath});
+    {
+        Place place;
+        const std::wstring shown = ShellLocation::DisplayName(app.thisPcPath);
+        place.label = ToUtf8(shown.empty() ? std::wstring(L"This PC") : shown);
+        place.path  = app.thisPcPath;
+        place.icon  = app.thisPcPath;
+        app.places.insert(app.places.begin(), std::move(place));
+    }
 }
 
 // --- layout ----------------------------------------------------------------
@@ -2970,16 +2994,19 @@ void DrawToolbar(AppState& app, const Layout& layout, const std::wstring& displa
 // perche' le voci sono di natura diversa — e perche' i segnalibri li fa l'utente,
 // quindi la sezione deve poter stare vuota senza sparire.
 //
-// Le intestazioni sono in inglese come nell'originale: sono i suoi nomi
-// (`QuickAccess`, `Bookmarks`, `Storage`, `Places` nella tabella delle chiavi),
-// non parole nostre da tradurre.
+// Le intestazioni si vedono in due lingue: l'inglese e' anche la **chiave** della
+// sezione — e' con quella che si ricorda se e' chiusa — cosi' cambiare lingua non
+// richiude le sezioni che l'utente aveva chiuso, e una sezione chiusa non si
+// riapre da sola.
 
 struct SidebarRow
 {
     bool         header = false;
-    std::string  title;     // per un'intestazione: il nome della sezione
+    std::string  title;     // per un'intestazione: il nome che si legge
+    std::string  key;       // per un'intestazione: l'identita', che non si traduce
     std::string  label;
     std::wstring path;
+    std::wstring icon;      // l'oggetto della shell da cui farsi disegnare
     bool         volume = false;
     float        usedFraction = 0.0f;
     std::string  freeText;
@@ -2987,19 +3014,21 @@ struct SidebarRow
 
 void BuildSidebarRows(const AppState& app, std::vector<SidebarRow>* rows)
 {
-    const auto section = [&](const char* title, const std::vector<Place>& places) {
+    const auto section = [&](const char* key, const char* title, const std::vector<Place>& places) {
         SidebarRow header;
         header.header = true;
+        header.key    = key;
         header.title  = title;
         rows->push_back(std::move(header));
 
-        if (app.collapsedSections.count(title) != 0)
+        if (app.collapsedSections.count(key) != 0)
             return;
         for (const Place& place : places)
         {
             SidebarRow row;
             row.label        = place.label;
             row.path         = place.path;
+            row.icon         = place.icon;
             row.freeText     = place.freeText;
             row.usedFraction = place.usedFraction;
             row.volume       = !place.freeText.empty();
@@ -3011,7 +3040,7 @@ void BuildSidebarRows(const AppState& app, std::vector<SidebarRow>* rows)
     // vuol dire "non ne hai fissata nessuna", vuol dire che la cartella della shell
     // non si e' letta — e una sezione vuota senza spiegazione non si capisce.
     if (!app.quickAccess.empty())
-        section("QUICK ACCESS", app.quickAccess);
+        section("QUICK ACCESS", Tr("ACCESSO RAPIDO", "QUICK ACCESS"), app.quickAccess);
 
     // I recenti: le cartelle visitate in questa sessione, la piu' recente per
     // prima. E' il ranking dei recenti (M4) nella sua forma minima — solo cartelle,
@@ -3027,20 +3056,30 @@ void BuildSidebarRows(const AppState& app, std::vector<SidebarRow>* rows)
             // coda da tagliare, e il nome lo da' la shell.
             const std::wstring label = ShellLocation::IsNamespace(path) ? LocationLabel(app, path)
                                                                        : LeafName(path);
-            recents.push_back(Place{ToUtf8(label), path});
+            Place place;
+            place.label = ToUtf8(label);
+            place.path  = path;
+            place.icon  = path;
+            recents.push_back(std::move(place));
         }
         if (!recents.empty())
-            section("RECENTS", recents);
+            section("RECENTS", Tr("RECENTI", "RECENTS"), recents);
     }
 
     std::vector<Place> marks;
     marks.reserve(app.bookmarks.size());
     for (const std::wstring& path : app.bookmarks)
-        marks.push_back(Place{ToUtf8(LeafName(path)), path});
-    section("BOOKMARKS", marks);
+    {
+        Place place;
+        place.label = ToUtf8(LeafName(path));
+        place.path  = path;
+        place.icon  = path;
+        marks.push_back(std::move(place));
+    }
+    section("BOOKMARKS", Tr("SEGNAPOSTI", "BOOKMARKS"), marks);
 
-    section("STORAGE", app.volumes);
-    section("PLACES", app.places);
+    section("STORAGE", Tr("UNITÀ", "STORAGE"), app.volumes);
+    section("PLACES", Tr("LUOGHI", "PLACES"), app.places);
 }
 
 void DrawSidebar(AppState& app, const Layout& layout)
@@ -3081,7 +3120,7 @@ void DrawSidebar(AppState& app, const Layout& layout)
             ClickTarget target;
             target.rect  = row;
             target.kind  = ClickTarget::Kind::SidebarHeader;
-            target.label = item.title;
+            target.label = item.key;
             app.clickTargets.push_back(target);
             y += rowHeight;
             continue;
@@ -3099,17 +3138,20 @@ void DrawSidebar(AppState& app, const Layout& layout)
             r.Draw(UIDraw::DashedBorder(row, t.accent, 2.0f * scale, 6.0f * scale, 4.0f * scale,
                                         4.0f * scale));
 
-        // L'icona di un volume e' quella che la shell da' all'unita': un disco, non
-        // una cartella. Le altre voci sono cartelle. Qui l'icona si disegna nel
-        // colore del tema, quindi si chiede la forma mascherata: quella a colori,
-        // moltiplicata per un grigio, diventa oro spento — ne' icona della shell
-        // ne' glifo monocromatico.
-        const ShellIconAtlas::IconUV* uv = app.icons.GetFor("", true, /*mono=*/true);
+        // L'icona la disegna la shell, e non si tinge: e' la sua, ed e' quella che
+        // Esplora risorse mostra per lo stesso oggetto — un disco per `C:`, un
+        // computer per "Questo PC", un cestino per il cestino. Tingere quella a
+        // colori con un colore del tema dava oro spento, e non era ne' l'icona
+        // della shell ne' un glifo monocromatico.
+        const ShellIconAtlas::IconUV* uv =
+            row.icon.empty() ? nullptr : app.icons.GetForObject(row.icon);
+        if (uv == nullptr)
+            uv = app.icons.GetFor("", true);
         if (uv != nullptr)
         {
             const Rect icon{row.x + 8.0f * scale, row.y + 5.0f * scale, 16.0f * scale, 16.0f * scale};
-            r.Draw(UIDraw::Image(icon, active ? t.text : t.textDim, kIconLayer,
-                                 uv->u0, uv->v0, uv->u1, uv->v1, /*monoMask=*/true));
+            r.Draw(UIDraw::Image(icon, Color{1.0f, 1.0f, 1.0f, 1.0f}, kIconLayer,
+                                 uv->u0, uv->v0, uv->u1, uv->v1));
         }
         app.font.Draw(r, row.x + 30.0f * scale, row.y + 5.0f * scale, item.label,
                       active ? t.text : t.textDim, scale);
