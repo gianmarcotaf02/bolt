@@ -513,17 +513,17 @@ const ColumnDef kColumns[] = {
     // valori — ogni nome e' diverso. La sua linguetta accende la casella di
     // **testo** in fondo, che e' il filtro del nome che serve davvero.
     {"Name",     "Nome",           SortColumn::Name,     0.00f, true},
-    {"Type",     "Tipo",           SortColumn::Type,     0.38f, true},
-    {"Modified", "Data modifica",  SortColumn::Modified, 0.56f, true},
+    {"Type",     "Tipo",           SortColumn::Type,     0.32f, true},
+    {"Modified", "Data modifica",  SortColumn::Modified, 0.50f, true},
     // `Folders` e `Files` avevano il titolo appena piu' largo della colonna, e
     // l'imbuto del filtro si mangiava la coda: con il carattere di partenza si
     // sovrapponevano di pochi pixel, con un carattere piu' largo si leggeva
     // `ModifedFoldersFilesSize`. Qui le due colonne hanno lo spazio per il titolo
     // **e** per l'imbuto; se la finestra si stringe, il titolo si accorcia (vedi
     // `DrawHeader`) invece di finire sopra quello vicino.
-    {"Folders",  "Cartelle",       SortColumn::Folders,  0.70f, true},
-    {"Files",    "File",           SortColumn::Files,    0.805f, true},
-    {"Size",     "Dimensione",     SortColumn::Size,     0.885f, true},
+    {"Folders",  "Cartelle",       SortColumn::Folders,  0.64f, true},
+    {"Files",    "File",           SortColumn::Files,    0.73f, true},
+    {"Size",     "Dimensione",     SortColumn::Size,     0.82f, true},
 };
 constexpr int kColumnCount = static_cast<int>(sizeof(kColumns) / sizeof(kColumns[0]));
 
