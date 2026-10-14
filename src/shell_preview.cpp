@@ -1,5 +1,7 @@
 #include "shell_preview.h"
 
+#include "shell_icons.h"
+
 #include <shobjidl.h>
 
 #include <algorithm>
@@ -221,51 +223,70 @@ void ShellPreviewCache::WorkerMain()
         CoUninitialize();
 }
 
-bool ShellPreviewCache::RasterizeCell(const std::wstring& path, bool iconOnly,
-                                     std::vector<uint8_t>& rgba)
+bool ShellPreviewCache::RasterizeCell(const Request& request, std::vector<uint8_t>& rgba)
 {
-    IShellItemImageFactory* factory = nullptr;
-    HRESULT hr = SHCreateItemFromParsingName(path.c_str(), nullptr,
-                                             IID_PPV_ARGS(&factory));
-    if (FAILED(hr) || factory == nullptr)
-        return false;
-
     const int inner = cellSize_ - padding_ * 2;
-    const SIZE size{inner, inner};
-    // Due domande diverse, e scambiarle si vede. THUMBNAILONLY tiene la shell dal
-    // consegnare l'icona del tipo spacciandola per un'anteprima: un file senza
-    // provider deve fallire qui, cosi' chi chiama ripiega sull'atlante invece di
-    // vedersi due volte la stessa icona. ICONONLY e' il contrario: e' l'icona che
-    // si vuole, **alla misura chiesta** — ed e' quello che rende nitida la vista a
-    // icone grandi invece di ingrandire una rasterizzazione da 32 px.
-    const SIIGBF flags = iconOnly
-        ? static_cast<SIIGBF>(SIIGBF_RESIZETOFIT | SIIGBF_ICONONLY)
-        : static_cast<SIIGBF>(SIIGBF_RESIZETOFIT | SIIGBF_THUMBNAILONLY);
 
-    HBITMAP bitmap = nullptr;
-    hr = factory->GetImage(size, flags, &bitmap);
-    factory->Release();
+    int sourceWidth  = 0;
+    int sourceHeight = 0;
+    std::vector<uint32_t> pixels;
 
-    if (FAILED(hr) || bitmap == nullptr)
-        return false;
-
-    BITMAP header{};
-    if (GetObjectW(bitmap, sizeof(header), &header) == 0 || header.bmWidth <= 0 || header.bmHeight <= 0)
+    // Due domande diverse, e scambiarle si vede. La prima e' "cosa c'e' dentro
+    // questo file" — una miniatura — e per un tipo senza provider deve **fallire**,
+    // perche' un'icona spacciata per anteprima e' una bugia. La seconda e' "di che
+    // tipo e'", e li' l'icona si vuole davvero: **alla misura della cella**, non
+    // ingrandita da 32 px.
+    //
+    // Per un file si comincia dall'**associazione**, che e' la stessa strada delle
+    // icone piccole: cosi' un `.csv` ha l'icona di Excel in tutte e due le misure,
+    // invece di averla in una e il documento generico nell'altra.
+    bool havePixels = false;
+    if (request.iconOnly && !request.isDirectory && !request.extension.empty())
     {
-        DeleteObject(bitmap);
-        return false;
+        havePixels = ExtensionIconPixels(request.extension, inner, &sourceWidth, &sourceHeight,
+                                         &pixels);
     }
 
-    std::vector<uint32_t> pixels;
-    const bool read = ReadBitmapPixels(bitmap, header.bmWidth, header.bmHeight, pixels);
-    const int sourceWidth  = header.bmWidth;
-    const int sourceHeight = header.bmHeight;
-    DeleteObject(bitmap);
+    if (!havePixels)
+    {
+        IShellItemImageFactory* factory = nullptr;
+        HRESULT hr = SHCreateItemFromParsingName(request.path.c_str(), nullptr,
+                                                 IID_PPV_ARGS(&factory));
+        if (FAILED(hr) || factory == nullptr)
+            return false;
 
-    if (!read)
-        return false;
+        const SIZE size{inner, inner};
+        const SIIGBF flags = request.iconOnly
+            ? static_cast<SIIGBF>(SIIGBF_RESIZETOFIT | SIIGBF_ICONONLY)
+            : static_cast<SIIGBF>(SIIGBF_RESIZETOFIT | SIIGBF_THUMBNAILONLY);
 
-    NormaliseAlpha(pixels);
+        HBITMAP bitmap = nullptr;
+        hr = factory->GetImage(size, flags, &bitmap);
+        factory->Release();
+
+        if (FAILED(hr) || bitmap == nullptr)
+            return false;
+
+        BITMAP header{};
+        if (GetObjectW(bitmap, sizeof(header), &header) == 0 || header.bmWidth <= 0 ||
+            header.bmHeight <= 0)
+        {
+            DeleteObject(bitmap);
+            return false;
+        }
+
+        std::vector<uint32_t> raw;
+        const bool read = ReadBitmapPixels(bitmap, header.bmWidth, header.bmHeight, raw);
+        sourceWidth  = header.bmWidth;
+        sourceHeight = header.bmHeight;
+        DeleteObject(bitmap);
+
+        if (!read)
+            return false;
+
+        NormaliseAlpha(raw);
+        pixels = std::move(raw);
+    }
 
     // GetImage honours RESIZETOFIT, so the source is already at or below the
     // cell. A nearest-neighbour copy into the centred cell is therefore close to
@@ -416,7 +437,8 @@ ShellPreviewCache::State ShellPreviewCache::Query(const std::wstring& path, cons
         return State::Pending;
 
     inFlight_.insert(path);
-    requests_.push_back(Request{path, path, /*iconOnly=*/false});
+    requests_.push_back(Request{path, path, extension, /*isDirectory=*/false,
+                                /*iconOnly=*/false});
     wake_.notify_one();
     return State::Pending;
 }
@@ -462,7 +484,7 @@ ShellPreviewCache::State ShellPreviewCache::QueryIcon(const std::string& extensi
         return State::Pending;
 
     inFlight_.insert(key);
-    requests_.push_back(Request{key, path, /*iconOnly=*/true});
+    requests_.push_back(Request{key, path, extension, isDirectory, /*iconOnly=*/true});
     wake_.notify_one();
     return State::Pending;
 }
