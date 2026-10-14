@@ -158,7 +158,7 @@ std::wstring ProgIdOfExtension(const std::wstring& extension)
 // disco, e un'icona che vive dentro `EXCEL.EXE` — o dentro `xlicons.exe` — aprirla
 // e' un accesso al file system, che in quella modalita' non si fa. Il **tipo** lo
 // risolve lo stesso (`Excel.CSV`), l'icona no.
-HICON IconForExtension(const std::string& extension)
+HICON IconForExtension(const std::string& extension, int pixels)
 {
     if (extension.empty())
         return nullptr;
@@ -205,12 +205,100 @@ HICON IconForExtension(const std::string& extension)
 
     HICON icon = nullptr;
     if (FAILED(SHDefExtractIconW(Unquote(file).c_str(), index, 0, &icon, nullptr,
-                                 static_cast<UINT>(GetSystemMetrics(SM_CXICON)))))
+                                 static_cast<UINT>(pixels > 0 ? pixels : GetSystemMetrics(SM_CXICON)))))
         return nullptr;
     return icon;
 }
 
+// Legge un'icona in pixel BGRA a canale **diritto**, che e' cio' che il resto della
+// pipeline si aspetta. Le icone a 32bpp portano l'alpha premoltiplicato; quelle
+// precedenti a quella convenzione hanno il canale alpha a zero e si appoggiano alla
+// maschera AND. Qui si tolgono entrambe le ambiguita': chi disegna non deve saperle.
+bool ReadIconPixels(HICON icon, int width, int height, std::vector<uint32_t>* out)
+{
+    ICONINFO info{};
+    if (icon == nullptr || width <= 0 || height <= 0 || GetIconInfo(icon, &info) == FALSE)
+        return false;
+
+    std::vector<uint32_t> colour;
+    const bool haveColour = ReadBitmap(info.hbmColor, width, height, colour);
+
+    if (haveColour)
+    {
+        bool hasAlpha = false;
+        for (const uint32_t pixel : colour)
+        {
+            if ((pixel >> 24) != 0) { hasAlpha = true; break; }
+        }
+
+        std::vector<uint32_t> mask;
+        if (!hasAlpha && info.hbmMask != nullptr)
+            ReadBitmap(info.hbmMask, width, height, mask);
+
+        out->assign(colour.size(), 0u);
+        for (size_t index = 0; index < colour.size(); ++index)
+        {
+            const uint32_t bgra = colour[index];
+
+            uint8_t blue  = static_cast<uint8_t>(bgra & 0xFF);
+            uint8_t green = static_cast<uint8_t>((bgra >> 8) & 0xFF);
+            uint8_t red   = static_cast<uint8_t>((bgra >> 16) & 0xFF);
+            uint8_t alpha = static_cast<uint8_t>((bgra >> 24) & 0xFF);
+
+            if (hasAlpha)
+            {
+                if (alpha == 0)
+                {
+                    red = green = blue = 0;
+                }
+                else if (alpha != 255)
+                {
+                    red   = static_cast<uint8_t>((std::min)(255, red   * 255 / alpha));
+                    green = static_cast<uint8_t>((std::min)(255, green * 255 / alpha));
+                    blue  = static_cast<uint8_t>((std::min)(255, blue  * 255 / alpha));
+                }
+            }
+            else if (!mask.empty())
+            {
+                // AND-mask convention: 0 shows the icon, 1 is transparent.
+                alpha = (mask[index] == 0) ? 255 : 0;
+            }
+            else
+            {
+                alpha = 255;
+            }
+
+            (*out)[index] = (static_cast<uint32_t>(alpha) << 24) |
+                            (static_cast<uint32_t>(red) << 16) |
+                            (static_cast<uint32_t>(green) << 8) |
+                            static_cast<uint32_t>(blue);
+        }
+    }
+
+    if (info.hbmColor != nullptr) DeleteObject(info.hbmColor);
+    if (info.hbmMask != nullptr)  DeleteObject(info.hbmMask);
+    return haveColour;
+}
+
 } // namespace
+
+bool ExtensionIconPixels(const std::string& extension, int size, int* width, int* height,
+                         std::vector<uint32_t>* pixels)
+{
+    HICON icon = IconForExtension(extension, size);
+    if (icon == nullptr)
+        return false;
+
+    const bool read = ReadIconPixels(icon, size, size, pixels);
+    DestroyIcon(icon);
+
+    if (read)
+    {
+        if (width != nullptr)  *width = size;
+        if (height != nullptr) *height = size;
+    }
+    return read;
+}
 
 ShellIconAtlas::~ShellIconAtlas() = default;
 
@@ -282,24 +370,9 @@ const ShellIconAtlas::IconUV* ShellIconAtlas::UploadIcon(const std::string& key,
         const int width  = cellSize_ - kCellPadding * 2;
         const int height = cellSize_ - kCellPadding * 2;
 
-        std::vector<uint32_t> colour;
-        const bool haveColour = ReadBitmap(iconInfo.hbmColor, width, height, colour);
-
-        if (haveColour)
+        std::vector<uint32_t> pixels;
+        if (ReadIconPixels(icon, width, height, &pixels))
         {
-            // A 32bpp icon bitmap carries premultiplied alpha. Detect whether the
-            // icon actually uses it: icons predating the alpha convention have an
-            // all-zero alpha channel and rely on the AND mask instead.
-            bool hasAlpha = false;
-            for (const uint32_t pixel : colour)
-            {
-                if ((pixel >> 24) != 0) { hasAlpha = true; break; }
-            }
-
-            std::vector<uint32_t> mask;
-            if (!hasAlpha && iconInfo.hbmMask != nullptr)
-                ReadBitmap(iconInfo.hbmMask, width, height, mask);
-
             // Stage one cell, then upload just that cell.
             std::vector<uint8_t> cell(static_cast<size_t>(cellSize_) * cellSize_ * 4, 0);
 
@@ -307,45 +380,14 @@ const ShellIconAtlas::IconUV* ShellIconAtlas::UploadIcon(const std::string& key,
             {
                 for (int x = 0; x < width; ++x)
                 {
-                    const size_t index = static_cast<size_t>(y) * width + x;
-                    const uint32_t bgra = colour[index];
-
-                    uint8_t blue  = static_cast<uint8_t>(bgra & 0xFF);
-                    uint8_t green = static_cast<uint8_t>((bgra >> 8) & 0xFF);
-                    uint8_t red   = static_cast<uint8_t>((bgra >> 16) & 0xFF);
-                    uint8_t alpha = static_cast<uint8_t>((bgra >> 24) & 0xFF);
-
-                    if (hasAlpha)
-                    {
-                        // Undo the premultiplication so the shader can blend with
-                        // straight alpha, as the rest of the pipeline assumes.
-                        if (alpha == 0)
-                        {
-                            red = green = blue = 0;
-                        }
-                        else if (alpha != 255)
-                        {
-                            red   = static_cast<uint8_t>((std::min)(255, red   * 255 / alpha));
-                            green = static_cast<uint8_t>((std::min)(255, green * 255 / alpha));
-                            blue  = static_cast<uint8_t>((std::min)(255, blue  * 255 / alpha));
-                        }
-                    }
-                    else if (!mask.empty())
-                    {
-                        // AND-mask convention: 0 shows the icon, 1 is transparent.
-                        alpha = (mask[index] == 0) ? 255 : 0;
-                    }
-                    else
-                    {
-                        alpha = 255;
-                    }
+                    const uint32_t pixel = pixels[static_cast<size_t>(y) * width + x];
 
                     const size_t destination =
                         (static_cast<size_t>(y + kCellPadding) * cellSize_ + (x + kCellPadding)) * 4;
-                    cell[destination + 0] = red;
-                    cell[destination + 1] = green;
-                    cell[destination + 2] = blue;
-                    cell[destination + 3] = alpha;
+                    cell[destination + 0] = static_cast<uint8_t>((pixel >> 16) & 0xFF);   // red
+                    cell[destination + 1] = static_cast<uint8_t>((pixel >> 8) & 0xFF);    // green
+                    cell[destination + 2] = static_cast<uint8_t>(pixel & 0xFF);           // blue
+                    cell[destination + 3] = static_cast<uint8_t>((pixel >> 24) & 0xFF);   // alpha
                 }
             }
 
