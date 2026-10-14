@@ -2709,12 +2709,12 @@ void DrawTitleBar(AppState& app, const Layout& layout)
                        t.separator);
         }
 
-        if (const ShellIconAtlas::IconUV* uv = app.icons.GetFor("", true))
+        if (const ShellIconAtlas::IconUV* uv = app.icons.GetFor("", true, /*mono=*/true))
         {
             const Rect icon{tabRect.x + 10.0f * scale + indent, tabRect.y + 6.0f * scale,
                             16.0f * scale, 16.0f * scale};
             r.Draw(UIDraw::Image(icon, active ? t.text : t.textDim, kIconLayer,
-                                 uv->u0, uv->v0, uv->u1, uv->v1));
+                                 uv->u0, uv->v0, uv->u1, uv->v1, /*monoMask=*/true));
         }
 
         // Il nome in evidenza; il percorso che precede, in piccolo e spento, solo
@@ -3087,13 +3087,16 @@ void DrawSidebar(AppState& app, const Layout& layout)
                                         4.0f * scale));
 
         // L'icona di un volume e' quella che la shell da' all'unita': un disco, non
-        // una cartella. Le altre voci sono cartelle.
-        const ShellIconAtlas::IconUV* uv = app.icons.GetFor("", true);
+        // una cartella. Le altre voci sono cartelle. Qui l'icona si disegna nel
+        // colore del tema, quindi si chiede la forma mascherata: quella a colori,
+        // moltiplicata per un grigio, diventa oro spento — ne' icona della shell
+        // ne' glifo monocromatico.
+        const ShellIconAtlas::IconUV* uv = app.icons.GetFor("", true, /*mono=*/true);
         if (uv != nullptr)
         {
             const Rect icon{row.x + 8.0f * scale, row.y + 5.0f * scale, 16.0f * scale, 16.0f * scale};
             r.Draw(UIDraw::Image(icon, active ? t.text : t.textDim, kIconLayer,
-                                 uv->u0, uv->v0, uv->u1, uv->v1));
+                                 uv->u0, uv->v0, uv->u1, uv->v1, /*monoMask=*/true));
         }
         app.font.Draw(r, row.x + 30.0f * scale, row.y + 5.0f * scale, item.label,
                       active ? t.text : t.textDim, scale);
