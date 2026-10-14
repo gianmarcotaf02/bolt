@@ -104,7 +104,7 @@ public:
 
 private:
     void WorkerMain();
-    bool RasterizeCell(const std::wstring& path, bool iconOnly, std::vector<uint8_t>& rgba);
+    bool RasterizeCell(const Request& request, std::vector<uint8_t>& rgba);
     int  AcquireCell();
     void InsertReady(const std::wstring& key, const std::vector<uint8_t>& rgba);
 
@@ -143,6 +143,8 @@ private:
     {
         std::wstring key;
         std::wstring path;
+        std::string  extension;
+        bool         isDirectory = false;
         bool         iconOnly = false;
     };
 

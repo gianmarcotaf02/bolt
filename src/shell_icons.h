@@ -97,3 +97,12 @@ private:
     std::unordered_map<std::string, IconUV> cache_;
     std::vector<std::string>                cells_;   // key per occupied cell
 };
+
+// L'icona dell'applicazione che apre |extension|, alla misura chiesta, in pixel BGRA
+// a canale **diritto**: la stessa icona che l'atlante mostra piccolo, un'altra
+// dimensione. Serve a chi disegna grande — le viste a icone — perche' ingrandire la
+// rasterizzazione da 32 px si vede, e perche' due misure della stessa icona non
+// devono essere due icone diverse. Falso se l'associazione non porta a un'icona
+// estraibile: chi chiama ha il suo ripiego.
+bool ExtensionIconPixels(const std::string& extension, int size, int* width, int* height,
+                         std::vector<uint32_t>* pixels);
