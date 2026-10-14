@@ -118,9 +118,12 @@ bool ShellIconAtlas::Initialize(IRenderer& renderer, int layer, int atlasSize, s
     cache_.clear();
     cells_.clear();
 
-    // Warm the two entries every listing needs.
+    // Warm the two entries every listing needs, plus the masked folder: the
+    // navigation pane draws it on the first frame, and it is not the same cell as
+    // the coloured one.
     GetFor("", true);
     GetFor("", false);
+    GetFor("", true, /*mono=*/true);
 
     return true;
 }
@@ -252,16 +255,25 @@ const ShellIconAtlas::IconUV* ShellIconAtlas::Rasterize(const std::string& key,
     return it == cache_.end() ? nullptr : &it->second;
 }
 
-const ShellIconAtlas::IconUV* ShellIconAtlas::GetFor(const std::string& extension, bool isDirectory)
+// La chiave della forma mono e' quella della forma a colori piu' un suffisso:
+// sono due celle diverse, e chiederne una non deve sfrattare l'altra. Il suffisso
+// sta nel nome della chiave, non in un campo a parte, perche' e' la cache che
+// deve distinguerle.
+static std::string MonoKey(const std::string& key, bool mono)
+{
+    return mono ? key + ":mono" : key;
+}
+
+const ShellIconAtlas::IconUV* ShellIconAtlas::GetFor(const std::string& extension, bool isDirectory,
+                                                     bool mono)
 {
     if (isDirectory)
     {
-        const auto it = cache_.find("<dir>");
+        const std::string key = MonoKey("<dir>", mono);
+        const auto it = cache_.find(key);
         if (it != cache_.end())
             return &it->second;
-        if (const IconUV* uv = Rasterize("<dir>", L"folder", FILE_ATTRIBUTE_DIRECTORY))
-            return uv;
-        return nullptr;
+        return Rasterize(key, L"folder", FILE_ATTRIBUTE_DIRECTORY, mono);
     }
 
     std::string key = "<file>";
@@ -274,17 +286,19 @@ const ShellIconAtlas::IconUV* ShellIconAtlas::GetFor(const std::string& extensio
         key.insert(key.begin(), '.');
         synthetic = L"x" + Widen(key);
     }
+    key = MonoKey(key, mono);
 
     const auto it = cache_.find(key);
     if (it != cache_.end())
         return &it->second;
 
-    if (const IconUV* uv = Rasterize(key, synthetic, FILE_ATTRIBUTE_NORMAL))
+    if (const IconUV* uv = Rasterize(key, synthetic, FILE_ATTRIBUTE_NORMAL, mono))
         return uv;
 
     // Unknown extension: fall back to the generic file icon, warming it if needed.
-    const auto generic = cache_.find("<file>");
+    const std::string genericKey = MonoKey("<file>", mono);
+    const auto generic = cache_.find(genericKey);
     if (generic != cache_.end())
         return &generic->second;
-    return Rasterize("<file>", L"file", FILE_ATTRIBUTE_NORMAL);
+    return Rasterize(genericKey, L"file", FILE_ATTRIBUTE_NORMAL, mono);
 }
