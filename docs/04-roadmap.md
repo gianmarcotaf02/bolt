@@ -46,21 +46,21 @@ percorso monocromatico.
 - [x] dimensione dell'atlas limitata da `AssetCacheSize` ed eventuale sfratto:
       atlas di 64 celle da 128 px e politica least-recently-used con riuso della
       cella
-- [x] resa monocromatica delle icone in tema scuro (percorso `textureIsMono`)
+- [x] **ogni oggetto con la sua icona**: `GetForObject` chiede alla shell l'icona di
+      una voce — il disco per un'unita', il computer per `Questo PC`, il cestino per
+      il cestino, le cartelle di sistema per `Documenti`/`Immagini`/`Musica`/…
+- [x] **l'icona del file è quella dell'applicazione che lo apre**: si risolve il
+      ProgID e si estrae da dove la shell dice, così un `.csv` ha l'icona di Excel e
+      non il documento generico
+- [ ] resa monocromatica delle icone in tema scuro (percorso `textureIsMono`)
 
-*Nota sull'ultima voce.* Il caso d'uso c'era già, ed era la ragione per cui il
-percorso serviva: la **barra laterale** e la **striscia dei tab** disegnano l'icona
-**nel colore del tema**, e con la forma a colori il giallo della cartella
-moltiplicato per un grigio diventa oro spento — né icona della shell né glifo
-monocromatico. L'atlante adesso tiene **due celle per chiave**: la forma a colori
-(lista, riquadri, inspector) e la maschera di copertura (`<dir>:mono`), e chi tinge
-chiede la seconda. La cartella mascherata si scalda all'avvio, perché è quella che
-la barra laterale disegna al primo fotogramma. Vedi §7.43 di `docs/02`.
-
-*Residuo dichiarato.* Il commento sopra l'icona della barra laterale dice che un
-volume riceve dalla shell l'icona del **disco**; il codice chiede quella di
-**cartella** per tutte le righe, volumi compresi, e la cattura lo conferma. Il
-commento è vecchio, non il codice: si decide se implementarlo o correggerlo.
+*La resa monocromatica è stata provata, vista a schermo e poi **tolta**: l'autore
+ha chiesto le icone classiche di Esplora risorse, a colori, e la scelta è sua. La
+voce resta qui aperta e non risolta, con la ragione accanto — un elenco che dice
+"fatto" di una cosa disfatta è peggio di un elenco che la lascia aperta. La maschera
+di copertura è stata rimossa invece di essere lasciata inerte: `textureIsMono`
+resta, come prima, una capacità della shader senza utilizzatore. Vedi §7.43 e §7.44
+di `docs/02`.
 
 *Il nucleo è fatto: icone reali per estensione, anteprime reali per immagini e
 video, e la memoria dell'atlas resta limitata mentre si scorre una cartella
