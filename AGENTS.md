@@ -198,9 +198,18 @@ skill in chat — `/graphify`, o `/graphify --update` per documenti e immagini.
   l'italiano per primo: `Tr("italiano", "english")` dove serve una, la tabella dei
   comandi con l'inglese (che è anche il nome della chiave) e `CommandLabelIt` per
   l'italiano. La lingua si sceglie dalla palette e vale per la sessione: `docs/06`
-  vieta di scrivere un file di impostazioni di nascosto. I nomi che vengono dal
-  riferimento — le sezioni della barra laterale, i gruppi della palette, le chiavi
-  dello spec — **non si traducono**: sono i suoi nomi.
+  vieta di scrivere un file di impostazioni di nascosto.
+- **Anche i nomi che vengono dal riferimento si traducono**, e la scelta è
+  dell'autore, che l'ha chiesta esplicitamente il 2026-10-14: le sezioni della barra
+  laterale (`QUICK ACCESS`, `BOOKMARKS`, `STORAGE`, `PLACES`, `RECENTS`), il nome di
+  `This PC`, i titoli delle colonne e le etichette dei gruppi si leggono nella lingua
+  scelta. Prima si tenevano in inglese perché «sono i suoi nomi»; il riferimento però
+  è un prodotto in inglese, e chi usa questo programma sceglie la lingua — un
+  percorso che dice `This PC` accanto a una barra laterale che dice `Questo PC` è due
+  nomi per la stessa cosa. **La chiave resta l'inglese**, e non è un dettaglio: è con
+  quella che si ricorda se una sezione è chiusa o se un gruppo è collassato, così
+  cambiare lingua non riapre quello che l'utente aveva chiuso. Le chiavi dello spec
+  (`docs/03`) restano quelle e non si rinominano.
 - Il registro è quello di chi spiega a un collega: diretto, concreto, senza
   entusiasmi e senza scuse. I commenti dicono **perché**, non cosa.
 
