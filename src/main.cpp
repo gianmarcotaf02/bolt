@@ -510,11 +510,20 @@ struct TextRow
 // partenza, che e' anche quello a cui torna un doppio clic sul bordo.
 struct ColumnDef
 {
-    const char* label;
+    const char* label;     // il nome della chiave dello spec ("Name", "Size", …)
+    const char* labelIt;   // come si legge quando la lingua e' l'italiano
     SortColumn  sort;
     float       fraction;   // of the list width, measured from its left edge
     bool        filterable; // se questa colonna offre il filtro per valori
 };
+
+// Il titolo di una colonna si legge in due lingue, e la chiave inglese resta
+// quella dello spec: e' con quella che la tabella delle 23 colonne e' scritta, e
+// non si rinomina per farla leggere a un italiano.
+std::string ColumnLabel(int index)
+{
+    return Tr(kColumns[index].labelIt, kColumns[index].label);
+}
 
 // Name, then the columns a directory entry already knows, then the three that
 // depend on the recursive statistics and arrive progressively.
@@ -522,18 +531,18 @@ const ColumnDef kColumns[] = {
     // Il nome ha il filtro come le altre colonne, ma il suo non e' un elenco di
     // valori — ogni nome e' diverso. La sua linguetta accende la casella di
     // **testo** in fondo, che e' il filtro del nome che serve davvero.
-    {"Name",     SortColumn::Name,     0.00f, true},
-    {"Type",     SortColumn::Type,     0.38f, true},
-    {"Modified", SortColumn::Modified, 0.56f, true},
+    {"Name",     "Nome",           SortColumn::Name,     0.00f, true},
+    {"Type",     "Tipo",           SortColumn::Type,     0.38f, true},
+    {"Modified", "Data modifica",  SortColumn::Modified, 0.56f, true},
     // `Folders` e `Files` avevano il titolo appena piu' largo della colonna, e
     // l'imbuto del filtro si mangiava la coda: con il carattere di partenza si
     // sovrapponevano di pochi pixel, con un carattere piu' largo si leggeva
     // `ModifedFoldersFilesSize`. Qui le due colonne hanno lo spazio per il titolo
     // **e** per l'imbuto; se la finestra si stringe, il titolo si accorcia (vedi
     // `DrawHeader`) invece di finire sopra quello vicino.
-    {"Folders",  SortColumn::Folders,  0.70f, true},
-    {"Files",    SortColumn::Files,    0.805f, true},
-    {"Size",     SortColumn::Size,     0.885f, true},
+    {"Folders",  "Cartelle",       SortColumn::Folders,  0.70f, true},
+    {"Files",    "File",           SortColumn::Files,    0.805f, true},
+    {"Size",     "Dimensione",     SortColumn::Size,     0.885f, true},
 };
 constexpr int kColumnCount = static_cast<int>(sizeof(kColumns) / sizeof(kColumns[0]));
 
@@ -3368,7 +3377,7 @@ void BuildColumnMenu(AppState& app, int column)
     }
 
     app.columnMenu.detailed = true;
-    GroupMenuOpen(app.columnMenu, kColumns[column].label,
+    GroupMenuOpen(app.columnMenu, ColumnLabel(column),
                   Tr("Scrivi per filtrare i valori...", "Type to filter values..."),
                   std::move(items));
     app.columnMenu.anchored = true;
