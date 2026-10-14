@@ -150,12 +150,25 @@ struct Entry
     // dentro "Questo PC" si'; una cartella dentro il cestino no: li' il nome e' il
     // percorso del file riciclato, e aprirlo mostrerebbe il blob, non la cartella.
     bool navigable = true;
+
+    // Vero se la voce **e'** la radice di un volume. Si decide quando si apre la
+    // cartella di spazio dei nomi, non a ogni fotogramma: chiedere il tipo di
+    // un'unita' puo' far girare un lettore ottico, e una lista si ridisegna
+    // sessanta volte al secondo.
+    bool volumeRoot = false;
 };
 
 struct Place
 {
     std::string  label;
     std::wstring path;
+
+    // **Quale oggetto della shell e'**: un percorso per un'unita', un nome di
+    // spazio dei nomi (`::{...}`) per una cartella nota o per il cestino. E' quello
+    // che si passa alla shell per avere l'icona **sua** — un disco per `C:`, non una
+    // cartella — e non sempre coincide con `path`: `path` dice dove si va, questo
+    // dice da chi farsi disegnare.
+    std::wstring icon;
 
     // Per i volumi: quanto e' pieno, e quanto resta in lettere. Vuoti per tutto
     // il resto — una cartella non ha un'occupazione da mostrare.
