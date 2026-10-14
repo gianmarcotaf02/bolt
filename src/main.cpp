@@ -3261,19 +3261,9 @@ void DrawSidebar(AppState& app, const Layout& layout)
             uv = app.icons.GetFor("", true);
         if (uv != nullptr)
         {
-            if (DiagEnabled())
-            {
-                // Una riga per riga **diversa**, non per fotogramma: lega quello che si
-                // legge a quello che si e' chiesto, che e' l'unico modo di sapere se due
-                // righe che sembrano la stessa cosa chiedono la stessa icona.
-                static std::unordered_set<std::string> seen;
-                const std::string mark = item.label + "|" + ToUtf8(item.icon) + "|" +
-                                         std::to_string(uv->u0) + "," + std::to_string(uv->v0);
-                if (seen.insert(mark).second)
-                    DiagLog("--- " + DiagClock() + " barra laterale: [" + item.label +
-                            "] chiave=[" + ToUtf8(item.icon) + "] uv=" +
-                            std::to_string(uv->u0) + "," + std::to_string(uv->v0));
-            }
+            if (dumpRows)
+                DiagLog("      disegnata: [" + item.label + "] chiave=[" + ToUtf8(item.icon) +
+                        "] uv=" + std::to_string(uv->u0) + "," + std::to_string(uv->v0));
             const Rect icon{row.x + 8.0f * scale, row.y + 5.0f * scale, 16.0f * scale, 16.0f * scale};
             r.Draw(UIDraw::Image(icon, Color{1.0f, 1.0f, 1.0f, 1.0f}, kIconLayer,
                                  uv->u0, uv->v0, uv->u1, uv->v1));
