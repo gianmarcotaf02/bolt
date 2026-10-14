@@ -3157,10 +3157,14 @@ void BuildSidebarRows(const AppState& app, std::vector<SidebarRow>* rows)
         place.icon  = path;
         marks.push_back(std::move(place));
     }
-    section("BOOKMARKS", Tr("SEGNAPOSTI", "BOOKMARKS"), marks);
+    section("BOOKMARKS", Tr("PREFERITI", "BOOKMARKS"), marks);
 
     section("STORAGE", Tr("UNITÀ", "STORAGE"), app.volumes);
-    section("PLACES", Tr("LUOGHI", "PLACES"), app.places);
+    // "Places" sono le cartelle standard — This PC, la cartella personale, le
+    // cartelle di sistema, il cestino — quelle che ci sono sempre. "Posizioni" e'
+    // il nome che usa l'ambiente GTK per lo stesso elenco, ed e' l'unico che dice
+    // "dove si puo' andare" senza promettere che siano preferiti o cartelle.
+    section("PLACES", Tr("POSIZIONI", "PLACES"), app.places);
 }
 
 void DrawSidebar(AppState& app, const Layout& layout)
