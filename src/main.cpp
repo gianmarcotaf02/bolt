@@ -2091,11 +2091,17 @@ const ShellIconAtlas::IconUV* IconFor(const AppState& app, const Entry& entry)
 std::wstring LocationLabel(const AppState& app, const std::wstring& location)
 {
     if (location.empty())
-        return L"This PC";
-    // "This PC" e' il nome del riferimento, e la shell lo tradurrebbe: qui si
-    // tiene il suo.
+        return L"";
+    // Il nome lo da' la shell, e lo traduce **lei**: "Questo PC" in italiano,
+    // "This PC" in inglese. Prima qui si teneva l'inglese perche' e' il nome del
+    // riferimento; ma il riferimento e' un prodotto in inglese, e chi usa questo
+    // sceglie la lingua dalla palette: un percorso che dice "This PC" accanto a una
+    // barra laterale che dice "Questo PC" e' due nomi per la stessa cosa.
     if (!app.thisPcPath.empty() && location == app.thisPcPath)
-        return L"This PC";
+    {
+        const std::wstring name = ShellLocation::DisplayName(location);
+        return name.empty() ? L"This PC" : name;
+    }
     if (!ShellLocation::IsNamespace(location))
         return location;
     const std::wstring name = ShellLocation::DisplayName(location);
