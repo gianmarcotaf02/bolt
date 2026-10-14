@@ -517,14 +517,6 @@ struct ColumnDef
     bool        filterable; // se questa colonna offre il filtro per valori
 };
 
-// Il titolo di una colonna si legge in due lingue, e la chiave inglese resta
-// quella dello spec: e' con quella che la tabella delle 23 colonne e' scritta, e
-// non si rinomina per farla leggere a un italiano.
-std::string ColumnLabel(int index)
-{
-    return Tr(kColumns[index].labelIt, kColumns[index].label);
-}
-
 // Name, then the columns a directory entry already knows, then the three that
 // depend on the recursive statistics and arrive progressively.
 const ColumnDef kColumns[] = {
@@ -545,6 +537,14 @@ const ColumnDef kColumns[] = {
     {"Size",     "Dimensione",     SortColumn::Size,     0.885f, true},
 };
 constexpr int kColumnCount = static_cast<int>(sizeof(kColumns) / sizeof(kColumns[0]));
+
+// Il titolo di una colonna si legge in due lingue, e la chiave inglese resta
+// quella dello spec: e' con quella che la tabella delle 23 colonne e' scritta, e
+// non si rinomina per farla leggere a un italiano.
+std::string ColumnLabel(int index)
+{
+    return Tr(kColumns[index].labelIt, kColumns[index].label);
+}
 
 // Quanto e' larga una colonna quando la si trascina: sotto questa misura le
 // intestazioni non si leggono, e trascinare oltre vorrebbe dire cancellare una
