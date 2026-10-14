@@ -2075,7 +2075,7 @@ std::wstring EntryLocation(const AppState& app, const Entry& entry)
 // migliaia di righe e l'atlante non ha sfratto. Per un'unita' invece l'icona dipende
 // dal disco — un disco fisso, uno rimovibile, uno di rete — e si chiede guardandola;
 // l'insieme e' chiuso (una per lettera di unita'), quindi si puo' fare.
-const ShellIconAtlas::IconUV* IconFor(const AppState& app, const Entry& entry)
+const ShellIconAtlas::IconUV* IconFor(AppState& app, const Entry& entry)
 {
     if (entry.volumeRoot)
     {
@@ -3186,7 +3186,7 @@ void DrawSidebar(AppState& app, const Layout& layout)
         // colori con un colore del tema dava oro spento, e non era ne' l'icona
         // della shell ne' un glifo monocromatico.
         const ShellIconAtlas::IconUV* uv =
-            row.icon.empty() ? nullptr : app.icons.GetForObject(row.icon);
+            item.icon.empty() ? nullptr : app.icons.GetForObject(item.icon);
         if (uv == nullptr)
             uv = app.icons.GetFor("", true);
         if (uv != nullptr)
