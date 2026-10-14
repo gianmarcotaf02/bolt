@@ -1,7 +1,6 @@
 #include "shell_icons.h"
 
-#include "diag.h"
-
+#include <shlwapi.h>
 #include <shellapi.h>
 #include <shlobj.h>
 
