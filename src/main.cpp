@@ -4098,7 +4098,7 @@ void DrawList(AppState& app, const Layout& layout, const float* columnX)
             r.Draw(UIDraw::Image(previewIcon, Color{1.0f, 1.0f, 1.0f, 1.0f}, kPreviewLayer,
                                  preview.u0, preview.v0, preview.u1, preview.v1));
         }
-        else if (const ShellIconAtlas::IconUV* uv = app.icons.GetFor(entry.extension, entry.isDirectory))
+        else if (const ShellIconAtlas::IconUV* uv = IconFor(app, entry))
         {
             r.Draw(UIDraw::Image(icon, Color{1.0f, 1.0f, 1.0f, 1.0f}, kIconLayer,
                                  uv->u0, uv->v0, uv->u1, uv->v1));
@@ -4658,23 +4658,25 @@ void BuildInspectorRows(AppState& app, const Entry& entry, std::vector<Inspector
     }
 
     if (!shellColumns)
-        rows.push_back({"Type", entry.typeText, false});
+        rows.push_back({Tr("Tipo", "Type"), entry.typeText, false});
     if (volume.isVolume)
     {
         if (!volume.totalText.empty())
-            rows.push_back({"Size", volume.totalText, false});
+            rows.push_back({Tr("Dimensione", "Size"), volume.totalText, false});
     }
     else if (!shellColumns && entry.isDirectory)
     {
         const bool growing = hasStats && stats.partial;
-        rows.push_back({"Size",    hasStats ? HumanBytes(stats.logicalBytes)
-                                               : Tr("conteggio...", "counting..."), growing});
-        rows.push_back({"Folders", hasStats ? HumanCount(stats.folders) : "--", growing});
-        rows.push_back({"Files",   hasStats ? HumanCount(stats.files) : "--", growing});
+        rows.push_back({Tr("Dimensione", "Size"), hasStats ? HumanBytes(stats.logicalBytes)
+                                                            : Tr("conteggio...", "counting..."),
+                        growing});
+        rows.push_back({Tr("Cartelle", "Folders"), hasStats ? HumanCount(stats.folders) : "--",
+                        growing});
+        rows.push_back({Tr("File", "Files"), hasStats ? HumanCount(stats.files) : "--", growing});
     }
     else if (!shellColumns)
     {
-        rows.push_back({"Size", entry.sizeText, false});
+        rows.push_back({Tr("Dimensione", "Size"), entry.sizeText, false});
     }
     // Le date che il file system da' e che non si vedevano: la creazione e l'ultimo
     // accesso. Un tempo a zero non e' il 1601, e' "non lo so": la riga non si mette,
@@ -4686,11 +4688,13 @@ void BuildInspectorRows(AppState& app, const Entry& entry, std::vector<Inspector
     if (!shellColumns)
     {
         if (dated(entry.created))
-            rows.push_back({"Created", FormatFileTime(entry.created, /*withTime=*/true), false});
+            rows.push_back({Tr("Creato", "Created"), FormatFileTime(entry.created, /*withTime=*/true),
+                            false});
         if (dated(entry.modified))
-            rows.push_back({"Modified", entry.modifiedFull, false});
+            rows.push_back({Tr("Modificato", "Modified"), entry.modifiedFull, false});
         if (dated(entry.accessed))
-            rows.push_back({"Accessed", FormatFileTime(entry.accessed, /*withTime=*/true), false});
+            rows.push_back({Tr("Accesso", "Accessed"), FormatFileTime(entry.accessed, /*withTime=*/true),
+                            false});
     }
 
     // Le proprieta' che il file system non dice: le dimensioni di un'immagine le sa
@@ -4698,8 +4702,8 @@ void BuildInspectorRows(AppState& app, const Entry& entry, std::vector<Inspector
     const FileProperties& properties = PropertiesOf(app, full);
     if (properties.imageWidth > 0 && properties.imageHeight > 0)
     {
-        rows.push_back({"Image", std::to_string(properties.imageWidth) + " x " +
-                                     std::to_string(properties.imageHeight) + " px",
+        rows.push_back({Tr("Immagine", "Image"), std::to_string(properties.imageWidth) + " x " +
+                                                       std::to_string(properties.imageHeight) + " px",
                         false});
     }
 
@@ -4708,27 +4712,27 @@ void BuildInspectorRows(AppState& app, const Entry& entry, std::vector<Inspector
     if (volume.isVolume)
     {
         if (!volume.fileSystem.empty())
-            rows.push_back({"System", volume.fileSystem, false});
+            rows.push_back({Tr("Sistema", "System"), volume.fileSystem, false});
         if (!volume.freeText.empty())
         {
             char free[96];
             std::snprintf(free, sizeof(free), Tr("%s liberi (%d%% usato)", "%s free (%d%% used)"),
                           volume.freeText.c_str(),
                           static_cast<int>(volume.usedFraction * 100.0f));
-            rows.push_back({"Space", free, false});
+            rows.push_back({Tr("Spazio", "Space"), free, false});
         }
     }
 
     // Il percorso: e' la riga che si copia, e l'unica che dice *dove* si sta
     // guardando. Si taglia davanti.
-    rows.push_back({"Path", ToUtf8(full), false, /*tail=*/true});
+    rows.push_back({Tr("Percorso", "Path"), ToUtf8(full), false, /*tail=*/true});
 
     // "Ext" solo per quello che un'estensione ce l'ha: una riga con l'etichetta e
     // niente accanto occupa lo spazio di una che direbbe qualcosa. E il trattino
     // lungo che c'era prima non era nemmeno un carattere che l'atlante conosceva:
     // a schermo si vedeva un buco, non un trattino.
     if (!entry.extension.empty())
-        rows.push_back({"Ext", entry.extension, false});
+        rows.push_back({Tr("Estensione", "Ext"), entry.extension, false});
 
 }
 
@@ -4890,7 +4894,7 @@ void DrawInspector(AppState& app, const Layout& layout)
     }
     else
     {
-        if (const ShellIconAtlas::IconUV* uv = app.icons.GetFor(entry.extension, entry.isDirectory))
+        if (const ShellIconAtlas::IconUV* uv = IconFor(app, entry))
         {
             const Rect icon{layout.inspector.x + 14.0f * scale, y, 32.0f * scale, 32.0f * scale};
             r.Draw(UIDraw::Image(icon, Color{1.0f, 1.0f, 1.0f, 1.0f}, kIconLayer,
