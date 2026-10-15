@@ -85,12 +85,29 @@ struct UIDraw
     bool  textured = false;
     bool  mono     = false;     // use the red channel as an alpha mask
 
+    // Un triangolo invece di un rettangolo, iscritto nel rettangolo. Serve alle
+    // linguette che aprono e chiudono una sezione: erano i caratteri `v` e `>`
+    // disegnati col font, e un carattere non e' un elemento — cambia forma col
+    // carattere scelto, non si allinea con niente e a dieci pixel e' un grumo.
+    // Puntato in giu' quando la sezione e' aperta, a destra quando e' chiusa.
+    bool  triangle     = false;
+    bool  triangleDown = false;
+
+    // Un piu' e una croce, per i pulsanti: erano i caratteri `+` e `x`, e valgono le
+    // stesse ragioni del triangolo. Lo spessore della barra viaggia in |radius|,
+    // perche' per queste due forme i raggi delle punte non vogliono dire niente.
+    bool  plus  = false;
+    bool  cross = false;
+
     static UIDraw Fill(Rect rect, Color color, float radius = 0.0f);
     static UIDraw Fill(Rect rect, Color color, Corners radius);
     static UIDraw Border(Rect rect, Color color, float width, float radius = 0.0f, Corners corners = {});
     static UIDraw Shadow(Rect rect, Color color, float blur, float radius = 0.0f);
     static UIDraw DashedBorder(Rect rect, Color color, float width, float on, float off, float radius = 0.0f);
     static UIDraw Image(Rect rect, Color tint, float layer, float u0, float v0, float u1, float v1, bool monoMask = false);
+    static UIDraw Triangle(Rect rect, Color color, bool pointsDown = false);
+    static UIDraw Plus(Rect rect, Color color, float thickness);
+    static UIDraw Cross(Rect rect, Color color, float thickness);
 };
 
 // ---------------------------------------------------------------------------

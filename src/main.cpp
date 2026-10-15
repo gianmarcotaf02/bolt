@@ -18,6 +18,13 @@
 // ---------------------------------------------------------------------------
 #include "diag.h"
 #include "dir_stats.h"
+#include "dir_watch.h"
+
+// Il messaggio che il sorvegliante manda quando una cartella cambia. Chi lo riceve
+// prende i cambiamenti con `Take`: il messaggio dice "guarda", non "e' successo
+// questo", perche' fra il momento in cui parte e quello in cui arriva possono
+// essercene altri.
+constexpr UINT kDirectoryChanged = WM_APP + 1;
 #include "drag_drop.h"
 #include "file_ops.h"
 #include "font_atlas.h"
@@ -65,6 +72,14 @@
 #define REA_SHADER_DIR "shaders"
 #endif
 
+#include "app_state.h"
+#include "app_ui.h"
+#include "view_sidebar.h"
+#include "tabs.h"
+#include "view_titlebar.h"
+
+using namespace Bolt;
+
 namespace {
 
 // --- WGL context creation attributes (not in the Windows SDK) --------------
@@ -78,850 +93,6 @@ using WglCreateContextAttribsArbFn = HGLRC(WINAPI*)(HDC, HGLRC, const int*);
 // --- texture array layers ---------------------------------------------------
 // Every UI texture shares one array, so the layer index is the only thing that
 // tells a glyph from an icon from a thumbnail.
-constexpr int kGlyphLayer      = 0;
-constexpr int kIconLayer       = 1;
-constexpr int kPreviewLayer    = 2;
-constexpr int kSmallGlyphLayer = 3;
-// Un testo si legge in un carattere **a spaziatura fissa**: in un carattere
-// proporzionale le colonne non si allineano, e quello che si guarda in un
-// visualizzatore e' spesso proprio l'allineamento. E' il quinto strato: i primi
-// quattro non bastavano.
-constexpr int kMonoLayer = 4;
-// Un'immagine intera, per l'anteprima grande dell'inspector: la miniatura della
-// shell vive in una cella da 128 px e ingrandirla mostrerebbe 128 px allargati. E'
-// un sesto strato dell'array, cosi' si disegna con lo stesso shader delle altre cose
-// e non serve ne' un secondo campionatore ne' un ramo nel frammento.
-constexpr int kBigImageLayer = 5;
-constexpr int kBigImageSide  = 1024;
-// Il lato di ogni strato dell'array. E' una costante di tutto il file e non di
-// `wWinMain` perche' `ApplyFonts` — che rifa' l'atlante quando cambia il
-// carattere scelto nelle opzioni — la usa da fuori.
-constexpr int kTextureLayerSize = 1024;
-
-// --- theme -----------------------------------------------------------------
-struct Theme
-{
-    Color windowBg    = Color::FromHex(0x1B1C1F);
-    Color panelBg     = Color::FromHex(0x232428);
-    Color panelBorder = Color::FromHex(0x32343A);
-    Color headerBg    = Color::FromHex(0x1F2024);
-    Color rowOdd      = Color::FromHex(0x26272C);
-    Color rowSelected = Color::FromHex(0x2F4C7E);
-    Color rowHover    = Color::FromHex(0x2C2E34);
-    Color text        = Color::FromHex(0xE6E7EA);
-    Color textDim     = Color::FromHex(0x9195A0);
-    Color accent      = Color::FromHex(0x4C8DFF);
-    Color scrollThumb = Color::FromHex(0x4A4D55);
-    Color separator   = Color::FromHex(0x2A2C31);
-};
-
-// --- model -----------------------------------------------------------------
-enum class SortColumn { Name, Type, Modified, Folders, Files, Size };
-
-struct Entry
-{
-    std::wstring wideName;
-    std::string  name;
-    std::string  extension;     // lowercase, no leading dot
-    std::string  typeText;
-    std::string  sizeText;
-    std::string  modifiedText;    // compact, for the list column
-    std::string  modifiedFull;    // with time, for the inspector
-    uint64_t     bytes = 0;
-    bool         isDirectory = false;
-    FILETIME     modified{};
-    FILETIME     created{};      // creazione e ultimo accesso: le da' FindFirstFile,
-    FILETIME     accessed{};     // e servono all'inspector come la modifica
-    bool         readable = true;
-
-    // Il nome assoluto, quando la voce viene da una cartella che **non e' un
-    // percorso** (il cestino): li' il nome da solo non basta ne' ad aprirla ne' a
-    // chiedere alla shell di ripristinarla. Vuoto per le voci normali, che il
-    // percorso ce l'hanno gia' dalla cartella aperta.
-    std::wstring location;
-
-    // Il PIDL, per le stesse voci: e' l'identita' che la shell riconosce. Il nome
-    // di un file nel cestino e' il percorso del file dentro `$Recycle.Bin`, che e'
-    // un'altra voce — chiederle il menu di quel nome da' il menu di *quel* file, e
-    // "Ripristina" sparisce.
-    std::vector<BYTE> pidl;
-
-    // Vero se aprirla porta dove dice il suo nome. Le voci normali si'; un'unita'
-    // dentro "Questo PC" si'; una cartella dentro il cestino no: li' il nome e' il
-    // percorso del file riciclato, e aprirlo mostrerebbe il blob, non la cartella.
-    bool navigable = true;
-
-    // Vero se la voce **e'** la radice di un volume. Si decide quando si apre la
-    // cartella di spazio dei nomi, non a ogni fotogramma: chiedere il tipo di
-    // un'unita' puo' far girare un lettore ottico, e una lista si ridisegna
-    // sessanta volte al secondo.
-    bool volumeRoot = false;
-};
-
-struct Place
-{
-    std::string  label;
-    std::wstring path;
-
-    // **Quale oggetto della shell e'**: un percorso per un'unita', un nome di
-    // spazio dei nomi (`::{...}`) per una cartella nota o per il cestino. E' quello
-    // che si passa alla shell per avere l'icona **sua** — un disco per `C:`, non una
-    // cartella — e non sempre coincide con `path`: `path` dice dove si va, questo
-    // dice da chi farsi disegnare.
-    std::wstring icon;
-
-    // Per i volumi: quanto e' pieno, e quanto resta in lettere. Vuoti per tutto
-    // il resto — una cartella non ha un'occupazione da mostrare.
-    float       usedFraction = 0.0f;
-    std::string freeText;
-};
-
-// Rectangles recorded while drawing, so input handling can hit test them without
-// duplicating the layout maths. Rebuilt every frame.
-struct ClickTarget
-{
-    enum class Kind
-    {
-        Column, ColumnEdge, ColumnFilter, ColumnFilterRow, Breadcrumb, NavButton, Place,
-        SidebarHeader, Row, GroupHeader, GroupMode, Checkbox,
-        Menu, Tab, TabClose, TabNew,
-        WindowMinimize, WindowMaximize, WindowClose,
-        MenuRow, MenuHeader,
-        // I selettori di vista e lo stepper delle anteprime, nella barra in fondo.
-        ViewSelect, PreviewDown, PreviewUp,
-    };
-    Rect         rect;
-    Kind         kind = Kind::Row;
-    int          index = 0;      // column index or row index
-    std::wstring path;           // for breadcrumbs and places
-    std::string  label;          // for group headers
-};
-
-// Una riga di proprieta': etichetta a sinistra, valore a destra. Le stesse righe
-// servono all'inspector e al pannello delle proprieta': sono due viste della
-// stessa cosa, e costruirle in due posti sarebbe il modo di farle divergere.
-struct InspectorRow
-{
-    std::string label;
-    std::string value;
-    bool        growing = false;   // il numero sta ancora crescendo: si sottolinea
-    bool        tail    = false;   // un percorso si taglia davanti, non dietro
-};
-
-// --- view model -------------------------------------------------------------
-// The list is not the directory. A filter removes entries and a grouping inserts
-// headers between them, so what gets drawn and hit tested is a list of rows over
-// the entry array, rebuilt only when something that affects it changes.
-
-enum class GroupMode { None, Name, Date, Size, Count, Volume };
-
-// How the list is laid out. Details and List are rows of text; Icons and Tiles
-// are a grid of cells built around a thumbnail. Two row layouts and two cell
-// sizes cover what Explorer exposes as its eight view commands, because most of
-// those are the same layout at a different size.
-enum class ViewMode { Details, List, Tiles, Icons };
-
-// Geometry of the current view. |columns| is only meaningful in a grid.
-struct ViewMetrics
-{
-    bool  grid       = false;
-    float rowHeight  = 24.0f;
-    float iconSize   = 16.0f;
-    float cellWidth  = 0.0f;
-    float cellHeight = 0.0f;
-    float bandHeight = 0.0f;
-    float padding    = 4.0f;
-    int   columns    = 1;
-};
-
-struct Row
-{
-    bool header = false;
-    int  entry  = -1;   // index into AppState::entries
-    int  group  = -1;   // index into AppState::groups
-};
-
-struct Group
-{
-    std::string label;
-    int         count = 0;
-};
-
-// --- command palette ---------------------------------------------------------
-// A command is data, not a callback: the table below is the single place a
-// command is declared, and |RunCommand| is the single place it is executed. The
-// reference exposes 319 of them with a tooltip each; this is the subset the shell
-// can actually carry out, which is the honest place to start.
-// --- lingua ------------------------------------------------------------------
-//
-// Quale delle due lingue si mostra lo decide `language.h/.cpp`: la scelta vale per
-// tutta l'applicazione, e anche `file_ops.cpp` ha i suoi messaggi. Le coppie di
-// stringhe restano qui, accanto a chi le usa.
-
-enum CommandId
-{
-    CmdNewTab, CmdCloseTab, CmdNextTab, CmdPrevTab,
-    CmdGoUp, CmdBack, CmdForward, CmdRefresh, CmdOpenExplorer, CmdOpenConsole, CmdRecalcStats,
-    CmdGoTo,
-    CmdToggleSidebar, CmdZoomIn, CmdZoomOut, CmdZoomReset, CmdToggleDetails,
-    CmdTextWhitespace, CmdTextLineNumbers, CmdTextMinimap, CmdTextWrap, CmdTextZoomIn,
-    CmdTextZoomOut, CmdImageZoomIn, CmdImageZoomOut, CmdImageZoomFit, CmdToggleImageGrid,
-    CmdViewDetails, CmdViewList, CmdViewTiles, CmdViewIcons,
-    CmdSortName, CmdSortType, CmdSortModified, CmdSortFolders, CmdSortFiles,
-    CmdSortSize, CmdSortDirection,
-    CmdGroupNone, CmdGroupName, CmdGroupDate, CmdGroupSize, CmdGroupCount, CmdGroupVolume,
-    CmdFocusFilter, CmdClearFilter, CmdScrollTop, CmdScrollBottom,
-    CmdToggleHoverToSelect, CmdToggleUnderlineOnHover, CmdToggleTooltips,
-    CmdSingleClick, CmdSingleClickFoldersOnly, CmdActOnPress, CmdDoubleClickToParent,
-    CmdShowCheckboxes,
-    CmdCloseInTree, CmdCloseAllInTree, CmdDetachTab,
-    CmdLanguageItalian, CmdLanguageEnglish, CmdShowSettingsPath,
-    CmdToggleBookmark, CmdClearBookmarks, CmdClearRecents,
-    // Operazioni su file (M7).
-    CmdCopy, CmdCut, CmdPaste, CmdDelete, CmdDeletePermanent, CmdRename, CmdNewFolder,
-    // M9: il pannello delle opzioni, raggiungibile anche dalla palette.
-    CmdOpenOptions,
-    // Le proprieta': quella in-app e quella di Windows, due voci distinte.
-    CmdProperties, CmdPropertiesWindows,
-};
-
-// Item ids below this are CommandId values; above it they are indexes into
-// AppState::places. The palette has two kinds of row and the id has to say which.
-constexpr int kPalettePlaceBase = 1000;
-
-// The reusable part: a modal, filtered, grouped and collapsible list. It knows
-// nothing about what an item means — |id| is the caller's business — which is
-// what lets the same component serve the command palette and the GoTo window.
-// It became a component when the second caller arrived, not before.
-//
-// M9 aggiunge i **controlli tipizzati**: una riga del pannello delle opzioni non
-// e' solo una cosa da scegliere, e' una preferenza con il suo comando. Il tipo
-// sta qui e non in un `if` sul chiamante perche' disegno, clic e tastiera devono
-// leggere la stessa parola.
-enum class OptionControl
-{
-    None,     // riga di solo testo
-    Toggle,   // interruttore
-    Stepper,  // valore numerico con − e +
-    Slider,   // valore continuo
-    Text,     // campo di testo modificabile
-    Choice,   // pulsante con freccia: apre un elenco di valori
-};
-
-struct GroupMenuItem
-{
-    std::string group;
-    std::string label;
-    std::string detail;   // shown right aligned in detailed mode
-    int         id = 0;   // meaningful only to the caller
-
-    // --- M9: il controllo dentro la riga -------------------------------------
-    // `description` e' il *perche'* accanto alla scelta: il riferimento lo mette
-    // sotto il nome, non nella documentazione.
-    OptionControl control = OptionControl::None;
-    std::string   description;
-    std::string   valueText;      // Stepper / Text / Choice: cosa mostra il controllo
-    bool          toggleOn  = false;
-    float         fraction  = 0.0f;   // Slider, 0..1
-    // Un'opzione che non si puo' applicare si mostra **spenta**, non sparisce:
-    // e' la lezione del riferimento (`System Light / Dark Scheme` li' e' cosi').
-    bool          enabled   = true;
-    std::vector<std::pair<std::string, int>> choices;   // Choice: (etichetta, valore)
-};
-
-struct GroupMenuRow
-{
-    bool header = false;
-    int  group  = -1;   // index into GroupMenu::groups
-    int  item   = -1;   // index into GroupMenu::items
-};
-
-enum class MenuAction { None, Activate, Close };
-
-struct GroupMenu
-{
-    bool         open      = false;
-    bool         detailed  = false;
-    bool         dirty     = true;
-    // Il pannello delle opzioni: righe a due linee (nome e descrizione) con il
-    // controllo a destra, alte una misura fissa che **non** segue `Spacing`.
-    bool         richRows  = false;
-    // Dove appoggiarlo. Vuoto: al centro, come la palette. Riempito: sotto
-    // quell'angolo, come il pannello dei valori di una colonna, che deve stare
-    // attaccato all'intestazione da cui e' nato.
-    Rect         anchor{};
-    bool         anchored  = false;
-    std::wstring filter;
-    std::string  title;
-    std::string  placeholder;
-    std::string  hint;   // the footer line, which differs per caller
-
-    std::vector<GroupMenuItem>      items;
-    std::vector<GroupMenuRow>       rows;
-    std::vector<std::string>        groups;
-    std::unordered_set<std::string> collapsed;
-    int          selected   = 0;
-    int          matchCount = 0;
-};
-
-// One panel's worth of state. Switching tabs saves the live state into the tab
-// it came from and loads the target tab's, which keeps every other part of the
-// program working on a single set of fields instead of having to know that tabs
-// exist. Completed preview and statistic results are global caches keyed by path,
-// so they survive a switch for free.
-struct Tab
-{
-    // Un tab ha un'**identita'** e un genitore, non una posizione. Gli indici
-    // scivolano appena se ne chiude uno, e un albero tenuto per indici si sbaglia
-    // da solo: il figlio del tab 3 diventa il figlio di un altro.
-    int          id       = 0;
-    int          parentId = -1;   // -1: e' una radice
-    std::wstring directory;
-    std::vector<Entry> entries;
-    std::wstring cursor;
-    std::wstring selectionAnchor;
-    std::unordered_set<std::wstring> selection;
-    std::wstring filter;
-    std::string  errorText;
-    float        scroll = 0.0f;
-    bool         filterActive = false;
-    SortColumn   sortColumn = SortColumn::Name;
-    bool         sortAscending = true;
-    GroupMode    groupMode = GroupMode::None;
-    ViewMode     viewMode  = ViewMode::Details;
-
-    // Per-tab navigation history, walked by Alt+Left and Alt+Right.
-    std::vector<std::wstring> history;
-    int                       historyIndex = -1;
-};
-
-// --- menu contestuale: strutture --------------------------------------------
-//
-// Non e' un GroupMenu, ed e' una scelta e non una svista. Condividono l'idea di
-// "una lista di righe etichettate", ma differiscono in tutto il resto: questo si
-// ancora al puntatore invece di stare al centro, e' alto quanto il contenuto
-// invece di 420 px fissi, ha separatori e non bande, e non ha filtro ne' piede.
-// Forzarlo dentro GroupMenu avrebbe voluto dire un campo modalita' e due
-// impaginazioni dentro lo stesso componente.
-
-// Id che non sono comandi della palette: il primo apre la selezione, che l'Invio
-// gia' fa, il secondo apre la finestra delle proprieta' di Windows.
-constexpr int kContextOpen       = -1;
-constexpr int kContextProperties        = -2;
-constexpr int kContextPropertiesWindows = -3;
-
-struct ContextMenuItem
-{
-    std::string label;
-    // CommandId, kContext*, oppure un id della banda della shell: vedi
-    // kShellCmdFirst. La banda e' cosa distingue una voce nostra da una che
-    // appartiene alla shell e va eseguita da lei.
-    int         command   = 0;
-    bool        separator = false;
-    // Una voce che esiste ma non si puo' eseguire adesso: la shell offre voci
-    // spente per una selezione mista o per un file che non sa gestire. Va
-    // mostrata spenta, non nascosta, perche' la sua presenza spiega cosa la
-    // shell saprebbe fare in un altro contesto.
-    bool        disabled  = false;
-
-    // Sottomenu. `children` vuoto non vuol dire "niente sottomenu": la shell lo
-    // descrive con un HMENU che si legge **quando si apre**, perche' il suo
-    // contenuto non esiste prima di WM_INITMENUPOPUP. Vedi `HasSubmenu`.
-    std::vector<ContextMenuItem> children;
-    HMENU shellSubmenu  = nullptr;   // il sottomenu della shell, non ancora letto
-    int   shellPosition = 0;         // dove sta la voce nel menu della shell
-    // Un sottomenu nostro che si riempie alla prima apertura: i modelli di
-    // "Nuovo file" stanno nel registro, e leggerli costa qualche centinaio di
-    // aperture di chiave che non si devono pagare a ogni tasto destro.
-    bool  lazyNewFile   = false;
-    // E cosi' "Invia a": le destinazioni stanno in una cartella dell'utente, e
-    // leggerle a ogni tasto destro e' lavoro che si fa quando il menu si apre.
-    bool  lazySendTo    = false;
-};
-
-// Scelta e finestra di un livello del menu. Ce n'e' una per livello aperto.
-struct ContextMenuLevel
-{
-    int selected  = -1;
-    int firstItem = 0;
-};
-
-struct ContextMenu
-{
-    bool open = false;
-    float x = 0.0f, y = 0.0f;       // dove e' stato aperto, in coordinate cliente
-    // I sottomenu aperti, un indice per livello: openPath[i] e' la voce aperta
-    // nel livello i. `levels` ne ha sempre uno in piu' di openPath, e non e' mai
-    // vuoto: il livello 0 e' il menu stesso.
-    std::vector<int>              openPath;
-    std::vector<ContextMenuLevel> levels;
-    std::string subtitle;
-    std::vector<ContextMenuItem> items;      // le voci del livello 0
-
-    // La shell descrive il proprio menu in un HMENU che non mostriamo mai: serve
-    // per leggere le voci, e per i sottomenu anche per farsele popolare. Va
-    // tenuto vivo finche' l'IContextMenu e' vivo, e distrutto insieme a lui, o
-    // l'HMENU resta appeso a ogni tasto destro.
-    HMENU         shellMenu = nullptr;
-    IContextMenu* shell     = nullptr;
-    // Il menu e' stato chiesto per il fondo della cartella invece che per una
-    // selezione: serve a filtrare i verbi quando si legge un sottomenu, perche'
-    // allora la lettura avviene molto dopo averlo deciso.
-    bool shellIsBackground = false;
-};
-
-// Le proprieta' che il file system non dice. Le dimensioni di un'immagine stanno
-// nell'intestazione del file e le sa il gestore di quel tipo: e' quello che
-// risponde `IPropertyStore`, ed e' la stessa fonte da cui Windows riempie le
-// colonne. Si legge una volta per percorso e si tiene.
-struct FileProperties
-{
-    uint32_t imageWidth = 0;
-    uint32_t imageHeight = 0;
-};
-
-// Una riga **come si vede**: una riga di testo, o un pezzo di essa quando l'andare
-// a capo e' acceso. `offset` e' la posizione nel testo della riga logica, e vale
-// zero solo sulla prima: e' cosi' che il numero di riga sa dove scriversi.
-struct TextRow
-{
-    size_t line = 0;
-    size_t offset = 0;
-    size_t length = 0;
-};
-
-// Le colonne della vista a dettagli. `fraction` e' la distanza del bordo sinistro
-// dalla larghezza dell'elenco: e' una frazione e non una misura in pixel perche'
-// cosi' la vista si stringe e si allarga senza che le colonne si accavallino.
-//
-// La frazione si puo' cambiare — si trascina il bordo, come in Esplora risorse — e
-// quindi il valore vivo sta in `AppState`, non qui: qui c'e' solo quello di
-// partenza, che e' anche quello a cui torna un doppio clic sul bordo.
-struct ColumnDef
-{
-    const char* label;     // il nome della chiave dello spec ("Name", "Size", …)
-    const char* labelIt;   // come si legge quando la lingua e' l'italiano
-    SortColumn  sort;
-    float       fraction;   // of the list width, measured from its left edge
-    bool        filterable; // se questa colonna offre il filtro per valori
-};
-
-// Name, then the columns a directory entry already knows, then the three that
-// depend on the recursive statistics and arrive progressively.
-const ColumnDef kColumns[] = {
-    // Il nome ha il filtro come le altre colonne, ma il suo non e' un elenco di
-    // valori — ogni nome e' diverso. La sua linguetta accende la casella di
-    // **testo** in fondo, che e' il filtro del nome che serve davvero.
-    {"Name",     "Nome",           SortColumn::Name,     0.00f, true},
-    {"Type",     "Tipo",           SortColumn::Type,     0.28f, true},
-    {"Modified", "Data modifica",  SortColumn::Modified, 0.42f, true},
-    // `Folders` e `Files` avevano il titolo appena piu' largo della colonna, e
-    // l'imbuto del filtro si mangiava la coda: con il carattere di partenza si
-    // sovrapponevano di pochi pixel, con un carattere piu' largo si leggeva
-    // `ModifedFoldersFilesSize`. Qui le due colonne hanno lo spazio per il titolo
-    // **e** per l'imbuto; se la finestra si stringe, il titolo si accorcia (vedi
-    // `DrawHeader`) invece di finire sopra quello vicino.
-    //
-    // La frazione e' il **bordo sinistro** della colonna, quindi la larghezza e' la
-    // differenza fra questa e la prossima: e i titoli italiani sono piu' lunghi di
-    // quelli inglesi ("Dimensione" contro "Size"), per cui le misure sono quelle
-    // che fanno entrare il titolo **piu' lungo delle due lingue**, non quello corto.
-    {"Folders",  "Cartelle",       SortColumn::Folders,  0.60f, true},
-    {"Files",    "File",           SortColumn::Files,    0.735f, true},
-    {"Size",     "Dimensione",     SortColumn::Size,     0.825f, true},
-};
-constexpr int kColumnCount = static_cast<int>(sizeof(kColumns) / sizeof(kColumns[0]));
-
-// Il titolo di una colonna si legge in due lingue, e la chiave inglese resta
-// quella dello spec: e' con quella che la tabella delle 23 colonne e' scritta, e
-// non si rinomina per farla leggere a un italiano.
-std::string ColumnLabel(int index)
-{
-    return Tr(kColumns[index].labelIt, kColumns[index].label);
-}
-
-// Quanto e' larga una colonna quando la si trascina: sotto questa misura le
-// intestazioni non si leggono, e trascinare oltre vorrebbe dire cancellare una
-// colonna invece di stringerla.
-constexpr float kMinColumnWidth = 44.0f;
-
-struct AppState
-{
-    // Il backend di disegno, dietro l'interfaccia: OpenGL o Direct3D 11. Lo
-    // possiede `wWinMain`, che lo sceglie e lo distrugge alla fine.
-    IRenderer*       renderer = nullptr;
-    FontAtlas       font;
-    // Testo secondario: intestazioni, etichette, barra di stato. Rasterizzato
-    // alla sua dimensione invece che ricampionato dal corpo.
-    FontAtlas       smallFont;
-
-    // Il carattere del testo del visualizzatore, e se e' stato costruito: senza, si
-    // usa quello secondario.
-    FontAtlas       monoFont;
-    bool            monoFontOk = false;
-    ShellIconAtlas  icons;
-    ShellPreviewCache previews;
-    DirStatsService   stats;
-    Theme             theme;
-
-    HWND          window = nullptr;
-
-    std::vector<Entry> entries;
-    std::vector<Place> places;
-    std::vector<ClickTarget> clickTargets;
-
-    // --- barra laterale ------------------------------------------------------
-    //
-    // Quattro elenchi, non uno: i fissaggi della shell, i segnalibri (che sono
-    // nostri e stanno in memoria sola, vedi `docs/06`), i volumi e le cartelle
-    // standard. Sono cose di natura diversa e si mostrano in sezioni diverse; la
-    // barra laterale le disegna in quest'ordine.
-    std::vector<Place> quickAccess;
-    std::vector<Place> volumes;
-    std::unordered_set<std::string> collapsedSections;
-
-    // Dove punta un collegamento, per percorso. Si risolve una volta per file: la
-    // risoluzione apre il collegamento, e una riga si disegna sessanta volte al
-    // secondo.
-    std::unordered_map<std::wstring, std::wstring> shortcutTargets;
-
-    // Le proprieta' che il file system non dice (le dimensioni di un'immagine, per
-    // esempio): anche queste si leggono una volta per percorso.
-    std::unordered_map<std::wstring, FileProperties> fileProperties;
-
-    // --- visualizzatore di testo (M8) ---------------------------------------
-    //
-    // Il documento si legge quando cambia la voce scelta e si tiene finche' quella
-    // voce resta scelta. E' l'unica cosa in memoria che riguarda il *contenuto* di un
-    // file: vive quanto la selezione, e non va da nessuna parte (`docs/06`).
-    TextView::Document textDocument;
-    std::wstring       textDocumentPath;
-    float              textScroll = 0.0f;
-    float              textZoom   = 1.0f;
-
-    // Le opzioni, con i nomi della tabella delle chiavi dell'originale.
-    bool textShowWhitespace = false;   // InspectorShowWhitespace
-    bool textLineNumbers    = true;    // InspectorHideLineNumbers, al contrario
-    bool textMinimap        = true;    // InspectorHideMinimap, al contrario
-    bool textWrap           = false;   // InspectorWordWrap
-    // La griglia dietro l'anteprima **immagine**: serve a distinguere lo sfondo
-    // dell'immagine (spesso bianco o trasparente) da quello del pannello. La chiave
-    // dell'originale e' `InspectorHideGrid`, e il suo comando e'
-    // `HK_InspectorToggleImageGrid` — «Toggle display of image grid to better
-    // differentiate background from the image contents» (`analysis/out`).
-    bool inspectorHideGrid  = false;   // InspectorHideGrid
-
-    // Le righe come si vedono, e con che misura sono state calcolate: si rifanno solo
-    // quando la misura cambia, perche' su un file lungo rifarle a ogni fotogramma
-    // sarebbe lavoro sprecato.
-    // Dove sta il visualizzatore, in coordinate cliente: la rotella deve sapere se il
-    // puntatore e' sopra il testo o sopra la lista, e il rettangolo lo conosce solo il
-    // disegno.
-    Rect  textViewerRect{};
-
-    // --- anteprima grande (M8) ----------------------------------------------
-    //
-    // L'immagine decodificata per la voce scelta, caricata nello strato suo. Si
-    // ricarica solo quando cambia la voce, e si tiene in memoria quanto la selezione.
-    ImagePreview::Image bigImage;
-    std::wstring        bigImagePath;
-    bool                bigImageUploaded = false;
-    float               imageZoom = 1.0f;   // 1 = adattata alla larghezza del pannello
-    std::vector<TextRow> textRows;
-    bool  textRowsDirty = true;
-    float textRowsWidth = 0.0f;
-    float textRowsZoom  = 0.0f;
-    size_t textLongest  = 0;           // la riga piu' lunga, per la minimap
-
-    std::vector<Tab> tabs;
-    int              activeTab = 0;
-    int              nextTabId = 1;
-
-    // Il trascinamento di un tab: quale, e dove finirebbe. `tabDropTarget` e' un
-    // indice nella fila disegnata, `tabDropInto` dice se ci finisce **dentro**
-    // (figlio) invece che prima o dopo (fratello).
-    int              dragTab       = -1;
-    int              tabDropTarget = -1;
-    bool             tabDropInto   = false;
-    bool             tabDropAfter  = false;
-    // Il tab premuto, prima che il gesto diventi un trascinamento: come per la
-    // lista, un clic non deve spostare niente finche' il mouse non si muove.
-    int              tabPress      = -1;
-    float            tabPressX     = 0.0f;
-    bool             sidebarVisible = true;
-    int              hoveredTab = -1;
-    int              hoveredChrome = -1;   // 0 menu, 1 new tab, 2 min, 3 max, 4 close
-    int              hoveredSection = -1;  // intestazione di sezione della barra laterale
-    int              hoveredNav = -1;      // 0 indietro, 1 avanti, 2 su, 3 aggiorna, 4 segnalibro
-
-    std::wstring directory;
-
-    // Selection is kept by file name, not by entry index: sorting, filtering and
-    // refreshing all renumber the entry array, and a selection that slides onto a
-    // different file when the user sorts by size is worse than no selection.
-    std::wstring cursor;                            // the focused entry
-    std::wstring selectionAnchor;                   // Shift+click / Shift+arrow origin
-    std::unordered_set<std::wstring> selection;     // entry names
-
-    // Rubber band, in client coordinates.
-    bool  rectSelecting = false;
-    bool  rectAdditive  = false;
-    float rectX0 = 0.0f, rectY0 = 0.0f, rectX1 = 0.0f, rectY1 = 0.0f;
-
-    // Trascinamento. La pressione su una riga non e' ancora un trascinamento: lo
-    // diventa quando il mouse si muove oltre la soglia di sistema — sotto quella
-    // resta un clic, ed e' l'unico modo di distinguere le due intenzioni. Il punto
-    // di partenza serve perche' la soglia si misura da li'.
-    bool  dragArmed  = false;
-    float dragStartX = 0.0f, dragStartY = 0.0f;
-
-    // La destinazione di una caduta in corso: si evidenzia finche' il puntatore ci
-    // sta sopra, ed e' l'unico modo di far vedere DOVE finiranno i file prima di
-    // lasciarli. |dropTargetIsRow| distingue una riga dal fondo della lista.
-    std::wstring dropTarget;
-    bool         dropTargetIsRow = false;
-    // Se la destinazione e' una voce del riquadro di navigazione, qual e'. Il
-    // riquadro non si evidenzia confrontando percorsi come fa l'elenco: due voci
-    // possono puntare alla stessa cartella, e quella accesa e' **quella sotto il
-    // puntatore**.
-    int          dropTargetSidebarRow = -1;
-    // Se l'esito della caduta l'ha gia' detto chi l'ha eseguita. Chiudere un
-    // trascinamento riferisce "Spostati N elementi" e non sa *dove*: senza questo,
-    // il suo messaggio copre quello piu' preciso della caduta — "Buttati via N
-    // elementi nel cestino" diventava "Spostati N elementi".
-    bool         dropReported = false;
-    // Un trascinamento che parte da una cartella di spazio dei nomi: le voci non
-    // hanno un percorso, quindi non si possono "mettere dentro" un'altra cartella
-    // nostra. Fuori si trascinano benissimo, dentro no — e il puntatore lo dice.
-    bool         draggingNamespaceItems = false;
-    // Il percorso del cestino, che non e' una cartella come le altre: tenerlo qui
-    // evita di richiederlo alla shell a ogni movimento del mouse durante una caduta.
-    std::wstring recycleBinPath;
-    // Il nome di spazio dei nomi di "Questo PC". Serve a due cose: salire da una
-    // radice di volume ci porta, e la sua etichetta e' "This PC" — il nome del
-    // riferimento — invece di quello localizzato che risponde la shell.
-    std::wstring thisPcPath;
-
-    // --- colonne (larghezza e filtri per valore) -----------------------------
-    //
-    // La larghezza e' viva e sta qui: `kColumns` da' quella di partenza. Il filtro
-    // per colonna e' un **elenco di valori tolti**, non di valori tenuti: una
-    // colonna appena aperta non filtra niente, e questo si legge dalla sua lista
-    // vuota senza doverla confrontare con quella dei valori possibili.
-    struct ColumnState
-    {
-        float                 fraction = 0.0f;
-        std::set<std::string> excluded;
-    };
-    std::array<ColumnState, kColumnCount> columns{};
-
-    int          columnDrag = -1;          // bordo trascinato in questo momento
-    float        columnDragStartX = 0.0f;
-    float        columnDragStartFraction = 0.0f;
-
-    // Il pannello dei valori: aperto su una colonna, con i valori che aveva
-    // quando e' stato aperto — si ricalcolano all'apertura, non a ogni fotogramma,
-    // perche' contarli vuol dire scorrere tutte le voci.
-    int                                     columnPanel = -1;
-    std::vector<std::pair<std::string, int>> columnPanelValues;
-    GroupMenu                               columnMenu;
-
-    // --- verbi della shell, tenuti per selezione -----------------------------
-    //
-    // Chiedere alla shell il menu contestuale costa ~65 ms di regime e una ventina
-    // di **handle di kernel che non tornano piu' giu'** (misurato, `docs/02`
-    // §7.38): le istanze delle estensioni restano vive nel processo. Chiederlo due
-    // volte per la stessa selezione e' lavoro ripetuto *e* una perdita, quindi si
-    // tiene l'ultimo risultato finche' la selezione non cambia.
-    //
-    // Gli oggetti della shell stanno qui e non nel menu: il menu li prende in
-    // prestito e li restituisce chiudendosi. Chi li rilascia davvero e' questa
-    // memoria, quando il risultato non serve piu'.
-    struct ShellMenuCache
-    {
-        bool                          valid      = false;
-        bool                          background = false;
-        std::wstring                  key;
-        std::vector<ContextMenuItem>  items;
-        IContextMenu*                 shell  = nullptr;
-        HMENU                         handle = nullptr;
-        double                        stamp  = 0.0;
-    };
-    ShellMenuCache shellMenuCache;
-
-    // La geometria della griglia: i rettangoli di ogni riga, senza lo scorrimento.
-    // Si rifa' solo quando cambia qualcosa da cui dipende.
-    std::vector<Rect> gridRects;
-    size_t            gridRectsRows  = static_cast<size_t>(-1);
-    float             gridRectsWidth = -1.0f;
-    float             gridRectsScale = -1.0f;
-    int               gridRectsView  = -1;
-    int               gridRectsGroup = -1;
-    float             gridRectsIcon  = -1.0f;
-
-    // --- operazioni su file (M7) -------------------------------------------
-    //
-    // Rinomina sul posto: il campo si disegna sopra la riga, quindi la lista non
-    // cambia impaginazione mentre si scrive.
-    bool         renameActive = false;
-    std::wstring renamePath;        // percorso completo di cio' che si rinomina
-    std::wstring renameOriginal;    // nome di partenza, per annullare con Esc
-    std::string  renameText;        // il nome in scrittura
-
-    // Vero se l'ultima scrittura in clipboard era un taglio: decide se incollare
-    // copia o sposta, ed e' lo stesso bit che Esplora risorse legge.
-    bool clipboardCut = false;
-
-    // Messaggio d'esito nella barra di stato. Un'operazione che fallisce in
-    // silenzio e' peggio di una che non parte: senza questo, "Sposta" su un file
-    // in uso sembrerebbe non aver fatto nulla.
-    std::wstring statusMessage;
-    double       statusMessageTime = 0.0;
-
-    int   hovered  = -1;
-    // Quando il puntatore si e' fermato sulla riga, e dove si trova. Servono a due
-    // chiavi dello spec: `HoverToSelect` seleziona dopo una pausa, `ShowTooltips`
-    // aspetta la stessa pausa prima di mostrare qualcosa. Una selezione o un
-    // suggerimento a ogni movimento del mouse renderebbero l'elenco illeggibile.
-    double hoverStart      = 0.0;
-    float  pointerX        = 0.0f;
-    float  pointerY        = 0.0f;
-
-    // --- interazione (M5d) ---------------------------------------------------
-    //
-    // Tre chiavi dello spec. Nell'originale sono **impostazioni**, quindi non sono
-    // comportamento predefinito: qui si accendono dalla palette. I valori di
-    // partenza dell'originale non sono ricostruiti, e questi si dichiarano —
-    // i suggerimenti accesi, gli altri due spenti.
-    bool hoverToSelect    = false;
-    bool underlineOnHover = false;
-    bool showTooltips     = true;
-
-    // --- comportamento del clic (M5d) ----------------------------------------
-    //
-    // Cinque chiavi dello spec, tutte **impostazioni** nell'originale: qui si
-    // accendono dalla palette. Tutte spente di partenza — il doppio clic e' il
-    // gesto che si aspetta chiunque, e cambiarlo senza che nessuno l'abbia chiesto
-    // vorrebbe dire cambiare il programma sotto le mani di chi lo usa.
-    //
-    // `SingleClickFoldersOnly` vale solo col primo acceso: senza, non vuol dire
-    // niente, e infatti da solo non fa niente.
-    bool singleClick            = false;   // SingleClick
-    bool singleClickFoldersOnly = false;   // SingleClickFoldersOnly
-    bool actOnPress             = false;   // ActOnPress
-    bool doubleClickToParent    = false;   // DoubleClickToParent
-    bool showCheckboxes         = false;   // ShowCheckboxes
-
-    // La misura delle celle nella griglia, in pixel **non** scalati: una sola, da
-    // cui discendono icona, cella ed etichetta.
-    //
-    // `Icons` e `Tiles` non sono due viste diverse: sono **due punti** della stessa
-    // misura — la piccola e la grande — ed e' la rotella con Ctrl a portarla dove
-    // si vuole, come in Esplora risorse. Prima erano due numeri fissi in una
-    // `switch`, e la cella era larga 104/64 di qua e 176/128 di la': due rapporti
-    // diversi per la stessa cosa.
-    float gridIconSize = 64.0f;
-    static constexpr float kGridIconMin = 32.0f;
-    static constexpr float kGridIconMax = 256.0f;
-    // Sotto questa misura la vista si chiama `Icons`, sopra `Tiles`. Serve al pie'
-    // di pagina e alla palette, che devono dire cosa si sta guardando adesso e non
-    // cosa si e' premuto l'ultima volta.
-    static constexpr float kGridIconSplit = 96.0f;
-
-    // --- M9: le preferenze che il pannello delle opzioni comanda ---------------
-    //
-    // Sono valori veri, non decorazione: ognuno di questi lo legge un pezzo di
-    // vista o di disegno. Un controllo che dichiara qualcosa che la vista non sta
-    // facendo e' peggio di un controllo assente.
-    std::wstring fontFace    = L"Segoe UI";   // Font
-    int          uiFontSize  = 15;             // Font Size (il corpo secondario sta due punti sotto)
-    std::wstring monoFace    = L"Consolas";   // Inspector Font
-    int          monoFontSize = 14;            // Inspector Font Size
-    float        rowSpacing  = 24.0f;          // Spacing: l'altezza di una riga di lista
-    bool         alternatingRows = true;       // Alternating Row Colors
-    static constexpr float kRowSpacingMin = 18.0f;
-    static constexpr float kRowSpacingMax = 40.0f;
-    static constexpr int   kUiFontSizeMin = 9;
-    static constexpr int   kUiFontSizeMax = 24;
-    static constexpr int   kMonoFontSizeMin = 8;
-    static constexpr int   kMonoFontSizeMax = 24;
-
-    // La misura delle anteprime, in percentuale: 0 le spegne, 100 e' la misura
-    // piena, 50 le disegna a meta' — **dove c'e' spazio**, cioe' nella slot
-    // dell'icona di una cella o di una riga. Oltre il 100 non si sale: la slot e'
-    // quella, e una miniatura piu' grande finirebbe sopra l'etichetta. E' il
-    // controllo che il riferimento mette in fondo alla finestra.
-    static constexpr float kPreviewSteps[3] = {0.0f, 0.5f, 1.0f};
-    static constexpr int   kPreviewStepCount = 3;
-    int previewStep = 2;   // 100%
-    float PreviewZoom() const { return kPreviewSteps[previewStep]; }
-
-    // Il campo di testo di un controllo `Text`, mentre si scrive: il carattere
-    // digitato va qui e non nel filtro.
-    bool        optionEditActive = false;
-    int         optionEditId     = -1;
-    std::string optionEditText;
-    // Il cursore di uno slider mentre lo si trascina: -1 quando non si trascina.
-    int         optionSliderDrag = -1;
-
-    float scroll   = 0.0f;
-    float zoom     = 1.0f;
-    float dpiScale = 1.0f;
-    int   hoveredPlace = -1;
-
-    SortColumn sortColumn    = SortColumn::Name;
-    bool       sortAscending = true;
-    ViewMode   viewMode      = ViewMode::Details;
-
-    // View: filter and grouping sit between the directory and the rows.
-    std::wstring filter;          // free text; a term may be an extension pattern
-    bool         filterActive = false;
-    std::vector<Row>   rows;
-    std::vector<Group> groups;
-
-    // Two menus, one component.
-    GroupMenu palette;                       // Ctrl+Shift+P, item id = CommandId
-    GroupMenu goTo;                          // Ctrl+P / F4, item id = index in goToTargets
-    // Il pannello delle opzioni (Ctrl+,) e il sottoelenco che un controllo
-    // `Choice` apre: due `GroupMenu` distinti perche' il secondo si chiude da solo
-    // lasciando aperto il primo.
-    GroupMenu options;                       // Ctrl+, item id = OptionId
-    GroupMenu optionsChoice;                 // valori di un controllo Choice
-    int       optionsChoiceParent = -1;      // OptionId dell'opzione da cui e' nato
-    ContextMenu contextMenu;                 // tasto destro
-
-    // Il pannello delle **proprieta' in-app**: le stesse righe dell'inspector, ma
-    // in una finestra nostra, per la sola voce scelta. `Proprieta` del menu lo
-    // apre; `Proprieta di Windows` apre ancora quello di sistema, per le cose che
-    // solo lui sa (permessi, versioni precedenti, pagine per tipo di file).
-    bool                       propertiesOpen = false;
-    float                      propertiesScroll = 0.0f;
-    std::wstring               propertiesTitle;
-    std::wstring               propertiesSubtitle;
-    std::vector<InspectorRow>  propertiesRows;
-    std::vector<std::wstring> goToTargets;
-    std::vector<std::wstring> recents;       // visited this run: StoreRecents = Session
-    std::vector<std::wstring> bookmarks;     // this run; persistence is milestone 9
-    std::unordered_set<std::string> collapsedGroups;
-    GroupMode    groupMode  = GroupMode::None;
-    int          matchCount = 0;   // entries surviving the filter, folding aside
-    bool         viewDirty  = true;
-
-    // Navigation history of the active tab, saved into and out of it like the
-    // rest of the tab state.
-    std::vector<std::wstring> history;
-    int                       historyIndex = -1;
-    uint64_t     viewStatsRevision = 0;
-    double       lastViewRebuild   = 0.0;
-
-    std::string errorText;
-
-    double lastFrameTime = 0.0;
-    float  framesPerSecond = 0.0f;
-    int    viewportWidth = 0;
-    int    viewportHeight = 0;
-};
-
 // --- impostazioni ------------------------------------------------------------
 //
 // Le preferenze si **ricordano**. `docs/06` chiedeva che la persistenza fosse
@@ -936,26 +107,6 @@ struct AppState
 // cosa si e' guardato: solo come si vuole che il programma si comporti.
 // Il primo tratto del file di impostazioni si legge da una funzione che sta piu'
 // in basso: la conversione UTF-8 <-> UTF-16 serve prima della sua definizione.
-std::string  ToUtf8(const std::wstring& text);
-std::wstring Widen(const std::string& text);
-
-std::wstring SettingsPath()
-{
-    PWSTR roaming = nullptr;
-    std::wstring path;
-    if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_RoamingAppData, 0, nullptr, &roaming)) &&
-        roaming != nullptr)
-    {
-        path = roaming;
-        CoTaskMemFree(roaming);
-    }
-    if (path.empty())
-        return path;
-    path += L"\\Bolt";
-    CreateDirectoryW(path.c_str(), nullptr);
-    return path + L"\\settings.ini";
-}
-
 // Una riga per preferenza, "chiave=valore". Niente librerie e niente formato
 // binario: si apre col Blocco note e si capisce.
 bool ReadSetting(const std::string& text, const char* key, std::string* value)
@@ -978,6 +129,23 @@ bool ReadSetting(const std::string& text, const char* key, std::string* value)
         at = end + 1;
     }
     return false;
+}
+
+std::wstring SettingsPath()
+{
+    PWSTR roaming = nullptr;
+    std::wstring path;
+    if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_RoamingAppData, 0, nullptr, &roaming)) &&
+        roaming != nullptr)
+    {
+        path = roaming;
+        CoTaskMemFree(roaming);
+    }
+    if (path.empty())
+        return path;
+    path += L"\\Bolt";
+    CreateDirectoryW(path.c_str(), nullptr);
+    return path + L"\\settings.ini";
 }
 
 void LoadSettings(AppState& app)
@@ -1108,6 +276,7 @@ bool SaveSettings(const AppState& app)
 // Ricorda la preferenza e, se non si riesce, lo dice: e' l'unico modo di sapere che
 // una scelta non verra' ritrovata al prossimo avvio.
 void ReportStatus(AppState& app, const std::wstring& message);
+using Bolt::NowSeconds;
 
 void RememberSettings(AppState& app)
 {
@@ -1122,109 +291,10 @@ void RememberSettings(AppState& app)
 int  FindEntryByName(const AppState& app, const std::wstring& name);
 int  CursorIndex(const AppState& app);
 bool IsEntrySelected(const AppState& app, const Entry& entry);
-std::wstring ParentOf(const std::wstring& path);
-double       NowSeconds();
-std::wstring Widen(const std::string& text);
-
-// --- string helpers --------------------------------------------------------
-std::string ToUtf8(const std::wstring& text)
-{
-    if (text.empty())
-        return {};
-    const int needed = WideCharToMultiByte(CP_UTF8, 0, text.data(), static_cast<int>(text.size()),
-                                          nullptr, 0, nullptr, nullptr);
-    std::string out(static_cast<size_t>(needed), '\0');
-    WideCharToMultiByte(CP_UTF8, 0, text.data(), static_cast<int>(text.size()),
-                        out.data(), needed, nullptr, nullptr);
-    return out;
-}
-
-std::wstring Widen(const std::string& text)
-{
-    if (text.empty())
-        return {};
-    const int needed = MultiByteToWideChar(CP_UTF8, 0, text.data(), static_cast<int>(text.size()), nullptr, 0);
-    std::wstring out(static_cast<size_t>(needed), L'\0');
-    MultiByteToWideChar(CP_UTF8, 0, text.data(), static_cast<int>(text.size()), out.data(), needed);
-    return out;
-}
-
 // Directory and name joined with exactly one separator, so a drive root such as
 // "C:\\" does not become "C:\\\\name".
-std::wstring JoinPath(const std::wstring& directory, const std::wstring& name)
-{
-    if (directory.empty())
-        return name;
-    if (directory.back() == L'\\')
-        return directory + name;
-    return directory + L"\\" + name;
-}
-
-std::string HumanBytes(uint64_t bytes)
-{
-    static const char* units[] = {"B", "KB", "MB", "GB", "TB"};
-    double value = static_cast<double>(bytes);
-    int unit = 0;
-    while (value >= 1024.0 && unit < 4)
-    {
-        value /= 1024.0;
-        ++unit;
-    }
-    char buffer[64];
-    std::snprintf(buffer, sizeof(buffer), (unit == 0) ? "%.0f %s" : "%.1f %s", value, units[unit]);
-    return buffer;
-}
-
 // Compact count formatting for the Folders and Files columns, in the style the
 // reference application uses: 89, 2.4K, 18.4K, 131K, 109.3K.
-std::string HumanCount(uint64_t value)
-{
-    if (value < 1000)
-        return std::to_string(value);
-
-    static const char* suffixes[] = {"K", "M", "B"};
-    double scaled = static_cast<double>(value) / 1000.0;
-    int suffix = 0;
-    while (scaled >= 1000.0 && suffix < 2)
-    {
-        scaled /= 1000.0;
-        ++suffix;
-    }
-
-    // Round to one decimal, then drop the decimal when it carries nothing: a
-    // count of 131 000 reads better as "131K" than as "131.0K".
-    const double tenths = std::floor(scaled * 10.0 + 0.5) / 10.0;
-    char buffer[32];
-    if (tenths == std::floor(tenths))
-        std::snprintf(buffer, sizeof(buffer), "%.0f%s", tenths, suffixes[suffix]);
-    else
-        std::snprintf(buffer, sizeof(buffer), "%.1f%s", tenths, suffixes[suffix]);
-    return buffer;
-}
-
-std::string FormatFileTime(const FILETIME& fileTime, bool withTime)
-{
-    FILETIME local{};
-    SYSTEMTIME system{};
-    if (FileTimeToLocalFileTime(&fileTime, &local) == FALSE ||
-        FileTimeToSystemTime(&local, &system) == FALSE)
-        return "-";
-
-    char buffer[64];
-    if (withTime)
-        std::snprintf(buffer, sizeof(buffer), "%04u-%02u-%02u %02u:%02u",
-                      system.wYear, system.wMonth, system.wDay, system.wHour, system.wMinute);
-    else
-        std::snprintf(buffer, sizeof(buffer), "%04u-%02u-%02u",
-                      system.wYear, system.wMonth, system.wDay);
-    return buffer;
-}
-
-uint64_t FileTimeToUint64(const FILETIME& fileTime)
-{
-    return (static_cast<uint64_t>(fileTime.dwHighDateTime) << 32) | fileTime.dwLowDateTime;
-}
-
 // Truncates |text| with a trailing ellipsis so it cannot spill into the next
 // column. The renderer has no scissor rectangle, so fitting has to happen here.
 const FileProperties& PropertiesOf(AppState& app, const std::wstring& path)
@@ -1383,91 +453,9 @@ const std::wstring& ShortcutTarget(AppState& app, const Entry& entry)
     return app.shortcutTargets.emplace(path, std::move(target)).first->second;
 }
 
-std::string FitText(const FontAtlas& font, const std::string& text, float scale, float maxWidth)
-{
-    if (maxWidth <= 0.0f || text.empty())
-        return {};
-    if (font.Measure(text, scale) <= maxWidth)
-        return text;
-
-    const std::string ellipsis = "...";
-    const float ellipsisWidth = font.Measure(ellipsis, scale);
-
-    std::string truncated;
-    float width = 0.0f;
-    for (size_t i = 0; i < text.size(); i = Utf8::Next(text, i))
-    {
-        // Il taglio cade fra un carattere e l'altro, mai dentro: troncare a meta'
-        // una sequenza UTF-8 lascia un byte che il disegno legge come un altro
-        // carattere, e in fondo al nome compare un simbolo che non c'e'.
-        const size_t length = Utf8::Length(text, i);
-        const float advance = font.MeasureOne(Utf8::At(text, i, nullptr), scale);
-        if (width + advance + ellipsisWidth > maxWidth)
-            break;
-        truncated.append(text, i, length);
-        width += advance;
-    }
-    return truncated + ellipsis;
-}
-
 // Come FitText, ma taglia **davanti**: per un percorso la parte che identifica e' la
 // coda, e "...\sandbox\relazione.txt" si legge meglio di "...\Progetti\Antigravity\...".
-std::string FitTextTail(const FontAtlas& font, const std::string& text, float scale, float maxWidth)
-{
-    if (maxWidth <= 0.0f || text.empty() || font.Measure(text, scale) <= maxWidth)
-        return text;
-
-    const std::string ellipsis = "...";
-    const float ellipsisWidth = font.Measure(ellipsis, scale);
-
-    // Si parte dal fondo e si cammina all'indietro, un carattere alla volta: cosi'
-    // il taglio cade fra due caratteri e non a meta' di una sequenza UTF-8.
-    std::vector<size_t> starts;
-    for (size_t i = 0; i < text.size(); i = Utf8::Next(text, i))
-        starts.push_back(i);
-
-    float width = 0.0f;
-    size_t keepFrom = text.size();
-    for (size_t i = starts.size(); i > 0; --i)
-    {
-        const size_t index = starts[i - 1];
-        const float advance = font.MeasureOne(Utf8::At(text, index, nullptr), scale);
-        if (width + advance + ellipsisWidth > maxWidth)
-            break;
-        width += advance;
-        keepFrom = index;
-    }
-    return ellipsis + text.substr(keepFrom);
-}
-
 // Shell type name for an extension, cached: "PNG image" reads better than "PNG file".
-std::string ShellTypeName(const std::string& extension, bool isDirectory)
-{
-    static std::unordered_map<std::string, std::string> cache;
-    const std::string key = isDirectory ? std::string("<dir>") : extension;
-
-    const auto cached = cache.find(key);
-    if (cached != cache.end())
-        return cached->second;
-
-    const std::wstring synthetic = isDirectory ? L"folder" : (L"x." + Widen(extension));
-    const DWORD attributes = isDirectory ? FILE_ATTRIBUTE_DIRECTORY : FILE_ATTRIBUTE_NORMAL;
-
-    SHFILEINFOW info{};
-    std::string result;
-    if (SHGetFileInfoW(synthetic.c_str(), attributes, &info, sizeof(info),
-                       SHGFI_TYPENAME | SHGFI_USEFILEATTRIBUTES) != 0)
-        result = ToUtf8(info.szTypeName);
-
-    if (result.empty())
-        result = isDirectory ? Tr("Cartella di file", "File folder")
-                             : (extension.empty() ? Tr("File", "File")
-                                                  : extension + Tr(" file", " file"));
-
-    cache.emplace(key, result);
-    return result;
-}
-
 // --- directory reading -----------------------------------------------------
 //
 // Le voci di una cartella che non e' un percorso. Il lavoro grosso lo fa
@@ -2090,23 +1078,37 @@ void RebuildView(AppState& app)
 
 // Last path component, which is what a tab is labelled with. A drive root keeps
 // its colon and slash so "C:\" does not become an empty label.
-std::wstring LeafName(const std::wstring& path)
-{
-    if (path.empty())
-        return L"This PC";
-    std::wstring trimmed = path;
-    while (trimmed.size() > 3 && trimmed.back() == L'\\')
-        trimmed.pop_back();
-    const size_t slash = trimmed.find_last_of(L'\\');
-    if (slash == std::wstring::npos)
-        return trimmed;
-    const std::wstring leaf = trimmed.substr(slash + 1);
-    return leaf.empty() ? trimmed : leaf;
-}
-
 // Il nome assoluto di una voce: quello che si e' letto per le cartelle dello
 // spazio dei nomi, o il percorso dentro la cartella aperta per tutto il resto.
 //
+// Quanto spazio il disco ha riservato per **un** file. Una chiamata, e solo dove
+// serve per una voce sola: per un albero sarebbe una chiamata per file, ed e' per
+// questo che `dir_stats` legge le cartelle in blocco.
+//
+// Il campo e' `FILE_STANDARD_INFO.AllocationSize` — **lo stesso** che l'enumerazione
+// in blocco legge per ogni voce, quindi le due strade non possono raccontare cose
+// diverse. Non si usa `GetCompressedFileSizeW`, che sarebbe la chiamata ovvia: su
+// questa macchina risponde con la dimensione **logica** (10240 per un file da 10240,
+// che occupa 12288), e un "su disco" uguale alla dimensione e' una funzione che
+// sembra non fare niente.
+bool AllocatedSizeOf(const std::wstring& path, uint64_t* bytes)
+{
+    HANDLE handle = CreateFileW(path.c_str(), FILE_READ_ATTRIBUTES,
+                                FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
+                                OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, nullptr);
+    if (handle == INVALID_HANDLE_VALUE)
+        return false;
+
+    FILE_STANDARD_INFO info{};
+    const bool read = GetFileInformationByHandleEx(handle, FileStandardInfo, &info, sizeof(info)) != FALSE;
+    CloseHandle(handle);
+
+    if (!read)
+        return false;
+    *bytes = static_cast<uint64_t>(info.AllocationSize.QuadPart);
+    return true;
+}
+
 // Un solo posto decide, cosi' aprire, selezionare e chiedere un verbo alla shell
 // non possono divergere sul significato di "dove sta questa voce".
 std::wstring EntryLocation(const AppState& app, const Entry& entry)
@@ -2132,26 +1134,6 @@ const ShellIconAtlas::IconUV* IconFor(AppState& app, const Entry& entry)
 // Come si chiama una posizione: il suo nome se e' un percorso, il nome che le da'
 // la shell se e' una cartella dello spazio dei nomi — "Cestino", non
 // "::{645FF040-...}".
-std::wstring LocationLabel(const AppState& app, const std::wstring& location)
-{
-    if (location.empty())
-        return L"";
-    // Il nome lo da' la shell, e lo traduce **lei**: "Questo PC" in italiano,
-    // "This PC" in inglese. Prima qui si teneva l'inglese perche' e' il nome del
-    // riferimento; ma il riferimento e' un prodotto in inglese, e chi usa questo
-    // sceglie la lingua dalla palette: un percorso che dice "This PC" accanto a una
-    // barra laterale che dice "Questo PC" e' due nomi per la stessa cosa.
-    if (!app.thisPcPath.empty() && location == app.thisPcPath)
-    {
-        const std::wstring name = ShellLocation::DisplayName(location);
-        return name.empty() ? L"This PC" : name;
-    }
-    if (!ShellLocation::IsNamespace(location))
-        return location;
-    const std::wstring name = ShellLocation::DisplayName(location);
-    return name.empty() ? location : name;
-}
-
 void UpdateWindowTitle(AppState& app)
 {
     if (app.window == nullptr)
@@ -2220,6 +1202,12 @@ void LoadDirectory(AppState& app, const std::wstring& directory, bool recordHist
         app.recents.resize(20);
 
     UpdateWindowTitle(app);
+
+    // La sorveglianza segue la navigazione: c'e' un watcher solo, e guarda la
+    // cartella aperta. Se e' la stessa non fa niente, quindi si puo' chiamare qui
+    // senza pensarci — e va chiamata **dopo** che `app.directory` e' la cartella
+    // nuova, o sorveglierebbe quella di prima.
+    app.watcher.Watch(app.directory);
 }
 
 // --- tabs -------------------------------------------------------------------
@@ -2280,40 +1268,6 @@ void LoadActiveTab(AppState& app)
 // fotogramma invece di essere l'ordine in cui i tab sono nati, cosi' chiudere o
 // spostare non deve aggiustare l'indice di tutti gli altri — che e' il modo in cui
 // un albero diventa un groviglio.
-int TabById(const AppState& app, int id)
-{
-    for (int i = 0; i < static_cast<int>(app.tabs.size()); ++i)
-    {
-        if (app.tabs[static_cast<size_t>(i)].id == id)
-            return i;
-    }
-    return -1;
-}
-
-int TabRootId(const AppState& app, int id)
-{
-    // Il ciclo si ferma anche se qualcuno, un giorno, chiudesse un anello: un
-    // albero sbagliato deve disegnarsi male, non bloccare la finestra.
-    for (int guard = 0; guard < 64; ++guard)
-    {
-        const int index = TabById(app, id);
-        if (index < 0)
-            return id;
-        const int parent = app.tabs[static_cast<size_t>(index)].parentId;
-        if (parent < 0)
-            return id;
-        id = parent;
-    }
-    return id;
-}
-
-bool TabIsDescendantOf(const AppState& app, int id, int ancestorId)
-{
-    if (id == ancestorId)
-        return true;
-    return TabRootId(app, id) == ancestorId;
-}
-
 const ClickTarget* HitTest(const AppState& app, float x, float y, ClickTarget::Kind kind);
 
 // Dove finirebbe il tab trascinato, dato il punto del puntatore. Sta qui e non nel
@@ -2350,27 +1304,6 @@ void UpdateTabDrop(AppState& app, float x, float y)
 }
 
 // La fila come si vede: ogni coppia e' (indice del tab, quanto e' profondo).
-std::vector<std::pair<int, int>> TabOrder(const AppState& app)
-{
-    std::vector<std::pair<int, int>> out;
-    out.reserve(app.tabs.size());
-
-    // I figli si mettono subito dopo il genitore, ricorsivamente: un ramo alla
-    // volta, nell'ordine di nascita. Le radici in fondo.
-    std::function<void(int, int)> walk = [&](int parentId, int depth)
-    {
-        for (int i = 0; i < static_cast<int>(app.tabs.size()); ++i)
-        {
-            if (app.tabs[static_cast<size_t>(i)].parentId != parentId)
-                continue;
-            out.push_back({i, depth});
-            walk(app.tabs[static_cast<size_t>(i)].id, depth + 1);
-        }
-    };
-    walk(-1, 0);
-    return out;
-}
-
 void NewTab(AppState& app, const std::wstring& directory)
 {
     SaveActiveTab(app);
@@ -2671,19 +1604,7 @@ void BuildPlaces(AppState& app)
 }
 
 // --- layout ----------------------------------------------------------------
-struct Layout
-{
-    Rect titleBar;
-    Rect sidebar;
-    Rect toolbar;
-    Rect header;
-    Rect list;
-    Rect inspector;
-    Rect statusBar;
-    Rect filterBar;
-    float rowHeight = 0.0f;
-    float scale = 1.0f;
-};
+;
 
 Layout ComputeLayout(const AppState& app)
 {
@@ -2725,243 +1646,9 @@ Layout ComputeLayout(const AppState& app)
 }
 
 // --- drawing ---------------------------------------------------------------
-float TextY(const Layout& layout, const Rect& row, const FontAtlas& font)
-{
-    const float lineHeight = font.LineHeight() * layout.scale;
-    return row.y + (row.h - lineHeight) * 0.5f;
-}
-
 // The window draws its own caption. The native one is removed by answering
 // WM_NCCALCSIZE; what replaces it is a tab strip, which is the point of the
 // milestone, plus the three window buttons and the menu button.
-void DrawTitleBar(AppState& app, const Layout& layout)
-{
-    IRenderer& r = *app.renderer;
-    const Theme& t = app.theme;
-    const float scale = layout.scale;
-    const Rect bar = layout.titleBar;
-
-    r.FillRect(bar, t.headerBg);
-    r.FillRect(Rect{bar.x, bar.bottom() - 1.0f, bar.w, 1.0f}, t.separator);
-
-    const float buttonWidth = 44.0f * scale;
-    const float stripLeft   = 44.0f * scale;
-    const float stripRight  = bar.right() - buttonWidth * 3.0f;
-
-    // Menu button. The reference opens the application menu here; the menu
-    // component arrives with the command palette, so for now it toggles the one
-    // thing the shell already has.
-    const Rect menu{bar.x + 6.0f * scale, bar.y + 7.0f * scale, 30.0f * scale, bar.h - 14.0f * scale};
-    r.FillRect(menu, app.hoveredChrome == 0 ? t.rowHover : t.panelBg, 5.0f * scale);
-    for (int i = 0; i < 3; ++i)
-        r.FillRect(Rect{menu.x + 8.0f * scale, menu.y + 5.0f * scale + i * 5.0f * scale,
-                        14.0f * scale, 1.5f * scale}, t.text);
-    {
-        ClickTarget target;
-        target.rect = menu;
-        target.kind = ClickTarget::Kind::Menu;
-        app.clickTargets.push_back(target);
-    }
-
-    float x = stripLeft;
-    // La fila si ricava dall'albero: un figlio si disegna subito dopo il genitore,
-    // rientrato. L'ordine di nascita non conta piu'.
-    for (const std::pair<int, int>& node : TabOrder(app))
-    {
-        const int i     = node.first;
-        const int depth = node.second;
-        const Tab& tab = app.tabs[static_cast<size_t>(i)];
-        // The active tab's snapshot is empty while it is live: its entries were
-        // moved out and only the live fields are current, so the title has to come
-        // from there.
-        const std::wstring& source = (i == app.activeTab) ? app.directory : tab.directory;
-        // Il tab mostra il **nome della cartella**, non tutto il percorso: un
-        // percorso lungo non ci sta e diventa illeggibile proprio nella parte che
-        // identifica. Il pezzo che viene prima si mostra in piccolo e spento, e solo
-        // se avanza spazio.
-        const std::wstring leafW = ShellLocation::IsNamespace(source)
-                                       ? LocationLabel(app, source)
-                                       : LeafName(source);
-        std::wstring parentW;
-        if (!ShellLocation::IsNamespace(source))
-        {
-            const size_t slash = source.find_last_of(L'\\');
-            if (slash != std::wstring::npos && slash + 1 < source.size())
-                parentW = source.substr(0, slash + 1);
-        }
-        const std::string leaf   = ToUtf8(leafW);
-        const std::string parent = ToUtf8(parentW);
-
-        // La larghezza si misura sul **nome**, piu' un margine per il pezzo di
-        // percorso che precede (fino a un tetto): un nome corto in una cartella
-        // profonda resta un tab stretto, e il percorso non lo allunga oltre il tetto.
-        const float parentExtra = (std::min)(app.smallFont.Measure(parent, scale), 110.0f * scale);
-        const float width = (std::min)(200.0f * scale,
-                                       (std::max)(110.0f * scale,
-                                                  app.font.Measure(leaf, scale) + 66.0f * scale +
-                                                      parentExtra));
-        if (x + width > stripRight)
-            break;   // no overflow menu yet: extra tabs are simply not drawn
-
-        const Rect tabRect{x, bar.y + 5.0f * scale, width, bar.h - 5.0f * scale};
-        const bool active = (i == app.activeTab);
-
-        if (active)
-        {
-            r.FillRect(tabRect, t.panelBg, 6.0f * scale);
-            r.Draw(UIDraw::Border(tabRect, t.panelBorder, 1.0f, 6.0f * scale));
-        }
-        else if (i == app.hoveredTab)
-        {
-            r.FillRect(tabRect, t.rowHover, 6.0f * scale);
-        }
-
-        // Il rientro di un figlio, con la riga che lo lega al genitore: senza, un
-        // tab annidato e' indistinguibile da uno spostato.
-        const float indent = static_cast<float>(depth) * 12.0f * scale;
-        if (depth > 0)
-        {
-            r.FillRect(Rect{tabRect.x + indent - 8.0f * scale, tabRect.y + 6.0f * scale,
-                            1.0f * scale, tabRect.h - 12.0f * scale},
-                       t.separator);
-        }
-
-        // L'icona e' quella dell'oggetto che il tab mostra: un disco per `C:`, un
-        // cestino per il cestino, una cartella per una cartella. Non si tinge: e' la
-        // sua, come nel riquadro di navigazione.
-        const ShellIconAtlas::IconUV* tabIcon = app.icons.GetForObject(source);
-        if (tabIcon == nullptr)
-            tabIcon = app.icons.GetFor("", true);
-        if (tabIcon != nullptr)
-        {
-            const Rect icon{tabRect.x + 10.0f * scale + indent, tabRect.y + 6.0f * scale,
-                            16.0f * scale, 16.0f * scale};
-            r.Draw(UIDraw::Image(icon, Color{1.0f, 1.0f, 1.0f, 1.0f}, kIconLayer,
-                                 tabIcon->u0, tabIcon->v0, tabIcon->u1, tabIcon->v1));
-        }
-
-        // Il nome in evidenza; il percorso che precede, in piccolo e spento, solo
-        // se c'e' spazio per leggerlo. Se non ce n'e', sparisce invece di stringere
-        // il nome.
-        const float contentX = tabRect.x + 32.0f * scale + indent;
-        const float contentW = tabRect.w - 56.0f * scale - indent;
-        float leafX = contentX;
-        if (!parent.empty())
-        {
-            const float leafWidth = app.font.Measure(leaf, scale);
-            const float room = contentW - leafWidth - 12.0f * scale;
-            if (room > 40.0f * scale)
-            {
-                const std::string shownParent = FitTextTail(app.smallFont, parent, scale, room);
-                app.smallFont.Draw(r, contentX, TextY(layout, tabRect, app.smallFont),
-                                   shownParent,
-                                   active ? t.textDim : t.textDim.WithAlpha(0.6f), scale);
-                leafX = contentX + app.smallFont.Measure(shownParent, scale) + 8.0f * scale;
-            }
-        }
-        app.font.Draw(r, leafX, TextY(layout, tabRect, app.font),
-                      FitText(app.font, leaf, scale,
-                              tabRect.right() - 28.0f * scale - leafX),
-                      active ? t.text : t.textDim, scale);
-
-        const Rect close{tabRect.right() - 24.0f * scale, tabRect.y + 5.0f * scale,
-                         18.0f * scale, tabRect.h - 10.0f * scale};
-        app.smallFont.Draw(r, close.x + 5.0f * scale, TextY(layout, close, app.smallFont), "x",
-                      i == app.hoveredTab ? t.text : t.textDim, scale);
-
-        ClickTarget tabTarget;
-        tabTarget.rect  = tabRect;
-        tabTarget.kind  = ClickTarget::Kind::Tab;
-        tabTarget.index = i;
-        app.clickTargets.push_back(tabTarget);
-
-        // Il marcatore del trascinamento: dove finirebbe il tab che si sta
-        // spostando. La riga dice "prima o dopo", il tab intero dice "dentro" — e
-        // non promette niente che il rilascio rifiuterebbe: dentro se stesso o
-        // dentro un proprio discendente non si va, o l'albero prende un anello.
-        if (app.dragTab >= 0 && app.tabDropTarget == i)
-        {
-            const bool refused = TabIsDescendantOf(app, tab.id, app.dragTab);
-            if (app.tabDropInto)
-            {
-                if (!refused)
-                    r.Draw(UIDraw::Fill(tabRect, t.accent.WithAlpha(0.18f), 6.0f * scale));
-            }
-            else
-            {
-                const float lineX = app.tabDropAfter ? tabRect.right() : tabRect.x;
-                r.FillRect(Rect{lineX - 1.0f * scale, tabRect.y, 2.0f * scale, tabRect.h},
-                           t.accent, 1.0f * scale);
-            }
-        }
-
-        ClickTarget closeTarget;
-        closeTarget.rect  = close;
-        closeTarget.kind  = ClickTarget::Kind::TabClose;
-        closeTarget.index = i;
-        app.clickTargets.push_back(closeTarget);
-
-        x += width + 3.0f * scale;
-    }
-
-    const Rect add{x, bar.y + 5.0f * scale, 30.0f * scale, bar.h - 5.0f * scale};
-    if (add.right() <= stripRight)
-    {
-        r.FillRect(add, app.hoveredChrome == 1 ? t.rowHover : t.headerBg, 5.0f * scale);
-        app.font.Draw(r, add.x + 11.0f * scale, TextY(layout, add, app.font), "+", t.text, scale);
-
-        ClickTarget target;
-        target.rect = add;
-        target.kind = ClickTarget::Kind::TabNew;
-        app.clickTargets.push_back(target);
-    }
-
-    const bool maximized = (app.window != nullptr) && IsZoomed(app.window) != FALSE;
-    for (int i = 0; i < 3; ++i)
-    {
-        const Rect button{stripRight + i * buttonWidth, bar.y, buttonWidth, bar.h};
-        const bool hot = (app.hoveredChrome == 2 + i);
-        if (hot)
-            r.FillRect(button, i == 2 ? Color::FromHex(0xC42B1C) : t.rowHover);
-
-        const Color glyph = hot && i == 2 ? Color{1, 1, 1, 1} : t.textDim;
-        const float centreX = button.x + buttonWidth * 0.5f;
-        const float centreY = button.y + button.h * 0.5f;
-
-        if (i == 0)
-        {
-            r.FillRect(Rect{centreX - 5.0f * scale, centreY, 10.0f * scale, 1.0f}, glyph);
-        }
-        else if (i == 1)
-        {
-            if (maximized)
-            {
-                r.Draw(UIDraw::Border(Rect{centreX - 4.0f * scale, centreY - 5.0f * scale,
-                                           9.0f * scale, 9.0f * scale}, glyph, 1.0f));
-                r.Draw(UIDraw::Border(Rect{centreX - 6.0f * scale, centreY - 3.0f * scale,
-                                           9.0f * scale, 9.0f * scale}, glyph, 1.0f));
-            }
-            else
-            {
-                r.Draw(UIDraw::Border(Rect{centreX - 5.0f * scale, centreY - 5.0f * scale,
-                                           10.0f * scale, 10.0f * scale}, glyph, 1.0f));
-            }
-        }
-        else
-        {
-            app.smallFont.Draw(r, centreX - app.smallFont.Measure("x", scale) * 0.5f,
-                          centreY - app.smallFont.LineHeight() * scale * 0.5f, "x", glyph, scale);
-        }
-
-        ClickTarget target;
-        target.rect = button;
-        target.kind = (i == 0) ? ClickTarget::Kind::WindowMinimize
-                    : (i == 1) ? ClickTarget::Kind::WindowMaximize
-                               : ClickTarget::Kind::WindowClose;
-        app.clickTargets.push_back(target);
-    }
-}
-
 void DrawToolbar(AppState& app, const Layout& layout, const std::wstring& displayPath)
 {
     IRenderer& r = *app.renderer;
@@ -3085,194 +1772,7 @@ void DrawToolbar(AppState& app, const Layout& layout, const std::wstring& displa
 // richiude le sezioni che l'utente aveva chiuso, e una sezione chiusa non si
 // riapre da sola.
 
-struct SidebarRow
-{
-    bool         header = false;
-    std::string  title;     // per un'intestazione: il nome che si legge
-    std::string  key;       // per un'intestazione: l'identita', che non si traduce
-    std::string  label;
-    std::wstring path;
-    std::wstring icon;      // l'oggetto della shell da cui farsi disegnare
-    bool         volume = false;
-    float        usedFraction = 0.0f;
-    std::string  freeText;
-};
-
-void BuildSidebarRows(const AppState& app, std::vector<SidebarRow>* rows)
-{
-    const auto section = [&](const char* key, const char* title, const std::vector<Place>& places) {
-        SidebarRow header;
-        header.header = true;
-        header.key    = key;
-        header.title  = title;
-        rows->push_back(std::move(header));
-
-        if (app.collapsedSections.count(key) != 0)
-            return;
-        for (const Place& place : places)
-        {
-            SidebarRow row;
-            row.label        = place.label;
-            row.path         = place.path;
-            row.icon         = place.icon;
-            row.freeText     = place.freeText;
-            row.usedFraction = place.usedFraction;
-            row.volume       = !place.freeText.empty();
-            rows->push_back(std::move(row));
-        }
-    };
-
-    // QUICK ACCESS si mostra solo se ha qualcosa dentro: una sezione vuota qui non
-    // vuol dire "non ne hai fissata nessuna", vuol dire che la cartella della shell
-    // non si e' letta — e una sezione vuota senza spiegazione non si capisce.
-    if (!app.quickAccess.empty())
-        section("QUICK ACCESS", Tr("ACCESSO RAPIDO", "QUICK ACCESS"), app.quickAccess);
-
-    // I recenti: le cartelle visitate in questa sessione, la piu' recente per
-    // prima. E' il ranking dei recenti (M4) nella sua forma minima — solo cartelle,
-    // e solo per la sessione (`StoreRecents: Session`, `docs/06`).
-    {
-        std::vector<Place> recents;
-        for (const std::wstring& path : app.recents)
-        {
-            if (path.empty() || path == app.directory)
-                continue;   // dove si e' gia' non e' un "recente" da riproporre
-            // Il nome di una cartella, non il percorso: di un percorso la parte che
-            // identifica e' la coda. Per una cartella di spazio dei nomi non c'e' una
-            // coda da tagliare, e il nome lo da' la shell.
-            const std::wstring label = ShellLocation::IsNamespace(path) ? LocationLabel(app, path)
-                                                                       : LeafName(path);
-            Place place;
-            place.label = ToUtf8(label);
-            place.path  = path;
-            place.icon  = path;
-            recents.push_back(std::move(place));
-        }
-        if (!recents.empty())
-            section("RECENTS", Tr("RECENTI", "RECENTS"), recents);
-    }
-
-    std::vector<Place> marks;
-    marks.reserve(app.bookmarks.size());
-    for (const std::wstring& path : app.bookmarks)
-    {
-        Place place;
-        place.label = ToUtf8(LeafName(path));
-        place.path  = path;
-        place.icon  = path;
-        marks.push_back(std::move(place));
-    }
-    section("BOOKMARKS", Tr("PREFERITI", "BOOKMARKS"), marks);
-
-    section("STORAGE", Tr("UNITÀ", "STORAGE"), app.volumes);
-    // "Places" sono le cartelle standard — This PC, la cartella personale, le
-    // cartelle di sistema, il cestino — quelle che ci sono sempre. "Posizioni" e'
-    // il nome che usa l'ambiente GTK per lo stesso elenco, ed e' l'unico che dice
-    // "dove si puo' andare" senza promettere che siano preferiti o cartelle.
-    section("PLACES", Tr("POSIZIONI", "PLACES"), app.places);
-}
-
-void DrawSidebar(AppState& app, const Layout& layout)
-{
-    if (!app.sidebarVisible)
-        return;
-
-    IRenderer& r = *app.renderer;
-    const Theme& t = app.theme;
-    const float scale = layout.scale;
-
-    r.Draw(UIDraw::Fill(layout.sidebar, t.panelBg, 6.0f * scale));
-
-    std::vector<SidebarRow> rows;
-    BuildSidebarRows(app, &rows);
-
-    float y = layout.sidebar.y + 8.0f * scale;
-    for (size_t i = 0; i < rows.size(); ++i)
-    {
-        const SidebarRow& item = rows[i];
-        const float rowHeight = (item.header ? 24.0f : (item.volume ? 46.0f : 26.0f)) * scale;
-        const Rect row{layout.sidebar.x + 5.0f * scale, y, layout.sidebar.w - 10.0f * scale,
-                       rowHeight};
-
-        if (item.header)
-        {
-            const bool collapsed = app.collapsedSections.count(item.title) != 0;
-            if (static_cast<int>(i) == app.hoveredSection)
-                r.FillRect(row, t.rowHover, 4.0f * scale);
-
-            // Il verso del triangolino e' lo stato: chiuso punta a destra, aperto in
-            // giu'. E' l'unico segno che dice che la sezione si puo' chiudere.
-            app.smallFont.Draw(r, row.x + 6.0f * scale, row.y + 5.0f * scale,
-                               collapsed ? ">" : "v", t.textDim, scale);
-            app.smallFont.Draw(r, row.x + 20.0f * scale, row.y + 5.0f * scale, item.title,
-                               t.textDim, scale);
-
-            ClickTarget target;
-            target.rect  = row;
-            target.kind  = ClickTarget::Kind::SidebarHeader;
-            target.label = item.key;
-            app.clickTargets.push_back(target);
-            y += rowHeight;
-            continue;
-        }
-
-        const bool active = (item.path == app.directory);
-        if (active)
-            r.FillRect(row, Color::FromHex(0x2E3138), 4.0f * scale);
-        else if (static_cast<int>(i) == app.hoveredPlace)
-            r.FillRect(row, t.rowHover, 4.0f * scale);
-
-        // La voce su cui e' in corso una caduta: lo stesso tratteggio delle righe,
-        // perche' e' la stessa cosa detta in un altro posto.
-        if (static_cast<int>(i) == app.dropTargetSidebarRow)
-            r.Draw(UIDraw::DashedBorder(row, t.accent, 2.0f * scale, 6.0f * scale, 4.0f * scale,
-                                        4.0f * scale));
-
-        // L'icona la disegna la shell, e non si tinge: e' la sua, ed e' quella che
-        // Esplora risorse mostra per lo stesso oggetto — un disco per `C:`, un
-        // computer per "Questo PC", un cestino per il cestino. Tingere quella a
-        // colori con un colore del tema dava oro spento, e non era ne' l'icona
-        // della shell ne' un glifo monocromatico.
-        const ShellIconAtlas::IconUV* uv =
-            item.icon.empty() ? nullptr : app.icons.GetForObject(item.icon);
-        if (uv == nullptr)
-            uv = app.icons.GetFor("", true);
-        if (uv != nullptr)
-        {
-            const Rect icon{row.x + 8.0f * scale, row.y + 5.0f * scale, 16.0f * scale, 16.0f * scale};
-            r.Draw(UIDraw::Image(icon, Color{1.0f, 1.0f, 1.0f, 1.0f}, kIconLayer,
-                                 uv->u0, uv->v0, uv->u1, uv->v1));
-        }
-        app.font.Draw(r, row.x + 30.0f * scale, row.y + 5.0f * scale, item.label,
-                      active ? t.text : t.textDim, scale);
-
-        if (item.volume)
-        {
-            // Barra di occupazione e spazio libero: due informazioni in un posto
-            // solo, come le mostra Esplora risorse. La barra si colora quando il
-            // disco e' quasi pieno, perche' e' quello il momento in cui la si guarda.
-            const Rect track{row.x + 30.0f * scale, row.y + 26.0f * scale,
-                             row.w - 42.0f * scale, 4.0f * scale};
-            r.FillRect(track, Color::FromHex(0x2A2D34), 2.0f * scale);
-            const Color fill = item.usedFraction > 0.9f ? Color::FromHex(0xE06C5A)
-                                                       : t.accent;
-            r.FillRect(Rect{track.x, track.y, track.w * (std::min)(1.0f, item.usedFraction),
-                            track.h},
-                       fill, 2.0f * scale);
-            app.smallFont.Draw(r, row.x + 30.0f * scale, row.y + 31.0f * scale,
-                               item.freeText + Tr(" liberi", " free"), t.textDim, scale);
-        }
-
-        ClickTarget target;
-        target.rect = row;
-        target.kind = ClickTarget::Kind::Place;
-        target.index = static_cast<int>(i);
-        target.path = item.path;
-        app.clickTargets.push_back(target);
-
-        y += rowHeight;
-    }
-}
+;
 
 // La larghezza di partenza e' quella di `kColumns`. Si chiama una volta, quando
 // l'applicazione nasce: dopo, la larghezza e' quella che l'utente ha scelto.
@@ -4095,9 +2595,14 @@ void DrawList(AppState& app, const Layout& layout, const float* columnX)
             const bool collapsed = app.collapsedGroups.count(group.label) != 0;
 
             r.FillRect(row, t.headerBg);
-            const std::string title = (collapsed ? "> " : "v ") + GroupLabel(group.label);
-            app.smallFont.Draw(r, row.x + 8.0f * scale, TextY(layout, row, app.smallFont),
-                          title, t.text, scale);
+            // La linguetta e' un triangolo disegnato, come quelle della barra
+            // laterale: era il carattere `>` o `v` scritto in testa al titolo.
+            const float arrow = 10.0f * scale;
+            r.Draw(DisclosureArrow(Rect{row.x + 7.0f * scale, row.y + (row.h - arrow) * 0.5f,
+                                        arrow, arrow},
+                                   t.textDim, /*pointsDown=*/!collapsed));
+            app.smallFont.Draw(r, row.x + 22.0f * scale, TextY(layout, row, app.smallFont),
+                          GroupLabel(group.label), t.text, scale);
 
             const std::string count =
                 std::to_string(group.count) +
@@ -4747,6 +3252,12 @@ void BuildInspectorRows(AppState& app, const Entry& entry, std::vector<Inspector
         rows.push_back({Tr("Dimensione", "Size"), hasStats ? HumanBytes(stats.logicalBytes)
                                                             : Tr("conteggio...", "counting..."),
                         growing});
+        // I byte che il disco ha davvero riservato si mostrano **solo se misurati**:
+        // su un volume che non sa rispondere, un minimo spacciato per totale e'
+        // peggio di un numero che manca.
+        if (hasStats && stats.allocatedKnown)
+            rows.push_back({Tr("Su disco", "Size on disk"), HumanBytes(stats.allocatedBytes),
+                            growing});
         rows.push_back({Tr("Cartelle", "Folders"), hasStats ? HumanCount(stats.folders) : "--",
                         growing});
         rows.push_back({Tr("File", "Files"), hasStats ? HumanCount(stats.files) : "--", growing});
@@ -4754,6 +3265,15 @@ void BuildInspectorRows(AppState& app, const Entry& entry, std::vector<Inspector
     else if (!shellColumns)
     {
         rows.push_back({Tr("Dimensione", "Size"), entry.sizeText, false});
+
+        // Quanto spazio il disco ha **riservato**: e' un'altra domanda, e la
+        // differenza con la dimensione e' fatta di cluster, di file residenti e di
+        // compressione. Per un file solo costa una chiamata, e la si fa qui perche'
+        // il pannello si apre su richiesta — per un albero sarebbe una chiamata per
+        // file, ed e' per questo che `dir_stats` legge le cartelle in blocco.
+        uint64_t allocated = 0;
+        if (AllocatedSizeOf(full, &allocated))
+            rows.push_back({Tr("Su disco", "Size on disk"), HumanBytes(allocated), false});
     }
     // Le date che il file system da' e che non si vedevano: la creazione e l'ultimo
     // accesso. Un tempo a zero non e' il 1601, e' "non lo so": la riga non si mette,
@@ -5829,7 +4349,6 @@ void BuildGoToMenu(AppState& app)
 
 // --- operazioni su file (M7) ------------------------------------------------
 int          CursorIndex(const AppState& app);
-double       NowSeconds();
 
 // Percorsi completi di cio' che e' selezionato **e visibile**, nell'ordine della
 // lista.
@@ -5948,6 +4467,36 @@ void ReloadKeeping(AppState& app, const std::unordered_set<std::wstring>& keep,
     // guardando: i numeri di una sottocartella si vedono dal genitore, quindi e'
     // li' che si noterebbe che sono vecchi.
     app.stats.Invalidate(app.directory);
+}
+
+// Un cambiamento visto da fuori: la cartella aperta toccata da un altro programma.
+//
+// Il numero che si vede di una cartella e' **ricorsivo**, quindi un file cambiato
+// in fondo rende vecchi i numeri di tutte le cartelle che lo contengono: si
+// invalida il percorso cambiato e i suoi genitori. Le **righe** invece cambiano
+// solo se il cambiamento e' di nome — una voce creata, cancellata, rinominata —
+// perche' un file modificato resta la stessa riga con lo stesso nome: ricaricare
+// l'elenco per una data di modifica vorrebbe dire far perdere il posto a chi sta
+// lavorando, e per niente.
+void ApplyExternalChange(AppState& app)
+{
+    std::vector<DirectoryWatcher::Change> changes;
+    if (!app.watcher.Take(&changes))
+        return;
+
+    bool listingChanged = false;
+    for (const DirectoryWatcher::Change& change : changes)
+    {
+        app.stats.InvalidateIncludingParents(change.path);
+        if (DirectoryWatcher::ChangesListing(change.action))
+            listingChanged = true;
+    }
+
+    DiagLog("--- " + DiagClock() + " cambiamento esterno: " + std::to_string(changes.size()) +
+            " voci, righe da ricaricare: " + (listingChanged ? "si" : "no"));
+
+    if (listingChanged)
+        ReloadKeeping(app, app.selection, app.cursor, app.scroll);
 }
 
 // Nome predefinito di una cartella nuova, come quello di Esplora risorse.
@@ -6357,7 +4906,8 @@ bool FontInstalled(const std::wstring& face)
 void ApplyFonts(AppState& app)
 {
     std::string error;
-    const int smallSize = (std::max)(AppState::kUiFontSizeMin, app.uiFontSize - 2);
+    const int smallSize = (std::max)(AppState::kUiFontSizeMin,
+                                     app.uiFontSize - AppState::kSmallFontDelta);
     app.font.Build(*app.renderer, app.fontFace.c_str(), app.uiFontSize, kGlyphLayer,
                    kTextureLayerSize, &error);
     app.smallFont.Build(*app.renderer, app.fontFace.c_str(), smallSize, kSmallGlyphLayer,
@@ -8923,8 +7473,12 @@ void GroupMenuDraw(AppState& app, const Layout& layout, GroupMenu& menu)
             const std::string& name = menu.groups[static_cast<size_t>(row.group)];
             const bool collapsed = menu.collapsed.count(name) != 0;
             r.FillRect(rowRect, t.headerBg, 3.0f * scale);
-            app.smallFont.Draw(r, rowRect.x + 8.0f * scale, TextY(layout, rowRect, app.smallFont),
-                          (collapsed ? "> " : "v ") + name, t.text, scale);
+            const float arrow = 10.0f * scale;
+            r.Draw(DisclosureArrow(Rect{rowRect.x + 7.0f * scale,
+                                        rowRect.y + (rowRect.h - arrow) * 0.5f, arrow, arrow},
+                                   t.textDim, /*pointsDown=*/!collapsed));
+            app.smallFont.Draw(r, rowRect.x + 22.0f * scale, TextY(layout, rowRect, app.smallFont),
+                          name, t.text, scale);
 
             ClickTarget target;
             target.rect  = rowRect;
@@ -9170,18 +7724,7 @@ MenuAction GroupMenuClick(const AppState& app, const Layout& layout, GroupMenu& 
     return MenuPanel(app, layout, menu).Contains(x, y) ? MenuAction::None : MenuAction::Close;
 }
 
-std::wstring ParentOf(const std::wstring& path)
-{
-    if (path.size() <= 3)
-        return path;   // already a drive root such as C: followed by one slash
-    const size_t slash = path.find_last_of(L'\\');
-    if (slash == std::wstring::npos || slash < 2)
-        return path;
-    std::wstring parent = path.substr(0, slash);
-    if (parent.size() == 2 && parent[1] == L':')
-        parent += L"\\";
-    return parent;
-}
+
 
 // --- selection --------------------------------------------------------------
 int FindEntryByName(const AppState& app, const std::wstring& name)
@@ -10692,6 +9235,13 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
             }
             return 0;
 
+        // Il sorvegliante dice che la cartella aperta e' cambiata da fuori: e' il
+        // pezzo che fa aggiornare i numeri **da soli** invece di aspettare `F5`.
+        case kDirectoryChanged:
+            if (app != nullptr)
+                ApplyExternalChange(*app);
+            return 0;
+
         case WM_DESTROY:
             // La finestra sta per morire: la registrazione come destinazione di
             // caduta va tolta adesso, o OLE resta con un puntatore a una finestra
@@ -10817,13 +9367,7 @@ void ShowError(const std::string& message)
     MessageBoxA(nullptr, text.c_str(), "Startup failed", MB_ICONERROR | MB_OK);
 }
 
-double NowSeconds()
-{
-    LARGE_INTEGER frequency{}, counter{};
-    QueryPerformanceFrequency(&frequency);
-    QueryPerformanceCounter(&counter);
-    return static_cast<double>(counter.QuadPart) / static_cast<double>(frequency.QuadPart);
-}
+
 
 } // namespace
 
@@ -11180,7 +9724,8 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, LPWSTR, int)
     // atlas at 0.8-0.95 resamples glyphs that were hinted for 15 px, which is
     // exactly where small text loses its crispness; a second body costs one more
     // atlas layer and makes the whole secondary tier sharp.
-    if (!app.smallFont.Build(*app.renderer, L"Segoe UI", 13, kSmallGlyphLayer,
+    if (!app.smallFont.Build(*app.renderer, L"Segoe UI",
+                             15 - AppState::kSmallFontDelta, kSmallGlyphLayer,
                              kTextureLayerSize, &error))
     {
         ShowError(error);
@@ -11244,6 +9789,14 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, LPWSTR, int)
     LoadDirectory(app, initialDirectory);
 
     SetWindowLongPtrW(window, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(&app));
+
+    // La sorveglianza delle modifiche esterne. Se non parte si va avanti lo
+    // stesso — il programma funziona, e' l'aggiornamento automatico che manca —
+    // ma si dice: un aggiornamento che non arriva sembra un difetto dell'app e
+    // non lo e'.
+    if (!app.watcher.Start(window, kDirectoryChanged))
+        DiagLog("--- sorveglianza delle cartelle non disponibile");
+    app.watcher.Watch(app.directory);
 
     // Da qui in poi la finestra accetta file trascinati da fuori. Se il sistema
     // non vuole registrarla lo si dice: un trascinamento che non arriva sembra un
@@ -11335,6 +9888,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, LPWSTR, int)
     SetWindowLongPtrW(window, GWLP_USERDATA, 0);
     app.stats.Stop();
     OleUninitialize();
+    app.watcher.Stop();
     app.previews.Shutdown();
     app.renderer->Shutdown();
     if (usingOpenGL)

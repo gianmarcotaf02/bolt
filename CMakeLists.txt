@@ -17,6 +17,10 @@ add_executable(Bolt WIN32
     src/bolt.rc
     src/resource.h
     src/main.cpp
+    src/app_ui.cpp
+    src/view_sidebar.cpp
+    src/tabs.cpp
+    src/view_titlebar.cpp
     src/ui_renderer.cpp
     src/ui_renderer.h
     src/d3d11_renderer.cpp
@@ -40,6 +44,7 @@ add_executable(Bolt WIN32
     src/diag.cpp
     src/diag.h
     src/dir_stats.cpp
+    src/dir_watch.cpp
     src/dir_stats.h
     src/drag_drop.cpp
     src/drag_drop.h

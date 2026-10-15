@@ -112,12 +112,24 @@ tempo, con risultati memorizzati e invalidati.
 - [x] enumerazione con `FindFirstFileExW` in modalità `FindExInfoBasic` +
       `FIND_FIRST_EX_LARGE_FETCH`, e fallback a `FindFirstFileW` dove non ammessa
 - [x] accumulo di byte logici e conteggi di file e cartelle
-- [ ] accumulo dei byte **allocati** (serve `GetCompressedFileSizeW` o
-      `FILE_ID_BOTH_DIR_INFO`: l'enumerazione base non li espone)
+- [x] accumulo dei byte **allocati**, chiesti **alla cartella in blocco**
+      (`GetFileInformationByHandleEx`, `FileIdBothDirectoryInfo`): un syscall per
+      cartella invece di uno per file, e l'allocazione arriva insieme alla lunghezza.
+      Dove quell'interfaccia non risponde — volumi non NTFS, certe condivisioni — si
+      ripiega su `FindFirstFileExW` e i byte allocati restano **non misurati**: la
+      riga «Su disco» non si mostra, invece di mostrare un minimo come se fosse un
+      totale. Vedi §7.46 di `docs/02`
 - [x] tre profili di concorrenza e budget per SSD, HDD e rete
 - [x] budget di tempo per ciclo, interrompibile e riprendibile
 - [x] cache dei risultati con distinzione fra parziale e completo
-- [ ] invalidazione da `ReadDirectoryChangesW` (per ora si invalida con `F5`)
+- [x] invalidazione da `ReadDirectoryChangesW`: un sorvegliante segue la cartella
+      aperta e i numeri si aggiornano da soli (`src/dir_watch.*`, `docs/02` §7.47).
+      *Limite misurato:* la sorveglianza di Windows non e' ricorsiva. Si vedono i
+      cambiamenti **nella cartella aperta** e, per via della data di modifica che si
+      propaga, quelli **dentro le sue sottocartelle immediate**. Due livelli sotto
+      non arriva niente: misurato — `documenti` con un file in `documenti\fondo\`
+      resta a 3 file invece di 4. Li' resta `F5`, ed e' scritto invece di essere
+      nascosto (`docs/02` §7.47)
 - [x] attivazione su richiesta: solo le righe visibili e la selezione
 - [x] reparse point non seguiti; hard link contati per nome (vedi nota)
 - [x] degradazione su volumi non NTFS e su rete
@@ -142,6 +154,16 @@ binario di riferimento, quindi l'ipotesi più semplice che lo giustifica.
 > **Attenzione:** questa è una **ricostruzione plausibile**, non un reperto. La
 domanda n. 3 del registro («quale parametro differenzia SSD, HDD e rete») resta
 aperta finché non si localizza chi referenzia `Setting_CalcFolderSizesSSD`.
+
+**Come si legge una cartella.** I byte **allocati** — quanto spazio il disco ha
+riservato, che è un'altra cosa dalla lunghezza del file — non li espone
+`FindFirstFileExW`, che è la lettura più veloce e per questo resta quella di ripiego.
+La lettura normale è `GetFileInformationByHandleEx(FileIdBothDirectoryInfo)`, che
+chiede alla cartella **molte voci per volta** e le porta tutte e due le dimensioni: un
+syscall per cartella invece di uno per file (`GetCompressedFileSizeW`, che per giunta
+su questa macchina risponde la dimensione logica — vedi `docs/02` §7.46). Dove quella
+interfaccia non è servita, il ricorso è la `FindFirstFileExW` di prima, e allora
+l'allocazione di quell'albero resta **non misurata**: è diverso da zero, ed è scritto.
 
 **Concorrenza e ripresa.** Le fette scadono a granularità di *cartella*: non si
 può sospendere `FindNextFileW` a metà di una directory e riprenderla, quindi il
@@ -307,7 +329,8 @@ quelle sono la stessa impaginazione a una scala diversa.
 - [x] intestazione nascosta in griglia, spazio restituito alla lista
 - [x] frecce: `Su`/`Giù` di una riga di griglia, `Sinistra`/`Destra` di una cella
 - [x] `Ctrl`+`1`/`2`/`3`/`4`, più i quattro comandi nella palette
-- [x] secondo corpo di glifi a 13 px per il testo secondario (vedi §7.12 di
+- [x] secondo corpo di glifi **rasterizzato** per il testo secondario, 4 px sotto il
+      corpo principale e da quello **derivato** (vedi §7.12 di
       `docs/02`), su un quarto layer dell'array di texture
 - [x] **raggruppamento in griglia**: le bande di gruppo stanno anche fra le celle,
       a piena larghezza, e la riga di celle sotto di loro ricomincia da sinistra
@@ -670,8 +693,10 @@ a gruppi, invece di scriverne tre.
       separatore. La strada è quella del binario originale —
       `IShellFolder::GetUIObjectOf` → `IContextMenu` → `QueryContextMenu` →
       `GetCommandString(GCS_VERBW)` → `InvokeCommand`: vedi sotto
-- [ ] ripristino dal cestino — **bloccato da una scelta strutturale**, vedi sotto
-- [ ] drag&drop in ingresso e in uscita con descrizione
+- [x] **ripristino dal cestino** e **drag&drop in ingresso e in uscita**: erano qui
+      come "da fare" e sono stati fatti — le voci qui sotto lo dicono una per una,
+      con il metodo con cui sono state verificate. Erano due righe rimaste indietro,
+      e un elenco che dice "da fare" di una cosa fatta manda a lavorare su niente
 - [x] il menu contestuale sa **annidare**: pannelli a destra del pannello padre,
       che si aprono col sovrappasso o con la freccia destra, scorrono, si
       richiudono con `Esc` e con la freccia sinistra, e portano il `>` sulle voci

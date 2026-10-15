@@ -2,6 +2,9 @@
 
 #include <windows.h>
 
+#include <mutex>
+#include <string>
+
 bool DiagEnabled()
 {
     static const bool enabled = []()
@@ -26,6 +29,15 @@ void DiagLog(const std::string& line)
 {
     if (!DiagEnabled())
         return;
+
+    // Le righe le scrivono ormai **due thread** — quello della finestra e quello che
+    // sorveglia le cartelle — e il buffer e' uno solo: senza questa protezione due
+    // chiamate che si sovrappongono scrivono nello stesso `std::string` mentre
+    // l'altro lo legge, che e' un difetto silenzioso e ogni tanto un guasto.
+    // Il file si apre e si riscrive dentro la stessa sezione critica, cosi' due
+    // thread non si contendono nemmeno il file.
+    static std::mutex guard;
+    std::lock_guard<std::mutex> lock(guard);
 
     static std::string buffer;
     buffer += line;

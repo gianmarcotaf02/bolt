@@ -38,6 +38,59 @@ out vec4 outColor;
 
 const float FLAG_TEXTURED = 1.0;
 const float FLAG_MONO     = 2.0;
+const float FLAG_TRIANGLE = 4.0;
+const float FLAG_TRIANGLE_DOWN = 8.0;
+const float FLAG_PLUS  = 16.0;
+const float FLAG_CROSS = 32.0;
+
+// Distanza da un segmento con le punte tonde: e' la forma di una barra.
+float segmentDistance(vec2 point, vec2 a, vec2 b, float radius)
+{
+    vec2 pa = point - a;
+    vec2 ba = b - a;
+    float along = clamp(dot(pa, ba) / dot(ba, ba), 0.0, 1.0);
+    return length(pa - ba * along) - radius;
+}
+
+// Un triangolo che punta a destra, iscritto in un rettangolo centrato
+// sull'origine. E' l'intersezione di tre semipiani, quindi il campo e' il massimo
+// delle tre distanze: negativa dentro, positiva fuori.
+//
+// Per farlo puntare in giu' non si scrive una seconda formula: si **ruota il
+// punto** di un quarto di giro e si usa la stessa. Due formule per la stessa forma
+// divergono al primo ritocco, e qui la seconda sarebbe stata invisibile finche'
+// qualcuno non avesse guardato una sezione chiusa.
+float triangleDistance(vec2 point, vec2 halfSize, float rounding)
+{
+    float width  = halfSize.x;
+    float height = halfSize.y;
+
+    // I tre vertici: in alto a sinistra, a destra, in basso a sinistra.
+    vec2 top    = vec2(-width,  height);
+    vec2 tip    = vec2( width,  0.0);
+    vec2 bottom = vec2(-width, -height);
+
+    // Distanza dal bordo sinistro: dentro e' "piu' a destra di -width".
+    float left = -width - point.x;
+
+    // I due lati obliqui, con la normale rivolta verso l'esterno.
+    vec2 upperEdge = normalize(vec2( height, 2.0 * width));
+    vec2 lowerEdge = normalize(vec2( height, -2.0 * width));
+    float upper = dot(point - top, upperEdge);
+    float lower = dot(point - tip, lowerEdge);
+
+    float planes = max(max(left, upper), lower);
+    if (rounding <= 0.0)
+        return planes;
+
+    // La distanza dal **contorno**, presa come distanza dai tre lati: cosi' gli
+    // spigoli si arrotondano invece di restare vivi. Il massimo dei semipiani da'
+    // la parte (dentro o fuori), la distanza dal contorno da' quanto.
+    float edge = min(min(segmentDistance(point, top, tip, 0.0),
+                         segmentDistance(point, tip, bottom, 0.0)),
+                     segmentDistance(point, bottom, top, 0.0));
+    return (planes < 0.0 ? -edge : edge) - rounding;
+}
 
 // Signed distance from a point to the boundary of a rounded box centred on the
 // origin. Negative inside, positive outside, zero exactly on the outline.
@@ -53,6 +106,30 @@ float roundedBoxDistance(vec2 point, vec2 halfSize, vec4 radius)
 
     vec2 offset = abs(point) - halfSize + r;
     return min(max(offset.x, offset.y), 0.0) + length(max(offset, vec2(0.0))) - r;
+}
+
+
+// Il piu': due barre dritte che si incrociano, cioe' la **minima** delle due
+// distanze. Lo spessore sta in `vRadius.x` — il campo dei raggi, che per questa
+// forma non vuol dire niente — e le punte sono tonde come i bordi di tutto il resto.
+float plusDistance(vec2 point, vec2 halfSize, float thickness)
+{
+    float tip = thickness * 0.5;
+    vec2 horizontal = vec2(max(halfSize.x - tip, 0.0), tip);
+    vec2 vertical   = vec2(tip, max(halfSize.y - tip, 0.0));
+    return min(roundedBoxDistance(point, horizontal, vec4(tip)),
+               roundedBoxDistance(point, vertical, vec4(tip)));
+}
+
+// La croce: le due diagonali, accorciate quanto basta perche' le punte tonde
+// restino dentro il quadrato.
+float crossDistance(vec2 point, vec2 halfSize, float thickness)
+{
+    float tip = thickness * 0.5;
+    float extent = max(min(halfSize.x, halfSize.y) - tip, 0.0);
+    float backslash = segmentDistance(point, vec2(-extent, -extent), vec2(extent, extent), tip);
+    float slash     = segmentDistance(point, vec2(-extent,  extent), vec2(extent, -extent), tip);
+    return min(backslash, slash);
 }
 
 // Walks the rectangle outline clockwise from the bottom-left corner and reports
@@ -114,7 +191,33 @@ void main()
     vec4  radius  = max(vRadius, vec4(vStrokeWidth));
 
     vec2  innerHalf = max(halfSize - vec2(inset + vSoftness), vec2(0.0));
-    float distance  = roundedBoxDistance(point, innerHalf, radius);
+    float distance;
+    if (mod(vFlags, 2.0 * FLAG_TRIANGLE) >= FLAG_TRIANGLE)
+    {
+        // In `point` **entrambi gli assi sono girati** rispetto allo schermo, perche'
+        // `point = centro - frag`: +X va a sinistra e +Y va in su'. Il rettangolo
+        // arrotondato non se ne accorge — e' simmetrico — ma un triangolo si': senza
+        // questa riga la linguetta punta dalla parte sbagliata. Qui il punto torna
+        // in uno spazio che si legge: +X a destra, +Y in su'.
+        vec2 upright = vec2(-point.x, point.y);
+
+        // Un quarto di giro per la linguetta aperta: la formula resta una sola.
+        bool down = mod(vFlags, 2.0 * FLAG_TRIANGLE_DOWN) >= FLAG_TRIANGLE_DOWN;
+        vec2 local = down ? vec2(-upright.y, upright.x) : upright;
+        distance = triangleDistance(local, innerHalf, vRadius.x);
+    }
+    else if (mod(vFlags, 2.0 * FLAG_PLUS) >= FLAG_PLUS)
+    {
+        distance = plusDistance(point, innerHalf, max(vRadius.x, 1.0));
+    }
+    else if (mod(vFlags, 2.0 * FLAG_CROSS) >= FLAG_CROSS)
+    {
+        distance = crossDistance(point, innerHalf, max(vRadius.x, 1.0));
+    }
+    else
+    {
+        distance = roundedBoxDistance(point, innerHalf, radius);
+    }
 
     float alpha;
     if (vStrokeWidth > 0.0)

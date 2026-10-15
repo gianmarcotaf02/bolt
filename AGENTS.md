@@ -164,7 +164,7 @@ skill in chat — `/graphify`, o `/graphify --update` per documenti e immagini.
 
 ### Perché
 
-- `src/main.cpp` è **~11.161 righe**. Leggerlo per intero per rispondere a «dove sta
+- `src/main.cpp` è **~9.894 righe** e sta calando. Leggerlo per intero per rispondere a «dove sta
   X?» costa decine di migliaia di token e dà comunque una vista parziale.
 - Una query restituisce **etichetta, file, riga e comunità** di ogni nodo: è
   l'indice di cui altrimenti ricostruiresti a mano con `rg`.
@@ -370,7 +370,27 @@ Costano tempo, sembrano bug dell'applicazione e non lo sono. Vedi anche §5 di
 
 ### Modifiche in massa
 
-- **Le riscritture massive di chiamate annidate duplicano il testo.** Una regex
+- **Un taglio meccanico che cerca una firma trova anche la sua dichiarazione.** Per
+portare una funzione fuori da `main.cpp` si cercava la firma — `std::wstring
+ParentOf(const std::wstring& path)` — e si tagliava fino alla graffa di chiusura. Ma
+la stessa firma compariva **prima**, come dichiarazione anticipata in cima al file,
+e il taglio e' partito da li': dalla dichiarazione fino alla graffa della prima
+funzione che seguiva, mangiandosi `SettingsPath` e una dichiarazione di
+`NowSeconds`. Il conteggio delle righe sembrava plausibile (19 righe per una funzione
+da 8: il numero che deve insospettire c'e' sempre, e va guardato). Se n'e' accorto il
+**compilatore**, non l'occhio: da allora il taglio pretende che la riga dopo la firma
+sia **esattamente** `{`, che e' cio' che distingue una definizione da una
+dichiarazione. Vale la regola di sopra, applicata ai tagli: dopo una riscrittura
+meccanica si legge cio' che e' stato tolto, non solo cio' che e' rimasto.
+
+**E il taglio va scritto in modo che il resto non sparisca.** Nello stesso lavoro
+un secondo script faceva `t = prima_del_taglio` invece di `t = prima + dopo`: la
+seconda ricerca partiva su un file troncato e non trovava piu' niente. Li' l'errore
+si e' fatto sentire subito (un'eccezione, nessun file scritto), ma la forma e' la
+peggiore: un taglio che perde la coda **in silenzio** produce un file che compila
+meno, e meta' del contenuto non c'e' piu'.
+
+**Le riscritture massive di chiamate annidate duplicano il testo.** Una regex
   che trova sia la chiamata esterna sia quella annidata produce intervalli
   **sovrapposti** e incolla il secondo sopra il primo. Il compilatore non se ne
   accorge subito. **Rileggi sempre il diff riga per riga** dopo una riscrittura
@@ -475,18 +495,25 @@ c'e', ogni area ritagliata costa due disegni.
 | 0 | glifi del corpo, 15 px |
 | 1 | icone di sistema |
 | 2 | anteprime dei file (cella 128, cache 64) |
-| 3 | glifi secondari, 13 px |
+| 3 | glifi secondari: i **dettagli** (intestazioni, ispettore, barra di stato), 4 px sotto il corpo |
 | 4 | glifi del testo, 14 px a spaziatura fissa (Consolas) |
 | 5 | l'immagine dell'anteprima grande, fino a 1024 px |
 
 Le forme sono disegnate da uno shader **SDF** (`src/shaders/ui.frag`), quindi ogni
-rettangolo ha bordi continui a qualunque dimensione.
+rettangolo ha bordi continui a qualunque dimensione. Anche le **linguette** delle
+sezioni sono una forma — un triangolo — e non il carattere `v`: un carattere cambia
+col carattere scelto e non e' un elemento.
 
 ### File
 
 | file | responsabilità |
 |---|---|
-| `src/main.cpp` | finestra Win32, navigazione, layout, input, disegno; sceglie e possiede il backend (`BOLT_BACKEND`, fallback). **~11.161 righe: è il collo di bottiglia dichiarato.** |
+| `src/main.cpp` | finestra Win32, navigazione, layout, input, disegno; sceglie e possiede il backend (`BOLT_BACKEND`, fallback). **Lo spezzamento è cominciato: ~9.894 righe, erano 11.394** |
+| `src/app_state.h` | lo stato della finestra e i tipi che piu' moduli condividono: il **confine** che prima non esisteva (`docs/05` §2) |
+| `src/app_ui.*` | i supporti che piu' di un modulo usa: UTF-8/UTF-16, nomi di percorso, numeri in lettere, date, `FitText`, `NowSeconds` |
+| `src/view_sidebar.*` | la barra laterale: costruzione delle voci e disegno, primo modulo di **vista** uscito da `main.cpp` |
+| `src/tabs.*` | l'albero dei tab: identita', genitore, ordine di lettura. La parte **pura** del modello; chi apre e chiude tocca la navigazione e resta in `main.cpp` |
+| `src/view_titlebar.*` | la striscia dei tab, il menu e i tre pulsanti di finestra; la **geometria** dei pulsanti resta qui e l'input la legge dai bersagli registrati |
 | `src/ui_renderer.*` | il backend **OpenGL** dietro `IRenderer`: quad batcher, una draw call, catena di mipmap |
 | `src/d3d11_renderer.*` | il backend **Direct3D 11** della stessa interfaccia: stessi 30 float per vertice, stessi shader in HLSL, swap chain che segue la finestra |
 | `src/font_atlas.*` | atlante di glifi GDI → strato dell'array; ClearType ridotto a copertura in scala di grigi, con gutter fra le celle |
@@ -499,7 +526,8 @@ rettangolo ha bordi continui a qualunque dimensione.
 | `src/shell_new.*` | i modelli del menu "Nuovo": chiavi `ShellNew` del registro, etichette risolte con `SHLoadIndirectString` |
 | `src/shell_sendto.*` | le destinazioni di "Invia a": la cartella SendTo, letta a ogni apertura |
 | `src/shell_preview.*` | anteprime via `IShellItemImageFactory` → strato 2, worker MTA |
-| `src/dir_stats.*` | statistiche ricorsive: job, profili di volume, budget di tempo riprendibile |
+| `src/dir_stats.*` | statistiche ricorsive: job, profili di volume, budget di tempo riprendibile; l'allocato si legge a blocchi per cartella |
+| `src/dir_watch.*` | sorveglianza della cartella aperta (`ReadDirectoryChangesW`), per aggiornare i numeri senza `F5`; limite: non e' ricorsiva |
 | `src/file_ops.*` | copia, sposta, rinomina, cestino via `IFileOperation`; clipboard `CF_HDROP` |
 | `src/language.*` | quale delle due lingue si mostra, con `Tr`/`TrW` e i conteggi (`Copiato 1 elemento` / `Copiati 3 elementi`); le coppie di stringhe restano dove si usano |
 | `src/gl_loader.*` | entry point OpenGL 3.3 caricate a runtime |
@@ -511,7 +539,7 @@ rettangolo ha bordi continui a qualunque dimensione.
 
 - `docs/04-roadmap.md` — le milestone, con le caselle spuntate e i difetti aperti.
 - `docs/05-stato-e-prossimi-passi.md` — dove si è arrivati, cosa resta, le trappole.
-- `docs/02-architettura-ricostruita.md` — l'architettura e i **quarantacinque** difetti
+- `docs/02-architettura-ricostruita.md` — l'architettura e i **cinquanta** difetti
   trovati e risolti, §7.
 - `docs/03-spec-funzionale.md` — la spec ricostruita dall'originale: 1124 chiavi,
   319 comandi, 35 token di tema, 23 colonne.
@@ -538,7 +566,7 @@ rettangolo ha bordi continui a qualunque dimensione.
   il grafo può rispondere: vedi §2-bis. Una query costa poco, una lettura costa
   migliaia di token.
 - **Non aprire nuove sessioni di refactoring largo** senza spazio per riverificare
-  tutto: `main.cpp` a 11.161 righe è un problema noto e rimandato, non una scoperta.
+  tutto: `main.cpp` a 9.894 righe è un problema noto e in corso di soluzione, non una scoperta.
 
 ---
 

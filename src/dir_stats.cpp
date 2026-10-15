@@ -1,5 +1,9 @@
 #include "dir_stats.h"
 
+#include "diag.h"
+
+#include <functional>
+
 #include <windows.h>
 #include <winioctl.h>
 
@@ -48,6 +52,10 @@ struct DirStatsJob
     uint64_t files        = 0;
     uint64_t folders      = 0;
     uint64_t logicalBytes = 0;
+
+    // Diventa falso appena una cartella dell'albero non sa dire l'allocazione.
+    uint64_t allocatedBytes = 0;
+    bool     allocatedKnown = true;
     bool     started      = false;
 };
 
@@ -69,6 +77,106 @@ double SecondsSince(const LARGE_INTEGER& start, const LARGE_INTEGER& frequency)
     QueryPerformanceCounter(&now);
     return static_cast<double>(now.QuadPart - start.QuadPart) /
            static_cast<double>(frequency.QuadPart);
+}
+
+// Una voce, come la vedono tutte e due le enumerazioni: nome, attributi, quant'e'
+// lungo il file e quanto spazio occupa. `take` torna falso solo quando non c'e' piu'
+// niente da fare — il job e' diventato stantio — e chi enumera deve smettere.
+using TakeEntry = std::function<bool(const wchar_t*, DWORD, uint64_t, uint64_t)>;
+
+// Come e' andata la lettura di una cartella. Non e' un si'/no perche' i casi sono
+// tre, e confonderli fa danno in due modi diversi:
+//
+//   Unavailable — non si e' preso **niente**: la cartella non si apre, o
+//                 l'interfaccia non risponde. Chi chiama ripiega su
+//                 `FindFirstFileExW`, ed e' corretto perche' non c'e' niente di
+//                 gia' contato.
+//   WithAllocation — la cartella si e' letta tutta, con l'allocazione.
+//   Partial     — si e' preso **qualcosa** e poi la lettura si e' interrotta. Chi
+//                 chiama **non** deve ripiegare: rileggere la cartella da capo
+//                 conterebbe due volte le voci gia' prese. L'allocazione di
+//                 quell'albero resta non misurata, e si dice.
+enum class FolderRead
+{
+    Unavailable,
+    WithAllocation,
+    Partial,
+};
+
+// Le voci di una cartella **in blocco**, con la dimensione allocata.
+//
+// `FindFirstFileExW` l'allocazione non la espone: le sue dimensioni sono quelle
+// logiche. Per sapere quanti byte il disco ha riservato servirebbe, per file, una
+// `GetCompressedFileSizeW` — un syscall per file, e su questa macchina risponde la
+// dimensione logica — oppure questa, che chiede alla cartella molte voci per volta.
+// `FileIdBothDirectoryInfo` e' la classe che porta entrambe le dimensioni, ed e' la
+// ragione per cui il conto passa di qui.
+FolderRead CountWithAllocation(const std::wstring& directory, const TakeEntry& take)
+{
+    HANDLE handle = CreateFileW(directory.c_str(), FILE_LIST_DIRECTORY,
+                                FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
+                                OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, nullptr);
+    if (handle == INVALID_HANDLE_VALUE)
+        return FolderRead::Unavailable;
+
+    // Un buffer solo, riusato per tutte le chiamate: sessantaquattro kilobyte
+    // contengono centinaia di voci, e la cartella si legge in pochi giri.
+    std::vector<BYTE> buffer(64 * 1024);
+    FILE_INFO_BY_HANDLE_CLASS infoClass = FileIdBothDirectoryRestartInfo;
+    bool tookAnything = false;
+
+    for (;;)
+    {
+        const BOOL ok = GetFileInformationByHandleEx(handle, infoClass, buffer.data(),
+                                                     static_cast<DWORD>(buffer.size()));
+        if (!ok)
+        {
+            const DWORD error = GetLastError();
+            // La cartella e' finita: non e' un guasto.
+            if (error == ERROR_NO_MORE_FILES)
+            {
+                CloseHandle(handle);
+                return FolderRead::WithAllocation;
+            }
+            // Il buffer si e' riempito: il resto arriva al giro dopo. E' come si
+            // legge una cartella grande, e va distinto da un guasto.
+            if (error != ERROR_MORE_DATA)
+            {
+                CloseHandle(handle);
+                return tookAnything ? FolderRead::Partial : FolderRead::Unavailable;
+            }
+        }
+
+        BYTE* cursor = buffer.data();
+        for (;;)
+        {
+            auto* info = reinterpret_cast<FILE_ID_BOTH_DIR_INFO*>(cursor);
+            const std::wstring name(info->FileName, info->FileNameLength / sizeof(WCHAR));
+            const uint64_t logical = static_cast<uint64_t>(info->EndOfFile.QuadPart);
+            const uint64_t allocated = static_cast<uint64_t>(info->AllocationSize.QuadPart);
+
+            tookAnything = true;
+            if (!take(name.c_str(), info->FileAttributes, logical, allocated))
+            {
+                // Il chiamante ha smesso: il job e' stantio. Non e' un guasto e non si
+                // ripiega — chi chiama lo sta gia' buttando via.
+                CloseHandle(handle);
+                return FolderRead::WithAllocation;
+            }
+
+            if (info->NextEntryOffset == 0)
+                break;
+            cursor += info->NextEntryOffset;
+        }
+
+        // Il buffer non era pieno: questa era l'ultima tornata.
+        if (ok)
+        {
+            CloseHandle(handle);
+            return FolderRead::WithAllocation;
+        }
+        infoClass = FileIdBothDirectoryInfo;
+    }
 }
 
 // The storage device's own answer to "do you pay for seeking". This is the
@@ -198,68 +306,101 @@ bool DirStatsService::Impl::RunSlice(DirStatsJob& job, int sliceMs, bool* stale)
         std::wstring directory = std::move(job.pending.back());
         job.pending.pop_back();
 
-        const std::wstring pattern = directory + L"\\*";
-        WIN32_FIND_DATAW data{};
-        HANDLE find = FindFirstFileExW(pattern.c_str(), FindExInfoBasic, &data,
-                                       FindExSearchNameMatch, nullptr,
-                                       FIND_FIRST_EX_LARGE_FETCH);
-        if (find == INVALID_HANDLE_VALUE)
-        {
-            // Not every provider accepts the large-fetch hint.
-            find = FindFirstFileW(pattern.c_str(), &data);
-        }
+        unsigned sincePublish = 0;
+        bool     stopped      = false;
 
-        if (find != INVALID_HANDLE_VALUE)
-        {
-            unsigned sincePublish = 0;
-            do
+        // Una voce: quali contano, quali si saltano, quando si pubblica. Deciso in
+        // un posto solo, perche' ci sono due modi di leggere una cartella e il
+        // conteggio non deve essere due conteggi diversi.
+        const TakeEntry take = [&](const wchar_t* name, DWORD attributes, uint64_t logical,
+                                   uint64_t allocated) -> bool {
+            if (name[0] == L'.' && (name[1] == L'\0' || (name[1] == L'.' && name[2] == L'\0')))
+                return true;
+
+            // Un reparse point e' un link: seguirlo conterebbe due volte la
+            // destinazione, e un ciclo non finirebbe mai. Non e' ne' un file ne' una
+            // cartella.
+            if ((attributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0)
+                return true;
+
+            if ((attributes & FILE_ATTRIBUTE_DIRECTORY) != 0)
             {
-                const wchar_t* name = data.cFileName;
-                if (name[0] == L'.' && (name[1] == L'\0' || (name[1] == L'.' && name[2] == L'\0')))
-                    continue;
-
-                const DWORD attributes = data.dwFileAttributes;
-
-                // A reparse point is a link. Following it would count the target
-                // twice, and a cycle would never end, so it is counted as neither
-                // a file nor a folder.
-                if ((attributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0)
-                    continue;
-
-                if ((attributes & FILE_ATTRIBUTE_DIRECTORY) != 0)
-                {
-                    ++job.folders;
-                    std::wstring child = directory;
-                    child += L'\\';
-                    child += name;
-                    job.pending.push_back(std::move(child));
-                }
-                else
-                {
-                    ++job.files;
-                    job.logicalBytes += (static_cast<uint64_t>(data.nFileSizeHigh) << 32) |
-                                        data.nFileSizeLow;
-                }
-
-                // A single directory can hold hundreds of thousands of entries,
-                // which would be a long silence with a per-directory budget
-                // check. Publishing inside the loop keeps the numbers moving.
-                if ((++sincePublish & 0xFFFu) == 0)
-                {
-                    if (IsStale(job))
-                    {
-                        *stale = true;
-                        return false;
-                    }
-                    PublishPartial(job);
-                }
+                ++job.folders;
+                std::wstring child = directory;
+                child += L'\\';
+                child += name;
+                job.pending.push_back(std::move(child));
             }
-            while (FindNextFileW(find, &data) != FALSE);
+            else
+            {
+                ++job.files;
+                job.logicalBytes += logical;
+                job.allocatedBytes += allocated;
+            }
 
-            FindClose(find);
+            // Una cartella sola puo' contenere centinaia di migliaia di voci, e con
+            // il budget controllato fra una cartella e l'altra sarebbe un silenzio
+            // lungo: si pubblica dentro il ciclo, cosi' i numeri si muovono.
+            if ((++sincePublish & 0xFFFu) == 0)
+            {
+                if (IsStale(job))
+                {
+                    stopped = true;
+                    return false;
+                }
+                PublishPartial(job);
+            }
+            return true;
+        };
+
+        // Prima il modo che sa anche dire l'allocazione. Se quel provider non
+        // risponde — volume non NTFS, certe condivisioni — si conta lo stesso con
+        // `FindFirstFileExW`, e i byte allocati di questo albero restano **non
+        // misurati**: e' diverso da zero, ed e' scritto in `DirStats`.
+        const FolderRead read = CountWithAllocation(directory, take);
+        if (read == FolderRead::Partial)
+        {
+            // Si e' preso qualcosa e poi la lettura si e' interrotta: ripiegare
+            // rileggerebbe la cartella da capo, contando due volte le voci gia'
+            // prese. L'allocazione di quell'albero resta non misurata, e **non** e'
+            // zero — e' un guasto raro (un dispositivo che sparisce a meta' di una
+            // cartella), e per questo si dice invece di tacerlo.
+            job.allocatedKnown = false;
+            DiagLog("--- " + DiagClock() +
+                    " conteggio: lettura in blocco interrotta a meta' cartella, allocazione non misurata");
+        }
+        else if (read == FolderRead::Unavailable && !stopped)
+        {
+            const std::wstring pattern = directory + L"\\*";
+            WIN32_FIND_DATAW data{};
+            HANDLE find = FindFirstFileExW(pattern.c_str(), FindExInfoBasic, &data,
+                                           FindExSearchNameMatch, nullptr,
+                                           FIND_FIRST_EX_LARGE_FETCH);
+            if (find == INVALID_HANDLE_VALUE)
+            {
+                // Non tutti i provider accettano il suggerimento di lettura grande.
+                find = FindFirstFileW(pattern.c_str(), &data);
+            }
+
+            if (find != INVALID_HANDLE_VALUE)
+            {
+                // La cartella si e' letta, ma senza la sua parte allocata: da qui in
+                // giu' il totale non e' piu' un totale.
+                job.allocatedKnown = false;
+                do
+                {
+                    const uint64_t logical =
+                        (static_cast<uint64_t>(data.nFileSizeHigh) << 32) | data.nFileSizeLow;
+                    if (!take(data.cFileName, data.dwFileAttributes, logical, /*allocated=*/0))
+                        break;
+                }
+                while (FindNextFileW(find, &data) != FALSE);
+
+                FindClose(find);
+            }
         }
 
-        if (IsStale(job))
+        if (stopped || IsStale(job))
         {
             *stale = true;
             return false;
@@ -283,10 +424,12 @@ void DirStatsService::Impl::PublishPartial(const DirStatsJob& job)
         return;
 
     DirStats stats;
-    stats.files        = job.files;
-    stats.folders      = job.folders;
-    stats.logicalBytes = job.logicalBytes;
-    stats.present      = true;
+    stats.files          = job.files;
+    stats.folders        = job.folders;
+    stats.logicalBytes   = job.logicalBytes;
+    stats.allocatedBytes = job.allocatedBytes;
+    stats.allocatedKnown = job.allocatedKnown;
+    stats.present        = true;
     stats.partial      = true;
     stats.complete     = false;
     entries[job.path] = stats;
@@ -301,10 +444,12 @@ void DirStatsService::Impl::PublishFinal(const DirStatsJob& job)
         return;
 
     DirStats stats;
-    stats.files        = job.files;
-    stats.folders      = job.folders;
-    stats.logicalBytes = job.logicalBytes;
-    stats.present      = true;
+    stats.files          = job.files;
+    stats.folders        = job.folders;
+    stats.logicalBytes   = job.logicalBytes;
+    stats.allocatedBytes = job.allocatedBytes;
+    stats.allocatedKnown = job.allocatedKnown;
+    stats.present        = true;
     stats.partial      = false;
     stats.complete     = true;
     entries[job.path] = stats;
@@ -396,6 +541,37 @@ void DirStatsService::Invalidate(const std::wstring& path)
     std::lock_guard<std::mutex> lock(impl_->mapMutex);
     impl_->tokens.erase(path);
     impl_->entries.erase(path);
+}
+
+void DirStatsService::InvalidateIncludingParents(const std::wstring& path)
+{
+    std::lock_guard<std::mutex> lock(impl_->mapMutex);
+
+    // Il percorso cambiato puo' essere un file, e per un file non c'e' niente in
+    // cache: cancellarlo e' un'operazione che non trova nulla, e va bene cosi'.
+    // Quello che conta e' cio' che sta **sopra**: il totale di una cartella
+    // contiene i suoi figli, quindi un file cambiato in fondo rende vecchi i
+    // numeri di ogni cartella che lo contiene, fino alla radice dell'albero che si
+    // sta guardando.
+    std::wstring current = path;
+    for (;;)
+    {
+        impl_->tokens.erase(current);
+        impl_->entries.erase(current);
+
+        // Si sale di un livello. `C:\` e `\\server\share` non hanno un genitore
+        // utente, e il confronto con la radice ferma il giro: senza, si girerebbe
+        // per sempre sulla stessa stringa.
+        if (current.size() <= 3)
+            break;
+        const size_t slash = current.find_last_of(L'\\');
+        if (slash == std::wstring::npos || slash == 0)
+            break;
+        const std::wstring parent = current.substr(0, slash);
+        if (parent == current)
+            break;
+        current = parent;
+    }
 }
 
 void DirStatsService::ClearAll()

@@ -151,6 +151,38 @@ UIDraw UIDraw::Image(Rect rect, Color tint, float layer, float u0, float v0, flo
     return d;
 }
 
+UIDraw UIDraw::Triangle(Rect rect, Color color, bool pointsDown)
+{
+    UIDraw d;
+    d.rect         = rect;
+    d.color        = color;
+    d.triangle     = true;
+    d.triangleDown = pointsDown;
+    return d;
+}
+
+UIDraw UIDraw::Plus(Rect rect, Color color, float thickness)
+{
+    UIDraw d;
+    d.rect   = rect;
+    d.color  = color;
+    d.plus   = true;
+    // Lo spessore della barra viaggia nel primo raggio: per questa forma i raggi
+    // delle punte non vogliono dire niente, e il formato del vertice e' chiuso.
+    d.radius = Corners{thickness, thickness, thickness, thickness};
+    return d;
+}
+
+UIDraw UIDraw::Cross(Rect rect, Color color, float thickness)
+{
+    UIDraw d;
+    d.rect   = rect;
+    d.color  = color;
+    d.cross  = true;
+    d.radius = Corners{thickness, thickness, thickness, thickness};
+    return d;
+}
+
 // ---------------------------------------------------------------------------
 // UIRenderer
 // ---------------------------------------------------------------------------
@@ -386,7 +418,9 @@ void UIRenderer::BorderRect(Rect rect, Color color, float width, float radius)
 void UIRenderer::AppendQuad(const UIDraw& p)
 {
     const Rect  r = p.rect;
-    const float flags = (p.textured ? 1.0f : 0.0f) + (p.mono ? 2.0f : 0.0f);
+    const float flags = (p.textured ? 1.0f : 0.0f) + (p.mono ? 2.0f : 0.0f) +
+                        (p.triangle ? 4.0f : 0.0f) + (p.triangleDown ? 8.0f : 0.0f) +
+                        (p.plus ? 16.0f : 0.0f) + (p.cross ? 32.0f : 0.0f);
 
     for (size_t vertex = 0; vertex < kVerticesPerQuad; ++vertex)
     {

@@ -500,9 +500,26 @@ Il secondo è che sei dimensioni secondarie non sono una gerarchia: sono rumore.
 Una barra di stato a 0.90 e un'etichetta a 0.92 non comunicano nulla di diverso,
 e nessuno legge la differenza.
 
-Ora c'è **un secondo corpo, rasterizzato a 13 px**, su un quarto layer
-dell'array di texture, disegnato a scala 1.0. Il testo secondario ha una
-dimensione sola e quella dimensione è rasterizzata invece che ricampionata.
+Ora c'è **un secondo corpo, rasterizzato**, su un quarto layer dell'array di
+texture, disegnato a scala 1.0: una dimensione sola, e quella dimensione è
+rasterizzata invece che ricampionata.
+
+**Quanto più piccolo del corpo principale, e perché è derivato.** La differenza è
+una costante sola (`AppState::kSmallFontDelta`), e vale 4: il dettaglio sta a 11 px
+quando il nome sta a 15. È **derivata** e non scelta a parte perché la dimensione
+del corpo principale è un'opzione — chi la cambia dalle opzioni vuole che
+intestazioni, valori e barra di stato seguano, e due numeri indipendenti si
+scollerebbero al primo ritocco. La richiesta dell'autore è stata «un font più
+piccolo per i dettagli come dimensione, tipo file, i valori»: il secondario scrive
+esattamente quelli, e sta più piccolo perché si legge **dopo** il nome, non invece
+del nome.
+
+*Limite dichiarato.* Il corpo secondario è **uno**: ispettore, intestazioni delle
+colonne, barra di stato, palette e suggerimenti lo condividono. Se una superficie
+sola dovesse avere una misura sua — l'ispettore più piccolo e la barra di stato no
+— servirebbe un **terzo corpo**, cioè un settimo strato dell'array di texture, e
+sono quattro megabyte di memoria video per una differenza di un pixel. Non vale il
+prezzo, e si dice invece di pagarlo di nascosto.
 
 Il costo è un layer di atlante in più su quattro: la dimensione delle texture non
 cambia, cambia il numero di strati. Il corpo resta a 15 px, e resta deliberatamente
@@ -1555,3 +1572,218 @@ quindi **all'ingrandimento massimo l'icona e' ancora ingrandita di due volte**. 
 la cella vorrebbe dire 16 celle invece di 64 nell'atlante delle anteprime, cioe'
 buttare via tre quarti delle miniature che ci stanno: non conviene, e si dice invece
 di nasconderlo.
+
+### 7.46 «Su disco» era la dimensione, e i due numeri venivano da due campi diversi
+
+**Trovato verificando la funzione, prima di darla per fatta** — che e' il motivo per
+cui la si verifica. Il conto ricorsivo dei byte allocati (M3) era scritto e sembrava
+giusto; il numero che l'inspector mostrava per la cartella di prova combaciava con
+il riferimento. Poi, per un **file solo**, il numero era quello logico:
+
+| file | lunghezza | `FileStandardInfo.AllocationSize` | `GetCompressedFileSizeW` |
+|---|---|---|---|
+| `a.txt` | 10 240 | **12 288** | 10 240 |
+| `e.txt` | 100 | **104** | 100 |
+| `sparse.bin` | 67 108 864 | **131 072** | 131 072 |
+| `zeros.bin` (compresso) | 20 971 520 | **0** | 0 |
+
+Due cose, e valgono tutte e due.
+
+La prima: per un file solo avevo usato `GetCompressedFileSizeW`, che e' la chiamata
+che **si chiama** come la domanda. Su questa macchina risponde con la dimensione
+logica — 10 240 per un file che ne occupa 12 288 — e un «su disco» uguale alla
+dimensione e' una funzione che sembra non fare niente, che e' la forma di difetto
+peggiore: non sbaglia rumorosamente, non fa niente. Il campo giusto e'
+`FILE_STANDARD_INFO.AllocationSize`.
+
+La seconda, piu' importante: il campo giusto e' **lo stesso** che l'enumerazione in
+blocco legge per ogni voce della cartella (`FILE_ID_BOTH_DIR_INFO.AllocationSize`).
+Due strade diverse per la stessa domanda possono rispondere cose diverse — e' scritto
+in tutto questo registro — e la correzione e' averne una sola: la stessa struttura
+per il file, la stessa struttura per le voci dell'albero.
+
+**Come e' stato visto.** Con un albero di prova **dentro il progetto**
+(`analysis/tmp/alloc-test`, contenuto finto: `AGENTS.md` §0), costruito apposta
+perche' i due numeri **non** coincidessero: file piu' corti di un cluster, piu' lunghi
+di un cluster ma non multipli, un file **sparso** da 64 MB con due soli cluster
+scritti, e una cartella **compressa** con 20 MB di zeri. Un albero di file qualunque
+non avrebbe distinto le due strade, perche' su questa macchina coincidono quasi
+sempre.
+
+E il confronto e' con un **riferimento indipendente**: una sonda che per ogni file
+apre un handle e chiede `FILE_STANDARD_INFO` — una chiamata per file, l'altra strada
+possibile — e somma. I due numeri:
+
+    riferimento (una chiamata per file)   logico 97 527 908   allocato 9 580 648
+    applicazione (a blocchi, per cartella)     93.0 MB             9.1 MB
+    e per il file sparso:            riferimento 131 072   applicazione 128.0 KB
+
+Due percorsi di codice diversi che dicono lo stesso numero: e' l'unico modo di
+sapere che il numero e' quello e non un altro che gli somiglia.
+
+**Nota su che cosa significa il numero.** `AllocationSize` e' quanto il disco ha
+riservato: un file da 10 240 byte ne occupa 12 288 (tre cluster), un file da 100 byte
+ne occupa 104 perche' sta **dentro** il record del file system, e un file compresso
+o sparso ne occupa molto meno della sua lunghezza. E' la stessa cosa che Esplora
+risorse chiama «Dimensione su disco», ed e' l'unico campo che la dice.
+
+### 7.47 Il file creato non compariva: l'ultima azione vinceva sulla creazione
+
+**Trovato verificando la sorveglianza delle cartelle** (M3), e trovato **solo** perche'
+la prova e' stata fatta in modo da dire qualcosa: si e' creato un file da fuori e si e'
+guardato se la riga compariva **senza toccare l'applicazione**. Non compariva.
+
+Il registro diagnostico, acceso apposta, ha detto cosa era successo:
+
+    22:33:48.577  sorveglianza: 1 notifiche (create 1, cancellate 0, modificate 0, rinominate 0)
+    22:33:48.578  sorveglianza: 1 notifiche (create 0, cancellate 0, modificate 1, rinominate 0)
+    22:33:48.588  cambiamento esterno: 1 voci, righe da ricaricare: no
+
+**La causa.** Scrivere un file non produce una notifica, ne produce **due**: la
+creazione e poi la modifica. Il sorvegliante teneva un cambiamento per percorso, e
+della stessa voce ricordava **l'ultima azione** — che era `MODIFIED`. Il consumatore
+poi decide se ricaricare l'elenco in base all'azione: `MODIFIED` non cambia le righe,
+`CREATED` si'. La creazione era finita dietro la modifica, e la riga non compariva.
+Il difetto non era nel sorvegliante, che faceva esattamente quello che diceva di
+fare: era nella regola di fusione, che sceglieva l'azione sbagliata delle due.
+
+**La correzione**: di un percorso toccato piu' volte si ricorda l'azione che **cambia
+l'elenco**, non l'ultima arrivata. La regola sta in un posto solo
+(`DirectoryWatcher::ChangesListing`), perche' la usano in due — chi raccoglie le
+notifiche e chi le applica — e due copie della stessa regola divergono sempre.
+
+**Verificato a schermo**, non dedotto: dopo la correzione il file creato da fuori
+compare nella lista da solo (`analysis/tmp/w-07-voci.png`), e il registro dice
+`righe da ricaricare: si` dove prima diceva `no`.
+
+**Perche' la prova e' stata severa.** Fra il momento in cui si creava il file e
+quello in cui si catturava, l'applicazione **non e' stata toccata**: niente clic,
+niente `F5`. Se la riga compariva, era il sorvegliante a farla comparire. Una prova
+che avesse premuto `F5` "per essere sicuri" avrebbe nascosto il difetto per sempre.
+
+### 7.48 Il registro diagnostico lo scrivevano due thread
+
+**Difetto introdotto da questa stessa modifica**, e corretto subito. `DiagLog`
+accumula le righe in un `std::string` statico e riscrive il file ogni volta. Con il
+sorvegliante delle cartelle le chiamate arrivano da **due thread** — quello della
+finestra e quello che aspetta le notifiche — e due chiamate sovrapposte scrivevano e
+leggevano lo stesso `std::string` insieme.
+
+Il compilatore non lo dice: `/W4` non vede le corse, e nessun test lo avrebbe
+mostrato, perche' si manifesta ogni tanto. Si e' visto **leggendo il diff** prima di
+chiudere: una funzione documentata come `void DiagLog(const std::string&)` non dice
+da quale thread si puo' chiamare, e nessuno se lo chiede finche' non e' tardi.
+
+**Correzione**: un mutex dentro `DiagLog`, e la dichiarazione in `diag.h` che ora
+dice che si puo' chiamare da qualunque thread — perche' e' vero, e perche' chi la
+chiama deve poterlo sapere senza leggere il `.cpp`.
+
+### 7.49 La linguetta di una sezione non cambiava mai verso, e non era un carattere
+
+**Trovato dall'autore guardando**, con una frase che e' anche la diagnosi: «le
+linguette vicino ad accesso rapido, recenti, preferiti non le voglio cosi'
+statiche». Statiche: non cambiavano mai. Erano due difetti in uno, e il secondo
+nascondeva il primo.
+
+**Il primo: non erano elementi, erano caratteri.** Il verso si disegnava scrivendo
+il testo `v` o `>` col font di interfaccia. Un carattere non e' un elemento: cambia
+forma col carattere scelto nelle opzioni (`Font`, `Font size` in M9), non si
+allinea con niente, e a nove pixel e' un grumo con l'antialiasing sbagliato. La
+correzione e' una primitiva nuova nello shader — un **triangolo** — in tutti e due i
+backend, perche' i due backend sono la stessa cosa detta in due lingue.
+
+Due cose che la primitiva ha insegnato, e che valgono piu' della primitiva:
+
+- **`const` in GLSL vuole un'espressione costante.** `const float width = halfSize.x;`
+  dentro una funzione non e' una costante, e il compilatore lo rifiuta con un errore
+  che non dice cosa fare. In HLSL sarebbe passato: i due shader vanno scritti uguali,
+  o la differenza si scopre solo compilando l'altro backend.
+- **In `point` space gli assi sono girati tutti e due.** Il frammento calcola
+  `point = centro - frag`, quindi `+X` va a **sinistra** e `+Y` va in su'. Il
+  rettangolo arrotondato non se ne accorge — e' simmetrico, e per anni ha funzionato
+  — ma un triangolo si': il primo tentativo disegnava una linguetta che puntava
+  dalla parte sbagliata. La riga che riporta il punto in uno spazio leggibile e'
+  adesso commentata, perche' e' una di quelle che si cancellano per sbaglio.
+
+**Il secondo difetto, che era quello vero.** Il verso lo decideva
+
+    const bool collapsed = app.collapsedSections.count(item.title) != 0;
+
+mentre lo stato di chiusura e' ricordato con **`item.key`** — la chiave inglese — ed
+e' ricordato con quella apposta: «un percorso che dice `This PC` accanto a una barra
+laterale che dice `Questo PC` e' due nomi per la stessa cosa», e la chiave non si
+traduce perche' chiudere una sezione in italiano deve lasciarla chiusa anche in
+inglese. Con il **nome** nel test, la chiave non si trovava mai: `collapsed` era
+sempre falso, e la linguetta restava ferma. Le altre due strade — quali righe
+disegnare, e cosa fare al clic — usavano gia' la chiave. **Due su tre**, e la terza
+era quella che si vede.
+
+Non e' un difetto del triangolo: c'era anche col carattere. E' un difetto che
+**non faceva rumore**, perche' una freccia che non cambia mai sembra una scelta
+grafica, e chi la guarda pensa che sia disegnata cosi'. E' la forma di guasto che
+questo registro chiama peggiore: non sbaglia, non fa.
+
+**Poi la forma, chiesta dall'autore**: «leggermente meno appuntite, meno allungate».
+Erano equilatere — base e profondita' uguali, angolo in punta di 53 gradi — e
+adesso sono **piu' larghe che profonde** (due terzi), con l'angolo in punta a 74
+gradi, e gli **spigoli arrotondati** di poco. La punta resta una punta, ma smette di
+essere un ago.
+
+Due scelte che valgono piu' del ritocco. La prima: la forma si decide in **un posto
+solo** (`DisclosureArrow`, in `app_ui.*`), non in ognuno dei quattro punti che la
+disegnano — e il rettangolo lo costruisce quella funzione, perche' la linguetta
+chiusa punta a destra mentre quella aperta punta in giu', e le due hanno bisogno di
+proporzioni **opposte**: larga e bassa una, alta e stretta l'altra. Chi chiama non
+deve saperlo. La seconda: l'arrotondamento si **deriva** dalla base, cosi' regge a
+ogni ingrandimento senza un secondo numero da tenere allineato.
+
+**Quattro posti, non uno.** Cercando il carattere nel codice ne sono usciti altri
+tre, tutti con lo stesso trucco: le **bande dei gruppi** nella lista, le
+intestazioni della **palette dei comandi** e quelle della finestra **GoTo**. Adesso
+usano tutti la stessa primitiva, ed e' l'unico modo perche' restino uguali: quattro
+disegni della stessa linguetta sono quattro occasioni di farne uno diverso.
+
+**Verificato a schermo** su tutti e quattro: chiusa punta a destra, aperta in giu'
+nella barra laterale, e in giu' nei gruppi della lista e nelle intestazioni della
+palette. E su **entrambi i backend**, perche' i due shader sono due lingue per la
+stessa forma e una delle due poteva restare indietro. Prima della correzione il
+difetto e' stato **riprodotto apposta**, disegnando le due varianti affiancate in
+rosso e in verde: «mi sembra diverso» non e' una prova, due triangoli affiancati in
+un fotogramma si'.
+
+### 7.50 Il piu' e la croce erano caratteri
+
+**Stessa famiglia di §7.49**, e chiesto dall'autore subito dopo: il `+` che apre un
+tab e la `x` che lo chiude erano **caratteri**, non elementi. Il `+` si disegnava col
+corpo del testo, la `x` con quello secondario, e la chiusura della finestra con la
+seconda. Tre posti, due primitve nuove: un **piu'** e una **croce**, nello shader,
+per tutti e due i backend.
+
+- Il **piu'** e' la **minima** di due rettangoli arrotondati: due barre dritte che si
+  incrociano, con le punte tonde come ogni altro bordo del programma.
+- La **croce** e' la minima distanza dalle **due diagonali**, ognuna un segmento con
+  le punte tonde, accorciate quanto basta perche' le punte restino dentro il
+  quadrato. Un incrocio di due strisce infinite sarebbe stato tagliato agli angoli
+  dal rettangolo, e si sarebbe visto.
+- Lo **spessore** della barra viaggia nel campo dei raggi, che per queste due forme
+  non vuol dire niente: il formato del vertice e' chiuso a trenta float e non si
+  allarga per una comodita'.
+
+**Una trappola del GLSL, pagata subito.** Le due funzioni nuove usavano
+`roundedBoxDistance`, che in `ui.frag` e' definita **piu' sotto**: in GLSL una
+funzione va dichiarata prima di essere usata, e il risultato non e' un errore di
+compilazione del C++ ma un `Startup failed` dell'applicazione — la finestra si apre e
+dice che non e' partita. Il registro diceva `undefined variable
+"roundedBoxDistance"`, che e' esattamente cosa fare. Vale la pena ricordarlo perche'
+la tentazione e' aggiungere le funzioni vicino alle costanti, dove si leggono bene, e
+il posto giusto e' **dopo** la funzione che usano. **Ed e' successo due volte**: la
+seconda, un'ora dopo, arrotondando gli spigoli del triangolo, che ha cominciato a
+usare `segmentDistance` — definita piu' sotto. Il GLSL e' stato sistemato al primo
+colpo; l'**HLSL** no, perche' li' il blocco era in un altro ordine ancora. Due
+linguaggi per la stessa forma vuol dire due volte lo stesso lavoro, e la seconda
+volta non si ricorda la prima.
+
+**Verificato a schermo**: il `+` e la `x` del tab sono due forme disegnate
+(`analysis/tmp/p-04-big.png`), i tre pulsanti di finestra sono tutti e tre forme
+(riduci a icona era gia' un rettangolo, ingrandisci due bordi, chiudi adesso una
+croce), e i due clic funzionano: il `+` apre un secondo tab e la `x` lo chiude.

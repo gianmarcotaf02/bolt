@@ -24,6 +24,9 @@ bool DevHudEnabled();
 
 // Aggiunge una riga al registro. Le righe si accumulano e si riscrivono tutte
 // insieme: aprendo in append a ogni riga il file restava incompleto.
+//
+// Si puo' chiamare da qualunque thread: la finestra e il sorvegliante delle
+// cartelle scrivono nello stesso registro, e il registro e' uno.
 void DiagLog(const std::string& line);
 
 // Ora locale con i millisecondi: due giri nella stessa sessione si distinguono

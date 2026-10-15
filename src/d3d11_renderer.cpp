@@ -117,6 +117,48 @@ struct VSOutput
 
 static const float FLAG_TEXTURED = 1.0;
 static const float FLAG_MONO     = 2.0;
+static const float FLAG_TRIANGLE = 4.0;
+static const float FLAG_TRIANGLE_DOWN = 8.0;
+static const float FLAG_PLUS  = 16.0;
+static const float FLAG_CROSS = 32.0;
+
+// Il triangolo della linguetta: la stessa formula dell'OpenGL, detta in HLSL.
+// Per farlo puntare in giu' si ruota il punto, non si scrive una seconda formula.
+// Distanza da un segmento con le punte tonde: la usano il triangolo e la croce.
+float segmentDistance(float2 point, float2 a, float2 b, float radius)
+{
+    float2 pa = point - a;
+    float2 ba = b - a;
+    float along = clamp(dot(pa, ba) / dot(ba, ba), 0.0, 1.0);
+    return length(pa - ba * along) - radius;
+}
+
+float triangleDistance(float2 point, float2 halfSize, float rounding)
+{
+    float width  = halfSize.x;
+    float height = halfSize.y;
+
+    float2 top    = float2(-width,  height);
+    float2 tip    = float2( width,  0.0);
+    float2 bottom = float2(-width, -height);
+
+    float left = -width - point.x;
+
+    float2 upperEdge = normalize(float2( height, 2.0 * width));
+    float2 lowerEdge = normalize(float2( height, -2.0 * width));
+    float upper = dot(point - top, upperEdge);
+    float lower = dot(point - tip, lowerEdge);
+
+    float planes = max(max(left, upper), lower);
+    if (rounding <= 0.0)
+        return planes;
+
+    // Vedi ui.frag: gli spigoli si arrotondano con la distanza dal contorno.
+    float edge = min(min(segmentDistance(point, top, tip, 0.0),
+                         segmentDistance(point, tip, bottom, 0.0)),
+                     segmentDistance(point, bottom, top, 0.0));
+    return (planes < 0.0 ? -edge : edge) - rounding;
+}
 
 float roundedBoxDistance(float2 local, float2 halfSize, float4 radius)
 {
@@ -126,6 +168,25 @@ float roundedBoxDistance(float2 local, float2 halfSize, float4 radius)
     r = clamp(r, 0.0, min(halfSize.x, halfSize.y));
     float2 offset = abs(local) - halfSize + r;
     return min(max(offset.x, offset.y), 0.0) + length(max(offset, float2(0.0, 0.0))) - r;
+}
+
+// Il piu' e la croce: le stesse formule di ui.frag, dette in HLSL.
+float plusDistance(float2 point, float2 halfSize, float thickness)
+{
+    float tip = thickness * 0.5;
+    float2 horizontal = float2(max(halfSize.x - tip, 0.0), tip);
+    float2 vertical   = float2(tip, max(halfSize.y - tip, 0.0));
+    return min(roundedBoxDistance(point, horizontal, float4(tip, tip, tip, tip)),
+               roundedBoxDistance(point, vertical, float4(tip, tip, tip, tip)));
+}
+
+float crossDistance(float2 point, float2 halfSize, float thickness)
+{
+    float tip = thickness * 0.5;
+    float extent = max(min(halfSize.x, halfSize.y) - tip, 0.0);
+    float backslash = segmentDistance(point, float2(-extent, -extent), float2(extent, extent), tip);
+    float slash     = segmentDistance(point, float2(-extent,  extent), float2(extent, -extent), tip);
+    return min(backslash, slash);
 }
 
 bool isOnDash(float2 frag, float2 shapeMin, float2 shapeSize, float strokeWidth,
@@ -185,7 +246,28 @@ float4 main(VSOutput input) : SV_Target
 
     float2 innerHalf = max(halfSize - float2(inset + input.softness, inset + input.softness),
                            float2(0.0, 0.0));
-    float distance = roundedBoxDistance(local, innerHalf, radius);
+    float distance;
+    if (fmod(input.flags, 2.0 * FLAG_TRIANGLE) >= FLAG_TRIANGLE)
+    {
+        // Vedi ui.frag: in `local` i due assi sono girati, e un triangolo se ne
+        // accorge anche se un rettangolo no.
+        float2 upright = float2(-local.x, local.y);
+        bool down = fmod(input.flags, 2.0 * FLAG_TRIANGLE_DOWN) >= FLAG_TRIANGLE_DOWN;
+        float2 rotated = down ? float2(-upright.y, upright.x) : upright;
+        distance = triangleDistance(rotated, innerHalf, input.radius.x);
+    }
+    else if (fmod(input.flags, 2.0 * FLAG_PLUS) >= FLAG_PLUS)
+    {
+        distance = plusDistance(local, innerHalf, max(input.radius.x, 1.0));
+    }
+    else if (fmod(input.flags, 2.0 * FLAG_CROSS) >= FLAG_CROSS)
+    {
+        distance = crossDistance(local, innerHalf, max(input.radius.x, 1.0));
+    }
+    else
+    {
+        distance = roundedBoxDistance(local, innerHalf, radius);
+    }
 
     float alpha;
     if (input.strokeWidth > 0.0)
@@ -607,7 +689,9 @@ void D3D11Renderer::BorderRect(Rect rect, Color color, float width, float radius
 void D3D11Renderer::AppendQuad(const UIDraw& p)
 {
     const Rect  r = p.rect;
-    const float flags = (p.textured ? 1.0f : 0.0f) + (p.mono ? 2.0f : 0.0f);
+    const float flags = (p.textured ? 1.0f : 0.0f) + (p.mono ? 2.0f : 0.0f) +
+                        (p.triangle ? 4.0f : 0.0f) + (p.triangleDown ? 8.0f : 0.0f) +
+                        (p.plus ? 16.0f : 0.0f) + (p.cross ? 32.0f : 0.0f);
 
     for (size_t vertex = 0; vertex < kVerticesPerQuad; ++vertex)
     {

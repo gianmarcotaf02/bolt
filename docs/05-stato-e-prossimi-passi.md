@@ -4,17 +4,21 @@ Documento di lavoro, non di progetto: serve a riprendere senza rileggere la
 conversazione. Aggiornarlo è l'ultima cosa da fare prima di una pausa lunga o di
 una compattazione del contesto.
 
-Ultimo aggiornamento: dopo le **icone** — quella dell'oggetto giusto per ogni voce,
-quella dell'applicazione che apre un file, i titoli in italiano che ci stanno, la
-barra laterale in doppia lingua e le **icone grandi chieste alla misura giusta**
-invece di ingrandite (`docs/02` §7.43, §7.44 e §7.45). Prima di questo: il
-**pannello delle opzioni** (M9, `Ctrl+,`) con i controlli tipizzati e le preferenze
-ricordate in `%APPDATA%\Bolt\settings.ini`, l'**allineamento delle scorciatoie**
-all'originale, la **lingua finita su tutte le superfici**, la **salita da una radice
-di volume**, le **tre cose viste nell'originale**, l'**albero dei tab verificato**,
-**`InspectorHideGrid` ricostruito**, il **backend Direct3D 11** (M10) e i tre difetti
-che si sono visti facendoli (`docs/02` §7.40, §7.41 e §7.42). Registro:
-**quarantacinque** difetti trovati e risolti, **due** cose da fare, i limiti
+Ultimo aggiornamento: **2026-10-16**, dopo la **sorveglianza delle cartelle** (M3
+chiusa: i numeri si aggiornano da soli, `docs/02` §7.47 e §7.48), l'**inizio dello
+spezzamento di `main.cpp`** (da 11.394 a 9.905 righe: il confine in
+`src/app_state.h`, i supporti in `src/app_ui.*`, e fuori tre moduli —
+`view_sidebar`, `view_titlebar`, `tabs`), le **linguette come elementi** invece che
+come caratteri (un triangolo nello shader, §7.49) e i **pulsanti della barra del
+titolo** come forme (piu' e croce, §7.50), e il **corpo dei dettagli piu' piccolo**
+di 4 px sotto il corpo principale, derivato (`docs/02` §7.12). Prima: il
+**pannello delle opzioni** (M9, `Ctrl+,`), l'**allineamento delle scorciatoie**,
+la **lingua su tutte le superfici**, la **salita da una radice di volume**, le
+**tre cose viste nell'originale**, l'**albero dei tab verificato**, le **icone**
+— oggetto, applicazione, e grandi alla misura giusta (`docs/02` §7.43, §7.44,
+§7.45) —, i **byte allocati** (§7.46), **`InspectorHideGrid`**, il **backend
+Direct3D 11** (M10) e i tre difetti visti facendolo (§7.40, §7.41, §7.42).
+Registro: **cinquanta** difetti trovati e risolti, **due** cose da fare, i limiti
 dichiarati sparsi dove vivono.
 
 ---
@@ -26,7 +30,7 @@ dichiarati sparsi dove vivono.
 | M1 — shell e rendering | ✅ |
 | M2 — icone e anteprime | 🟡 oggetti e applicazioni fatti, manca la resa monocromatica (provata e tolta su richiesta dell'autore) |
 | M2b — navigazione | ✅ |
-| M3 — statistiche di cartella | 🟡 mancano byte allocati e invalidazione da `ReadDirectoryChangesW` |
+| M3 — statistiche di cartella | ✅ byte logici e **allocati**, e i numeri si aggiornano da soli quando la cartella cambia da fuori (`ReadDirectoryChangesW`, con il limite dichiarato di due livelli) |
 | M5 — filtro, ordinamento, raggruppamento, selezione | ✅ |
 | M5c — modalità di visualizzazione | ✅ quattro viste, celle **derivate** da una misura continua (icona, larghezza e altezza), raggruppamento in griglia e nell'elenco, ridimensionamento continuo con `Ctrl`+rotella, **selettori di vista e misura delle anteprime nella barra in fondo**, e **icone grandi chieste alla misura giusta** invece di ingrandite (`docs/02` §7.45) |
 | M5d — sovrappasso e comportamento del clic | ✅ evidenzia righe e celle, e le otto chiavi di interazione: `HoverToSelect`, `UnderlineOnHover`, `ShowTooltips`, `SingleClick`, `SingleClickFoldersOnly`, `ActOnPress`, `DoubleClickToParent`, `ShowCheckboxes` |
@@ -53,7 +57,14 @@ lavorano i file — inclusa l'apertura delle proprietà di Windows.
 
 Ordinato per quanto morde.
 
-1. **`src/main.cpp` è a 11.161 righe.** I confini dei componenti ci sono
+1. **`src/main.cpp` e' a 9.894 righe, ed erano 11.394.** Lo spezzamento e' in corso:
+   il confine che mancava ora c'e' (`src/app_state.h` per lo stato e i tipi condivisi,
+   `src/app_ui.*` per i supporti), e sono usciti due moduli di vista
+   (`src/view_sidebar.*` e `src/view_titlebar.*`) piu' la parte pura del modello dei
+   tab (`src/tabs.*`). Restano dentro la **lista con le colonne, l'inspector, la
+   barra di stato, i comandi e l'input**: sono circa tremilacinquecento righe, e
+   adesso si spostano una per volta **senza toccare quello che resta**, perche' la
+   direzione delle dipendenze e' fissata. I confini dei componenti ci sono
    (`GroupMenu`, `ContextMenu`, `file_ops`, `dir_stats`, `shell_*`, `drag_drop`)
    ma quelli della vista vivono tutti nello stesso file. Spezzarlo richiede che
    `AppState` e i tipi condivisi escano dall'anonimo namespace in un header: è un
@@ -76,7 +87,7 @@ Ordinato per quanto morde.
 
 **Tre numeri, che sono tre cose diverse e non vanno confusi.**
 
-- **Quarantacinque** difetti **trovati e risolti**: il registro è `docs/02` §7, uno per
+- **Cinquanta** difetti **trovati e risolti**: il registro è `docs/02` §7, uno per
   uno, con sintomo, causa e correzione. È un cumulativo, non una lista di lavoro.
 - **Due** cose **da fare**: la lista qui sotto.
 - I **limiti dichiarati**: cose che si è scelto di non fare, scritte dove vivono con
@@ -86,7 +97,7 @@ Ordinato per quanto morde.
   volta che nei documenti c'è scritto "dichiarato", vuol dire questo: non risolto, e
   detto.
 
-Qualche voce dei quarantacinque porta con sé un residuo dichiarato — §7.34 ha risolto
+Qualche voce dei cinquanta porta con sé un residuo dichiarato — §7.34 ha risolto
 l'oggetto dati ma la voce riciclata che non viene presa resta un limite — e il
 conteggio non lo nasconde: il residuo è scritto nella voce stessa.
 
@@ -102,12 +113,30 @@ In ordine di valore, non di facilità.
 > **temi a 35 token**; di M4 il **punteggio** dei recenti, che adesso e' solo l'ordine
 > di visita.
 
+### L'ordine deciso il 2026-10-16
+
+Discusso e scelto con l'autore, in risposta a «come procediamo». In ordine:
+
+1. **Un blocco dello spezzamento: la lista con le colonne** (il pezzo piu' grosso e
+   piu' intrecciato: ordinamento, filtri, gruppi, viste, intestazioni passano tutti di
+   li'). Poi **il tema chiaro** (M9, i 35 token esistono gia' nella spec: e' cablaggio,
+   non disegno), poi **il dialogo di progressione** di M7 (oggi una copia da 5 GB non
+   dice a che punto e' e non si ferma).
+2. Il motivo dell'ordine: lo spezzamento non si vede, quindi farlo tutto di fila sono
+   tre sessioni senza niente da guardare; e cominciarlo **adesso** costa meno di
+   cominciarlo dopo, perche' ogni funzione nuova che arriva prima paga il file unico.
+3. **B e C si possono invertire** se si preferisce vedere subito qualcosa di grosso:
+   il tema chiaro si tocca con gli occhi, il dialogo di progressione con le mani.
+
+Le due cose da fare, che restano tali:
+
 1. **Il trascinamento fuori dal cestino** — l'oggetto dati adesso c'è e le voci
    normali escono davvero, ma una voce **riciclata** non viene presa (la
    destinazione dichiara "copia" e non copia). La causa non è ricostruita: §7.34 di
    `docs/02`. Se non si trova, resta un limite dichiarato.
-2. **Spezzare `main.cpp`** — **~11.161 righe** e tredici moduli: il confine c'è, ma il
-   file che lo contiene resta il collo di bottiglia dichiarato fin dall'inizio.
+2. **Spezzare `main.cpp`** — **9.894 righe** (erano 11.394) e ventidue moduli: il confine c'è, e
+   file che lo contiene resta il collo di bottiglia dichiarato fin dall'inizio, ma non piu' intatto:
+   vedi la voce 1.
 
 
 ---
