@@ -5,15 +5,17 @@ conversazione. Aggiornarlo è l'ultima cosa da fare prima di una pausa lunga o d
 una compattazione del contesto.
 
 Ultimo aggiornamento: **2026-10-16**, dopo lo **spezzamento di `main.cpp`** (da
-11.394 a **8.630** righe: il confine in `src/app_state.h`, i supporti in
+11.394 a **8.632** righe: il confine in `src/app_state.h`, i supporti in
 `src/app_ui.*`, e fuori quattro moduli — `view_sidebar`, `view_titlebar`,
 `tabs` e la **lista con le colonne**, `src/view_list.*`), il **tema chiaro**
 (`src/theme.*`: i ruoli di colore che hanno un lettore, le due tavolozze, la scelta
 dal pannello e dalla palette, `SystemColorScheme` che segue Windows anche a
-finestra aperta) e **due difetti trovati mentre si faceva**: il **suggerimento che
+finestra aperta) e **tre difetti trovati mentre si faceva**: il **suggerimento che
 leggeva la riga 1 di 1** (`docs/02` §7.51, una caduta riproducibile entrando in una
-cartella dopo aver scelto un file di testo) e il **backend Direct3D 11 che non
-poteva partire** (§7.52, `point` come nome di parametro in HLSL). Prima: la
+cartella dopo aver scelto un file di testo), il **backend Direct3D 11 che non
+poteva partire** (§7.52, `point` come nome di parametro in HLSL) e il **pidl
+liberato e poi usato** (§7.53, in `ShellLocation::Read`: il ripristino dal cestino
+riceveva l'identita' di un blocco riusabile). Prima: la
 **sorveglianza delle cartelle** (M3 chiusa: i numeri si aggiornano da soli, §7.47 e
 §7.48), le **linguette come elementi** invece che
 come caratteri (un triangolo nello shader, §7.49) e i **pulsanti della barra del
@@ -74,7 +76,7 @@ Ordinato per quanto morde.
    `0 su 12` sotto AddressSanitizer, che quindi non ne da' una pila. **Per chiuderla
    serve un dump** (`LocalDumps` di WER + un debugger, oppure `devenv /debugexe`
    aperto ad aspettare): tutto il resto e' scritto — dove guardare e quanto spesso.
-1. **`src/main.cpp` e' a 8.630 righe, ed erano 11.394.** Lo spezzamento e' in
+1. **`src/main.cpp` e' a 8.632 righe, ed erano 11.394.** Lo spezzamento e' in
    corso: il confine che mancava ora c'e' (`src/app_state.h` per lo stato e i tipi
    condivisi, `src/app_ui.*` per i supporti), e sono usciti quattro moduli — tre di
    vista (`src/view_sidebar.*`, `src/view_titlebar.*` e la **lista con le colonne**,
@@ -114,7 +116,7 @@ Ordinato per quanto morde.
 - I **limiti dichiarati**: cose che si è scelto di non fare, scritte dove vivono con
   la ragione accanto (il tetto di 1 MB nella lettura dei testi, i modelli `ShellNew`
   con valore `Command`, le 23 colonne della specifica contro le 6 fatte, il ritaglio
-  per-quad in `AGENTS.md` §8, le otto opzioni che il pannello mostra spente). Ogni
+  per-quad in `AGENTS.md` §8, le sei opzioni che il pannello mostra spente). Ogni
   volta che nei documenti c'è scritto "dichiarato", vuol dire questo: non risolto, e
   detto.
 
@@ -173,7 +175,7 @@ Le due cose da fare, che restano tali:
    normali escono davvero, ma una voce **riciclata** non viene presa (la
    destinazione dichiara "copia" e non copia). La causa non è ricostruita: §7.34 di
    `docs/02`. Se non si trova, resta un limite dichiarato.
-2. **Spezzare `main.cpp`** — **8.630 righe** (erano 11.394) e ventiquattro moduli: il confine c'è, e
+2. **Spezzare `main.cpp`** — **8.632 righe** (erano 11.394) e ventiquattro moduli: il confine c'è, e
    file che lo contiene resta il collo di bottiglia dichiarato fin dall'inizio, ma non piu' intatto:
    vedi la voce 1.
 
