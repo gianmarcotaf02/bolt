@@ -4,21 +4,30 @@ Documento di lavoro, non di progetto: serve a riprendere senza rileggere la
 conversazione. Aggiornarlo è l'ultima cosa da fare prima di una pausa lunga o di
 una compattazione del contesto.
 
-Ultimo aggiornamento: **2026-10-16**, dopo la **sorveglianza delle cartelle** (M3
-chiusa: i numeri si aggiornano da soli, `docs/02` §7.47 e §7.48), l'**inizio dello
-spezzamento di `main.cpp`** (da 11.394 a 9.905 righe: il confine in
-`src/app_state.h`, i supporti in `src/app_ui.*`, e fuori tre moduli —
-`view_sidebar`, `view_titlebar`, `tabs`), le **linguette come elementi** invece che
+Ultimo aggiornamento: **2026-10-16**, dopo lo **spezzamento di `main.cpp`** (da
+11.394 a **8.630** righe: il confine in `src/app_state.h`, i supporti in
+`src/app_ui.*`, e fuori quattro moduli — `view_sidebar`, `view_titlebar`,
+`tabs` e la **lista con le colonne**, `src/view_list.*`), il **tema chiaro**
+(`src/theme.*`: i ruoli di colore che hanno un lettore, le due tavolozze, la scelta
+dal pannello e dalla palette, `SystemColorScheme` che segue Windows anche a
+finestra aperta) e **due difetti trovati mentre si faceva**: il **suggerimento che
+leggeva la riga 1 di 1** (`docs/02` §7.51, una caduta riproducibile entrando in una
+cartella dopo aver scelto un file di testo) e il **backend Direct3D 11 che non
+poteva partire** (§7.52, `point` come nome di parametro in HLSL). Prima: la
+**sorveglianza delle cartelle** (M3 chiusa: i numeri si aggiornano da soli, §7.47 e
+§7.48), le **linguette come elementi** invece che
 come caratteri (un triangolo nello shader, §7.49) e i **pulsanti della barra del
 titolo** come forme (piu' e croce, §7.50), e il **corpo dei dettagli piu' piccolo**
-di 4 px sotto il corpo principale, derivato (`docs/02` §7.12). Prima: il
+di 4 px sotto il corpo principale, derivato (§7.12). Prima ancora: il
 **pannello delle opzioni** (M9, `Ctrl+,`), l'**allineamento delle scorciatoie**,
 la **lingua su tutte le superfici**, la **salita da una radice di volume**, le
 **tre cose viste nell'originale**, l'**albero dei tab verificato**, le **icone**
-— oggetto, applicazione, e grandi alla misura giusta (`docs/02` §7.43, §7.44,
-§7.45) —, i **byte allocati** (§7.46), **`InspectorHideGrid`**, il **backend
-Direct3D 11** (M10) e i tre difetti visti facendolo (§7.40, §7.41, §7.42).
-Registro: **cinquanta** difetti trovati e risolti, **due** cose da fare, i limiti
+— oggetto, applicazione, e grandi alla misura giusta (§7.43, §7.44,
+§7.45) —, i **byte allocati** (§7.46), **`InspectorHideGrid`** e il **backend
+Direct3D 11** (M10).
+Registro: **cinquantatre'** difetti trovati e risolti e **tre aperti** — la caduta
+rara all'avvio (§7.54), l'ispettore che mostra una voce nascosta dal filtro (§7.55)
+e il backend Direct3D spento apposta (§7.52) —, **due** cose da fare, i limiti
 dichiarati sparsi dove vivono.
 
 ---
@@ -44,8 +53,8 @@ riquadro di navigazione** (che sul cestino è il gesto per buttare via, non una
 copia). Mancano le cartelle riciclate (che si ripristinano, non si aprono) e il
 trascinamento **fuori** dal cestino, che resta un limite dichiarato |
 | M8 — inspector | ✅ metadati, proprietà `PROPSYS`, conteggio per tipo, **visualizzatore di testo** (righe, minimap, spazi visibili, andare a capo, ingrandimento, codifica), **anteprima immagine** decodificata con adattamento e ingrandimento e **griglia di sfondo** (`InspectorHideGrid`). Le voci di spazio dei nomi mostrano le colonne della shell (percorso originale, data di eliminazione) |
-| M9 — configurazione e temi | 🟡 pannello delle opzioni (`Ctrl+,`) con i controlli tipizzati, preferenze ricordate in `%APPDATA%\Bolt\settings.ini` e **lingua su tutte le superfici**; mancano la mappa tasti rimappabile e i temi a 35 token |
-| M10 — backend D3D11 | ✅ `IRenderer` dietro cui stanno **OpenGL** e **Direct3D 11** (stessi shader in HLSL, stesso batcher di quadrilateri), con scelta all'avvio (`BOLT_BACKEND`) e fallback all'OpenGL |
+| M9 — configurazione e temi | 🟡 pannello delle opzioni (`Ctrl+,`) con i controlli tipizzati, preferenze ricordate in `%APPDATA%\Bolt\settings.ini`, **lingua su tutte le superfici** e **tavolozza chiara e scura** con `SystemColorScheme` che segue Windows; mancano la mappa tasti rimappabile, le viste per cartella e i layout salvabili |
+| M10 — backend D3D11 | 🟡 `IRenderer` dietro cui stanno **OpenGL** e **Direct3D 11** (stessi shader in HLSL, stesso batcher di quadrilateri), con scelta all'avvio (`BOLT_BACKEND`) e fallback all'OpenGL. Lo shader HLSL incorporato pero' **non compila** — `point` e' una parola riservata — quindi il Direct3D non e' mai partito davvero e il fallback faceva sembrare tutto a posto. Il rimedio e' una parola e non e' applicato: accenderebbe il secondo backend **per default**, e quel percorso non ha avuto un giro completo. `docs/02` §7.52 |
 
 L'applicazione è **usabile**: si naviga, si filtra, si raggruppa, si seleziona, si
 aprono tab, si salta con GoTo, si guardano anteprime e statistiche ricorsive, e si
@@ -57,18 +66,30 @@ lavorano i file — inclusa l'apertura delle proprietà di Windows.
 
 Ordinato per quanto morde.
 
-1. **`src/main.cpp` e' a 9.894 righe, ed erano 11.394.** Lo spezzamento e' in corso:
-   il confine che mancava ora c'e' (`src/app_state.h` per lo stato e i tipi condivisi,
-   `src/app_ui.*` per i supporti), e sono usciti due moduli di vista
-   (`src/view_sidebar.*` e `src/view_titlebar.*`) piu' la parte pura del modello dei
-   tab (`src/tabs.*`). Restano dentro la **lista con le colonne, l'inspector, la
-   barra di stato, i comandi e l'input**: sono circa tremilacinquecento righe, e
-   adesso si spostano una per volta **senza toccare quello che resta**, perche' la
-   direzione delle dipendenze e' fissata. I confini dei componenti ci sono
-   (`GroupMenu`, `ContextMenu`, `file_ops`, `dir_stats`, `shell_*`, `drag_drop`)
-   ma quelli della vista vivono tutti nello stesso file. Spezzarlo richiede che
-   `AppState` e i tipi condivisi escano dall'anonimo namespace in un header: è un
-   lavoro meccanico ma largo, e va fatto quando c'è spazio per riverificare tutto.
+0. **Una caduta rara all'avvio — localizzata, aperta.** `docs/02` §7.54: **4
+   cadute su 4**, coi breadcrumb, hanno l'ultima riga dentro la lettura
+   dell'**accesso rapido** (`ShellLocation::Read`), prima della prima chiamata alla
+   shell. Il tasso va a raffiche (`0 su 30`, poi `5 su 55`, poi `0 su 40`, `0 su 40`,
+   `0 su 60`), quindi dipende dallo stato della macchina, non dal percorso di codice;
+   `0 su 12` sotto AddressSanitizer, che quindi non ne da' una pila. **Per chiuderla
+   serve un dump** (`LocalDumps` di WER + un debugger, oppure `devenv /debugexe`
+   aperto ad aspettare): tutto il resto e' scritto — dove guardare e quanto spesso.
+1. **`src/main.cpp` e' a 8.630 righe, ed erano 11.394.** Lo spezzamento e' in
+   corso: il confine che mancava ora c'e' (`src/app_state.h` per lo stato e i tipi
+   condivisi, `src/app_ui.*` per i supporti), e sono usciti quattro moduli — tre di
+   vista (`src/view_sidebar.*`, `src/view_titlebar.*` e la **lista con le colonne**,
+   `src/view_list.*`) piu' la parte pura del modello dei tab (`src/tabs.*`). La lista
+   e' uscita intera, e con essa le domande su una voce — cursore, selezione, percorso,
+   icona — che prima l'input e il disegno si ricalcolavano ognuno per conto suo.
+   Il numero e' **risalito** di 156 righe con il tema (le due opzioni, le tre voci di
+   palette, il caricamento e il salvataggio): un pezzo nuovo scritto dove c'e' ancora
+   il collo di bottiglia. Restano dentro **l'inspector, la barra di stato, i menu, i
+   comandi e l'input**: sono circa duemilacinquecento righe, e adesso si spostano una
+   per volta **senza toccare quello che resta**, perche' la direzione delle
+   dipendenze e' fissata. I confini dei componenti ci sono (`GroupMenu`,
+   `ContextMenu`, `file_ops`, `dir_stats`, `shell_*`, `drag_drop`) ma quelli della
+   vista vivono ancora nello stesso file. Spostarli e' un lavoro meccanico ma largo,
+   e va fatto quando c'e' spazio per riverificare tutto.
 2. **Nessun controllo di versione locale.** Il repository è su GitHub
    (`gianmarcotaf02/bolt`) e il sistema salva con commit automatici a ogni turno,
    ma non c'è una convenzione di branch: si lavora su `main`.
@@ -87,7 +108,7 @@ Ordinato per quanto morde.
 
 **Tre numeri, che sono tre cose diverse e non vanno confusi.**
 
-- **Cinquanta** difetti **trovati e risolti**: il registro è `docs/02` §7, uno per
+- **Cinquantatre'** difetti **trovati e risolti**: il registro è `docs/02` §7, uno per
   uno, con sintomo, causa e correzione. È un cumulativo, non una lista di lavoro.
 - **Due** cose **da fare**: la lista qui sotto.
 - I **limiti dichiarati**: cose che si è scelto di non fare, scritte dove vivono con
@@ -107,10 +128,12 @@ In ordine di valore, non di facilità.
 > (`Ctrl+P`/`F4` al GoTo, `Ctrl+Shift+P` ai comandi, `Ctrl+,` alle opzioni), **finire
 > la lingua**, **salire da una radice di volume**, **le tre cose viste nell'originale**
 > (selettori di vista e anteprime in fondo, filtro del nome, `RECENTS`),
-> **l'albero dei tab**, **`InspectorHideGrid`** e il **backend Direct3D 11** erano voci
+> **l'albero dei tab**, **`InspectorHideGrid`**, il **backend Direct3D 11** e il
+> **tema chiaro** erano voci
 > di questa lista, e sono fatte: vedi `docs/04` M9, M6, M8 e M10, e §7.40/§7.41/§7.42
-> di `docs/02`. Restano della M9 la **mappa tasti rimappabile** sui 319 comandi e i
-> **temi a 35 token**; di M4 il **punteggio** dei recenti, che adesso e' solo l'ordine
+> di `docs/02`. Restano della M9 la **mappa tasti rimappabile** sui 319 comandi, le
+> **viste per cartella** e i **layout salvabili**; di M4 il **punteggio** dei recenti,
+> che adesso e' solo l'ordine
 > di visita.
 
 ### L'ordine deciso il 2026-10-16
@@ -119,10 +142,26 @@ Discusso e scelto con l'autore, in risposta a «come procediamo». In ordine:
 
 1. **Un blocco dello spezzamento: la lista con le colonne** (il pezzo piu' grosso e
    piu' intrecciato: ordinamento, filtri, gruppi, viste, intestazioni passano tutti di
-   li'). Poi **il tema chiaro** (M9, i 35 token esistono gia' nella spec: e' cablaggio,
-   non disegno), poi **il dialogo di progressione** di M7 (oggi una copia da 5 GB non
-   dice a che punto e' e non si ferma).
-2. Il motivo dell'ordine: lo spezzamento non si vede, quindi farlo tutto di fila sono
+   li') — **fatto**, ed e' `src/view_list.*`. Il residuo e' dichiarato nella voce 1 di
+   §2: restano dentro l'inspector, la barra di stato, i menu e l'input.
+2. **Il tema chiaro** (M9, i 35 token esistono gia' nella spec: e' cablaggio, non
+   disegno) — **fatto**, ed e' `src/theme.*`, con le due tavolozze, la scelta dal
+   pannello e dalla palette, `SystemColorScheme` che segue Windows e il riquadro di
+   DWM allineato. Il residuo e' dichiarato in `theme.h`: dei 35 token dello spec
+   esistono quelli che **hanno un lettore**, gli altri sono elencati e aspettano un
+   posto che li legga.
+3. **Il dialogo di progressione** di M7: oggi una copia da 5 GB non dice a che punto
+   e' e non si ferma. E' il prossimo, e si tocca con le mani. Primo passo, scritto
+   qui perche' non vada perso: `file_ops.cpp` esegue `IFileOperation` in modo
+   sincrono; per avere il conto serve un `IFileOperationProgressSink` (quattro
+   metodi contano: `PreCopyItem`, `PostCopyItem`, `UpdateProgress`, `PostDeleteItem`)
+   agganciato con `Advise`, `FOF_SILENT` per spegnere la finestra della shell (che
+   l'originale sostituisce con la sua `OperationStatusWindow`), l'operazione su un
+   **thread di lavoro** e lo stato (byte fatti, byte totali, voce in corso, annulla)
+   in `AppState`; il pannello e' un modale come quello delle proprieta', e il
+   pulsante chiama `IFileOperation::Abort`. Si verifica con un file grande nella
+   sandbox: il conto deve muoversi e l'annullamento deve fermare davvero.
+4. Il motivo dell'ordine: lo spezzamento non si vede, quindi farlo tutto di fila sono
    tre sessioni senza niente da guardare; e cominciarlo **adesso** costa meno di
    cominciarlo dopo, perche' ogni funzione nuova che arriva prima paga il file unico.
 3. **B e C si possono invertire** se si preferisce vedere subito qualcosa di grosso:
@@ -134,7 +173,7 @@ Le due cose da fare, che restano tali:
    normali escono davvero, ma una voce **riciclata** non viene presa (la
    destinazione dichiara "copia" e non copia). La causa non è ricostruita: §7.34 di
    `docs/02`. Se non si trova, resta un limite dichiarato.
-2. **Spezzare `main.cpp`** — **9.894 righe** (erano 11.394) e ventidue moduli: il confine c'è, e
+2. **Spezzare `main.cpp`** — **8.630 righe** (erano 11.394) e ventiquattro moduli: il confine c'è, e
    file che lo contiene resta il collo di bottiglia dichiarato fin dall'inizio, ma non piu' intatto:
    vedi la voce 1.
 
@@ -165,10 +204,33 @@ powershell -ExecutionPolicy Bypass -File tools/capture-window.ps1 `
 Le **shader** si leggono dalla sorgente (`REA_SHADER_DIR`), quindi una modifica a
 `src/shaders/*` non richiede ricompilare.
 
+**Una build con AddressSanitizer, per cacciare una caduta.** Serve una cartella di
+build separata e il runtime **dinamico** (il CRT statico del progetto non e' compatibile):
+
+```bash
+# 1) in CMakeLists.txt, solo per questa build: MSVC_RUNTIME_LIBRARY "MultiThreadedDLL..."
+# 2) configurare a parte (build/ e' esclusa dal controllo di versione, build/asan pure)
+"$CMAKE" -S . -B build/asan -G "Visual Studio 17 2022" -A x64 -DCMAKE_CXX_FLAGS=-fsanitize=address
+"$CMAKE" --build build/asan --config RelWithDebInfo
+# 3) lanciare con l'esito su file: l'applicazione e' WIN32 e non ha una console
+ASAN_OPTIONS=log_path=analysis/tmp/asan ./build/asan/RelWithDebInfo/Bolt.exe <cartella>
+```
+
+**La cartella `build/asan` va cancellata subito dopo** e `CMakeLists.txt` rimesso
+com'era: un eseguibile compilato cosi' **pretende `clang_rt.asan_dynamic-x86_64.dll`**
+e, senza, Windows mostra `Bolt.exe - Errore di sistema` — un dialogo che sembra un
+guasto del programma e invece e' un residuo di diagnosi. E' successo il 2026-10-16:
+il dialogo e' comparso a chi aveva in mano quella build. L'eseguibile buono si
+riconosce con `dumpbin -dependents`: non deve nominare `clang_rt`.
+
 `analysis/tmp/` raccoglie i riscontri: `qualita-prima-dopo.png`,
 `viste-tiles.png`, `m5-*.png`, `m6-*.png`, `m3-progress.png`, `menu-*.png` (i
 verbi della shell: menu aperto, fondo del menu, rotella, finestra ridotta
-a 460 px).
+a 460 px), `list-*.png` (la lista con le colonne: dettagli, elenco, icone, gruppi
+nelle due viste, filtro per valore, filtro di testo, scorrimento in griglia),
+`theme-*.png`, `ch-*.png`, `sc-*.png` e `d3d-*.png` (il tema: le due tavolozze, il
+pannello delle opzioni, la scelta, il filtro della palette, il suggerimento, e il
+giro del secondo backend dopo §7.52).
 
 ---
 
@@ -347,7 +409,44 @@ affidabile di ripetere una prova di input.
 **`tools/send-mouse.ps1`** esiste per la stessa ragione, applicata al puntatore:
 il menu contestuale si apre col tasto destro, e i tasti `Menu`/`Shift`+`F10` — che
 pure ci sono — non verificano la via che usa la gente. Le coordinate sono in area
-**cliente**, così la stessa prova si ripete anche se la finestra si sposta.
+**cliente**, così la stessa prova si ripete anche se la finestra si sposta. La
+rotella vuole `-Clicks` col **segno**, positivo in su: senza, `wheel` fa una tacca
+in su, e su una lista già in cima non succede niente — sembra che lo scorrimento
+non funzioni. È successo provando lo scorrimento della lista appena estratta, e la
+prima conclusione («la rotella non scorre») era sbagliata: il difetto era nel modo
+in cui chiamavo lo strumento, non nella lista.
+
+**Chiaro o scuro si legge da un pixel, non dalla miniatura.** In questa sessione ho
+detto **due volte** che una cattura era chiara mentre il file diceva `(35, 36, 40)`:
+l'immagine che si guarda passando per l'anteprima della conversazione non è la
+prova, il pixel lo è. Per dire quale tavolozza sta disegnando l'applicazione si
+legge un punto del fondo: `(255, 255, 255)` è la chiara, `(35, 36, 40)` la scura. E
+vale per tutto il resto: un colore, un bordo di un pixel, un cursore.
+
+**Due catture si confrontano solo a parità di stato.** Confrontando i due backend
+ho concluso che il Direct3D non disegnava i segni degli spazi (`·` e `→`) e invece
+l'opzione «segna spazi» era semplicemente **spenta** nel giro nuovo: non è una
+preferenza che si ricorda fra le sessioni. La misura l'ha detto: col segno acceso,
+le quattro `·` compaiono anche sotto Direct3D. Prima di attribuire una differenza a
+ciò che si sta provando, si guarda cos'**altro** è diverso fra i due giri — il
+percorso, il filtro, l'opzione, la selezione.
+
+**Una caduta rara non si attribuisce con tre tentativi.** Provando il tema ho visto
+l'applicazione sparire all'avvio e ho concluso che era il backend Direct3D: `3 su 8`
+contro `0 su 8` in OpenGL. Con più giri la differenza è sparita — `5 su 55` con le
+modifiche di questa sessione, `0 su 30` col commit precedente, `0 su 12` sotto
+AddressSanitizer. Tre tentativi per parte non distinguono il 40% dal 10%, e una
+diagnosi sbagliata manda a cercare il difetto nel posto sbagliato. Per attribuire
+una caduta rara servono **campioni**, e per trovarne la causa una **pila** (un
+debugger, ASan): se sotto lo strumento non si riproduce, si dichiara con i numeri
+che si hanno.
+
+**Il registro diagnostico è il posto giusto per una caduta intermittente.**
+L'applicazione spariva entrando in una cartella (`docs/02` §7.51), senza nessun
+errore di Windows: il registro, scritto a ogni fotogramma, ha detto l'ultima cosa
+fatta prima della morte — e la riga `--- tooltip: riga 1 di 1 voci` ha spiegato da
+sola la causa. Un `printf` in più costa un giro; dieci minuti di ragionamento su
+una caduta che non si riproduce costano un pomeriggio.
 
 **Un registro aperto in append a ogni riga può perdere le righe.** Il primo
 diagnostico dei verbi della shell apriva, scriveva una riga e chiudeva; il file

@@ -18,9 +18,13 @@ add_executable(Bolt WIN32
     src/resource.h
     src/main.cpp
     src/app_ui.cpp
+    src/theme.cpp
+    src/theme.h
     src/view_sidebar.cpp
     src/tabs.cpp
     src/view_titlebar.cpp
+    src/view_list.cpp
+    src/view_list.h
     src/ui_renderer.cpp
     src/ui_renderer.h
     src/d3d11_renderer.cpp

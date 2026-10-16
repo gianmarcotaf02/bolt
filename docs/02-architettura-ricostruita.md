@@ -337,9 +337,11 @@ Questi punti sono il perimetro di lavoro del reverse mirato descritto in
 
 ## 7. Bug trovati e risolti
 
-Documentati perché il metodo conta quanto il risultato: tutti e tre sono stati
+Documentati perché il metodo conta quanto il risultato: quasi tutti sono stati
 trovati **guardando uno screenshot della propria applicazione**, non leggendo il
-codice. Il ciclo usato è in `tools/capture-window.ps1`.
+codice. Il ciclo usato è in `tools/capture-window.ps1`. Alcune voci sono **aperte** e
+lo dicono nel titolo: §7.52 (Direct3D spento apposta), §7.54 (la caduta rara
+all'avvio) e §7.55 (l'ispettore e il filtro).
 
 ### 7.1 `gl_VertexID` in una draw call indicizzata — *il bug che nascondeva tutto*
 
@@ -1787,3 +1789,188 @@ volta non si ricorda la prima.
 (`analysis/tmp/p-04-big.png`), i tre pulsanti di finestra sono tutti e tre forme
 (riduci a icona era gia' un rettangolo, ingrandisci due bordi, chiudi adesso una
 croce), e i due clic funzionano: il `+` apre un secondo tab e la `x` lo chiude.
+
+### 7.51 Il suggerimento che leggeva la riga 1 di 1
+
+**Sintomo.** Con un file di testo scelto nel pannello di destra, entrando in una
+cartella che contiene un'immagine l'applicazione **spariva**: nessun messaggio,
+nessuna finestra, nessun `startup-error.log`, e nemmeno la voce di Windows Error
+Reporting che di solito accompagna una caduta. Da bash si vedeva `Segmentation
+fault`, e solo da li': fuori da un figlio della shell l'uscita sembrava pulita.
+
+**Causa.** `app.hovered` e' un **indice** nell'elenco delle voci, e nessuno lo
+azzerava quando l'elenco veniva rifatto. Il puntatore era fermo sulla riga 1
+dell'elenco di prima (`immagini`, in una cartella di sei voci), l'ingresso nella
+cartella portava l'elenco a **una** voce, e il suggerimento — che si disegna dopo
+una pausa di 0,55 s, quindi in un fotogramma successivo all'ingresso — leggeva
+`app.entries[1]` su un vettore di una voce sola. Cursore e selezione si ritrovano
+per **nome** e non hanno questo problema; il sovrappasso no, perche' il puntatore
+sta su un pixel, non su un file.
+
+**Correzione.** `LoadDirectory` azzera `hovered` **e** `hoverStart` dove gia' azzera
+cursore, selezione e scorrimento: l'indice appartiene all'elenco che si sta
+lasciando. Le due letture (`DrawTooltip` e il blocco di `HoverToSelect` nel ciclo)
+hanno anche il controllo di limite, che riporta lo stato a "niente sotto il
+puntatore" invece di leggere fuori dal vettore.
+
+**Perche' era intermittente.** Il suggerimento compare solo se il puntatore e'
+fermo da oltre mezzo secondo: nei giri in cui uno script lo spostava dopo
+l'ingresso, l'indice veniva ricalcolato e la caduta non si presentava. Tre tentativi
+su tre con la stessa sequenza l'hanno reso riproducibile, ed e' li' che si e'
+potuto **misurare** invece di discutere: `--- tooltip: riga 1 di 1 voci` nel
+registro diagnostico, scritto dal fotogramma che poi moriva.
+
+**Trovato per caso, mentre si faceva altro.** Il tema chiaro non c'entrava niente:
+la caduta e' venuta fuori provando a entrare in una cartella con un'immagine per
+guardare il tema. E' anche la ragione per cui la ricerca e' partita da
+`git stash` — *succede anche senza le modifiche in corso?* — che e' la prima
+domanda da farsi prima di toccare il codice.
+
+### 7.52 Il backend Direct3D 11 che non poteva partire
+
+**Trovato, causa ricostruita, correzione non applicata.** Il rimedio e' una parola;
+accenderlo no, ed e' scritto qui sotto.
+
+**Sintomo.** Con `BOLT_BACKEND=d3d11` — e anche senza la variabile, che il
+Direct3D lo prova per primo — il registro diceva sempre la stessa cosa:
+
+```
+--- backend Direct3D 11 non disponibile: HLSL main failed to compile (0x80004005):
+ui.hlsl(32,30-34): error X3000: syntax error: unexpected token 'point'
+```
+
+e il programma ripiegava sull'OpenGL. Il ripiego funziona, quindi il difetto non si
+vedeva: si vedeva **solo** in quella riga di registro, e chi non accendeva
+`BOLT_DIAG=1` non poteva accorgersene. La milestone M10 si credeva chiusa e invece
+il secondo backend **non era mai stato eseguito**.
+
+**Causa.** Nelle funzioni di distanza dello shader incorporato in
+`d3d11_renderer.cpp` il parametro si chiamava `point`:
+
+```hlsl
+float segmentDistance(float2 point, float2 a, float2 b, float radius)
+```
+
+In HLSL `point` **e' una parola riservata** (la primitiva del pipeline legacy),
+quindi la compilazione si fermava li' e i due errori successivi («undeclared
+identifier 'b'») erano la cascata del primo. Non c'entrava la macchina: la sorgente
+e' una costante dentro il file, quindi quel backend **non poteva partire su nessun
+computer**. Il rimedio e' rinominare il parametro in `p` — quindici occorrenze,
+tutte nelle quattro funzioni di distanza — e la compilazione riesce: `--- backend:
+Direct3D 11`.
+
+**Perche' non e' applicato.** Con la correzione, il Direct3D 11 diventa il backend
+**predefinito** — e' il primo che si prova — e quel percorso non e' mai stato
+eseguito davvero in questo codice: sono state guardate la lista con le colonne, il
+tema nelle due tavolozze, l'immagine grande e il visualizzatore di testo, ma non i
+menu contestuali, il trascinamento e le anteprime che arrivano. Cambiare il backend
+di tutti per una verifica parziale e' una decisione da prendere con un giro
+completo, non da lasciare in coda a un'altra modifica. Quindi: **il codice resta
+com'e'**, il rimedio e' scritto qui, e la casella di M10 resta vera solo per
+l'astrazione e per l'OpenGL.
+
+**Una caduta rara, incontrata mentre si misurava questo.** Provando il backend
+corretto sono comparse cadute all'avvio, prima della riga
+`accesso rapido: 7 voci` — cioe' dentro l'enumerazione delle cartelle della shell.
+Misurate: `0 su 30` avvii con il commit precedente, `5 su 55` con le modifiche di
+questa sessione (in OpenGL), `3 su 8` col Direct3D, e **`0 su 12` sotto
+AddressSanitizer**, che quindi non la fa riprodurre e non ne da' una pila. Le
+proporzioni non bastano a dire se l'abbia portata il tema o se fosse gia' li' (con
+questi numeri la probabilita' che sia un caso e' intorno al 15%), quindi va cercata
+con un debugger o con un campione molto piu' grande. **Resta dichiarata**, con la
+sua probabilita' misurata: e' la prima cosa da riprendere.
+
+### 7.53 Il pidl liberato e poi usato
+
+**Sintomo.** Nessuno: è la forma peggiore. Il pidl di una voce di spazio dei nomi
+veniva liberato e poi **letto di nuovo**, due righe più sotto.
+
+**Causa.** In `ShellLocation::Read`, per ogni voce:
+
+```cpp
+if (absolute != nullptr)
+{
+    ... SHGetNameFromIDList(absolute, ...) ...
+    CoTaskMemFree(absolute);          // <-- il pidl e' liberato qui
+}
+
+if (absolute != nullptr)              // ... e usato ancora qui
+{
+    const size_t size = ILGetSize(absolute);            // legge memoria restituita
+    item.pidl.assign(...absolute + size);               // copia un blocco riusabile
+    ... ILIsEqual(absolute, reparsed) ...               // e lo confronta
+}
+```
+
+`ILGetSize` legge i primi byte del blocco, e `item.pidl` ne copia il contenuto: fra
+la liberazione e la lettura l'allocatore può aver riusato quel blocco, quindi il
+pidl della voce poteva essere **un altro** — o spazzatura. Le conseguenze sono
+silenziose e stanno dove servono: i verbi della shell ricevono l'identità della
+voce (il ripristino dal cestino, il trascinamento fuori), e `navigable` — che decide
+se aprirla porta dove dice il nome — si calcolava da un confronto su memoria
+restituita.
+
+**Correzione.** `absolute` si libera **alla fine** del blocco che lo usa, dove
+finiscono anche la copia del pidl e il confronto. Una riga spostata, con il
+commento accanto che dice perché sta lì.
+
+**Come è venuto fuori.** Non da una prova: dal rimuovere dei breadcrumb temporanei.
+Il taglio meccanico ha tolto il `CoTaskMemFree` dalla prima `if` e l'ha rimesso in
+fondo alla seconda — e il diff l'ha mostrato. E' la stessa lezione di §5 di
+`AGENTS.md` al contrario: **rileggere il diff dopo un taglio meccanico serve anche a
+trovare quello che c'era prima**, se il taglio ha spostato qualcosa invece di
+toglierlo.
+
+**Verificato**: build senza warning; un file della sandbox messo nel cestino
+dall'applicazione, letto nel cestino col filtro sul suo nome (nome, tipo e
+dimensione corretti), e **ripristinato** con la voce `Ripristina` del menu
+contestuale (verbo `undelete` della shell, che riceve il pidl). La verifica è il
+conteggio dei file nella sandbox, non una cattura del cestino — `AGENTS.md` §0.
+
+### 7.54 La cartella che si elenca e qualche volta porta via l'applicazione
+
+**Aperto.** L'applicazione cade all'avvio circa una volta su dieci, in raffiche.
+
+**Dove.** Non è un'ipotesi: messi dei breadcrumb in tutta la strada dell'avvio,
+**4 cadute su 4** hanno l'ultima riga scritta in `BuildQuickAccess`, subito prima
+della `ShellLocation::Read` dell'**accesso rapido** — cioè dentro la prima chiamata
+alla shell di quella lettura (`SHParseDisplayName` della posizione). Il registro
+diagnostico riscrive il file a ogni riga, quindi l'ultima riga è davvero l'ultima
+cosa fatta.
+
+**Quanto.** Misurato su ~250 avvii: `0 su 30` col commit precedente, `5 su 55` con
+le modifiche del 2026-10-16, `3 su 8` col Direct3D, `0 su 12` sotto
+AddressSanitizer, e poi `0 su 40`, `0 su 40` e `0 su 60` a distanza di un'ora. Le
+raffiche dicono che dipende da qualcosa che cambia nel tempo — lo stato dell'accesso
+rapido e delle estensioni di shell che si caricano con esso — non dal percorso di
+codice, che è sempre lo stesso.
+
+**Cosa non è.** Non è l'appartamento COM (il thread principale è `OleInitialize`,
+quindi STA, che è quello giusto), non è il registro diagnostico (l'esperimento
+alternato con e senza `BOLT_DIAG`, 30 avvii per parte, ha dato 0 e 0), e non è il
+backend. Non è riproducibile a comando, quindi non c'è una pila: serve un debugger
+installato che aspetti la caduta, o un campione molto più grande.
+
+**Cosa farebbe chiudere la questione.** Un dump: `LocalDumps` di Windows Error
+Reporting (una chiave in `HKCU`) più un debugger per leggerlo, oppure aspettare la
+caduta con `devenv /debugexe` aperto. Il resto è già scritto: dove guardare, e
+quanto spesso.
+
+### 7.55 L'ispettore che mostra una voce che la lista non ha
+
+**Aperto, piccolo.** Nel cestino, col filtro su un nome che corrisponde a **una**
+voce, la lista ne disegnava una e l'ispettore ne mostrava **un'altra**: la voce su
+cui stava il cursore prima di filtrare, che il filtro ha nascosto.
+
+**Causa.** Il cursore è un nome e sopravvive al cambio di filtro — è voluto, come la
+selezione: `SelectedPaths` infatti scarta le voci non visibili prima di proporre
+un'operazione, e per questo nessun comando agisce su qualcosa che non si vede. Ma
+l'ispettore legge il cursore e basta, mentre la lista disegna solo le righe che
+passano il filtro: le due viste dicono cose diverse, e quella che resta scritta
+(«Tipo, Dimensione, Percorso…») parla di un file che non c'è.
+
+**Due strade, e la scelta è di design.** O l'ispettore tace quando la voce del
+cursore non è visibile (`EntryVisible`, la stessa funzione del filtro), o il filtro
+**sposta il cursore** sulla prima riga visibile — che è quello che fa Esplora
+risorse, e che renderebbe impossibile lo stato "cursore su una riga che non c'è".
+La seconda è più coerente ma tocca la selezione: va decisa, non improvvisata.

@@ -201,7 +201,7 @@ void DrawTitleBar(AppState& app, const Layout& layout)
         const Rect button{stripRight + i * buttonWidth, bar.y, buttonWidth, bar.h};
         const bool hot = (app.hoveredChrome == 2 + i);
         if (hot)
-            r.FillRect(button, i == 2 ? Color::FromHex(0xC42B1C) : t.rowHover);
+            r.FillRect(button, i == 2 ? t.closeHover : t.rowHover);
 
         const Color glyph = hot && i == 2 ? Color{1, 1, 1, 1} : t.textDim;
         const float centreX = button.x + buttonWidth * 0.5f;

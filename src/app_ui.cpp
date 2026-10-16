@@ -52,6 +52,8 @@ std::string HumanBytes(uint64_t bytes)
 }
 
 
+// Compact count formatting for the Folders and Files columns, in the style the
+// reference application uses: 89, 2.4K, 18.4K, 131K, 109.3K.
 std::string HumanCount(uint64_t value)
 {
     if (value < 1000)
@@ -103,6 +105,8 @@ uint64_t FileTimeToUint64(const FILETIME& fileTime)
 }
 
 
+// Truncates |text| with a trailing ellipsis so it cannot spill into the next
+// column. The renderer has no scissor rectangle, so fitting has to happen here.
 std::string FitText(const FontAtlas& font, const std::string& text, float scale, float maxWidth)
 {
     if (maxWidth <= 0.0f || text.empty())
@@ -160,6 +164,7 @@ std::string FitTextTail(const FontAtlas& font, const std::string& text, float sc
 }
 
 
+// Shell type name for an extension, cached: "PNG image" reads better than "PNG file".
 std::string ShellTypeName(const std::string& extension, bool isDirectory)
 {
     static std::unordered_map<std::string, std::string> cache;

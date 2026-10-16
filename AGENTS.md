@@ -125,6 +125,17 @@ Conseguenze pratiche:
 
 ## 2-bis. La mappa prima del territorio — interroga il grafo, non il sorgente
 
+> **Regola, per ogni richiesta che tocca il codice: il primo passo è una query al
+> grafo, e la lettura è il secondo.** Vale sempre — anche quando credi di sapere già
+> dove sta la cosa, anche per una modifica di una riga. Il grafo è l'indice del
+> repository: una query costa ~700 token e restituisce `file:riga`, chi chiama e chi
+> è chiamato; un `grep` cieco costa una lettura, e una lettura intera resta nel
+> contesto (e nella cache del modello) per tutta la sessione.
+>
+> Dal grafo si apre **solo il file e le righe indicate** — non il file intero, non i
+> file vicini «per sicurezza». Il risparmio non è una preferenza: è la ragione per
+> cui questa sezione esiste.
+
 `graphify-out/graph.json` è la **mappa compilata del repository**: nodi (simboli,
 concetti, documenti), archi (chi chiama chi, chi referenzia cosa) e comunità. È un
 artefatto derivato: si rigenera, non si scrive a mano.
@@ -164,7 +175,7 @@ skill in chat — `/graphify`, o `/graphify --update` per documenti e immagini.
 
 ### Perché
 
-- `src/main.cpp` è **~9.894 righe** e sta calando. Leggerlo per intero per rispondere a «dove sta
+- `src/main.cpp` è **8.630 righe** e sta calando. Leggerlo per intero per rispondere a «dove sta
   X?» costa decine di migliaia di token e dà comunque una vista parziale.
 - Una query restituisce **etichetta, file, riga e comunità** di ogni nodo: è
   l'indice di cui altrimenti ricostruiresti a mano con `rg`.
@@ -306,6 +317,14 @@ offre su **questa** macchina, e quello che serve per i sottomenu.
 **Le shader non richiedono ricompilazione.** `REA_SHADER_DIR` punta alla sorgente,
 quindi `src/shaders/*` si modificano a caldo.
 
+**Una build diagnostica non si lascia in giro.** Per cacciare una caduta rara serve
+AddressSanitizer, che vuole una cartella di build **separata** (`build/asan`) e il
+runtime dinamico — il CRT statico del progetto non e' compatibile. Quell'eseguibile
+pretende `clang_rt.asan_dynamic-x86_64.dll`: senza, Windows mostra
+`Bolt.exe - Errore di sistema` a chi lo lancia, e sembra un guasto del programma. Si
+costruisce, si usa, si cancella — e `CMakeLists.txt` torna com'era. L'eseguibile buono
+si controlla con `dumpbin -dependents`: non deve nominare `clang_rt`. Vedi `docs/05` §4.
+
 ---
 
 ## 5. Trappole già pagate — non ripagarle
@@ -319,6 +338,20 @@ Costano tempo, sembrano bug dell'applicazione e non lo sono. Vedi anche §5 di
   sopra. `SetWindowPos(h, HWND_TOPMOST, …)` funziona sempre — **e va tolto alla
   fine**, altrimenti le finestre di dialogo finiscono dietro e sembrano non
   essersi aperte.
+- **Una cattura si legge da un pixel, non dalla miniatura.** Un colore, un bordo di
+  un pixel, un cursore: l'anteprima che si guarda non è la prova, il pixel lo è. Due
+  volte in una sessione una cattura **scura** è stata descritta come chiara, perché
+  sembrava di doverlo vedere.
+- **Due catture si confrontano solo a parità di stato.** Un'opzione accesa in un giro
+  e spenta nell'altro — o un filtro, o un'altra cartella — spiegano una differenza che
+  si finisce per attribuire a ciò che si sta provando. Prima si guarda cos'**altro**
+  differisce fra i due giri.
+- **Una caduta rara non si attribuisce con tre tentativi.** Tre avvii per parte non
+  distinguono una probabilità del 40% da una del 10%: una diagnosi fatta su quel
+  campione manda a cercare il difetto nel posto sbagliato. Per attribuire un difetto
+  intermittente servono campioni grandi, e per trovarne la causa una **pila** (un
+  debugger, AddressSanitizer); se sotto lo strumento non si riproduce, si dichiara
+  coi numeri che si hanno.
 - **Un'applicazione che sembra congelata può essere dentro un ciclo di messaggi
   modale.** Due catture identiche a distanza di secondi distinguono "fermo" da
   "lento"; `SendMessageTimeout` dice se risponde, ma **non** se sta lavorando.
@@ -389,6 +422,25 @@ seconda ricerca partiva su un file troncato e non trovava piu' niente. Li' l'err
 si e' fatto sentire subito (un'eccezione, nessun file scritto), ma la forma e' la
 peggiore: un taglio che perde la coda **in silenzio** produce un file che compila
 meno, e meta' del contenuto non c'e' piu'.
+
+**Un commento in coda alla riga inganna la fine dell'istruzione.** La stessa specie
+di taglio, un'altra veste: cercando la fine di un'istruzione con «la riga finisce con
+`;`», una riga come
+
+```cpp
+    DiagLog("...");   // TEMPORANEO: diagnosi
+```
+
+non finisce con `;` — finisce con la parola `diagnosi`. Il taglio ha continuato a
+mangiare righe finche' non ne ha trovata una che finisse con un punto e virgola, e
+quella era **la riga di codice dopo**, in un'altra funzione: ne sono spariti una
+`const float scale = layout.scale;`, un'intera definizione (`HitTest`), una funzione
+(`OpenPropertiesPanel`) e qualche chiusura di graffa, sparse in sei funzioni. Il
+taglio giusto guarda la **struttura** (le graffe prima e dopo), non l'ultimo
+carattere della riga; e dopo un taglio meccanico si confrontano le **funzioni** —
+quante righe ha ognuna prima e dopo — invece di leggere a campione un diff da
+duemila righe. Se ne sono accorti il compilatore (`HitTest` non definito) e il
+conteggio per funzione (`OpenPropertiesPanel` sparito): due strumenti, non l'occhio.
 
 **Le riscritture massive di chiamate annidate duplicano il testo.** Una regex
   che trova sia la chiamata esterna sia quella annidata produce intervalli
@@ -508,12 +560,14 @@ col carattere scelto e non e' un elemento.
 
 | file | responsabilità |
 |---|---|
-| `src/main.cpp` | finestra Win32, navigazione, layout, input, disegno; sceglie e possiede il backend (`BOLT_BACKEND`, fallback). **Lo spezzamento è cominciato: ~9.894 righe, erano 11.394** |
+| `src/main.cpp` | finestra Win32, navigazione, layout, input, disegno; sceglie e possiede il backend (`BOLT_BACKEND`, fallback). **Lo spezzamento è in corso: 8.630 righe, erano 11.394** |
+| `src/theme.*` | i **ruoli di colore** che l'interfaccia legge e le **due tavolozze** (chiara e scura), piu' la preferenza del sistema (`AppsUseLightTheme`). I 35 token dello spec che hanno un lettore stanno qui; quelli che non ce l'hanno sono elencati in `theme.h`, invece di essere campi scritti e mai letti |
 | `src/app_state.h` | lo stato della finestra e i tipi che piu' moduli condividono: il **confine** che prima non esisteva (`docs/05` §2) |
 | `src/app_ui.*` | i supporti che piu' di un modulo usa: UTF-8/UTF-16, nomi di percorso, numeri in lettere, date, `FitText`, `NowSeconds` |
 | `src/view_sidebar.*` | la barra laterale: costruzione delle voci e disegno, primo modulo di **vista** uscito da `main.cpp` |
 | `src/tabs.*` | l'albero dei tab: identita', genitore, ordine di lettura. La parte **pura** del modello; chi apre e chiude tocca la navigazione e resta in `main.cpp` |
 | `src/view_titlebar.*` | la striscia dei tab, il menu e i tre pulsanti di finestra; la **geometria** dei pulsanti resta qui e l'input la legge dai bersagli registrati |
+| `src/view_list.*` | la **lista con le colonne**: ordinamento, filtro, gruppi e viste (dalle voci alle righe, `RebuildView`), la geometria della griglia e delle righe (`ComputeViewMetrics`, `ItemRect`) e il disegno. Le domande su una voce — cursore, selezione, percorso, icona — stanno qui, cosi' l'input e il disegno non se le ricalcolano in due modi |
 | `src/ui_renderer.*` | il backend **OpenGL** dietro `IRenderer`: quad batcher, una draw call, catena di mipmap |
 | `src/d3d11_renderer.*` | il backend **Direct3D 11** della stessa interfaccia: stessi 30 float per vertice, stessi shader in HLSL, swap chain che segue la finestra |
 | `src/font_atlas.*` | atlante di glifi GDI → strato dell'array; ClearType ridotto a copertura in scala di grigi, con gutter fra le celle |
@@ -562,11 +616,14 @@ col carattere scelto e non e' un elemento.
 - **Non dichiarare fatto ciò che non hai visto.** Vedi §2.
 - **Non lasciare warning** nella build.
 - **Non aggiungere dipendenze** senza una ragione che stia in piedi da sola.
-- **Non ricostruire a mano la mappa del codice** leggendo i file uno per uno quando
-  il grafo può rispondere: vedi §2-bis. Una query costa poco, una lettura costa
-  migliaia di token.
+- **Non leggere il sorgente per orientarti.** La mappa è `graphify-out/graph.json`:
+  il primo passo di ogni richiesta sul codice è `graphify query` / `explain` /
+  `path` / `affected`, e dal grafo si aprono **solo** le righe indicate. Niente
+  `ls -R`, niente `grep` esplorativo, niente file interi «per capire dove mettere le
+  mani»: una query costa poco, una lettura costa migliaia di token che restano nel
+  contesto per tutta la sessione. Vedi §2-bis.
 - **Non aprire nuove sessioni di refactoring largo** senza spazio per riverificare
-  tutto: `main.cpp` a 9.894 righe è un problema noto e in corso di soluzione, non una scoperta.
+  tutto: `main.cpp` a 8.630 righe è un problema noto e in corso di soluzione, non una scoperta.
 
 ---
 

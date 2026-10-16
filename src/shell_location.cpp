@@ -391,11 +391,18 @@ std::vector<Item> Read(const std::wstring& location, std::string* error)
                 item.location = name;
                 CoTaskMemFree(name);
             }
-            CoTaskMemFree(absolute);
         }
 
         // Il PIDL, copiato: la lista se lo porta dietro, e serve a chiedere alla
         // shell i verbi *di questa voce* — e' cosi' che si ripristina dal cestino.
+        //
+        // `absolute` si libera **alla fine** di questo blocco, e non prima: qui
+        // sotto lo si legge ancora due volte — `ILGetSize` per sapere quanto e'
+        // lungo, e `ILIsEqual` per sapere se il nome torna su questa voce. Liberarlo
+        // nella prima `if` lasciava il pidl in mano all'allocatore e il resto leggeva
+        // memoria gia' restituita: il pidl copiato poteva essere un blocco riusato, e
+        // con lui i verbi della shell (il ripristino dal cestino) ricevevano
+        // un'identita' che non era quella della voce.
         if (absolute != nullptr)
         {
             const size_t size = ILGetSize(absolute);
@@ -411,6 +418,7 @@ std::vector<Item> Read(const std::wstring& location, std::string* error)
                 item.navigable = ILIsEqual(absolute, reparsed) != FALSE;
                 CoTaskMemFree(reparsed);
             }
+            CoTaskMemFree(absolute);
         }
 
         item.name = item.name.empty() ? item.location : item.name;

@@ -37,6 +37,7 @@
 #include "shell_preview.h"
 #include "shell_location.h"
 #include "text_view.h"
+#include "theme.h"
 #include "ui_renderer.h"
 
 namespace Bolt
@@ -62,21 +63,10 @@ constexpr int kBigImageSide  = 1024;
 constexpr int kTextureLayerSize = 1024;
 
 // --- theme -----------------------------------------------------------------
-struct Theme
-{
-    Color windowBg    = Color::FromHex(0x1B1C1F);
-    Color panelBg     = Color::FromHex(0x232428);
-    Color panelBorder = Color::FromHex(0x32343A);
-    Color headerBg    = Color::FromHex(0x1F2024);
-    Color rowOdd      = Color::FromHex(0x26272C);
-    Color rowSelected = Color::FromHex(0x2F4C7E);
-    Color rowHover    = Color::FromHex(0x2C2E34);
-    Color text        = Color::FromHex(0xE6E7EA);
-    Color textDim     = Color::FromHex(0x9195A0);
-    Color accent      = Color::FromHex(0x4C8DFF);
-    Color scrollThumb = Color::FromHex(0x4A4D55);
-    Color separator   = Color::FromHex(0x2A2C31);
-};
+//
+// I ruoli di colore e le due tavolozze stanno in `theme.h`, perche' il tema non e'
+// solo il colore di uno stato: e' una cosa che si sceglie, si ricorda e si puo'
+// cambiare a finestra aperta. Qui c'e' quale delle due si sta usando.
 
 // --- model -----------------------------------------------------------------
 enum class SortColumn { Name, Type, Modified, Folders, Files, Size };
@@ -239,6 +229,9 @@ enum CommandId
     CmdShowCheckboxes,
     CmdCloseInTree, CmdCloseAllInTree, CmdDetachTab,
     CmdLanguageItalian, CmdLanguageEnglish, CmdShowSettingsPath,
+    // L'aspetto: le due tavolozze e "segui il sistema". Sono le chiavi
+    // `ColorSchemeLight`, `ColorSchemeDark` e `SystemColorScheme` dello spec.
+    CmdColorSchemeLight, CmdColorSchemeDark, CmdSystemColorScheme,
     CmdToggleBookmark, CmdClearBookmarks, CmdClearRecents,
     // Operazioni su file (M7).
     CmdCopy, CmdCut, CmdPaste, CmdDelete, CmdDeletePermanent, CmdRename, CmdNewFolder,
@@ -525,7 +518,14 @@ struct AppState
     ShellIconAtlas  icons;
     ShellPreviewCache previews;
     DirStatsService   stats;
+
+    // La tavolozza in uso, e la scelta che l'ha decisa. `systemColorScheme` acceso
+    // vuol dire "segui il sistema" — la chiave `SystemColorScheme` del riferimento —
+    // e **vince** su `colorScheme`: e' quello che si rilegge quando il sistema
+    // chiarisce o scurisce mentre l'applicazione e' aperta.
     Theme             theme;
+    ColorScheme       colorScheme       = ColorScheme::Dark;
+    bool              systemColorScheme = false;
 
     HWND          window = nullptr;
 

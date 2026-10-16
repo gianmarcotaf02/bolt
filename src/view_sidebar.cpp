@@ -139,7 +139,7 @@ void DrawSidebar(AppState& app, const Layout& layout)
 
         const bool active = (item.path == app.directory);
         if (active)
-            r.FillRect(row, Color::FromHex(0x2E3138), 4.0f * scale);
+            r.FillRect(row, t.sidebarActive, 4.0f * scale);
         else if (static_cast<int>(i) == app.hoveredPlace)
             r.FillRect(row, t.rowHover, 4.0f * scale);
 
@@ -174,8 +174,8 @@ void DrawSidebar(AppState& app, const Layout& layout)
             // disco e' quasi pieno, perche' e' quello il momento in cui la si guarda.
             const Rect track{row.x + 30.0f * scale, row.y + 26.0f * scale,
                              row.w - 42.0f * scale, 4.0f * scale};
-            r.FillRect(track, Color::FromHex(0x2A2D34), 2.0f * scale);
-            const Color fill = item.usedFraction > 0.9f ? Color::FromHex(0xE06C5A)
+            r.FillRect(track, t.volumeTrack, 2.0f * scale);
+            const Color fill = item.usedFraction > 0.9f ? t.warning
                                                        : t.accent;
             r.FillRect(Rect{track.x, track.y, track.w * (std::min)(1.0f, item.usedFraction),
                             track.h},

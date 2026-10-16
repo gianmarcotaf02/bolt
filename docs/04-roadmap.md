@@ -1235,12 +1235,21 @@ della lingua l'ha resa necessaria, ed è la stessa cosa che `docs/06` §4-bis pr
       verità sta in `AppState`: `RefreshOptionItem` la porta nella riga,
       `ApplyOptionFromItem` la riporta indietro
 - [x] preferenze ricordate in `%APPDATA%\Bolt\settings.ini`
+- [x] la **tavolozza chiara e scura**: i ruoli di colore stanno in `theme.h` (i
+token dello spec che hanno un lettore, e la lista di quelli che ancora non ce
+l'hanno), le due tavolozze in `theme.cpp`, e la scelta si fa da `Ctrl+,` o dalla
+palette (`Tema: chiaro`, `Tema: scuro`, `Tema: segui il sistema`).
+      `SystemColorScheme` legge `AppsUseLightTheme` dal registro e segue il sistema
+      **anche a finestra aperta** (`WM_SETTINGCHANGE`); col sistema a comandare, la
+      riga della tavolozza si mostra spenta e continua a dire quale tavolozza e' in
+      uso. Il riquadro di DWM si allinea alla stessa decisione, o si ottiene una
+      finestra chiara col bordo scuro. Tutto ricordato in `settings.ini`
+      (`colorScheme`, `systemColorScheme`)
 - [ ] mappa tasti rimappabile sui 319 comandi — **in memoria**, per la sessione
-- [ ] temi a 35 token, con variante chiara e scura — **in memoria**
 - [ ] viste per cartella con ereditarietà e applicazione ricorsiva — **in memoria**
 - [ ] layout salvabili — **in memoria**
 - [ ] le opzioni che l'originale ha e qui **non** sono applicate (animazioni,
-      angoli arrotondati, schema di sistema, tavolozza, opacità dei pannelli
+      angoli arrotondati, opacità dei pannelli
       inattivi, estensione nei nomi, percorsi lunghi, percorsi compatti) si
       mostrano **spente**, con la ragione accanto: un'opzione che non si applica
       sta in vista e dice che non si tocca
@@ -1337,6 +1346,12 @@ L'originale espone `GraphicsBackend` con `Direct3D` e `OpenGL` e importa
 - [x] compilazione HLSL degli stessi shader (`D3DCompile`, `vs_5_0`/`ps_5_0`):
       stessa SDF, stesso bordo, stessa ombra, stesso dash. **Non e' una seconda
       implementazione visiva**, e' la stessa detta in un'altra lingua
+      — con un difetto che ha reso quella casella falsa per un pezzo: lo shader
+      incorporato chiamava `point` un parametro, che in HLSL e' una parola
+      riservata, quindi la compilazione falliva **sempre** e il programma ripiegava
+      in silenzio sull'OpenGL. La correzione e' una parola e **non e' applicata**:
+      accenderebbe il secondo backend per default, e quel percorso non ha ancora
+      avuto un giro completo (menu, trascinamento, anteprime). Vedi `docs/02` §7.52
 - [x] selezione a runtime e fallback: `BOLT_BACKEND=opengl|d3d11`, altrimenti
       Direct3D 11 e, se non parte, OpenGL. Un backend che non c'e' non impedisce
       di usare il programma, e la riga di registro dice quale sta disegnando
