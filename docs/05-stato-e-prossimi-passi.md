@@ -307,14 +307,38 @@ era stata misurata a occhio da una cattura piccola. Adesso c'e'
 `tools/focus-window.ps1`. Una prova sola per caso, pero': la ripetizione e' saltata
 perche' la finestra di prova era nata su un'altra scrivania virtuale (`AGENTS.md` §0).
 
-**Il prossimo lavoro, in ordine**:
+**Il prossimo lavoro, in ordine** — deciso il 2026-10-18, dopo che lo spezzamento e'
+arrivato a un punto in cui il file non e' piu' il problema principale:
 
-1. **Da fare in una sessione propria**, perche' non sono aggiunte in coda a
-   un'altra: l'**ultimo blocco dello spezzamento** (`WindowProc` e i comandi: una
-   decisione sul confine, non uno spostamento). **M3b** e' **chiusa** il 2026-10-18
-   (`src/ntfs_attributes.*`, `docs/04`): il record si legge dal volume, la lista
-   compare nell'ispettore, e senza privilegi la riga lo dice. La **caduta rara
-   all'avvio** era la prima di queste, ed e' chiusa: §7.54.
+1. **Chiudere il Direct3D 11** (`docs/02` §7.52, `docs/04` M10). E' l'unico punto in cui
+   il programma **dice il falso**: si dichiara con due backend e ne gira uno, e l'altro
+   fallisce in silenzio — visibile solo nel registro. La correzione e' una parola
+   (`point` e' riservata in HLSL, il parametro delle funzioni di distanza va chiamato
+   `p`), la parte che conta e' il **giro di verifica** con `BOLT_BACKEND=d3d11`: le
+   superfici da guardare sono gia' un copione (lista, menu contestuale, opzioni,
+   ispettore, mappa dei tasti, tema chiaro) e le catture di riferimento esistono. Se
+   regge, il Direct3D diventa il backend di partenza e la milestone e' vera.
+2. **Le due piccole bugie**, che portano il **registro dei difetti a zero**:
+   **§7.55** — l'ispettore che mostra una voce che il filtro ha nascosto: la
+   raccomandazione e' far **spostare il cursore** sulla prima riga visibile, come fa
+   Esplora, invece di insegnare all'ispettore a tacere; tocca la selezione, quindi e'
+   una decisione dell'autore, non un'improvvisazione. E il **suggerimento disegnato
+   sopra il pannello delle proprieta'**, che vuole una regola sola: i suggerimenti
+   tacciono quando un pannello e' aperto.
+3. **`src/commands.*`** — `RunCommand` e i `Do*` fuori da `main.cpp`. Non per il numero:
+   perche' **M4 ci passa dentro** (`Cancella recenti`, i menu), e spostare un pezzo
+   mentre ci si lavora costa meno che spostarlo dopo. Oggi chiede **13 voci** di
+   cucitura (erano 23 prima di navigazione e tab).
+4. **M4 — il ranking dei recenti**, l'ultima lacuna **funzionale** rispetto al
+   riferimento: oggi `RECENTI` e' l'ordine di visita, in memoria. La formula
+   (`Score`, `Decay`, `Ordinal`) la specifica non la da': serve REA, e conviene
+   cominciare dall'analisi, non dal codice.
+
+**Cosa non si fa adesso, e perche'**: M2 (la resa monocromatica delle icone) e' una
+scelta gia' presa; le sei opzioni spente, le 17 colonne mancanti e i `ShellNew` con
+`Command` sono limiti **dichiarati**; le **viste per cartella** e i **layout salvabili**
+(M9) valgono meno di M4 e vogliono una decisione sulla persistenza, che `docs/06` vieta
+di prendere di nascosto.
 
 ### L'ordine deciso il 2026-10-16 (storico)
 
