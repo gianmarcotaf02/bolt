@@ -21,18 +21,21 @@
 //                            (whitespaceInk), Progress (volumeTrack), Warning
 //                            (warning), Caption (closeHover) — piu' quello della
 //                            barra laterale per la cartella aperta (sidebarActive), e
-//                            l'ombra, che e' nostra e non dello spec.
+//                            l'ombra, che e' nostra e non dello spec. `Progress` era
+//                            una barra di disco sola; adesso e' anche la barra del
+//                            pannello dell'operazione in corso, che e' il posto per
+//                            cui lo spec lo prevedeva.
 //
 //     Senza lettore:         Clear, RectSelection, ContentDisabledSelection, File,
 //                            Folder, Hidden, IconTint, Group, Match, MatchHover,
 //                            MatchSelection, MatchDisabledSelection,
 //                            OutlineSelection, OutlineHover, OutlineDisabledSelection,
 //                            SurfaceSeparator, Foreground, ForegroundDisabled,
-//                            Progress come barra di avanzamento, InactiveOpacity.
+//                            InactiveOpacity.
 //                            Sono i token di cose che il programma non disegna
 //                            ancora: le icone tinte, gli stati di corrispondenza di
-//                            un filtro, la barra di avanzamento. Ognuno diventa un
-//                            campo il giorno in cui c'e' un posto che lo legge.
+//                            un filtro. Ognuno diventa un campo il giorno in cui c'e'
+//                            un posto che lo legge.
 //
 // Le due tavolozze stanno in `theme.cpp`: cambiarne una e' cambiare delle costanti,
 // e il resto del programma non se ne accorge — legge `app.theme`, e nient'altro.
@@ -70,7 +73,8 @@ struct Theme
     // altri: adesso hanno un nome, e una tavolozza li riempie.
     Color previewFrame   = Color::FromHex(0x131417);   // Inner: dietro un'immagine
     Color whitespaceInk  = Color::FromHex(0x555B66);   // Disabled: `->` e `·` dei testi
-    Color volumeTrack    = Color::FromHex(0x2A2D34);   // Progress: la barra di un disco
+    Color volumeTrack    = Color::FromHex(0x2A2D34);   // Progress: la barra di un disco,
+                                                        // e quella dell'operazione in corso
     Color warning        = Color::FromHex(0xE06C5A);   // Warning: disco quasi pieno
     Color closeHover     = Color::FromHex(0xC42B1C);   // Caption: il pulsante di chiusura
     Color sidebarActive  = Color::FromHex(0x2E3138);   // la voce della cartella aperta
@@ -86,6 +90,21 @@ struct Theme
 
 // La tavolozza di uno schema.
 Theme MakeTheme(ColorScheme scheme);
+
+// Il nome di uno schema come si legge — la **stessa** stringa per il pannello delle
+// opzioni, la palette e la scelta, che la rilegge invece di scriverne una seconda.
+const char* SchemeLabel(ColorScheme scheme);
+
+// Quale tavolozza si sta usando. "Segui il sistema" non e' una tavolozza: e' una
+// domanda, e si rifa' ogni volta che serve, cosi' vale anche quando la preferenza
+// del sistema cambia a finestra aperta.
+struct AppState;
+ColorScheme SchemeInUse(const AppState& app);
+
+// Applica la tavolozza **e** allinea il riquadro di DWM: il colore dentro la
+// finestra e quello che il sistema le disegna attorno sono la stessa decisione.
+// Va chiamata quando la finestra esiste; prima allinea solo la tavolozza.
+void ApplyTheme(AppState& app);
 
 // Il sistema preferisce il chiaro? E' `AppsUseLightTheme`, in
 // `HKCU\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize`.

@@ -282,8 +282,12 @@ public:
                 ", " + (target.verb == DropVerb::Discard
                             ? std::string("eliminazione")
                             : std::string(move ? "spostamento" : "copia")));
-        ::DragDrop::Drop(window, paths, target, move);
-        *effect = move ? DROPEFFECT_MOVE : DROPEFFECT_COPY;
+        const bool accepted = ::DragDrop::Drop(window, paths, target, move);
+        // Una caduta rifiutata — per esempio perche' un'operazione e' gia' in corso —
+        // si dichiara `DROPEFFECT_NONE`: su `MOVE` l'origine cancella gli originali,
+        // e dichiarare riuscito quello che non e' partito sarebbe una perdita di
+        // dati, non un messaggio sbagliato.
+        *effect = accepted ? (move ? DROPEFFECT_MOVE : DROPEFFECT_COPY) : DROPEFFECT_NONE;
         return S_OK;
     }
 

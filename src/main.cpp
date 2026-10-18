@@ -28,15 +28,16 @@ constexpr UINT kDirectoryChanged = WM_APP + 1;
 #include "drag_drop.h"
 #include "file_ops.h"
 #include "font_atlas.h"
-#include "image_preview.h"
+#include "input_targets.h"
 #include "language.h"
+#include "navigation.h"
 #include "gl_loader.h"
 #include "resource.h"
 #include "shell_icons.h"
+#include "settings.h"
 #include "shell_location.h"
 #include "shell_new.h"
 #include "shell_preview.h"
-#include "text_view.h"
 #include "shell_sendto.h"
 #include "ui_renderer.h"
 #include "d3d11_renderer.h"
@@ -48,10 +49,6 @@ constexpr UINT kDirectoryChanged = WM_APP + 1;
 // CMINVOKECOMMANDINFOEX sta in shobjidl.h, non in shlobj.h: serve per eseguire
 // una voce del menu della shell.
 #include <shobjidl.h>
-// Dopo windows.h, come vuole la SDK: le PROPERTYKEY si appoggiano ai tipi di
-// sistema. Serve per le proprieta' che il file system non dice.
-#include <propkey.h>
-#include <propvarutil.h>
 #include <windowsx.h>
 
 #include <algorithm>
@@ -76,9 +73,16 @@ constexpr UINT kDirectoryChanged = WM_APP + 1;
 #include "app_ui.h"
 #include "theme.h"
 #include "view_list.h"
+#include "view_inspector.h"
+#include "view_menu.h"
 #include "view_sidebar.h"
+#include "view_statusbar.h"
 #include "tabs.h"
 #include "view_titlebar.h"
+#include "view_options.h"
+#include "shell_menu.h"
+#include "view_context_menu.h"
+#include "app_actions.h"
 
 using namespace Bolt;
 
@@ -95,254 +99,10 @@ using WglCreateContextAttribsArbFn = HGLRC(WINAPI*)(HDC, HGLRC, const int*);
 // --- texture array layers ---------------------------------------------------
 // Every UI texture shares one array, so the layer index is the only thing that
 // tells a glyph from an icon from a thumbnail.
-// --- impostazioni ------------------------------------------------------------
-//
-// Le preferenze si **ricordano**. `docs/06` chiedeva che la persistenza fosse
-// esplicita e scelta dall'utente, e l'autore l'ha chiesta cosi': «la lingua deve
-// impostarsi in maniera fissa». Quindi il file c'e' — e non e' nascosto:
-//
-//   %APPDATA%\Bolt\settings.ini
-//
-// e' testo semplice con una riga per preferenza, si legge e si cancella a mano,
-// cancellarlo riporta tutto ai valori di partenza, e l'applicazione **dice dove
-// l'ha scritto**. Non contiene nomi di file, cartelle visitate o altre tracce di
-// cosa si e' guardato: solo come si vuole che il programma si comporti.
-// Il primo tratto del file di impostazioni si legge da una funzione che sta piu'
-// in basso: la conversione UTF-8 <-> UTF-16 serve prima della sua definizione.
-// Una riga per preferenza, "chiave=valore". Niente librerie e niente formato
-// binario: si apre col Blocco note e si capisce.
-bool ReadSetting(const std::string& text, const char* key, std::string* value)
-{
-    const std::string wanted = std::string(key) + "=";
-    size_t at = 0;
-    while (at < text.size())
-    {
-        size_t end = text.find('\n', at);
-        if (end == std::string::npos)
-            end = text.size();
-        std::string line = text.substr(at, end - at);
-        if (!line.empty() && line.back() == '\r')
-            line.pop_back();
-        if (line.compare(0, wanted.size(), wanted) == 0)
-        {
-            *value = line.substr(wanted.size());
-            return true;
-        }
-        at = end + 1;
-    }
-    return false;
-}
 
-std::wstring SettingsPath()
-{
-    PWSTR roaming = nullptr;
-    std::wstring path;
-    if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_RoamingAppData, 0, nullptr, &roaming)) &&
-        roaming != nullptr)
-    {
-        path = roaming;
-        CoTaskMemFree(roaming);
-    }
-    if (path.empty())
-        return path;
-    path += L"\\Bolt";
-    CreateDirectoryW(path.c_str(), nullptr);
-    return path + L"\\settings.ini";
-}
-
-void LoadSettings(AppState& app)
-{
-    const std::wstring path = SettingsPath();
-    if (path.empty())
-        return;
-    HANDLE file = CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING,
-                              FILE_ATTRIBUTE_NORMAL, nullptr);
-    if (file == INVALID_HANDLE_VALUE)
-        return;   // primo avvio: i valori di partenza sono quelli giusti
-
-    std::string text;
-    char buffer[1024];
-    DWORD read = 0;
-    while (ReadFile(file, buffer, sizeof(buffer), &read, nullptr) && read > 0)
-        text.append(buffer, read);
-    CloseHandle(file);
-
-    std::string value;
-    if (ReadSetting(text, "language", &value))
-        gLanguage = (value == "english") ? Language::English : Language::Italian;
-
-    // I nomi dei caratteri sono testo: si leggono cosi' come si scrivono.
-    if (ReadSetting(text, "fontFace", &value) && !value.empty())
-        app.fontFace = Widen(value);
-    if (ReadSetting(text, "monoFace", &value) && !value.empty())
-        app.monoFace = Widen(value);
-
-    const auto readFlag = [&](const char* key, bool* target) {
-        std::string v;
-        if (ReadSetting(text, key, &v))
-            *target = (v == "1");
-    };
-    readFlag("showTooltips", &app.showTooltips);
-    readFlag("hoverToSelect", &app.hoverToSelect);
-    readFlag("underlineOnHover", &app.underlineOnHover);
-    readFlag("singleClick", &app.singleClick);
-    readFlag("singleClickFoldersOnly", &app.singleClickFoldersOnly);
-    readFlag("actOnPress", &app.actOnPress);
-    readFlag("doubleClickToParent", &app.doubleClickToParent);
-    readFlag("showCheckboxes", &app.showCheckboxes);
-    readFlag("sidebarVisible", &app.sidebarVisible);
-    readFlag("alternatingRows", &app.alternatingRows);
-    readFlag("inspectorHideGrid", &app.inspectorHideGrid);
-    // Due chiavi per l'aspetto: l'interruttore "segui il sistema" e la tavolozza
-    // scelta. Si leggono **tutte e due** anche quando e' il sistema a comandare, o
-    // spegnendo l'interruttore si perderebbe la tavolozza che c'era prima.
-    readFlag("systemColorScheme", &app.systemColorScheme);
-    if (ReadSetting(text, "colorScheme", &value))
-        app.colorScheme = (value == "light") ? ColorScheme::Light : ColorScheme::Dark;
-
-    std::string grid;
-    if (ReadSetting(text, "gridIconSize", &grid))
-        app.gridIconSize = static_cast<float>(atof(grid.c_str()));
-    if (app.gridIconSize < AppState::kGridIconMin || app.gridIconSize > AppState::kGridIconMax)
-        app.gridIconSize = 64.0f;
-
-    // Le misure si validano: un file modificato a mano non deve poter chiedere un
-    // carattere da zero punti o una riga alta un pixel.
-    const auto readInt = [&](const char* key, int* target, int low, int high) {
-        std::string v;
-        if (ReadSetting(text, key, &v))
-        {
-            const int parsed = atoi(v.c_str());
-            *target = (parsed < low) ? low : (parsed > high ? high : parsed);
-        }
-    };
-    readInt("uiFontSize", &app.uiFontSize, AppState::kUiFontSizeMin, AppState::kUiFontSizeMax);
-    readInt("monoFontSize", &app.monoFontSize, AppState::kMonoFontSizeMin, AppState::kMonoFontSizeMax);
-    readInt("previewStep", &app.previewStep, 0, AppState::kPreviewStepCount - 1);
-
-    std::string spacing;
-    if (ReadSetting(text, "rowSpacing", &spacing))
-    {
-        app.rowSpacing = static_cast<float>(atof(spacing.c_str()));
-        if (app.rowSpacing < AppState::kRowSpacingMin)
-            app.rowSpacing = AppState::kRowSpacingMin;
-        if (app.rowSpacing > AppState::kRowSpacingMax)
-            app.rowSpacing = AppState::kRowSpacingMax;
-    }
-}
-
-// Si scrive a ogni cambio di preferenza: il file e' minuscolo, e una preferenza che
-// si perde perche' il programma e' stato chiuso male e' peggio di una scrittura in
-// piu'. L'esito lo dice l'applicazione, perche' un salvataggio che fallisce in
-// silenzio lascerebbe credere che la scelta sia ricordata.
-bool SaveSettings(const AppState& app)
-{
-    const std::wstring path = SettingsPath();
-    if (path.empty())
-        return false;
-    HANDLE file = CreateFileW(path.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS,
-                              FILE_ATTRIBUTE_NORMAL, nullptr);
-    if (file == INVALID_HANDLE_VALUE)
-        return false;
-
-    std::string text =
-        "# Bolt — impostazioni\n"
-        "# Le scrive Bolt quando cambi una preferenza, e le rilegge a ogni avvio.\n"
-        "# Si cancellano a mano: cancellandole, tutto torna come al primo avvio.\n"
-        "# Non contengono nomi di file ne' cartelle visitate.\n";
-    text += std::string("language=") +
-            (gLanguage == Language::English ? "english" : "italian") + "\n";
-    text += "fontFace=" + ToUtf8(app.fontFace) + "\n";
-    text += "monoFace=" + ToUtf8(app.monoFace) + "\n";
-
-    const auto writeFlag = [&](const char* key, bool value) {
-        text += std::string(key) + "=" + (value ? "1" : "0") + "\n";
-    };
-    writeFlag("showTooltips", app.showTooltips);
-    writeFlag("hoverToSelect", app.hoverToSelect);
-    writeFlag("underlineOnHover", app.underlineOnHover);
-    writeFlag("singleClick", app.singleClick);
-    writeFlag("singleClickFoldersOnly", app.singleClickFoldersOnly);
-    writeFlag("actOnPress", app.actOnPress);
-    writeFlag("doubleClickToParent", app.doubleClickToParent);
-    writeFlag("showCheckboxes", app.showCheckboxes);
-    writeFlag("sidebarVisible", app.sidebarVisible);
-    writeFlag("alternatingRows", app.alternatingRows);
-    writeFlag("inspectorHideGrid", app.inspectorHideGrid);
-    writeFlag("systemColorScheme", app.systemColorScheme);
-    text += std::string("colorScheme=") +
-            (app.colorScheme == ColorScheme::Light ? "light" : "dark") + "\n";
-    text += "gridIconSize=" + std::to_string(static_cast<int>(app.gridIconSize)) + "\n";
-    text += "uiFontSize=" + std::to_string(app.uiFontSize) + "\n";
-    text += "monoFontSize=" + std::to_string(app.monoFontSize) + "\n";
-    text += "rowSpacing=" + std::to_string(static_cast<int>(app.rowSpacing)) + "\n";
-    text += "previewStep=" + std::to_string(app.previewStep) + "\n";
-
-    DWORD written = 0;
-    const BOOL ok = WriteFile(file, text.data(), static_cast<DWORD>(text.size()), &written, nullptr);
-    CloseHandle(file);
-    return ok != FALSE && written == text.size();
-}
-
-// Ricorda la preferenza e, se non si riesce, lo dice: e' l'unico modo di sapere che
-// una scelta non verra' ritrovata al prossimo avvio.
-void ReportStatus(AppState& app, const std::wstring& message);
 using Bolt::NowSeconds;
 
-void RememberSettings(AppState& app)
-{
-    if (!SaveSettings(app))
-        ReportStatus(app, TrW(L"Impostazioni non salvate: il file non si e' potuto scrivere",
-                              L"Settings not saved: the file could not be written"));
-}
 
-// --- il tema ----------------------------------------------------------------
-//
-// Il nome di uno schema come si legge. Le due coppie stanno qui e non sparse perche'
-// la **stessa** stringa serve al pannello delle opzioni, alla palette e alla scelta:
-// la scelta si rilegge confrontando questa, invece di scrivere due volte una parola e
-// sperare che restino uguali.
-const char* SchemeNameIt(ColorScheme scheme)
-{
-    return (scheme == ColorScheme::Light) ? "Chiaro" : "Scuro";
-}
-
-const char* SchemeName(ColorScheme scheme)
-{
-    return (scheme == ColorScheme::Light) ? "Light" : "Dark";
-}
-
-const char* SchemeLabel(ColorScheme scheme)
-{
-    return Tr(SchemeNameIt(scheme), SchemeName(scheme));
-}
-
-// Quale tavolozza si sta usando. "Segui il sistema" **non** e' una tavolozza: e' una
-// risposta che si chiede al sistema, e la si chiede ogni volta che serve invece di
-// copiarla in una variabile. Cosi' vale anche quando la preferenza cambia mentre
-// l'applicazione e' aperta, che e' tutto il senso di quella scelta.
-ColorScheme SchemeInUse(const AppState& app)
-{
-    if (!app.systemColorScheme)
-        return app.colorScheme;
-    return SystemPrefersLightScheme() ? ColorScheme::Light : ColorScheme::Dark;
-}
-
-// Applica la tavolozza e allinea il riquadro di DWM. Le due cose stanno insieme
-// perche' sono la stessa decisione vista da due lati: il colore **dentro** la finestra
-// e quello che il sistema disegna **attorno**. Cambiarne una sola da' una finestra
-// chiara con il bordo scuro, che e' peggio di due difetti separati.
-void ApplyTheme(AppState& app)
-{
-    const ColorScheme scheme = SchemeInUse(app);
-    app.theme = MakeTheme(scheme);
-
-    if (app.window == nullptr)
-        return;   // all'avvio, prima che la finestra esista: c'e' solo la tavolozza
-
-    const BOOL darkFrame = (scheme == ColorScheme::Dark) ? TRUE : FALSE;
-    DwmSetWindowAttribute(app.window, DWMWA_USE_IMMERSIVE_DARK_MODE, &darkFrame, sizeof(darkFrame));
-}
 
 // Scegliere una tavolozza dalla palette o dalle opzioni: si applica subito e si
 // ricorda. Sceglierne una vuol dire **smettere** di seguire il sistema: e' quello che
@@ -357,374 +117,6 @@ void SetColorScheme(AppState& app, ColorScheme scheme)
     RememberSettings(app);
 }
 
-const FileProperties& PropertiesOf(AppState& app, const std::wstring& path)
-{
-    const auto cached = app.fileProperties.find(path);
-    if (cached != app.fileProperties.end())
-        return cached->second;
-
-    FileProperties properties;
-    IPropertyStore* store = nullptr;
-    if (SUCCEEDED(SHGetPropertyStoreFromParsingName(path.c_str(), nullptr, GPS_DEFAULT,
-                                                    IID_IPropertyStore,
-                                                    reinterpret_cast<void**>(&store))) &&
-        store != nullptr)
-    {
-        PROPVARIANT value;
-        ULONG number = 0;
-
-        PropVariantInit(&value);
-        if (SUCCEEDED(store->GetValue(PKEY_Image_HorizontalSize, &value)) &&
-            SUCCEEDED(PropVariantToUInt32(value, &number)))
-            properties.imageWidth = number;
-        PropVariantClear(&value);
-
-        PropVariantInit(&value);
-        if (SUCCEEDED(store->GetValue(PKEY_Image_VerticalSize, &value)) &&
-            SUCCEEDED(PropVariantToUInt32(value, &number)))
-            properties.imageHeight = number;
-        PropVariantClear(&value);
-
-        store->Release();
-    }
-
-    return app.fileProperties.emplace(path, properties).first->second;
-}
-
-// Un volume: il file system e lo spazio. Non sono proprieta' del **file** ma del
-// volume che lo contiene, e il posto giusto per chiederle e' il sistema — lo dice
-// anche `docs/03`: l'occupazione dei volumi si ottiene con `GetDiskFreeSpaceExW`
-// per ogni volume.
-struct VolumeInfo
-{
-    bool        isVolume = false;
-    std::string fileSystem;
-    std::string freeText;
-    std::string totalText;
-    float       usedFraction = 0.0f;
-};
-
-VolumeInfo VolumeOf(const std::wstring& location)
-{
-    VolumeInfo info;
-    if (location.empty())
-        return info;
-
-    // La domanda e' "questo percorso **e'** la radice di un volume", non "sta su un
-    // volume". `GetDriveTypeW` risponde `DRIVE_FIXED` anche per una cartella in
-    // mezzo al disco — risolve il percorso al volume che lo contiene — quindi ogni
-    // file e ogni cartella su `C:` diventava un volume, con la capacita' del disco
-    // al posto della propria dimensione: 952,6 GB per una cartella da 36 byte.
-    //
-    // Il modo giusto e' chiedere **qual e'** la radice del volume e confrontarla col
-    // percorso. Regge anche i volumi montati dentro una cartella, che una radice di
-    // unita' non li copre.
-    wchar_t root[MAX_PATH]{};
-    if (GetVolumePathNameW(location.c_str(), root, MAX_PATH) == FALSE)
-        return info;
-
-    const auto trim = [](std::wstring text) {
-        while (text.size() > 1 && text.back() == L'\\')
-            text.pop_back();
-        return text;
-    };
-    if (_wcsicmp(trim(location).c_str(), trim(root).c_str()) != 0)
-        return info;   // e' una cartella o un file che sta **sopra** un volume
-
-    info.isVolume = true;
-
-    wchar_t fileSystem[64]{};
-    if (GetVolumeInformationW(location.c_str(), nullptr, 0, nullptr, nullptr, nullptr, fileSystem,
-                              64) != FALSE)
-        info.fileSystem = ToUtf8(fileSystem);
-
-    ULARGE_INTEGER available{};
-    ULARGE_INTEGER total{};
-    if (GetDiskFreeSpaceExW(location.c_str(), &available, &total, nullptr) && total.QuadPart > 0)
-    {
-        info.freeText  = HumanBytes(available.QuadPart);
-        info.totalText = HumanBytes(total.QuadPart);
-        info.usedFraction = 1.0f - static_cast<float>(static_cast<double>(available.QuadPart) /
-                                                     static_cast<double>(total.QuadPart));
-    }
-    return info;
-}
-
-// --- directory reading -----------------------------------------------------
-//
-// Le voci di una cartella che non e' un percorso. Il lavoro grosso lo fa
-// `ShellLocation`; qui si traduce nel tipo che usa la lista, con le stesse funzioni
-// di formattazione delle cartelle normali: da qui in poi una voce del cestino e'
-// una voce come le altre, e ordinamento, filtro e gruppi non sanno da dove viene.
-std::vector<Entry> ReadNamespaceDirectory(const std::wstring& directory, std::string* error)
-{
-    std::vector<Entry> entries;
-    for (const ShellLocation::Item& item : ShellLocation::Read(directory, error))
-    {
-        Entry entry;
-        entry.wideName    = item.name;
-        entry.name        = ToUtf8(item.name);
-        entry.isDirectory = item.isDirectory;
-        entry.bytes       = item.bytes;
-        entry.modified    = item.modified;
-        entry.created     = item.created;
-        entry.accessed    = item.accessed;
-        entry.extension   = item.extension;
-        entry.location    = item.location;
-        entry.pidl        = item.pidl;
-        entry.navigable   = item.navigable;
-
-        // Un'unita' dentro "Questo PC" e' un disco, non una cartella, e l'icona
-        // gliela sa dare solo la shell. Si decide **adesso**, una volta per cartella
-        // aperta: chiedere il tipo di un'unita' puo' far girare un lettore ottico, e
-        // una riga si ridisegna sessanta volte al secondo.
-        entry.volumeRoot = !entry.location.empty() && VolumeOf(entry.location).isVolume;
-
-        // Un tempo a zero non e' il 1601: e' "la shell non lo sa". Scriverlo come
-        // data faceva comparire `1601-01-01` in ogni riga di "Questo PC", che e'
-        // una data vera solo per chi guarda il calendario di Windows.
-        const bool dated = item.modified.dwLowDateTime != 0 || item.modified.dwHighDateTime != 0;
-        entry.typeText     = ShellTypeName(entry.extension, entry.isDirectory);
-        entry.sizeText     = entry.isDirectory ? "" : HumanBytes(entry.bytes);
-        entry.modifiedText = dated ? FormatFileTime(entry.modified, /*withTime=*/false) : "";
-        entry.modifiedFull = dated ? FormatFileTime(entry.modified, /*withTime=*/true) : "";
-        entries.push_back(std::move(entry));
-    }
-    return entries;
-}
-
-std::vector<Entry> ReadDirectory(const std::wstring& directory, std::string* error)
-{
-    std::vector<Entry> entries;
-    error->clear();
-
-    // Il cestino non si elenca con FindFirstFile, e non e' un percorso: le sue
-    // voci le sa solo la shell.
-    if (ShellLocation::IsNamespace(directory))
-        return ReadNamespaceDirectory(directory, error);
-
-    WIN32_FIND_DATAW data{};
-    const std::wstring pattern = directory + L"\\*";
-    HANDLE search = FindFirstFileExW(pattern.c_str(),
-                                     FindExInfoBasic,
-                                     &data,
-                                     FindExSearchNameMatch,
-                                     nullptr,
-                                     FIND_FIRST_EX_LARGE_FETCH);
-    if (search == INVALID_HANDLE_VALUE)
-    {
-        // Retry without the large-fetch hint: some network providers reject it.
-        search = FindFirstFileW(pattern.c_str(), &data);
-    }
-
-    if (search == INVALID_HANDLE_VALUE)
-    {
-        const DWORD code = GetLastError();
-        *error = (code == ERROR_ACCESS_DENIED)
-                     ? Tr("Accesso negato.", "Access denied.")
-                     : Tr("Non si riesce a leggere questa cartella.",
-                          "Cannot read this folder.");
-        return entries;
-    }
-
-    do
-    {
-        const std::wstring name = data.cFileName;
-        if (name == L"." || name == L"..")
-            continue;
-
-        Entry entry;
-        entry.wideName    = name;
-        entry.name        = ToUtf8(name);
-        entry.isDirectory = (data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
-        entry.bytes       = (static_cast<uint64_t>(data.nFileSizeHigh) << 32) | data.nFileSizeLow;
-        entry.modified    = data.ftLastWriteTime;
-        entry.created     = data.ftCreationTime;
-        entry.accessed    = data.ftLastAccessTime;
-
-        const size_t dot = entry.name.rfind('.');
-        if (!entry.isDirectory && dot != std::string::npos && dot + 1 < entry.name.size())
-        {
-            entry.extension = entry.name.substr(dot + 1);
-            std::transform(entry.extension.begin(), entry.extension.end(), entry.extension.begin(),
-                           [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-        }
-
-        entry.typeText     = ShellTypeName(entry.extension, entry.isDirectory);
-        entry.sizeText     = entry.isDirectory ? "" : HumanBytes(entry.bytes);
-        entry.modifiedText = FormatFileTime(entry.modified, /*withTime=*/false);
-        entry.modifiedFull = FormatFileTime(entry.modified, /*withTime=*/true);
-        entries.push_back(std::move(entry));
-    }
-    while (FindNextFileW(search, &data) != FALSE);
-
-    FindClose(search);
-    return entries;
-}
-
-// Quanto spazio il disco ha riservato per **un** file. Una chiamata, e solo dove
-// serve per una voce sola: per un albero sarebbe una chiamata per file, ed e' per
-// questo che `dir_stats` legge le cartelle in blocco.
-//
-// Il campo e' `FILE_STANDARD_INFO.AllocationSize` — **lo stesso** che l'enumerazione
-// in blocco legge per ogni voce, quindi le due strade non possono raccontare cose
-// diverse. Non si usa `GetCompressedFileSizeW`, che sarebbe la chiamata ovvia: su
-// questa macchina risponde con la dimensione **logica** (10240 per un file da 10240,
-// che occupa 12288), e un "su disco" uguale alla dimensione e' una funzione che
-// sembra non fare niente.
-bool AllocatedSizeOf(const std::wstring& path, uint64_t* bytes)
-{
-    HANDLE handle = CreateFileW(path.c_str(), FILE_READ_ATTRIBUTES,
-                                FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
-                                OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, nullptr);
-    if (handle == INVALID_HANDLE_VALUE)
-        return false;
-
-    FILE_STANDARD_INFO info{};
-    const bool read = GetFileInformationByHandleEx(handle, FileStandardInfo, &info, sizeof(info)) != FALSE;
-    CloseHandle(handle);
-
-    if (!read)
-        return false;
-    *bytes = static_cast<uint64_t>(info.AllocationSize.QuadPart);
-    return true;
-}
-
-void UpdateWindowTitle(AppState& app)
-{
-    if (app.window == nullptr)
-        return;
-    const std::wstring title = L"Bolt — " + LocationLabel(app, app.directory);
-    SetWindowTextW(app.window, title.c_str());
-}
-
-// |recordHistory| is false only when the move is itself a history step, or
-// walking back would push the place you are leaving onto the stack again.
-void LoadDirectory(AppState& app, const std::wstring& directory, bool recordHistory = true)
-{
-    const std::wstring normalised = directory.empty() ? L"" : directory;
-    // Il filtro non segue l'utente in un'altra cartella — un filtro rimasto da un
-    // altro elenco sembrerebbe una cartella vuota — ma **ricaricare la stessa
-    // cartella non e' cambiare cartella**: premere F5 non deve svuotare la casella
-    // del filtro, che sta sotto gli occhi ed e' una cosa che l'utente ha scritto.
-    const bool sameFolder = (normalised == app.directory);
-
-    app.entries = ReadDirectory(normalised, &app.errorText);
-    app.directory = normalised;
-    app.previews.CancelPending();
-    app.stats.CancelQueued();
-
-    if (!sameFolder)
-    {
-        app.filter.clear();
-        app.filterActive = false;
-        // I valori di una colonna sono quelli della cartella che si sta lasciando:
-        // il pannello si chiude invece di filtrare su un elenco che non c'e' piu'.
-        app.columnMenu.open = false;
-        app.columnPanel     = -1;
-    }
-
-    app.scroll = 0.0f;
-    app.selection.clear();
-    app.cursor.clear();
-    app.selectionAnchor.clear();
-    app.rectSelecting = false;
-    // La riga sotto il puntatore e' un **indice**, e questo e' un elenco nuovo: la
-    // riga 3 era un file e adesso ne e' un altro. Cursore e selezione si ritrovano
-    // per nome perche' un nome ce l'hanno; il sovrappasso no — il puntatore sta su un
-    // **pixel**, non su un file — quindi si azzera e torna al primo movimento del
-    // mouse. Senza questo azzeramento `entries[hovered]` legge fuori dal vettore: una
-    // cartella con una voce sola, aperta dopo un'altra, faceva cadere l'applicazione.
-    app.hovered    = -1;
-    app.hoverStart = NowSeconds();
-
-    SortEntries(app);
-    if (!app.entries.empty())
-    {
-        app.cursor = app.entries.front().wideName;
-        app.selection.insert(app.cursor);
-        app.selectionAnchor = app.cursor;
-    }
-    app.viewDirty = true;
-
-    if (recordHistory)
-    {
-        // Walking somewhere new discards the forward stack, the way every
-        // browser and file manager does.
-        if (app.historyIndex + 1 < static_cast<int>(app.history.size()))
-            app.history.resize(static_cast<size_t>(app.historyIndex + 1));
-        app.history.push_back(normalised);
-        app.historyIndex = static_cast<int>(app.history.size()) - 1;
-    }
-
-    // StoreRecents has three modes in the reference key table (LocalDisk,
-    // Persistent, Session). This is Session: nothing is written to disk yet.
-    app.recents.erase(std::remove(app.recents.begin(), app.recents.end(), normalised),
-                      app.recents.end());
-    app.recents.insert(app.recents.begin(), normalised);
-    if (app.recents.size() > 20)
-        app.recents.resize(20);
-
-    UpdateWindowTitle(app);
-
-    // La sorveglianza segue la navigazione: c'e' un watcher solo, e guarda la
-    // cartella aperta. Se e' la stessa non fa niente, quindi si puo' chiamare qui
-    // senza pensarci — e va chiamata **dopo** che `app.directory` e' la cartella
-    // nuova, o sorveglierebbe quella di prima.
-    app.watcher.Watch(app.directory);
-}
-
-// --- tabs -------------------------------------------------------------------
-void SaveActiveTab(AppState& app)
-{
-    if (app.activeTab < 0 || app.activeTab >= static_cast<int>(app.tabs.size()))
-        return;
-
-    Tab& tab = app.tabs[static_cast<size_t>(app.activeTab)];
-    tab.directory       = app.directory;
-    tab.entries         = std::move(app.entries);
-    tab.cursor          = app.cursor;
-    tab.selectionAnchor = app.selectionAnchor;
-    tab.selection       = std::move(app.selection);
-    tab.filter          = app.filter;
-    tab.errorText       = app.errorText;
-    tab.scroll          = app.scroll;
-    tab.filterActive    = app.filterActive;
-    tab.sortColumn      = app.sortColumn;
-    tab.sortAscending   = app.sortAscending;
-    tab.groupMode       = app.groupMode;
-    tab.viewMode        = app.viewMode;
-    tab.history         = app.history;
-    tab.historyIndex    = app.historyIndex;
-}
-
-void LoadActiveTab(AppState& app)
-{
-    if (app.activeTab < 0 || app.activeTab >= static_cast<int>(app.tabs.size()))
-        return;
-
-    Tab& tab = app.tabs[static_cast<size_t>(app.activeTab)];
-    app.directory       = tab.directory;
-    app.entries         = std::move(tab.entries);
-    app.cursor          = tab.cursor;
-    app.selectionAnchor = tab.selectionAnchor;
-    app.selection       = std::move(tab.selection);
-    app.filter          = tab.filter;
-    app.errorText       = tab.errorText;
-    app.scroll          = tab.scroll;
-    app.filterActive    = tab.filterActive;
-    app.sortColumn      = tab.sortColumn;
-    app.sortAscending   = tab.sortAscending;
-    app.groupMode       = tab.groupMode;
-    app.viewMode        = tab.viewMode;
-    app.history         = tab.history;
-    app.historyIndex    = tab.historyIndex;
-    app.rectSelecting   = false;
-    app.viewDirty       = true;
-
-    UpdateWindowTitle(app);
-}
-
 // --- l'albero dei tab -------------------------------------------------------
 //
 // I tab sono un albero, non una fila: un tab puo' avere figli, e un figlio si
@@ -732,189 +124,7 @@ void LoadActiveTab(AppState& app)
 // fotogramma invece di essere l'ordine in cui i tab sono nati, cosi' chiudere o
 // spostare non deve aggiustare l'indice di tutti gli altri — che e' il modo in cui
 // un albero diventa un groviglio.
-const ClickTarget* HitTest(const AppState& app, float x, float y, ClickTarget::Kind kind);
-
-// Dove finirebbe il tab trascinato, dato il punto del puntatore. Sta qui e non nel
-// gestore del mouse perche' il marcatore disegnato e il rilascio devono leggere la
-// stessa risposta: due calcoli che devono coincidere prima o poi non coincidono.
-void UpdateTabDrop(AppState& app, float x, float y)
-{
-    app.tabDropTarget = -1;
-    const ClickTarget* hit = HitTest(app, x, y, ClickTarget::Kind::Tab);
-    if (hit == nullptr)
-        return;
-    const int index = hit->index;
-    if (app.tabs[static_cast<size_t>(index)].id == app.dragTab)
-        return;   // sopra se stesso non si va da nessuna parte
-
-    // Il terzo di mezzo vuol dire "dentro": e' la zona piu' stretta, cosi' i due
-    // bordi restano comodi per mettersi prima o dopo.
-    const float third = hit->rect.w / 3.0f;
-    const float left  = hit->rect.x;
-    app.tabDropTarget = index;
-    if (x >= left + third && x <= left + third * 2.0f)
-    {
-        app.tabDropInto = true;
-        DiagLog("  tab drop: DENTRO tab " + std::to_string(index) + " (x " +
-                std::to_string(x) + ")");
-        return;
-    }
-    app.tabDropInto  = false;
-    app.tabDropAfter = (x > left + third);
-    DiagLog("  trascinamento di un tab: x " + std::to_string(x) + ", tab " +
-            std::to_string(index) + " da " + std::to_string(left) + " a " +
-            std::to_string(left + hit->rect.w) + ", terzo " + std::to_string(third) +
-            ", esito " + (app.tabDropAfter ? "dopo" : "prima"));
-}
-
-// La fila come si vede: ogni coppia e' (indice del tab, quanto e' profondo).
-void NewTab(AppState& app, const std::wstring& directory)
-{
-    SaveActiveTab(app);
-
-    Tab tab;
-    tab.id = app.nextTabId++;
-    // A new tab inherits the view settings, not the location: the user's idea of
-    // "how I look at files" should not reset when a tab is opened.
-    tab.sortColumn    = app.sortColumn;
-    tab.sortAscending = app.sortAscending;
-    tab.groupMode     = app.groupMode;
-    tab.directory     = directory;
-
-    app.tabs.push_back(std::move(tab));
-    app.activeTab = static_cast<int>(app.tabs.size()) - 1;
-
-    app.entries.clear();
-    app.selection.clear();
-    app.cursor.clear();
-    app.selectionAnchor.clear();
-    app.scroll = 0.0f;
-    app.filter.clear();
-    app.filterActive = false;
-    LoadDirectory(app, directory);
-}
-
-void ActivateTab(AppState& app, int index)
-{
-    if (index < 0 || index >= static_cast<int>(app.tabs.size()) || index == app.activeTab)
-        return;
-
-    SaveActiveTab(app);
-    app.activeTab = index;
-    LoadActiveTab(app);
-    app.stats.CancelQueued();
-    app.previews.CancelPending();
-}
-
-void CloseTab(AppState& app, int index)
-{
-    if (index < 0 || index >= static_cast<int>(app.tabs.size()))
-        return;
-    if (app.tabs.size() == 1)
-        return;   // the last tab is not closable: use the window button instead
-
-    const bool closingActive = (index == app.activeTab);
-    app.tabs.erase(app.tabs.begin() + index);
-
-    if (index < app.activeTab)
-    {
-        // The active tab merely shifted down; the live state still matches it.
-        --app.activeTab;
-        return;
-    }
-
-    if (closingActive)
-    {
-        if (app.activeTab >= static_cast<int>(app.tabs.size()))
-            app.activeTab = static_cast<int>(app.tabs.size()) - 1;
-        LoadActiveTab(app);
-        app.stats.CancelQueued();
-        app.previews.CancelPending();
-    }
-}
-
-// Sposta il tab trascinato dove il marcatore dice.
-void ApplyTabDrop(AppState& app)
-{
-    const int activeId = app.tabs[static_cast<size_t>(app.activeTab)].id;
-    const int dragged  = TabById(app, app.dragTab);
-    const int target   = app.tabDropTarget;
-    const bool into    = app.tabDropInto;
-    const bool after   = app.tabDropAfter;
-    app.dragTab       = -1;
-    app.tabPress      = -1;
-    app.tabDropTarget = -1;
-
-    if (dragged < 0 || target < 0 || target >= static_cast<int>(app.tabs.size()) ||
-        target == dragged)
-        return;
-
-    if (into)
-    {
-        // Dentro un altro tab: si diventa suoi figli. Un tab non puo' finire dentro
-        // un proprio discendente — sarebbe un anello, e un albero con un anello non
-        // e' piu' un albero.
-        if (TabIsDescendantOf(app, app.tabs[static_cast<size_t>(target)].id,
-                              app.tabs[static_cast<size_t>(dragged)].id))
-        {
-            DiagLog("  tab drop: rifiutato (discendente)");
-            return;
-        }
-        app.tabs[static_cast<size_t>(dragged)].parentId =
-            app.tabs[static_cast<size_t>(target)].id;
-        DiagLog("  tab drop: " + std::to_string(app.tabs[static_cast<size_t>(dragged)].id) +
-                " figlio di " + std::to_string(app.tabs[static_cast<size_t>(target)].id));
-        return;
-    }
-
-    // Prima o dopo: si diventa **fratelli** del bersaglio. Fra fratelli l'ordine e'
-    // l'ordine nel vettore, quindi qui il tab si sposta davvero nel vettore — con
-    // l'identita' che resta, che e' quello che tiene in piedi i legami.
-    Tab moved = app.tabs[static_cast<size_t>(dragged)];
-    moved.parentId = app.tabs[static_cast<size_t>(target)].parentId;
-    app.tabs.erase(app.tabs.begin() + dragged);
-    int at = (target > dragged) ? target - 1 : target;
-    if (after)
-        ++at;
-    at = (std::max)(0, (std::min)(at, static_cast<int>(app.tabs.size())));
-    app.tabs.insert(app.tabs.begin() + at, moved);
-
-    // L'indice attivo segue il **tab** che era attivo, non la sua posizione.
-    const int stillActive = TabById(app, activeId);
-    if (stillActive >= 0)
-        app.activeTab = stillActive;
-}
-
-// Le due chiusure dell'albero. `CloseInTree` chiude il tab **e i suoi figli**;
-// `CloseAllInTree` chiude tutto l'albero a cui appartiene, radice compresa.
-//
-// La lettura e' nostra: l'evidenza sono due nomi di hotkey nel binario
-// (`HK_CloseInTree`, `HK_CloseAllInTree`, `docs/03`), e cosa significhino di
-// preciso non e' ricostruito. Questa e' la lettura che li distingue l'uno
-// dall'altro, ed e' dichiarata.
-void CloseTabTree(AppState& app, int id, bool wholeTree)
-{
-    if (TabById(app, id) < 0)
-        return;
-    const int root = wholeTree ? TabRootId(app, id) : id;
-
-    std::vector<int> doomed;
-    for (const Tab& tab : app.tabs)
-    {
-        if (TabIsDescendantOf(app, tab.id, root))
-            doomed.push_back(tab.id);
-    }
-    // L'ultimo tab non si chiude: resterebbe una finestra senza niente dentro.
-    // Si chiude tutto tranne uno, e si dice invece di far finta.
-    const bool all = (doomed.size() == app.tabs.size());
-    if (all)
-        doomed.pop_back();
-
-    // Dal fondo: chiudendo, gli indici sotto scivolano, e chi resta deve restare
-    // valido.
-    for (auto it = doomed.rbegin(); it != doomed.rend(); ++it)
-        CloseTab(app, TabById(app, *it));
-}
+// `HitTest` arriva da `input_targets.h`.
 
 // I fissaggi della shell: "Accesso rapido" di Esplora risorse, che e' una cartella
 // dello spazio dei nomi come le altre. Si legge adesso e si rilegge a ogni
@@ -1069,48 +279,6 @@ void BuildPlaces(AppState& app)
     }
 }
 
-// --- layout ----------------------------------------------------------------
-;
-
-Layout ComputeLayout(const AppState& app)
-{
-    const float scale = app.zoom;
-    const float width = static_cast<float>(app.viewportWidth);
-    const float height = static_cast<float>(app.viewportHeight);
-
-    const float sidebarWidth   = app.sidebarVisible ? 186.0f * scale : 0.0f;
-    const float inspectorWidth = 292.0f * scale;
-    const float titleHeight    = 34.0f * scale;
-    const float toolbarHeight  = 38.0f * scale;
-    // A grid view has no columns to head, so it gives the space back to the list.
-    const bool gridView = (app.viewMode == ViewMode::Tiles || app.viewMode == ViewMode::Icons);
-    const float headerHeight   = gridView ? 0.0f : 26.0f * scale;
-    const float statusHeight   = 22.0f * scale;
-    const float filterHeight   = 24.0f * scale;
-    const float gap            = 6.0f * scale;
-
-    Layout layout;
-    layout.scale      = scale;
-    // `Spacing` e' una preferenza: l'altezza della riga di lista la segue, e per
-    // questo e' un valore derivato e non un 24 scritto a mano.
-    layout.rowHeight  = (app.rowSpacing > 0.0f ? app.rowSpacing : 24.0f) * scale;
-    layout.titleBar   = Rect{0.0f, 0.0f, width, titleHeight};
-    layout.toolbar    = Rect{0.0f, titleHeight, width, toolbarHeight};
-    layout.sidebar    = Rect{gap, titleHeight + toolbarHeight + gap, sidebarWidth,
-                             height - titleHeight - toolbarHeight - statusHeight - gap * 3};
-    layout.header     = Rect{sidebarWidth + gap * 2, titleHeight + toolbarHeight + gap,
-                             width - sidebarWidth - inspectorWidth - gap * 4, headerHeight};
-    layout.filterBar  = Rect{layout.header.x, height - statusHeight - gap - filterHeight,
-                             layout.header.w, filterHeight};
-    layout.list       = Rect{layout.header.x, layout.header.bottom(),
-                             layout.header.w,
-                             layout.filterBar.y - gap - layout.header.bottom()};
-    layout.inspector  = Rect{width - inspectorWidth - gap, titleHeight + toolbarHeight + gap,
-                             inspectorWidth, layout.list.h + headerHeight + filterHeight + gap};
-    layout.statusBar  = Rect{0.0f, height - statusHeight, width, statusHeight};
-    return layout;
-}
-
 // --- drawing ---------------------------------------------------------------
 // The window draws its own caption. The native one is removed by answering
 // WM_NCCALCSIZE; what replaces it is a tab strip, which is the point of the
@@ -1238,18 +406,16 @@ void DrawToolbar(AppState& app, const Layout& layout, const std::wstring& displa
 // richiude le sezioni che l'utente aveva chiuso, e una sezione chiusa non si
 // riapre da sola.
 
-;
-
-void GroupMenuOpen(GroupMenu& menu, std::string title, std::string placeholder,
-                   std::vector<GroupMenuItem> items);
-
 // L'etichetta italiana di un comando. La tabella resta com'e' — con le sue
 // etichette in inglese, che sono anche i nomi delle chiavi del riferimento — e la
 // traduzione sta qui, accanto, in un posto solo.
 //
 // Se un comando non compare, la sua etichetta resta quella della tabella: mancare
 // una traduzione non deve rompere niente, e si vede subito a schermo. La lista e'
-// tenuta corta apposta, cosi' "cosa non e' tradotto" ha una risposta che si legge.
+// **completa**: tutti i comandi della tabella hanno la loro parola italiana, quindi
+// "cosa non e' tradotto" non ha piu' una risposta da leggere qui. Un comando nuovo
+// che arrivasse senza traduzione si vedrebbe lo stesso — la sua parola inglese in
+// mezzo alle altre — che e' il motivo per cui il ripiego resta.
 const char* CommandLabelIt(CommandId id)
 {
     switch (id)
@@ -1330,8 +496,14 @@ const char* CommandLabelIt(CommandId id)
         case CmdColorSchemeDark:        return "Tema: scuro";
         case CmdSystemColorScheme:      return "Tema: segui il sistema";
         case CmdOpenOptions:            return "Apri le opzioni";
+        case CmdEditKeyMap:             return "Modifica i tasti";
+        case CmdPinTo:                  return "Fissa questa cartella in...";
+        case CmdUnpin:                  return "Togli questa cartella da...";
         case CmdProperties:             return "Proprietà";
         case CmdPropertiesWindows:      return "Proprietà di Windows";
+        // L'ultima che mancava. Era l'unica su ottanta, e si vedeva per quello: la
+        // palette dei comandi si apriva con una riga in inglese in mezzo alle altre.
+        case CmdPalette:                return "Palette dei comandi";
         default:                        return nullptr;
     }
 }
@@ -1418,8 +590,6 @@ void RefreshColumnMenuChecks(AppState& app)
 // The filter box sits under the list, the way the reference application puts it.
 // It is the only text entry in the window, so it owns the keyboard whenever the
 // filter is active.
-GroupMenu* OpenMenu(AppState& app);
-
 // `ShowTooltips`: il nome per esteso e due righe di contesto, vicino al puntatore.
 //
 // Compare **dopo una pausa**, come i suggerimenti del sistema: il conto riparte
@@ -1500,830 +670,6 @@ void DrawTooltip(AppState& app, const Layout& layout)
         app.smallFont.Draw(r, box.x + pad, textY, lines[i], t.textDim, scale);
         textY += app.smallFont.LineHeight() * scale;
     }
-}
-
-// L'immagine grande dell'inspector: si decodifica quando cambia la voce scelta, e si
-// carica nello strato una volta sola. La miniatura della shell arriva a 128 px e va
-// bene per un'icona; qui il file si decodifica davvero, e ingrandirlo e' poi solo
-// geometria di un quad.
-//
-// Si prova a decodificare solo per le estensioni che sono immagini: tentare su ogni
-// file vorrebbe dire far aprire a WIC anche quello che non e' un'immagine, e su un
-// JPEG da dieci megapixel la decodifica si sente.
-bool LooksLikeImage(const std::string& extension)
-{
-    static const char* const kImageExtensions[] = {
-        "jpg", "jpeg", "jpe", "png", "bmp", "gif", "tif", "tiff", "webp", "avif", "heic", "heif",
-        "jfif", "ico",
-    };
-    for (const char* candidate : kImageExtensions)
-    {
-        if (extension == candidate)
-            return true;
-    }
-    return false;
-}
-
-void EnsureBigImage(AppState& app)
-{
-    const int cursorIndex = CursorIndex(app);
-    std::wstring path;
-    if (cursorIndex >= 0)
-    {
-        const Entry& entry = app.entries[static_cast<size_t>(cursorIndex)];
-        if (!entry.isDirectory && entry.location.empty() && LooksLikeImage(entry.extension))
-            path = JoinPath(app.directory, entry.wideName);
-    }
-
-    if (path == app.bigImagePath)
-        return;
-
-    app.bigImagePath     = path;
-    app.bigImage         = path.empty() ? ImagePreview::Image{} : ImagePreview::Load(path, kBigImageSide);
-    app.bigImageUploaded = false;
-    app.imageZoom        = 1.0f;
-}
-
-// Disegna l'anteprima nell'area data, adattata e con l'ingrandimento scelto. Restituisce
-// falso se non c'e' niente da disegnare, cosi' chi chiama sa che lo spazio resta al
-// visualizzatore di testo o alle righe.
-bool DrawBigImage(AppState& app, const Layout& layout, const Rect& area, float* usedHeight)
-{
-    // `0%` spegne le anteprime: anche l'immagine grande lascia il posto all'icona,
-    // perche' e' la stessa scelta detta una volta sola.
-    if (!app.bigImage.Valid() || app.PreviewZoom() <= 0.0f ||
-        area.w < 40.0f || area.h < 40.0f)
-        return false;
-
-    if (!app.bigImageUploaded)
-    {
-        app.renderer->UploadLayerRegion(kBigImageLayer, app.bigImage.rgba.data(), app.bigImage.width,
-                                       app.bigImage.height, 0, 0);
-        app.bigImageUploaded = true;
-    }
-
-    // Adattata allo spazio, poi ingrandita: il fattore non scende sotto quello che fa
-    // entrare l'immagine, cosi' "zoom indietro" non la fa uscire dal pannello.
-    const float fit = (std::min)(area.w / static_cast<float>(app.bigImage.width),
-                                 area.h / static_cast<float>(app.bigImage.height));
-    const float scale = (std::max)(fit, fit * app.imageZoom);
-    const float width  = static_cast<float>(app.bigImage.width) * scale;
-    const float height = static_cast<float>(app.bigImage.height) * scale;
-
-    IRenderer& r = *app.renderer;
-    const Theme& t = app.theme;
-    const Rect frame{area.x, area.y, area.w, (std::min)(area.h, height + 8.0f * layout.scale)};
-    r.Draw(UIDraw::Fill(frame, t.previewFrame, 6.0f * layout.scale));
-
-    // La griglia dietro l'immagine. Serve a distinguere lo sfondo dell'immagine —
-    // spesso bianco, o trasparente — da quello del pannello, ed e' la "griglia
-    // dell'inspector" della chiave `InspectorHideGrid` (`analysis/out`). Si disegna
-    // **sotto** l'immagine: un PNG trasparente la lascia intravedere, una foto la
-    // copre. Un quad per linea, e solo dove serve: e' la stessa griglia di sempre.
-    if (!app.inspectorHideGrid)
-    {
-        const float step = 16.0f * layout.scale;
-        const Color line = t.panelBorder.WithAlpha(0.6f);
-        const float inset = 5.0f * layout.scale;
-        for (float x = frame.x + step; x < frame.right() - inset; x += step)
-            r.FillRect(Rect{x, frame.y + inset, 1.0f, frame.h - inset * 2.0f}, line);
-        for (float y = frame.y + step; y < frame.bottom() - inset; y += step)
-            r.FillRect(Rect{frame.x + inset, y, frame.w - inset * 2.0f, 1.0f}, line);
-    }
-
-    // Il quad si disegna solo per la parte che entra: con l'ingrandimento acceso
-    // l'immagine puo' essere piu' larga del pannello, e lasciarla uscire la farebbe
-    // disegnare sopra il resto della finestra.
-    const float visibleWidth  = (std::min)(width, area.w);
-    const float visibleHeight = (std::min)(height, frame.h - 8.0f * layout.scale);
-    const Rect picture{area.x + (area.w - visibleWidth) * 0.5f,
-                       frame.y + (frame.h - visibleHeight) * 0.5f, visibleWidth, visibleHeight};
-    const float u = (app.bigImage.width > 0)
-                        ? (visibleWidth / width) * static_cast<float>(app.bigImage.width) /
-                              static_cast<float>(kBigImageSide)
-                        : 0.0f;
-    const float v = (app.bigImage.height > 0)
-                        ? (visibleHeight / height) * static_cast<float>(app.bigImage.height) /
-                              static_cast<float>(kBigImageSide)
-                        : 0.0f;
-    r.Draw(UIDraw::Image(picture, Color{1.0f, 1.0f, 1.0f, 1.0f}, static_cast<float>(kBigImageLayer),
-                         0.0f, 0.0f, u, v));
-    r.Draw(UIDraw::Border(frame, t.panelBorder, 1.0f, 6.0f * layout.scale));
-
-    if (usedHeight != nullptr)
-        *usedHeight = frame.h + 10.0f * layout.scale;
-    return true;
-}
-
-// --- visualizzatore di testo (M8) -------------------------------------------
-//
-// Tre passi, e ognuno ha una ragione: il **documento** si legge quando la voce
-// scelta cambia (e' l'unica cosa in memoria che riguarda il contenuto di un file, e
-// vive quanto la selezione: `docs/06`); le **righe come si vedono** si calcolano una
-// volta per misura, perche' con l'andare a capo acceso una riga logica puo' essere
-// piu' righe di schermo e rifarlo a ogni fotogramma sarebbe lavoro sprecato; il
-// **disegno** legge solo quello che sta dentro la finestra.
-
-void EnsureTextDocument(AppState& app)
-{
-    const int cursorIndex = CursorIndex(app);
-    std::wstring path;
-    if (cursorIndex >= 0)
-    {
-        const Entry& entry = app.entries[static_cast<size_t>(cursorIndex)];
-        // Solo per i file che stanno su un percorso: un nome di spazio dei nomi non
-        // si apre come testo.
-        if (!entry.isDirectory && entry.location.empty())
-            path = JoinPath(app.directory, entry.wideName);
-    }
-
-    if (path == app.textDocumentPath)
-        return;   // gia' letto, o gia' saputo che non c'e' niente da leggere
-
-    app.textDocumentPath = path;
-    app.textDocument     = path.empty() ? TextView::Document{} : TextView::Load(path);
-    app.textScroll       = 0.0f;
-    app.textRowsDirty    = true;
-}
-
-void LayoutTextRows(AppState& app, const FontAtlas& font, float width, float textScale)
-{
-    if (!app.textRowsDirty && app.textRowsWidth == width && app.textRowsZoom == textScale)
-        return;
-
-    app.textRows.clear();
-    app.textRowsWidth = width;
-    app.textRowsZoom  = textScale;
-    app.textRowsDirty = false;
-    app.textLongest   = 0;
-
-    const std::vector<std::string>& lines = app.textDocument.lines;
-    for (size_t index = 0; index < lines.size(); ++index)
-    {
-        const std::string& line = lines[index];
-        app.textLongest = (std::max)(app.textLongest, line.size());
-
-        if (!app.textWrap || line.empty())
-        {
-            app.textRows.push_back(TextRow{index, 0, line.size()});
-            continue;
-        }
-
-        // Andare a capo: si cammina la riga e si taglia dove non ci sta piu'. Il
-        // taglio cade fra due caratteri, come tutti i tagli di testo di questo
-        // programma, e va avanti anche quando una parola da sola non ci sta.
-        size_t start = 0;
-        float used = 0.0f;
-        for (size_t i = 0; i < line.size(); i = Utf8::Next(line, i))
-        {
-            const float advance = font.MeasureOne(Utf8::At(line, i, nullptr), textScale);
-            if (used + advance > width && i > start)
-            {
-                app.textRows.push_back(TextRow{index, start, i - start});
-                start = i;
-                used = 0.0f;
-            }
-            used += advance;
-        }
-        app.textRows.push_back(TextRow{index, start, line.size() - start});
-    }
-}
-
-// Un carattere come stringa UTF-8: `FontAtlas::Draw` vuole una stringa, e costruirla
-// con `substr` per ogni lettera di ogni riga visibile sarebbe un'allocazione per
-// lettera. Le stringhe corte non toccano l'heap, quindi questa non costa niente.
-std::string OneChar(uint32_t codepoint)
-{
-    std::string text;
-    if (codepoint < 0x80)
-    {
-        text.push_back(static_cast<char>(codepoint));
-    }
-    else if (codepoint < 0x800)
-    {
-        text.push_back(static_cast<char>(0xC0 | (codepoint >> 6)));
-        text.push_back(static_cast<char>(0x80 | (codepoint & 0x3F)));
-    }
-    else if (codepoint < 0x10000)
-    {
-        text.push_back(static_cast<char>(0xE0 | (codepoint >> 12)));
-        text.push_back(static_cast<char>(0x80 | ((codepoint >> 6) & 0x3F)));
-        text.push_back(static_cast<char>(0x80 | (codepoint & 0x3F)));
-    }
-    else
-    {
-        text.push_back(static_cast<char>(0xF0 | (codepoint >> 18)));
-        text.push_back(static_cast<char>(0x80 | ((codepoint >> 12) & 0x3F)));
-        text.push_back(static_cast<char>(0x80 | ((codepoint >> 6) & 0x3F)));
-        text.push_back(static_cast<char>(0x80 | (codepoint & 0x3F)));
-    }
-    return text;
-}
-
-// Una riga di testo, con gli spazi visibili se accesi: un punto dove c'e' uno spazio,
-// una freccia dove c'e' una tabulazione. E' l'unico modo di vedere *cosa* c'e' dove
-// sembra non esserci niente, ed e' quello per cui esiste `InspectorShowWhitespace`.
-void DrawTextRow(IRenderer& r, const FontAtlas& font, const std::string& line, const TextRow& row,
-                 float x, float y, float scale, bool whitespace, Color color, Color whitespaceInk,
-                 float maxWidth)
-{
-    const float space = font.MeasureOne(' ', scale);
-    const float limit = x + maxWidth;
-
-    float penX = x;
-    int column = 0;
-    for (size_t i = row.offset; i < row.offset + row.length; i = Utf8::Next(line, i))
-    {
-        const uint32_t codepoint = Utf8::At(line, i, nullptr);
-
-        if (codepoint == '\t')
-        {
-            // La tabulazione porta alla colonna successiva multipla di quattro: si
-            // calcola quanto manca, invece di disegnarne sempre quattro.
-            const int stop = (column / 4 + 1) * 4;
-            if (whitespace && penX + space <= limit)
-                font.Draw(r, penX, y, "\u2192", whitespaceInk, scale);
-            penX = x + space * static_cast<float>(stop);
-            column = stop;
-            if (penX > limit)
-                break;
-            continue;
-        }
-
-        const float advance = font.MeasureOne(codepoint, scale);
-        if (penX + advance > limit)
-            break;   // fuori dal pannello: si smette, invece di disegnare sopra altro
-
-        if (codepoint == ' ' && whitespace)
-            font.Draw(r, penX, y, "\u00B7", whitespaceInk, scale);
-        else
-            font.Draw(r, penX, y, OneChar(codepoint), color, scale);
-
-        penX += advance;
-        ++column;
-    }
-}
-
-void DrawTextViewer(AppState& app, const Layout& layout, const Rect& area)
-{
-    IRenderer& r = *app.renderer;
-    const Theme& t = app.theme;
-    const float scale = layout.scale;
-    const FontAtlas& font = (app.monoFontOk ? app.monoFont : app.smallFont);
-    const TextView::Document& document = app.textDocument;
-
-    // La riga di stato: la codifica, quante righe, con che terminatori. Sono le tre
-    // cose che si vogliono sapere di un file di testo prima di leggerlo, e la codifica
-    // e' quella che l'originale chiama `PanelInspector_TextEncodingUTF8`.
-    char header[160];
-    std::snprintf(header, sizeof(header),
-                  document.lines.size() == 1 ? Tr("%s   %zu riga%s%s", "%s   %zu line%s%s")
-                                              : Tr("%s   %zu righe%s%s", "%s   %zu lines%s%s"),
-                  TextView::EncodingName(document.encoding), document.lines.size(),
-                  document.endings.empty() ? "" : "   ", document.endings.c_str());
-    app.smallFont.Draw(r, area.x, area.y, header, t.textDim, scale);
-    if (document.truncated)
-        app.smallFont.Draw(r, area.x + app.smallFont.Measure(header, scale) + 12.0f * scale, area.y,
-                           Tr("(primi 1 MB)", "(first 1 MB)"), t.textDim, scale);
-
-    const float top = area.y + 18.0f * scale;
-    const Rect body{area.x, top, area.w, area.bottom() - top};
-    if (body.h < 40.0f * scale || document.lines.empty())
-        return;
-
-    const float gutter = app.textLineNumbers ? 40.0f * scale : 0.0f;
-    const float minimapWidth = app.textMinimap ? (std::min)(58.0f * scale, body.w * 0.25f) : 0.0f;
-    const Rect text{body.x + gutter, body.y, body.w - gutter - minimapWidth, body.h};
-
-    const float textScale = scale * app.textZoom;
-    LayoutTextRows(app, font, text.w, textScale);
-
-    const float lineHeight = font.LineHeight() * textScale;
-    const float content = static_cast<float>(app.textRows.size()) * lineHeight;
-    // Il limite e' **due**: sotto zero non si scorre, e oltre `content - text.h`
-    // nemmeno. Prima ce n'era uno solo scritto al contrario — `min(max(0, content -
-    // text.h), scroll)` limita solo in alto, e il `max(0, ...)` era applicato al
-    // limite invece che allo scorrimento. Scorrendo la rotella verso l'alto oltre
-    // l'inizio, `textScroll` diventava negativo e li' restava: il testo veniva
-    // spinto verso il basso fino a sparire, e la fascia della minimap usciva dal
-    // suo riquadro e finiva sopra il pannello. Trovato dall'autore, guardando.
-    app.textScroll = (std::max)(0.0f, (std::min)(app.textScroll, content - text.h));
-
-    const int first = (std::max)(0, static_cast<int>(app.textScroll / lineHeight) - 1);
-    const int last = (std::min)(static_cast<int>(app.textRows.size()),
-                                first + static_cast<int>(text.h / lineHeight) + 3);
-
-    // Le righe si ritagliano sull'area del testo, come la lista sul suo rettangolo
-    // (§7.36). Il `first` qui sopra comincia **una riga prima** di quella visibile,
-    // cosi' la riga a meta' si vede a meta' invece di comparire di colpo — ed e'
-    // proprio quella riga che, senza ritaglio, finisce sopra la testata
-    // `UTF-8 ... righe`. Si vedeva scorrendo.
-    // Il ritaglio parte dal bordo del pannello, non da quello del testo: i numeri di
-    // riga stanno nella gutter, a sinistra, e ritagliando sul solo testo sparivano —
-    // un ritaglio stretto e' un difetto quanto uno largo.
-    app.renderer->End();
-    app.renderer->SetScissor(Rect{body.x, text.y, text.right() - body.x, text.h});
-    app.renderer->Begin(app.viewportWidth, app.viewportHeight);
-
-    for (int row = first; row < last; ++row)
-    {
-        const TextRow& item = app.textRows[static_cast<size_t>(row)];
-        const float y = text.y + static_cast<float>(row) * lineHeight - app.textScroll;
-
-        // Il numero si scrive solo dove comincia una riga *logica*: quando una riga va
-        // a capo, le sue continuazioni appartengono alla stessa riga.
-        if (app.textLineNumbers && item.offset == 0)
-        {
-            const std::string number = std::to_string(item.line + 1);
-            app.smallFont.Draw(r, body.x + gutter - app.smallFont.Measure(number, scale) - 10.0f * scale,
-                               y, number, t.textDim, scale);
-        }
-
-        DrawTextRow(r, font, document.lines[item.line], item, text.x, y, textScale,
-                    app.textShowWhitespace, t.text, t.whitespaceInk, text.w);
-    }
-
-    app.renderer->End();
-    app.renderer->ClearScissor();
-    app.renderer->Begin(app.viewportWidth, app.viewportHeight);
-
-    // La minimap: una barra per riga di schermo, lunga quanto la riga piu' lunga che
-    // ci sta dentro, e la parte che si sta guardando evidenziata. Serve a orientarsi in
-    // un file lungo, che e' l'unica cosa che chiede di essere guardata cosi'.
-    if (app.textMinimap && minimapWidth > 0.0f && app.textLongest > 0)
-    {
-        const Rect map{text.right() + 10.0f * scale, body.y, minimapWidth - 10.0f * scale, body.h};
-        const int bands = (std::max)(1, static_cast<int>(map.h));
-        const double rows = static_cast<double>(app.textRows.size());
-        for (int band = 0; band < bands; ++band)
-        {
-            const size_t from = static_cast<size_t>(static_cast<double>(band) / bands * rows);
-            const size_t to = (std::max)(from + 1, static_cast<size_t>(
-                                                       static_cast<double>(band + 1) / bands * rows));
-            size_t longest = 0;
-            for (size_t i = from; i < to && i < app.textRows.size(); ++i)
-                longest = (std::max)(longest, app.textRows[i].length);
-            if (longest == 0)
-                continue;
-            const float fraction =
-                (std::min)(1.0f, static_cast<float>(longest) / static_cast<float>(app.textLongest));
-            r.FillRect(Rect{map.x, map.y + static_cast<float>(band), map.w * fraction, 1.0f},
-                       t.textDim.WithAlpha(0.45f));
-        }
-
-        if (content > text.h && content > 0.0f)
-        {
-            const float visibleTop = app.textScroll / content * map.h;
-            const float visibleHeight = (std::min)(map.h, text.h / content * map.h);
-            r.FillRect(Rect{map.x, map.y + visibleTop, map.w, visibleHeight},
-                       t.accent.WithAlpha(0.18f));
-        }
-    }
-}
-
-// Riempie le righe che descrivono |entry|: le stesse per l'inspector e per il
-// pannello delle proprieta'. Non disegna e non sa dove finiranno, perche' quello
-// che sa e' chi le mostra. `app` non e' costante: chiedere le statistiche di una
-// cartella e' una richiesta, e la richiesta parte da qui.
-void BuildInspectorRows(AppState& app, const Entry& entry, std::vector<InspectorRow>* out)
-{
-    std::vector<InspectorRow>& rows = *out;
-    rows.clear();
-
-    // Un **volume** non e' una cartella: le sue dimensioni sono la capacita' del
-    // disco, non la somma di quello che c'e' dentro, e le statistiche ricorsive li'
-    // non hanno niente da camminare. Prima si chiedeva lo stesso il conto, e per un
-    // disco l'inspector rispondeva "0 B, 0 cartelle, 0 file": un numero falso detto
-    // con sicurezza, che e' peggio di nessun numero.
-    const std::wstring full = EntryLocation(app, entry);
-    const VolumeInfo volume = VolumeOf(full);
-    const bool fromNamespace = !entry.location.empty();
-
-    // Folder numbers, if the panel is counting them. Asking here covers the
-    // selected row even when it has scrolled out of view.
-    DirStats stats;
-    bool hasStats = false;
-    if (entry.isDirectory && !volume.isVolume && !fromNamespace)
-    {
-        app.stats.Request(full);
-        hasStats = app.stats.TryGet(full, &stats);
-    }
-
-    // Una voce di una cartella di spazio dei nomi — un file riciclato — la descrive
-    // **la shell**, con le sue colonne: tipo, dimensione, date, percorso originale,
-    // data di eliminazione, attributi, proprietario. Sono le stesse informazioni che
-    // darebbero le righe qui sotto, piu' quelle che solo il cestino sa. Mostrarle
-    // tutte e due riempirebbe il pannello di righe ripetute, quindi per queste voci
-    // si usa la vista della shell e basta.
-    const bool shellColumns = !entry.pidl.empty();
-    if (shellColumns)
-    {
-        for (const ShellLocation::Column& column : ShellLocation::Columns(entry.pidl))
-        {
-            if (rows.size() >= 11)
-                break;   // oltre, le righe uscirebbero dal pannello
-            rows.push_back({ToUtf8(column.title), ToUtf8(column.value), false});
-        }
-    }
-
-    if (!shellColumns)
-        rows.push_back({Tr("Tipo", "Type"), entry.typeText, false});
-    if (volume.isVolume)
-    {
-        if (!volume.totalText.empty())
-            rows.push_back({Tr("Dimensione", "Size"), volume.totalText, false});
-    }
-    else if (!shellColumns && entry.isDirectory)
-    {
-        const bool growing = hasStats && stats.partial;
-        rows.push_back({Tr("Dimensione", "Size"), hasStats ? HumanBytes(stats.logicalBytes)
-                                                            : Tr("conteggio...", "counting..."),
-                        growing});
-        // I byte che il disco ha davvero riservato si mostrano **solo se misurati**:
-        // su un volume che non sa rispondere, un minimo spacciato per totale e'
-        // peggio di un numero che manca.
-        if (hasStats && stats.allocatedKnown)
-            rows.push_back({Tr("Su disco", "Size on disk"), HumanBytes(stats.allocatedBytes),
-                            growing});
-        rows.push_back({Tr("Cartelle", "Folders"), hasStats ? HumanCount(stats.folders) : "--",
-                        growing});
-        rows.push_back({Tr("File", "Files"), hasStats ? HumanCount(stats.files) : "--", growing});
-    }
-    else if (!shellColumns)
-    {
-        rows.push_back({Tr("Dimensione", "Size"), entry.sizeText, false});
-
-        // Quanto spazio il disco ha **riservato**: e' un'altra domanda, e la
-        // differenza con la dimensione e' fatta di cluster, di file residenti e di
-        // compressione. Per un file solo costa una chiamata, e la si fa qui perche'
-        // il pannello si apre su richiesta — per un albero sarebbe una chiamata per
-        // file, ed e' per questo che `dir_stats` legge le cartelle in blocco.
-        uint64_t allocated = 0;
-        if (AllocatedSizeOf(full, &allocated))
-            rows.push_back({Tr("Su disco", "Size on disk"), HumanBytes(allocated), false});
-    }
-    // Le date che il file system da' e che non si vedevano: la creazione e l'ultimo
-    // accesso. Un tempo a zero non e' il 1601, e' "non lo so": la riga non si mette,
-    // e vale anche per la modifica — un volume non ne ha una, e una riga con
-    // l'etichetta e niente accanto non dice niente.
-    const auto dated = [](const FILETIME& time) {
-        return time.dwLowDateTime != 0 || time.dwHighDateTime != 0;
-    };
-    if (!shellColumns)
-    {
-        if (dated(entry.created))
-            rows.push_back({Tr("Creato", "Created"), FormatFileTime(entry.created, /*withTime=*/true),
-                            false});
-        if (dated(entry.modified))
-            rows.push_back({Tr("Modificato", "Modified"), entry.modifiedFull, false});
-        if (dated(entry.accessed))
-            rows.push_back({Tr("Accesso", "Accessed"), FormatFileTime(entry.accessed, /*withTime=*/true),
-                            false});
-    }
-
-    // Le proprieta' che il file system non dice: le dimensioni di un'immagine le sa
-    // il gestore di quel tipo, e le risponde la shell.
-    const FileProperties& properties = PropertiesOf(app, full);
-    if (properties.imageWidth > 0 && properties.imageHeight > 0)
-    {
-        rows.push_back({Tr("Immagine", "Image"), std::to_string(properties.imageWidth) + " x " +
-                                                       std::to_string(properties.imageHeight) + " px",
-                        false});
-    }
-
-    // Un volume: il file system e lo spazio. Sono proprieta' del volume, non del
-    // file che ci sta sopra, e si chiedono al sistema.
-    if (volume.isVolume)
-    {
-        if (!volume.fileSystem.empty())
-            rows.push_back({Tr("Sistema", "System"), volume.fileSystem, false});
-        if (!volume.freeText.empty())
-        {
-            char free[96];
-            std::snprintf(free, sizeof(free), Tr("%s liberi (%d%% usato)", "%s free (%d%% used)"),
-                          volume.freeText.c_str(),
-                          static_cast<int>(volume.usedFraction * 100.0f));
-            rows.push_back({Tr("Spazio", "Space"), free, false});
-        }
-    }
-
-    // Il percorso: e' la riga che si copia, e l'unica che dice *dove* si sta
-    // guardando. Si taglia davanti.
-    rows.push_back({Tr("Percorso", "Path"), ToUtf8(full), false, /*tail=*/true});
-
-    // "Ext" solo per quello che un'estensione ce l'ha: una riga con l'etichetta e
-    // niente accanto occupa lo spazio di una che direbbe qualcosa. E il trattino
-    // lungo che c'era prima non era nemmeno un carattere che l'atlante conosceva:
-    // a schermo si vedeva un buco, non un trattino.
-    if (!entry.extension.empty())
-        rows.push_back({Tr("Estensione", "Ext"), entry.extension, false});
-
-}
-
-void DrawInspector(AppState& app, const Layout& layout)
-{
-    IRenderer& r = *app.renderer;
-    const Theme& t = app.theme;
-    const float scale = layout.scale;
-
-    r.Draw(UIDraw::Shadow(Rect{layout.inspector.x + 2.0f, layout.inspector.y + 3.0f,
-                               layout.inspector.w, layout.inspector.h},
-                          t.shadow, 10.0f * scale, 8.0f * scale));
-    r.Draw(UIDraw::Fill(layout.inspector, t.panelBg, 8.0f * scale));
-    r.Draw(UIDraw::Border(layout.inspector, t.panelBorder, 1.0f, 8.0f * scale));
-
-    float y = layout.inspector.y + 13.0f * scale;
-    app.smallFont.Draw(r, layout.inspector.x + 14.0f * scale, y,
-                       Tr("ISPETTORE", "INSPECTOR"), t.textDim, scale);
-    y += 24.0f * scale;
-
-    // Il documento del visualizzatore, se ce n'e' uno da leggere: la lettura avviene
-    // qui e non a ogni fotogramma, perche' cambia solo quando cambia la voce scelta.
-    EnsureTextDocument(app);
-
-    const int selectedCount = static_cast<int>(app.selection.size());
-    const int cursorIndex = CursorIndex(app);
-
-    if (selectedCount == 0 || cursorIndex < 0)
-    {
-        app.font.Draw(r, layout.inspector.x + 14.0f * scale, y, Tr("Niente selezionato", "Nothing selected"), t.textDim, scale);
-        return;
-    }
-
-    if (selectedCount > 1)
-    {
-        // The reference inspector has labels for "file singolo o conteggio" and
-        // "dimensione o somma": with several entries selected it reports the
-        // aggregate. Folder sizes come from the cache only, because asking for a
-        // folder that is not on screen would start work the user cannot see.
-        uint64_t totalBytes = 0;
-        int files = 0;
-        int folders = 0;
-        for (const std::wstring& name : app.selection)
-        {
-            const int index = FindEntryByName(app, name);
-            if (index < 0)
-                continue;
-            const Entry& item = app.entries[static_cast<size_t>(index)];
-            if (item.isDirectory)
-            {
-                ++folders;
-                DirStats stats;
-                if (app.stats.TryGet(JoinPath(app.directory, item.wideName), &stats))
-                    totalBytes += stats.logicalBytes;
-            }
-            else
-            {
-                ++files;
-                totalBytes += item.bytes;
-            }
-        }
-
-        const std::string title =
-            std::to_string(selectedCount) +
-            (selectedCount == 1 ? Tr(" elemento selezionato", " item selected")
-                                : Tr(" elementi selezionati", " items selected"));
-        app.font.Draw(r, layout.inspector.x + 14.0f * scale, y, title, t.text, scale);
-        y += 26.0f * scale;
-
-        const std::string breakdown =
-            std::to_string(files) + Tr(" file, ", files == 1 ? " file, " : " files, ") +
-            std::to_string(folders) +
-            (folders == 1 ? Tr(" cartella", " folder") : Tr(" cartelle", " folders"));
-        // Che tipi sono: "3 Documento di testo, 2 Cartella di file". Il conteggio
-        // per tipo e' quello che dice cosa si sta per spostare o cancellare, e
-        // l'inspector e' l'unico posto dove c'e' spazio per dirlo.
-        std::unordered_map<std::string, int> byType;
-        for (const std::wstring& name : app.selection)
-        {
-            const int index = FindEntryByName(app, name);
-            if (index >= 0)
-                ++byType[app.entries[static_cast<size_t>(index)].typeText];
-        }
-        std::vector<std::pair<std::string, int>> types(byType.begin(), byType.end());
-        std::sort(types.begin(), types.end(),
-                  [](const std::pair<std::string, int>& a, const std::pair<std::string, int>& b) {
-                      return a.second > b.second;
-                  });
-        const std::pair<const char*, std::string> summary[] = {
-            {Tr("Elementi", "Items"), breakdown},
-            {Tr("Dimensione", "Size"), HumanBytes(totalBytes)},
-        };
-        for (const auto& item : summary)
-        {
-            app.smallFont.Draw(r, layout.inspector.x + 14.0f * scale, y, item.first, t.textDim, scale);
-            app.smallFont.Draw(r, layout.inspector.x + 96.0f * scale, y, item.second, t.text, scale);
-            y += 20.0f * scale;
-        }
-
-        // Un tipo per riga invece di tutti su una: "3 Documento di testo, 2 Cartella
-        // di file" non ci sta in una riga sola, e troncato dice la meta' di quello che
-        // serve. L'etichetta sta sulla prima, le altre si allineano sotto.
-        for (size_t i = 0; i < types.size() && i < 4; ++i)
-        {
-            app.smallFont.Draw(r, layout.inspector.x + 14.0f * scale, y,
-                               (i == 0) ? Tr("Tipi", "Types") : "", t.textDim, scale);
-            const float valueX = layout.inspector.x + 96.0f * scale;
-            const float valueMax = layout.inspector.right() - valueX - 14.0f * scale;
-            const std::string line = std::to_string(types[i].second) + " " + types[i].first;
-            app.smallFont.Draw(r, valueX, y, FitText(app.smallFont, line, scale, valueMax), t.text,
-                               scale);
-            y += 20.0f * scale;
-        }
-        if (types.size() > 4)
-        {
-            app.smallFont.Draw(r, layout.inspector.x + 96.0f * scale, y,
-                               Tr("e altri ", "and ") + std::to_string(types.size() - 4) +
-                                   Tr("", " more"),
-                               t.textDim, scale);
-        }
-        return;
-    }
-
-    const Entry& entry = app.entries[static_cast<size_t>(cursorIndex)];
-
-    ShellPreviewCache::IconUV preview;
-    const ShellPreviewCache::State previewState =
-        app.previews.Query(EntryLocation(app, entry), entry.extension, &preview);
-
-    // L'anteprima grande: il file decodificato davvero, adattato al pannello e
-    // ingrandibile. Prende il posto della miniatura da 128 px, che per una fotografia
-    // e' un'icona piu' grande, non un'anteprima.
-    EnsureBigImage(app);
-    const Rect previewArea{layout.inspector.x + 14.0f * scale, y,
-                           layout.inspector.w - 28.0f * scale,
-                           (std::min)(260.0f * scale, layout.inspector.h * 0.42f)};
-    float imageHeight = 0.0f;
-    const bool hasBigImage = DrawBigImage(app, layout, previewArea, &imageHeight);
-    if (hasBigImage)
-        y += imageHeight;
-
-    // Per un file di testo la miniatura della shell e' un'icona di documento: lo
-    // spazio serve al testo, che e' l'anteprima vera.
-    if (!hasBigImage && previewState == ShellPreviewCache::State::Ready && !app.textDocument.isText)
-    {
-        // A ready thumbnail gets the width of the panel and pushes the name
-        // underneath it: this is the one place large enough to be worth looking at.
-        const float side = 128.0f * scale;
-        const Rect frame{layout.inspector.x + 14.0f * scale, y, side, side};
-        r.Draw(UIDraw::Fill(frame, t.previewFrame, 6.0f * scale));
-        r.Draw(UIDraw::Image(frame.Inset(1.0f, 1.0f), Color{1.0f, 1.0f, 1.0f, 1.0f}, kPreviewLayer,
-                             preview.u0, preview.v0, preview.u1, preview.v1));
-        r.Draw(UIDraw::Border(frame, t.panelBorder, 1.0f, 6.0f * scale));
-        y += side + 12.0f * scale;
-
-        app.font.Draw(r, layout.inspector.x + 14.0f * scale, y,
-                      FitText(app.font, entry.name, scale, layout.inspector.w - 28.0f * scale),
-                      t.text, scale);
-        y += 26.0f * scale;
-    }
-    else
-    {
-        if (const ShellIconAtlas::IconUV* uv = IconFor(app, entry))
-        {
-            const Rect icon{layout.inspector.x + 14.0f * scale, y, 32.0f * scale, 32.0f * scale};
-            r.Draw(UIDraw::Image(icon, Color{1.0f, 1.0f, 1.0f, 1.0f}, kIconLayer,
-                                 uv->u0, uv->v0, uv->u1, uv->v1));
-        }
-
-        // Name too long for the inspector column is truncated the same way.
-        const float valueMax = layout.inspector.w - 110.0f * scale;
-        app.font.Draw(r, layout.inspector.x + 56.0f * scale, y + 8.0f * scale,
-                      FitText(app.font, entry.name, scale, valueMax), t.text, scale);
-        y += 46.0f * scale;
-    }
-
-    std::vector<InspectorRow> rows;
-    BuildInspectorRows(app, entry, &rows);
-
-    for (const InspectorRow& row : rows)
-
-    {
-        // L'etichetta si tronca alla colonna che ha: una colonna della shell puo'
-        // chiamarsi "Posizione originale" e finire sopra il valore.
-        const float labelX = layout.inspector.x + 14.0f * scale;
-        app.smallFont.Draw(r, labelX, y,
-                           FitText(app.smallFont, row.label, scale, 74.0f * scale), t.textDim,
-                           scale);
-        const float valueX = layout.inspector.x + 96.0f * scale;
-        const float valueMax = layout.inspector.right() - valueX - 14.0f * scale;
-        // Un percorso si taglia davanti, tutto il resto dietro: le due cose che si
-        // vogliono sapere sono "dove finisce" e "cosa c'e' scritto".
-        const std::string shown = row.tail
-                                      ? FitTextTail(app.smallFont, row.value, scale, valueMax)
-                                      : FitText(app.smallFont, row.value, scale, valueMax);
-        app.smallFont.Draw(r, valueX, y, shown, t.text, scale);
-        if (row.growing)
-        {
-            const float width = app.smallFont.Measure(row.value, scale);
-            r.FillRect(Rect{valueX, y + 15.0f * scale, width, 1.0f}, t.textDim);
-        }
-        y += 20.0f * scale;
-    }
-
-    // Il testo del file, sotto i metadati: i metadati restano la prima cosa da
-    // leggere, e il testo prende lo spazio che avanza. Se non ne avanza abbastanza non
-    // si mostra niente, invece di mostrare tre righe in un buco.
-    app.textViewerRect = Rect{};
-    if (app.textDocument.isText)
-    {
-        const Rect remaining{layout.inspector.x + 14.0f * scale, y,
-                             layout.inspector.w - 28.0f * scale,
-                             layout.inspector.bottom() - y - 12.0f * scale};
-        if (remaining.h > 70.0f * scale)
-        {
-            app.textViewerRect = remaining;
-            DrawTextViewer(app, layout, remaining);
-        }
-    }
-
-    // Qui c'era un riquadro tratteggiato "Drop files here (not wired up yet)",
-    // lasciato da M1 quando il tratteggio serviva solo a dare qualcosa da fare al
-    // tracciato dello shader. Adesso il tratteggio ha il suo uso vero —
-    // l'evidenziazione della destinazione di una caduta, in `DrawList` — e questo
-    // segnaposto prometteva qualcosa che nessuna milestone ha mai previsto.
-}
-
-// --- il pannello delle proprieta' in-app ------------------------------------
-//
-// La voce `Proprietà` non apre piu' la finestra di Windows: apre questa, che mostra
-// le stesse righe dell'inspector in una finestra nostra. `Proprietà di Windows`
-// resta, accanto, per cio' che solo la shell sa — permessi, versioni precedenti, le
-// pagine registrate dai gestori dei tipi di file, e la scrittura.
-//
-// Le righe le costruisce `BuildInspectorRows`, la stessa che usa l'inspector: due
-// viste della stessa cosa con un solo calcolo, o prima o poi mostrerebbero numeri
-// diversi.
-void OpenPropertiesPanel(AppState& app)
-{
-    app.propertiesRows.clear();
-    app.propertiesScroll = 0.0f;
-
-    const int selectedCount = static_cast<int>(app.selection.size());
-    const int cursorIndex   = CursorIndex(app);
-
-    if (selectedCount > 1)
-    {
-        // Piu' voci: l'aggregato, come nell'inspector.
-        uint64_t totalBytes = 0;
-        int files = 0;
-        int folders = 0;
-        std::unordered_map<std::string, int> byType;
-        for (const std::wstring& name : app.selection)
-        {
-            const int index = FindEntryByName(app, name);
-            if (index < 0)
-                continue;
-            const Entry& item = app.entries[static_cast<size_t>(index)];
-            if (item.isDirectory)
-            {
-                ++folders;
-                DirStats stats;
-                if (app.stats.TryGet(JoinPath(app.directory, item.wideName), &stats))
-                    totalBytes += stats.logicalBytes;
-            }
-            else
-            {
-                ++files;
-                totalBytes += item.bytes;
-            }
-            ++byType[item.typeText];
-        }
-        std::vector<std::pair<std::string, int>> types(byType.begin(), byType.end());
-        std::sort(types.begin(), types.end(),
-                  [](const std::pair<std::string, int>& a, const std::pair<std::string, int>& b) {
-                      return a.second > b.second;
-                  });
-
-        app.propertiesTitle    = TrW(L"PROPRIETÀ", L"PROPERTIES");
-        app.propertiesSubtitle = std::to_wstring(selectedCount) +
-                                 TrW(L" elementi selezionati", L" items selected");
-        app.propertiesRows.push_back(
-            {Tr("Elementi", "Items"), std::to_string(files) + Tr(" file, ", " files, ") +
-                                       std::to_string(folders) +
-                                       (folders == 1 ? Tr(" cartella", " folder")
-                                                     : Tr(" cartelle", " folders")),
-             false, false});
-        app.propertiesRows.push_back(
-            {Tr("Dimensione", "Size"), HumanBytes(totalBytes), false, false});
-        for (size_t i = 0; i < types.size(); ++i)
-            app.propertiesRows.push_back({(i == 0) ? Tr("Tipi", "Types") : "",
-                                          std::to_string(types[i].second) + " " + types[i].first,
-                                          false, false});
-    }
-    else if (cursorIndex >= 0)
-    {
-        const Entry& entry = app.entries[static_cast<size_t>(cursorIndex)];
-        app.propertiesTitle    = TrW(L"PROPRIETÀ", L"PROPERTIES");
-        app.propertiesSubtitle = Widen(entry.name);
-        BuildInspectorRows(app, entry, &app.propertiesRows);
-    }
-    else
-    {
-        return;   // niente da mostrare, niente pannello
-    }
-
-    app.propertiesOpen = true;
 }
 
 Rect PropertiesPanelRect(const AppState& app, const Layout& layout)
@@ -2443,157 +789,6 @@ bool PropertiesPanelKey(AppState& app, WPARAM key)
     }
 }
 
-void DrawStatusBar(AppState& app, const Layout& layout)
-{
-    IRenderer& r = *app.renderer;
-    const Theme& t = app.theme;
-    const float scale = layout.scale;
-
-    // Un esito recente prende il posto di tutto il resto. Chi ha appena premuto un
-    // tasto guarda li' per sapere com'e' andata, e i numeri non rispondono alla sua
-    // domanda.
-    const bool showingResult = !app.statusMessage.empty() &&
-                               NowSeconds() - app.statusMessageTime < 4.0;
-    if (showingResult)
-    {
-        app.smallFont.Draw(r, 12.0f * scale, layout.statusBar.y + 4.0f * scale,
-                           ToUtf8(app.statusMessage), t.accent, scale);
-        return;
-    }
-
-    // A sinistra quante cose ci sono e quante sono scelte; a destra dove si e' nella
-    // lista, come si sta guardando, e quanto e' ingrandita. Erano contatori del
-    // motore — fotogrammi, quadrilateri, lavori in corso — che servono a chi scrive
-    // il programma e non a chi lo usa: adesso stanno dietro `BOLT_DEV_HUD=1`.
-    char counts[96];
-    std::snprintf(counts, sizeof(counts),
-                  app.entries.size() == 1 ? Tr("%zu voce", "%zu item")
-                                          : Tr("%zu voci", "%zu items"),
-                  app.entries.size());
-    app.smallFont.Draw(r, 12.0f * scale, layout.statusBar.y + 4.0f * scale, counts, t.textDim, scale);
-
-    if (!app.selection.empty())
-    {
-        char chosen[96];
-        std::snprintf(chosen, sizeof(chosen),
-                      app.selection.size() == 1 ? Tr("%zu selezionato", "%zu selected")
-                                                : Tr("%zu selezionati", "%zu selected"),
-                      app.selection.size());
-        const float x = 12.0f * scale + app.smallFont.Measure(counts, scale) + 16.0f * scale;
-        app.smallFont.Draw(r, x, layout.statusBar.y + 4.0f * scale, chosen, t.text, scale);
-    }
-
-    if (DevHudEnabled())
-    {
-        char dev[192];
-        std::snprintf(dev, sizeof(dev), "%.0f fps | %.0f quads | %d icons, %d previews | %d jobs",
-                      static_cast<double>(app.framesPerSecond),
-                      static_cast<double>(app.renderer->QuadCount()), app.icons.IconCount(),
-                      app.previews.ReadyCount(), app.stats.ActiveJobs());
-        const float x = 12.0f * scale + app.font.Measure("0000 items", scale) +
-                        app.smallFont.Measure("000 selected", scale) + 40.0f * scale;
-        app.smallFont.Draw(r, x, layout.statusBar.y + 4.0f * scale, dev, t.textDim, scale);
-    }
-
-    // A destra, al contrario: la posizione nella lista. Il conto e' fra le voci
-    // **visibili** — i gruppi aggiungono righe che non sono voci, e un filtro ne
-    // toglie — ed e' quello che serve a orientarsi.
-    int visible = 0;
-    int position = 0;
-    for (const Row& row : app.rows)
-    {
-        if (row.header)
-            continue;
-        ++visible;
-        const Entry& entry = app.entries[static_cast<size_t>(row.entry)];
-        if (position == 0 && entry.wideName == app.cursor)
-            position = visible;
-    }
-
-    // --- la barra in fondo: viste, anteprime, ingrandimento --------------------
-    //
-    // Il riferimento mette qui i selettori di vista e la percentuale delle
-    // anteprime. Da noi la riga e' una sola — la barra di stato — e ci stanno
-    // tutti, costruiti da destra verso sinistra: ingrandimento, anteprime, viste,
-    // posizione.
-    const float textY = layout.statusBar.y + 4.0f * scale;
-    float penX = layout.statusBar.right() - 14.0f * scale;
-
-    const std::string zoomText =
-        std::to_string(static_cast<int>(app.zoom * 100.0f /
-                                        (app.dpiScale > 0.0f ? app.dpiScale : 1.0f))) + "%";
-    penX -= app.smallFont.Measure(zoomText, scale);
-    app.smallFont.Draw(r, penX, textY, zoomText, t.textDim, scale);
-    penX -= 18.0f * scale;
-
-    // Lo stepper delle anteprime: etichetta, −, valore, +.
-    {
-        const std::string percent =
-            std::to_string(static_cast<int>(app.PreviewZoom() * 100.0f)) + "%";
-        const float valueWidth = app.smallFont.Measure(percent, scale);
-        const float button     = 14.0f * scale;
-        const float plusX  = penX - button;
-        const float valueX = plusX - 8.0f * scale - valueWidth;
-        const float minusX = valueX - 8.0f * scale - button;
-        app.smallFont.Draw(r, plusX,  textY, "+", t.text, scale);
-        app.smallFont.Draw(r, valueX, textY, percent, t.text, scale);
-        app.smallFont.Draw(r, minusX, textY, "-", t.text, scale);
-        const std::string label = Tr("Anteprime", "Previews");
-        const float labelX = minusX - 10.0f * scale - app.smallFont.Measure(label, scale);
-        app.smallFont.Draw(r, labelX, textY, label, t.textDim, scale);
-
-        ClickTarget down;
-        down.rect  = Rect{minusX - 5.0f * scale, layout.statusBar.y, button + 10.0f * scale,
-                          layout.statusBar.h};
-        down.kind  = ClickTarget::Kind::PreviewDown;
-        app.clickTargets.push_back(down);
-        ClickTarget up;
-        up.rect = Rect{plusX - 5.0f * scale, layout.statusBar.y, button + 10.0f * scale,
-                       layout.statusBar.h};
-        up.kind = ClickTarget::Kind::PreviewUp;
-        app.clickTargets.push_back(up);
-
-        penX = labelX - 18.0f * scale;
-    }
-
-    // I quattro selettori di vista. E' l'unico posto dove si cambiano col
-    // puntatore, invece di passare dalla palette.
-    {
-        struct Choice { ViewMode mode; const char* it; const char* en; };
-        static const Choice kChoices[4] = {
-            {ViewMode::Details, "Dettagli", "Details"},
-            {ViewMode::List,    "Elenco",   "List"},
-            {ViewMode::Tiles,   "Riquadri", "Tiles"},
-            {ViewMode::Icons,   "Icone",    "Icons"},
-        };
-        for (int i = 3; i >= 0; --i)
-        {
-            const std::string label = Tr(kChoices[i].it, kChoices[i].en);
-            const float width = app.smallFont.Measure(label, scale) + 14.0f * scale;
-            const Rect chip{penX - width, layout.statusBar.y + 2.0f * scale, width,
-                            layout.statusBar.h - 4.0f * scale};
-            const bool active = (app.viewMode == kChoices[i].mode);
-            if (active)
-                r.FillRect(chip, t.accent.WithAlpha(0.22f), 3.0f * scale);
-            app.smallFont.Draw(r, chip.x + 7.0f * scale, TextY(layout, chip, app.smallFont),
-                               label, active ? t.text : t.textDim, scale);
-            ClickTarget target;
-            target.rect  = chip;
-            target.kind  = ClickTarget::Kind::ViewSelect;
-            target.index = static_cast<int>(kChoices[i].mode);
-            app.clickTargets.push_back(target);
-            penX -= width + 4.0f * scale;
-        }
-        penX -= 14.0f * scale;
-    }
-
-    if (position > 0)
-    {
-        const std::string pos = std::to_string(position) + " / " + std::to_string(visible);
-        const float width = app.smallFont.Measure(pos, scale);
-        app.smallFont.Draw(r, penX - width, textY, pos, t.textDim, scale);
-    }
-}
 
 // --- command palette: registry ----------------------------------------------
 struct CommandDef
@@ -2606,6 +801,7 @@ struct CommandDef
 // Group names come from the reference key table (the 19 palette groups). Only the
 // groups this shell can carry out are present.
 const CommandDef kCommandTable[] = {
+    {"View",    "Command palette",             CmdPalette},
     // La lingua: due voci, non un interruttore. Con due si vede sempre quale e'
     // accesa, e non serve indovinare lo stato di partenza.
     {"Language", "Language: Italian",           CmdLanguageItalian},
@@ -2692,199 +888,186 @@ const CommandDef kCommandTable[] = {
     {"Bookmarks", "Clear all bookmarks",       CmdClearBookmarks},
     {"Recents", "Clear recent locations",      CmdClearRecents},
     {"Options", "Open options",                 CmdOpenOptions},
+    {"Options", "Key map: edit the keys",        CmdEditKeyMap},
+    // Le due domande del fissaggio stanno con i **posti**, che e' cio' di cui
+    // parlano: nella palette cadono nella stessa banda delle cartelle note.
+    {"Places",  "Pin this folder to...",          CmdPinTo},
+    {"Places",  "Unpin this folder from...",      CmdUnpin},
     {"File",    "Properties",                   CmdProperties},
     {"File",    "Windows properties",           CmdPropertiesWindows},
 };
 
-bool MenuMatch(const std::string& text, const std::wstring& filter)
-{
-    if (filter.empty())
-        return true;
-
-    std::string lower = text;
-    for (char& c : lower)
-        c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-
-    size_t start = 0;
-    for (;;)
-    {
-        size_t space = filter.find(L' ', start);
-        if (space == std::wstring::npos)
-            space = filter.size();
-        if (space > start)
-        {
-            std::string term = ToUtf8(filter.substr(start, space - start));
-            for (char& c : term)
-                c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-            if (lower.find(term) == std::string::npos)
-                return false;
-        }
-        if (space >= filter.size())
-            break;
-        start = space + 1;
-    }
-    return true;
-}
-
-// --- the group menu component -----------------------------------------------
-void GroupMenuRebuild(GroupMenu& menu);
-
-void GroupMenuOpen(GroupMenu& menu, std::string title, std::string placeholder,
-                   std::vector<GroupMenuItem> items)
-{
-    menu.title       = std::move(title);
-    menu.placeholder = std::move(placeholder);
-    menu.items       = std::move(items);
-    menu.filter.clear();
-    menu.selected = 0;
-    menu.dirty    = true;
-    menu.open     = true;
-    GroupMenuRebuild(menu);   // so the selection is valid before the first frame
-}
-
-void GroupMenuRebuild(GroupMenu& menu)
-{
-    menu.rows.clear();
-    menu.groups.clear();
-    menu.matchCount = 0;
-    menu.dirty = false;
-
-    // Items arrive already ordered by group, so a group is a run of consecutive
-    // items and one pass is enough.
-    std::string current;
-    int groupIndex = -1;
-
-    for (int i = 0; i < static_cast<int>(menu.items.size()); ++i)
-    {
-        const GroupMenuItem& item = menu.items[static_cast<size_t>(i)];
-        if (!MenuMatch(item.label, menu.filter))
-            continue;
-
-        ++menu.matchCount;
-
-        if (item.group != current)
-        {
-            current = item.group;
-            menu.groups.push_back(current);
-            groupIndex = static_cast<int>(menu.groups.size()) - 1;
-            menu.rows.push_back(GroupMenuRow{true, groupIndex, -1});
-        }
-
-        if (menu.collapsed.count(current) != 0)
-            continue;
-        menu.rows.push_back(GroupMenuRow{false, groupIndex, i});
-    }
-
-    // Keep the cursor on a real entry.
-    if (menu.selected < 0 || menu.selected >= static_cast<int>(menu.rows.size()) ||
-        menu.rows[static_cast<size_t>(menu.selected)].header)
-    {
-        menu.selected = 0;
-        while (menu.selected < static_cast<int>(menu.rows.size()) &&
-               menu.rows[static_cast<size_t>(menu.selected)].header)
-            ++menu.selected;
-    }
-}
-
-void GroupMenuMove(GroupMenu& menu, int delta)
-{
-    const int count = static_cast<int>(menu.rows.size());
-    if (count == 0 || delta == 0)
-        return;
-
-    int target = menu.selected + delta;
-    if (target < 0) target = 0;
-    if (target >= count) target = count - 1;
-
-    const int step = (delta > 0) ? 1 : -1;
-    while (target >= 0 && target < count && menu.rows[static_cast<size_t>(target)].header)
-        target += step;
-
-    if (target >= 0 && target < count)
-        menu.selected = target;
-}
-
-// First or last entry row, skipping the group band that may sit on the edge.
-void GroupMenuSelectEdge(GroupMenu& menu, bool last)
-{
-    const int count = static_cast<int>(menu.rows.size());
-    if (count == 0)
-        return;
-
-    int index = last ? count - 1 : 0;
-    const int step = last ? -1 : 1;
-    while (index >= 0 && index < count && menu.rows[static_cast<size_t>(index)].header)
-        index += step;
-
-    if (index >= 0 && index < count)
-        menu.selected = index;
-}
-
-int GroupMenuSelectedId(const GroupMenu& menu)
-{
-    const int index = menu.selected;
-    if (index < 0 || index >= static_cast<int>(menu.rows.size()))
-        return -1;
-    const GroupMenuRow& row = menu.rows[static_cast<size_t>(index)];
-    if (row.header)
-        return -1;
-    return menu.items[static_cast<size_t>(row.item)].id;
-}
-
-// Keys the component owns. The caller checks its own toggle key before calling.
-MenuAction GroupMenuKeyDown(GroupMenu& menu, WPARAM key)
-{
-    switch (key)
-    {
-        case VK_ESCAPE: return MenuAction::Close;
-        case VK_RETURN: return MenuAction::Activate;
-        case VK_UP:     GroupMenuMove(menu, -1); break;
-        case VK_DOWN:   GroupMenuMove(menu, 1);  break;
-        case VK_NEXT:   GroupMenuMove(menu, 10); break;
-        case VK_PRIOR:  GroupMenuMove(menu, -10); break;
-        case VK_HOME:   GroupMenuSelectEdge(menu, false); break;
-        case VK_END:    GroupMenuSelectEdge(menu, true);  break;
-        case VK_BACK:
-            if (!menu.filter.empty())
-            {
-                menu.filter.pop_back();
-                menu.dirty = true;
-            }
-            break;
-        default:
-            break;
-    }
-    return MenuAction::None;
-}
-
-void GroupMenuChar(GroupMenu& menu, wchar_t character)
-{
-    if (character >= 0x20 && character != 0x7F)
-    {
-        menu.filter.push_back(character);
-        menu.dirty = true;
-    }
-}
-
-GroupMenu* OpenMenu(AppState& app)
-{
-    // Il piu' profondo per primo: un controllo `Choice` aperto sta sopra le
-    // opzioni, e finche' c'e' e' lui a prendere tastiera e clic.
-    if (app.optionsChoice.open) return &app.optionsChoice;
-    if (app.options.open)       return &app.options;
-    if (app.palette.open)       return &app.palette;
-    if (app.goTo.open)          return &app.goTo;
-    if (app.columnMenu.open)    return &app.columnMenu;
-    return nullptr;
-}
-
-GroupMenu* OpenMenu(AppState& app);
-void       GroupMenuOpen(GroupMenu& menu, std::string title, std::string placeholder,
-                         std::vector<GroupMenuItem> items);
 const char* CommandLabelIt(CommandId id);
-void       RunCommand(AppState& app, int command);
-void       ReportStatus(AppState& app, const std::wstring& message);
-void       RememberSettings(AppState& app);
+// `RunCommand` arriva da `app_actions.h` e `ContextMenuClose` da
+// `view_context_menu.h`: il confine e' scritto li', e due dichiarazioni sono il modo
+// di farle divergere.
+// `ReportStatus`, `RememberSettings`, `ClosePinMenu` e l'editor della mappa non si
+// dichiarano qui: arrivano dagli header, perche' li' e' dove il confine e' scritto
+// (`view_statusbar.h`, `app_actions.h`). Una dichiarazione in due posti e' il modo
+// di farli divergere.
+
+// --- l'editor della mappa dei tasti ------------------------------------------
+//
+// La mappa e' un **dato** (`src/keymap.*`): una tabella `comando -> tasto`. Questo e'
+// il posto da cui si cambia, ed e' l'ultima cosa che mancava perche' la mappa
+// servisse a qualcosa: `Rebind`, `Clear` e `Reset` erano scritti e non li chiamava
+// nessuno.
+//
+// Una riga per **comando**, non una per tasto: anche i comandi che un tasto non ce
+// l'hanno devono poterlo ricevere, ed e' il motivo per cui l'elenco si costruisce
+// dalla tabella dei comandi invece che dalle righe della mappa. Il tasto sta a
+// destra, scritto **dalla mappa** (`LabelFor`): quella riga non puo' dire una cosa
+// diversa da quella che il tasto fa.
+//
+// La mappa resta **in memoria**, per la sessione: `docs/04` dice cosi' per M9, e
+// `docs/06` vieta di scrivere un file di impostazioni di nascosto. Si vede qui, e si
+// vede cosa non c'e'.
+
+// L'id della riga dei tasti di partenza. Negativo, come i due id del filtro di una
+// colonna: gli id veri di questo elenco sono `CommandId`, che sono tutti >= 0.
+constexpr int kKeyMapResetId = -2;
+
+// L'etichetta di un comando come la legge chi la usa. La tabella la scrive in inglese
+// — che e' anche il nome della chiave — e in italiano la da' `CommandLabelIt`. La
+// regola stava dentro la palette; alla seconda volta che serviva e' diventata una
+// funzione, invece di due righe uguali che possono divergere.
+std::string CommandLabel(const CommandDef& command)
+{
+    const char* italian = CommandLabelIt(command.id);
+    if (gLanguage != Language::English && italian != nullptr)
+        return italian;
+    return command.label;
+}
+
+
+// Il cursore sul comando: l'elenco si rifa' dopo ogni rimappatura e dopo la cattura,
+// e senza questo si tornerebbe in cima. Mentre si aspetta un tasto conta due volte,
+// perche' il messaggio **nomina** un comando: se il cursore stesse su un altro, la
+// riga illuminata direbbe una cosa diversa da quella che si sta scrivendo.
+void SelectKeyMapCommand(AppState& app, int command)
+{
+    for (int i = 0; i < static_cast<int>(app.keyMap.rows.size()); ++i)
+    {
+        const GroupMenuRow& row = app.keyMap.rows[static_cast<size_t>(i)];
+        if (!row.header && app.keyMap.items[static_cast<size_t>(row.item)].id == command)
+        {
+            app.keyMap.selected = i;
+            return;
+        }
+    }
+}
+
+
+// I tre comandi che **aprono questa lista**: togliere il loro ultimo tasto vuol dire
+// non poterci piu' rientrare da questa sessione. La mappa e' di sessione, quindi un
+// riavvio rimette i tasti di partenza — ma per rientrare bisognerebbe chiudere
+// l'applicazione, e questa e' una trappola che si tende da soli senza accorgersene.
+// Non si vieta niente: la mappa e' la fonte unica e vale per tutti i comandi. Si
+// **dice**, nella riga in fondo dove sta gia' l'altro avviso.
+bool OpensThisList(int command)
+{
+    return command == CmdOpenOptions || command == CmdPalette || command == CmdEditKeyMap;
+}
+
+// La cattura del tasto. Il campo di ricerca diventa il **messaggio** — «premi un tasto
+// per Rinomina» — invece di un secondo riquadro: e' il posto in cui si sta gia'
+// guardando, avendo appena premuto Invio su quella riga.
+void BeginKeyCapture(AppState& app, int command)
+{
+    app.keyCaptureCommand = command;
+
+    // Ogni id che arriva qui viene dalla tabella, quindi il comando si trova sempre:
+    // l'elenco non ha altre righe.
+    std::string label;
+    for (const CommandDef& candidate : kCommandTable)
+    {
+        if (candidate.id == command)
+        {
+            label = CommandLabel(candidate);
+            break;
+        }
+    }
+
+    // Il filtro si **svuota**: con un termine dentro, al posto del messaggio si
+    // leggerebbe il termine, e chi aspetta leggerebbe la cosa sbagliata. L'elenco si
+    // rifa' subito e il cursore va sul comando che si sta per rimappare.
+    app.keyMap.filter.clear();
+    GroupMenuRebuild(app.keyMap);
+    SelectKeyMapCommand(app, command);
+    app.keyMap.placeholder = std::string(Tr("Premi un tasto per ", "Press a key for ")) + label;
+    // La riga in fondo dice anche **perche'** un tasto puo' non bastare: un rifiuto
+    // muto sembrerebbe un tasto che non arriva. E lo dice **prima**, quando il tasto
+    // che si sta spostando e' quello che riapre questo elenco.
+    app.keyMap.hint =
+        OpensThisList(command)
+            ? Tr("Attenzione: e' il tasto che apre questo elenco   Esc annulla   Canc toglie",
+                 "Careful: this key opens this list   Esc cancels   Del removes")
+            : Tr("Ctrl, Alt o un tasto funzione   Esc annulla   Canc toglie",
+                 "Ctrl, Alt or a function key   Esc cancels   Del removes");
+}
+
+void EndKeyCapture(AppState& app, int command)
+{
+    app.keyCaptureCommand = -1;
+    BuildKeyMapMenu(app, command);
+}
+
+// Un tasto mentre si aspetta il tasto nuovo. Non e' un comando da eseguire: e' il
+// **dato** che si sta scrivendo, ed e' per questo che viene chiamata prima di ogni
+// altra lettura della tastiera.
+void KeyMapKeyDown(AppState& app, WPARAM key)
+{
+    const int command = app.keyCaptureCommand;
+    if (key == VK_ESCAPE)
+    {
+        EndKeyCapture(app, command);
+        return;
+    }
+    // `Canc` toglie il tasto invece di diventarlo: e' il gesto di tutti gli editor di
+    // scorciatoie, ed e' per questo che non si puo' assegnare a niente.
+    if (key == VK_DELETE)
+    {
+        app.keys.Clear(command);
+        EndKeyCapture(app, command);
+        return;
+    }
+
+    // I modificatori si leggono dallo **stato**, non dal messaggio: `GetKeyState` e'
+    // l'unico che li vede, e li vede anche quando il tasto arriva iniettato — un
+    // modificatore dentro `SendMessage` per la finestra non esiste.
+    const Shortcut pressed{static_cast<unsigned>(key),
+                           (GetKeyState(VK_CONTROL) & 0x8000) != 0,
+                           (GetKeyState(VK_SHIFT) & 0x8000) != 0,
+                           (GetKeyState(VK_MENU) & 0x8000) != 0};
+    // Un modificatore da solo, o un tasto che serve a scrivere, non e' una risposta:
+    // si **resta in attesa** invece di assegnare qualcosa di muto o di rompere il
+    // filtro. L'altra via d'uscita e' `Esc`, e la riga in fondo lo dice.
+    if (!KeyMap::Assignable(pressed))
+        return;
+
+    app.keys.Rebind(command, pressed);
+    EndKeyCapture(app, command);
+}
+
+// Cosa fa l'Invio (o un clic) su una riga: comincia la cattura. **Non** esegue il
+// comando — eseguirlo sarebbe il contrario di quello che si sta chiedendo — e non
+// chiude l'elenco: si rimappano piu' comandi di seguito, ed e' l'unica cosa che si
+// viene a fare qui.
+void RunKeyMapSelection(AppState& app)
+{
+    const int id = GroupMenuSelectedId(app.keyMap);
+    if (id == kKeyMapResetId)
+    {
+        app.keys.Reset();
+        BuildKeyMapMenu(app, kKeyMapResetId);
+        ReportStatus(app, TrW(L"Tasti riportati a quelli di partenza",
+                              L"Key map restored to its defaults"));
+        return;
+    }
+    if (id < 0)
+        return;
+    BeginKeyCapture(app, id);
+}
 
 // Cosa fa l'Invio, o un clic, dentro il pannello dei valori. Non lo chiude: una
 // lista di caselle si spunta **a piu' riprese**, ed e' tutto il motivo per cui e'
@@ -2919,23 +1102,6 @@ void RunColumnMenuSelection(AppState& app)
     app.scroll    = 0.0f;
 }
 
-// --- navigation, recents and bookmarks -------------------------------------- 
-void NavigateBack(AppState& app)
-{
-    if (app.historyIndex <= 0)
-        return;
-    --app.historyIndex;
-    LoadDirectory(app, app.history[static_cast<size_t>(app.historyIndex)], false);
-}
-
-void NavigateForward(AppState& app)
-{
-    if (app.historyIndex + 1 >= static_cast<int>(app.history.size()))
-        return;
-    ++app.historyIndex;
-    LoadDirectory(app, app.history[static_cast<size_t>(app.historyIndex)], false);
-}
-
 bool IsBookmarked(const AppState& app)
 {
     return std::find(app.bookmarks.begin(), app.bookmarks.end(), app.directory) != app.bookmarks.end();
@@ -2952,6 +1118,165 @@ void ToggleBookmark(AppState& app)
         app.bookmarks.push_back(app.directory);
 }
 
+// --- il fissaggio: dove si puo' mettere una cartella -------------------------
+//
+// `docs/04` M6, deciso dall'autore il 2026-10-16: **qualunque sezione si puo'
+// pinnare**, e non e' "aggiungi ai segnalibri" — e' "fissa questa cartella dove dico
+// io". Le destinazioni sono le due sezioni della barra laterale che **accettano una
+// riga**: `STORAGE` sono i volumi e `PLACES` le cartelle standard, e tutte e due le
+// legge la shell, che non ci lascia scrivere. Le cartelle standard stanno gia' la' —
+// `PLACES` di sola lettura e' anche il posto giusto per loro — e percio' "fissa
+// Desktop" vuol dire fissarlo qui, fra i nostri.
+//
+// I fissaggi sono **nostri** e stanno in memoria, per la sessione. L'accesso rapido di
+// Windows non ha un'API per aggiungerci una voce: i suoi fissaggi stanno in un *jump
+// list*, e l'unico modo di toccarlo scrive un file **della shell**. Quindi le nostre
+// righe si mostrano accanto alle sue invece di finire dentro le sue — decisione (a) di
+// `docs/04` — e non si prova la (b), che lascerebbe una traccia nella barra laterale di
+// chi lavora. Quello che vive in memoria lo dice anche `docs/06`: `settings.ini` non
+// contiene percorsi, e neanche questo elenco ci finisce.
+enum class PinTarget { QuickAccess, Bookmarks };
+
+// Le destinazioni, in ordine: e' anche l'ordine delle righe del pannello, e l'id di
+// una riga e' il suo **indice** — cosi' una destinazione in piu' si aggiunge in un
+// posto solo.
+constexpr int kPinTargetCount = 2;
+
+const char* PinTargetLabel(PinTarget target)
+{
+    return target == PinTarget::QuickAccess ? Tr("Accesso rapido", "Quick access")
+                                            : Tr("Segnalibri", "Bookmarks");
+}
+
+PinTarget PinTargetAt(int index)
+{
+    return index == 0 ? PinTarget::QuickAccess : PinTarget::Bookmarks;
+}
+
+// L'elenco di una destinazione. E' una funzione sola perche' le due destinazioni
+// hanno due elenchi di tipo diverso ma la stessa forma, e chi chiede — fissare,
+// togliere, sapere se c'e' gia' — non deve sapere quale sta guardando.
+std::vector<std::wstring>& PinList(AppState& app, PinTarget target)
+{
+    return target == PinTarget::QuickAccess ? app.pins : app.bookmarks;
+}
+
+bool PinnedIn(const AppState& app, PinTarget target, const std::wstring& path)
+{
+    if (path.empty())
+        return false;
+    const std::vector<std::wstring>& list =
+        (target == PinTarget::QuickAccess) ? app.pins : app.bookmarks;
+    return std::find(list.begin(), list.end(), path) != list.end();
+}
+
+// Il pannello delle destinazioni: due righe, e la riga che **vale** porta la ragione
+// accanto al nome invece di essere disegnata spenta. Il componente dei menu non sa
+// disegnare una riga spenta — lo sa solo il pannello delle opzioni — e per due righe
+// non vale la pena darglielo: la riga si puo' scegliere lo stesso, e sceglierla **lo
+// dice**. Un elenco di due righe non ha bisogno di un meccanismo in piu' per dire
+// "questa non si tocca".
+void BuildPinMenu(AppState& app, bool removing)
+{
+    const std::wstring& path = app.directory;
+    // Applicabile vuol dire: "questa destinazione **cambierebbe**". Fissare vuol dire
+    // "se non c'e' gia'", togliere vuol dire "se c'e'": la stessa domanda, e il verso
+    // lo dice `removing`.
+    const auto applicable = [&](PinTarget target) { return PinnedIn(app, target, path) == removing; };
+
+    // Un pannello su cui non si puo' agire non si apre: quando non c'e' niente da
+    // fare — la cartella e' gia' dappertutto, o non e' fissata da nessuna parte —
+    // l'esito si legge nella barra di stato, che e' dove finisce ogni azione.
+    if (path.empty())
+        return;
+    if (!applicable(PinTarget::QuickAccess) && !applicable(PinTarget::Bookmarks))
+    {
+        ReportStatus(app, removing
+                              ? TrW(L"Questa cartella non e' fissata da nessuna parte",
+                                    L"This folder is not pinned anywhere")
+                              : TrW(L"Questa cartella e' gia' fissata in tutte le sezioni",
+                                    L"This folder is already pinned in every section"));
+        return;
+    }
+
+    const char* note = removing ? Tr(" (non e' fissata qui)", " (not pinned here)")
+                                : Tr(" (e' gia' fissata qui)", " (already pinned here)");
+
+    std::vector<GroupMenuItem> items;
+    items.reserve(kPinTargetCount);
+    for (int i = 0; i < kPinTargetCount; ++i)
+    {
+        const PinTarget target = PinTargetAt(i);
+        GroupMenuItem item;
+        item.label = std::string(PinTargetLabel(target)) + (applicable(target) ? "" : note);
+        item.id    = i;
+        items.push_back(std::move(item));
+    }
+
+    app.pinMenuRemoving = removing;
+    CloseKeyMap(app);
+    ClosePinMenu(app);
+    app.palette.open       = false;
+    app.goTo.open          = false;
+    app.options.open       = false;
+    app.optionsChoice.open = false;
+    app.columnMenu.open    = false;
+    // Il menu contestuale e' modale lui pure, e nell'ordine dell'input viene **prima**
+    // dei menu: se restasse aperto sotto, il pannello non riceverebbe ne' clic ne'
+    // tasti. Si chiude, e le due voci si scelgono qui.
+    ContextMenuClose(app);
+
+    GroupMenuOpen(app.pinMenu, removing ? Tr("TOGLI DA", "UNPIN FROM") : Tr("FISSA IN", "PIN TO"),
+                  Tr("Dove?", "Where?"), std::move(items));
+    app.pinMenu.hint = removing ? Tr("Invio toglie   Esc chiude", "Enter unpins   Esc closes")
+                                : Tr("Invio fissa   Esc chiude", "Enter pins   Esc closes");
+}
+
+
+// Cosa fa la riga scelta: la stessa funzione per le due domande, perche' sono la
+// stessa lista vista al contrario.
+void RunPinMenuSelection(AppState& app)
+{
+    const int id = GroupMenuSelectedId(app.pinMenu);
+    app.pinMenu.open = false;
+    if (id < 0 || id >= kPinTargetCount)
+        return;
+
+    const PinTarget target = PinTargetAt(id);
+    const std::wstring path = app.directory;
+    std::vector<std::wstring>& list = PinList(app, target);
+    const bool already = PinnedIn(app, target, path);
+
+    std::wstring message;
+    if (app.pinMenuRemoving)
+    {
+        if (!already)
+        {
+            message = std::wstring(TrW(L"Non era fissata in ", L"Was not pinned to ")) +
+                      Widen(PinTargetLabel(target));
+        }
+        else
+        {
+            list.erase(std::find(list.begin(), list.end(), path));
+            message = std::wstring(TrW(L"Tolta da ", L"Unpinned from ")) +
+                      Widen(PinTargetLabel(target));
+        }
+    }
+    else if (already)
+    {
+        message = std::wstring(TrW(L"Era gia' fissata in ", L"Was already pinned to ")) +
+                  Widen(PinTargetLabel(target));
+    }
+    else
+    {
+        list.push_back(path);
+        message = std::wstring(TrW(L"Fissata in ", L"Pinned to ")) +
+                  Widen(PinTargetLabel(target));
+    }
+
+    ReportStatus(app, message);
+}
+
 // --- building the two menus -------------------------------------------------
 void BuildPaletteMenu(AppState& app)
 {
@@ -2963,10 +1288,7 @@ void BuildPaletteMenu(AppState& app)
         // In inglese vale l'etichetta della tabella; in italiano la traduzione, se
         // c'e'. Il ripiego e' sempre la tabella: una traduzione mancante lascia la
         // parola in inglese invece di lasciare il vuoto.
-        const char* italian = CommandLabelIt(command.id);
-        std::string label = (gLanguage == Language::English || italian == nullptr)
-                                ? command.label
-                                : italian;
+        std::string label = CommandLabel(command);
         // The one command whose wording depends on state. The table stays data.
         if (command.id == CmdToggleBookmark && IsBookmarked(app))
             label = Tr("Togli questo posto dai segnalibri", "Remove bookmark from this folder");
@@ -2981,13 +1303,23 @@ void BuildPaletteMenu(AppState& app)
                                       kPalettePlaceBase + i});
     }
 
+    CloseKeyMap(app);
+    ClosePinMenu(app);
     app.goTo.open = false;   // one menu at a time
     app.options.open = false;
     GroupMenuOpen(app.palette, Tr("PALETTE DEI COMANDI", "COMMAND PALETTE"),
                   Tr("Scrivi per filtrare i comandi...", "Type to filter commands..."),
                   std::move(items));
-    app.palette.hint = Tr("Invio esegue   Esc chiude   Ctrl+Maiusc+P apre e chiude   Ctrl+, opzioni",
-                          "Enter runs   Esc closes   Ctrl+Shift+P toggles   Ctrl+, options");
+    // La riga in fondo dice i tasti **della mappa**, non due stringhe scritte a
+    // mano: se il tasto cambia, cambia quello che si legge. Prima erano lettere
+    // dentro una frase, ed erano l'ultimo posto in cui una scorciatoia viveva per
+    // conto suo.
+    // Col dettaglio acceso il gruppo fa da dettaglio, che e' quello che la palette
+    // mostra da sempre: il flag dice a chi disegna che li' il ripiego e' voluto.
+    app.palette.detailFallsBackToGroup = true;
+    app.palette.hint = std::string(Tr("Invio esegue   Esc chiude   ", "Enter runs   Esc closes   ")) +
+                       app.keys.LabelFor(CmdPalette) + std::string(Tr(" apre e chiude   ", " toggles   ")) +
+                       app.keys.LabelFor(CmdOpenOptions) + std::string(Tr(" opzioni", " options"));
 }
 
 void BuildGoToMenu(AppState& app)
@@ -3028,64 +1360,16 @@ void BuildGoToMenu(AppState& app)
     for (const std::wstring& path : app.recents)
         add("Recents", path, ToUtf8(LeafName(path)));
 
+    CloseKeyMap(app);
+    ClosePinMenu(app);
     app.palette.open = false;
     app.options.open = false;
     GroupMenuOpen(app.goTo, Tr("VAI A", "GO TO"),
                   Tr("Scrivi per filtrare le cartelle...", "Type to filter locations..."),
                   std::move(items));
     app.goTo.detailed = true;   // a location without its path is not much use
-    app.goTo.hint = Tr("Invio va   Esc chiude   Ctrl+P apre e chiude",
-                       "Enter goes   Esc closes   Ctrl+P toggles");
-}
-
-// --- operazioni su file (M7) ------------------------------------------------
-// Percorsi completi di cio' che e' selezionato **e visibile**, nell'ordine della
-// lista.
-//
-// Filtrare puo' nascondere righe che restano nella selezione: la selezione e'
-// per nome e sopravvive al cambio di filtro. Senza questo controllo il menu
-// contestuale offriva "Elimina definitivamente" su un file che l'utente non
-// vedeva piu', e un'azione su qualcosa che non si vede e' esattamente cio' che
-// non deve poter succedere. La regola e' quella che Ctrl+A gia' segue: il filtro
-// fa parte della domanda, quindi fa parte della risposta.
-std::vector<std::wstring> SelectedPaths(const AppState& app)
-{
-    std::vector<std::wstring> paths;
-    for (const Row& row : app.rows)
-    {
-        if (row.header)
-            continue;
-        const Entry& entry = app.entries[static_cast<size_t>(row.entry)];
-        if (app.selection.count(entry.wideName) != 0)
-            paths.push_back(EntryLocation(app, entry));
-    }
-    return paths;
-}
-
-// Un'operazione che fallisce in silenzio e' peggio di una che non parte: senza
-// un messaggio, "Sposta" su un file in uso sembrerebbe non aver fatto nulla.
-void ReportStatus(AppState& app, const std::wstring& message)
-{
-    app.statusMessage     = message;
-    app.statusMessageTime = NowSeconds();
-}
-
-// La selezione come PIDL, nello stesso ordine dei percorsi. Le voci normali non ne
-// hanno uno, e va bene: per quelle il percorso basta ed e' la forma che le
-// operazioni su file si aspettano. Le voci di spazio dei nomi invece il PIDL ce
-// l'hanno per forza, ed e' l'unico modo di chiedere alla shell il loro menu.
-std::vector<const BYTE*> SelectedPidls(const AppState& app)
-{
-    std::vector<const BYTE*> pidls;
-    for (const Row& row : app.rows)
-    {
-        if (row.header)
-            continue;
-        const Entry& entry = app.entries[static_cast<size_t>(row.entry)];
-        if (app.selection.count(entry.wideName) != 0 && !entry.pidl.empty())
-            pidls.push_back(entry.pidl.data());
-    }
-    return pidls;
+    app.goTo.hint = std::string(Tr("Invio va   Esc chiude   ", "Enter goes   Esc closes   ")) +
+                    app.keys.LabelFor(CmdGoTo) + std::string(Tr(" apre e chiude", " toggles"));
 }
 
 // I comandi che agiscono su un **percorso** non valgono dove un percorso non c'e':
@@ -3104,58 +1388,340 @@ bool RefuseInNamespace(AppState& app, const wchar_t* action)
     return true;
 }
 
-// Ricarica la cartella mantenendo la selezione sui nomi che esistono ancora.
+// --- il pannello dell'operazione in corso ------------------------------------
 //
-// LoadDirectory svuota la selezione e sceglie la prima riga, ed e' giusto perche'
-// cambia cartella. Dopo un incolla o un'eliminazione no: l'utente sta lavorando
-// li' e perdere il posto a ogni operazione lo costringe a ricercarlo.
-void ReloadKeeping(AppState& app, const std::unordered_set<std::wstring>& keep,
-                   const std::wstring& preferCursor, float restoreScroll)
+// Una copia da 5 GB non e' un'attesa: e' qualcosa che si guarda e che si puo'
+// fermare. Prima questo non c'era — l'operazione girava sincrona sul thread della
+// finestra, che restava ferma — e le tre cose che mancavano erano un conto, un
+// numero che si muove e un pulsante. Il conto e il thread stanno in `FileOps::Job`;
+// qui c'e' il pannello, e l'esito che si raccoglie quando l'operazione finisce.
+
+// Il pannello compare solo se l'operazione sta ancora girando dopo un momento: una
+// copia di due file piccoli finisce prima, e un pannello che compare per tre
+// fotogrammi e' peggio di nessun pannello. La soglia e' quella che usa anche Esplora
+// risorse per la sua finestra di stato.
+constexpr double kOperationPanelDelay = 0.35;
+
+bool OperationPanelVisible(const AppState& app)
 {
-    LoadDirectory(app, app.directory, /*recordHistory=*/false);
+    return app.operation != nullptr && NowSeconds() - app.operationStart >= kOperationPanelDelay;
+}
 
-    const auto present = [&](const std::wstring& name) {
-        for (const Entry& entry : app.entries)
-            if (entry.wideName == name)
-                return true;
-        return false;
-    };
-
-    app.selection.clear();
-    for (const Entry& entry : app.entries)
-        if (keep.count(entry.wideName) != 0)
-            app.selection.insert(entry.wideName);
-
-    if (!preferCursor.empty() && present(preferCursor))
+// Un'operazione lunga si avvia sempre da qui: cosi' la sorgente e l'ora non si
+// possono dimenticare in uno dei tre posti che la chiamano. Restituisce falso se
+// un'operazione e' gia' in corso: la seconda sostituirebbe la prima, e sostituirla
+// vuol dire annullarla **senza dirlo**.
+bool BeginOperation(AppState& app, std::unique_ptr<FileOps::Job> job, OperationSource source)
+{
+    if (app.operation != nullptr)
     {
-        app.cursor = preferCursor;
-        if (app.selection.empty())
-            app.selection.insert(preferCursor);
-        app.selectionAnchor = preferCursor;
+        ReportStatus(app, TrW(L"C'e' gia' un'operazione in corso.",
+                              L"An operation is already running."));
+        return false;
+    }
+
+    app.operation       = std::move(job);
+    app.operationSource = source;
+    app.operationStart  = NowSeconds();
+    return true;
+}
+
+Rect OperationPanelRect(const AppState& app, const Layout& layout)
+{
+    const float scale = layout.scale;
+    const float width  = (std::min)(520.0f * scale,
+                                    static_cast<float>(app.viewportWidth) - 80.0f * scale);
+    const float height = 172.0f * scale;
+    return Rect{(static_cast<float>(app.viewportWidth) - width) * 0.5f,
+                (static_cast<float>(app.viewportHeight) - height) * 0.5f, width, height};
+}
+
+Rect OperationCancelButton(const AppState& app, const Layout& layout, const Rect& panel)
+{
+    const float scale = layout.scale;
+    const std::string label = Tr("Annulla", "Cancel");
+    const float width = app.smallFont.Measure(label, scale) + 24.0f * scale;
+    return Rect{panel.right() - width - 16.0f * scale, panel.bottom() - 32.0f * scale, width,
+                22.0f * scale};
+}
+
+// Come si chiama l'operazione in corso.
+std::wstring OperationTitle(FileOps::Action action)
+{
+    switch (action)
+    {
+        case FileOps::Action::Copy:    return TrW(L"Copia in corso", L"Copying");
+        case FileOps::Action::Move:    return TrW(L"Spostamento in corso", L"Moving");
+        case FileOps::Action::Recycle: return TrW(L"Eliminazione in corso", L"Deleting");
+        default:                       return TrW(L"Eliminazione definitiva",
+                                                  L"Deleting permanently");
+    }
+}
+
+// La riga sotto il titolo: dove stanno andando le cose, o quante se ne buttano via.
+std::wstring OperationSubtitle(const FileOps::Job& job)
+{
+    switch (job.action())
+    {
+        case FileOps::Action::Copy:
+        case FileOps::Action::Move:
+            return TrW(L"in ", L"into ") + LeafName(job.destination());
+        default:
+            return CountItems(job.sources().size());
+    }
+}
+
+void DrawOperationPanel(AppState& app, const Layout& layout)
+{
+    if (!OperationPanelVisible(app))
+        return;
+
+    const FileOps::Progress progress = app.operation->Snapshot();
+
+    IRenderer& r = *app.renderer;
+    const Theme& t = app.theme;
+    const float scale = layout.scale;
+    const Rect panel = OperationPanelRect(app, layout);
+
+    r.FillRect(Rect{0.0f, 0.0f, static_cast<float>(app.viewportWidth),
+                    static_cast<float>(app.viewportHeight)}, Color{0.0f, 0.0f, 0.0f, 0.45f});
+    r.Draw(UIDraw::Shadow(Rect{panel.x + 3.0f * scale, panel.y + 6.0f * scale, panel.w, panel.h},
+                          t.shadow, 22.0f * scale, 10.0f * scale));
+    r.Draw(UIDraw::Fill(panel, t.panelBg, 10.0f * scale));
+    r.Draw(UIDraw::Border(panel, t.panelBorder, 1.0f, 10.0f * scale));
+
+    app.smallFont.Draw(r, panel.x + 16.0f * scale, panel.y + 12.0f * scale,
+                       ToUtf8(OperationTitle(app.operation->action())), t.textDim, scale);
+    app.font.Draw(r, panel.x + 16.0f * scale, panel.y + 34.0f * scale,
+                  FitText(app.font, ToUtf8(OperationSubtitle(*app.operation)), scale,
+                          panel.w - 32.0f * scale),
+                  t.text, scale);
+
+    // La voce in corso, e sotto la barra.
+    const float nameY = panel.y + 66.0f * scale;
+    app.smallFont.Draw(r, panel.x + 16.0f * scale, nameY,
+                       FitText(app.smallFont, ToUtf8(progress.currentItem), scale,
+                               panel.w - 32.0f * scale),
+                       t.text, scale);
+
+    // La barra: la frazione del conto. `volumeTrack` e' il token `Progress` dello
+    // spec, e il suo primo lettore e' stata la barra di un disco — questo e' il
+    // secondo, e per questo non e' piu' un token senza lettore.
+    const Rect track{panel.x + 16.0f * scale, nameY + 24.0f * scale, panel.w - 32.0f * scale,
+                     8.0f * scale};
+    r.Draw(UIDraw::Fill(track, t.volumeTrack, 4.0f * scale));
+
+    if (progress.preparing)
+    {
+        app.smallFont.Draw(r, panel.x + 16.0f * scale, track.bottom() + 8.0f * scale,
+                           Tr("Preparazione...", "Preparing..."), t.textDim, scale);
     }
     else
     {
-        // Il primo nome sopravvissuto in ordine di lista, non un elemento
-        // qualunque dell'insieme: la selezione e' un insieme non ordinato.
-        for (const Entry& entry : app.entries)
+        const uint64_t total = progress.totalBytes;
+        const double fraction = total > 0
+                                    ? static_cast<double>(progress.doneBytes) / static_cast<double>(total)
+                                    : 0.0;
+        const float filled = static_cast<float>((std::max)(0.0, (std::min)(1.0, fraction)));
+        if (filled > 0.0f)
+            r.Draw(UIDraw::Fill(Rect{track.x, track.y, track.w * filled, track.h}, t.accent,
+                                4.0f * scale));
+
+        // I byte, e quante voci. "piu' di" quando la misura non e' arrivata in fondo:
+        // un numero esatto che non lo e' sarebbe peggio di un numero dichiarato
+        // approssimativo.
+        std::string bytes;
+        if (progress.totalBytes > 0)
         {
-            if (app.selection.count(entry.wideName) != 0)
-            {
-                app.cursor          = entry.wideName;
-                app.selectionAnchor = entry.wideName;
-                break;
-            }
+            bytes = (progress.measured ? std::string() : std::string("> ")) +
+                    HumanBytes(progress.doneBytes) + " / " + HumanBytes(progress.totalBytes) +
+                    " (" + std::to_string(static_cast<int>(fraction * 100.0)) + "%)";
         }
+
+        std::string counts;
+        if (progress.totalItems > 0)
+        {
+            char buffer[96];
+            std::snprintf(buffer, sizeof(buffer), Tr("%d di %d voci", "%d of %d items"),
+                          progress.doneItems, progress.totalItems);
+            counts = buffer;
+        }
+        else if (progress.doneItems > 0)
+        {
+            char buffer[64];
+            std::snprintf(buffer, sizeof(buffer), Tr("%d voci", "%d items"), progress.doneItems);
+            counts = buffer;
+        }
+
+        app.smallFont.Draw(r, panel.x + 16.0f * scale, track.bottom() + 8.0f * scale, bytes,
+                           t.text, scale);
+        app.smallFont.Draw(r, panel.right() - 16.0f * scale - app.smallFont.Measure(counts, scale),
+                           track.bottom() + 8.0f * scale, counts, t.textDim, scale);
     }
 
-    app.scroll = restoreScroll;
-    app.viewDirty = true;
+    // Il pulsante, e cosa fa la tastiera. Un annullamento chiesto si dice: finche' la
+    // shell non ha davvero smesso, chi ha premuto deve sapere che e' stato ascoltato
+    // e che ci vuole un momento.
+    const Rect cancel = OperationCancelButton(app, layout, panel);
+    r.Draw(UIDraw::Fill(cancel, t.rowHover, 4.0f * scale));
+    r.Draw(UIDraw::Border(cancel, t.panelBorder, 1.0f, 4.0f * scale));
+    app.smallFont.Draw(r, cancel.x + 12.0f * scale, TextY(layout, cancel, app.smallFont),
+                       Tr("Annulla", "Cancel"), t.text, scale);
 
-    // La cartella e' cambiata, quindi le statistiche che la riguardano non
-    // valgono piu'. Serve invalidare QUESTA cartella, non quella che si sta
-    // guardando: i numeri di una sottocartella si vedono dal genitore, quindi e'
-    // li' che si noterebbe che sono vecchi.
-    app.stats.Invalidate(app.directory);
+    app.smallFont.Draw(r, panel.x + 16.0f * scale, panel.bottom() - 26.0f * scale,
+                       progress.cancelRequested ? Tr("Annullamento...", "Cancelling...")
+                                                : Tr("Esc annulla", "Esc cancels"),
+                       progress.cancelRequested ? t.accent : t.textDim, scale);
+}
+
+// Il pannello e' modale come quello delle proprieta': prende la tastiera e non
+// lascia passare niente. `Esc` chiede di annullare, che e' l'unica cosa sensata che
+// possa fare un tasto mentre qualcosa e' in corso.
+bool OperationPanelKey(AppState& app, WPARAM key)
+{
+    if (key == VK_ESCAPE && app.operation != nullptr)
+    {
+        app.operation->Cancel();
+        ReportStatus(app, TrW(L"Annullamento...", L"Cancelling..."));
+    }
+    return true;
+}
+
+// L'operazione e' finita: si raccoglie l'esito, si aggiorna la vista e si dice com'e'
+// andata. E' l'unico posto in cui si legge il risultato, ed e' il motivo per cui le
+// tre operazioni lunghe non hanno piu' un finale ciascuna.
+void FinishOperation(AppState& app)
+{
+    std::unique_ptr<FileOps::Job> job = std::move(app.operation);
+    if (job == nullptr)
+        return;
+
+    const FileOps::Action action = job->action();
+    const std::vector<std::wstring> sources = job->sources();
+    const std::wstring destination = job->destination();
+    const OperationSource source = app.operationSource;
+    const float scroll = app.scroll;
+
+    std::vector<std::wstring> created;
+    std::wstring error;
+    const FileOps::Result result = job->Finish(&created, &error);
+    job.reset();
+
+    app.operationSource = OperationSource::None;
+
+    const bool copied  = action == FileOps::Action::Copy;
+    const bool discarded = action == FileOps::Action::Recycle ||
+                           action == FileOps::Action::DeleteForever;
+
+    if (result == FileOps::Result::Failed)
+    {
+        if (source == OperationSource::Drop)
+        {
+            app.dropReported = true;
+            DiagLog("  caduta non riuscita: " + ToUtf8(error));
+        }
+        ReportStatus(app,
+                     (discarded ? TrW(L"Eliminazione non riuscita: ", L"Delete failed: ")
+                                : (copied ? TrW(L"Copia non riuscita: ", L"Copy failed: ")
+                                          : TrW(L"Spostamento non riuscito: ", L"Move failed: "))) +
+                         error);
+        return;
+    }
+
+    if (result == FileOps::Result::Cancelled)
+    {
+        // Un annullamento non e' un guasto, ma non e' nemmeno "fatto": un gesto che
+        // finisce senza dire niente e' indistinguibile da un difetto.
+        if (source == OperationSource::Drop)
+            app.dropReported = true;
+        ReportStatus(app, discarded ? TrW(L"Eliminazione annullata", L"Delete cancelled")
+                                    : TrW(L"Operazione annullata", L"Operation cancelled"));
+        // Quello che era partito prima dell'annullamento c'e' ancora: la vista si
+        // rifa', tenendo la selezione dove ancora esiste.
+        ReloadKeeping(app, app.selection, app.cursor, scroll);
+        return;
+    }
+
+    if (source == OperationSource::Drop)
+    {
+        app.dropReported = true;
+
+        // La vista si rifa' sempre: uno spostamento toglie gli originali da qui, e una
+        // copia puo' aver aggiunto qualcosa se la destinazione e' la cartella aperta.
+        // Si seleziona solo cio' che e' arrivato *qui*, perche' quello che e' finito
+        // altrove non si vede e non si potrebbe evidenziare.
+        std::unordered_set<std::wstring> keep;
+        std::wstring landed;
+        if (!discarded && _wcsicmp(destination.c_str(), app.directory.c_str()) == 0)
+        {
+            for (const std::wstring& path : created)
+            {
+                const std::wstring name = LeafName(path);
+                keep.insert(name);
+                if (landed.empty())
+                    landed = name;
+            }
+        }
+        ReloadKeeping(app, keep, landed, scroll);
+
+        DiagLog("  esito della caduta: " +
+                std::string(discarded ? "eliminazione" : (copied ? "copia" : "spostamento")) +
+                " di " + std::to_string(sources.size()) + " elementi" +
+                (discarded ? std::string()
+                           : ", prodotti " + std::to_string(created.size())));
+
+        const bool one = sources.size() == 1;
+        const std::wstring verb =
+            discarded ? TrW(one ? L"Buttato via " : L"Buttati via ", L"Thrown away ")
+            : copied  ? TrW(one ? L"Copiato " : L"Copiati ", L"Copied ")
+                      : TrW(one ? L"Spostato " : L"Spostati ", L"Moved ");
+        std::wstring outcome = verb + CountItems(sources.size());
+        outcome += discarded ? TrW(L" nel cestino", L" to the recycle bin")
+                             : TrW(L" in ", L" into ") + LeafName(destination);
+        ReportStatus(app, outcome);
+        return;
+    }
+
+    if (discarded)
+    {
+        ReloadKeeping(app, /*keep=*/{}, /*preferCursor=*/{}, scroll);
+        ReportStatus(app,
+                     action == FileOps::Action::DeleteForever
+                         ? VerbItems(sources.size(), L"Eliminato definitivamente ",
+                                     L"Eliminati definitivamente ", L"Deleted permanently ")
+                         : TrW(L"Nel cestino: ", L"Moved to the recycle bin: ") +
+                               CountItems(sources.size()));
+        return;
+    }
+
+    // Un incolla. Un taglio si consuma con l'incolla: lasciarlo nella clipboard
+    // farebbe spostare gli stessi file una seconda volta al prossimo Ctrl+V.
+    if (action == FileOps::Action::Move)
+        FileOps::ClearClipboard(app.window);
+
+    // Si seleziona cio' che la shell ha DAVVERO creato. Con un conflitto di nome il
+    // nome finale non e' quello di partenza, e selezionare quello di partenza metteva
+    // il cursore sull'originale: un Canc subito dopo cancellava la cosa sbagliata.
+    std::unordered_set<std::wstring> keep;
+    std::wstring landed;
+    for (const std::wstring& path : created)
+    {
+        const std::wstring name = LeafName(path);
+        keep.insert(name);
+        if (landed.empty())
+            landed = name;
+    }
+    if (keep.empty())
+    {
+        for (const std::wstring& path : sources)
+            keep.insert(LeafName(path));
+    }
+
+    ReloadKeeping(app, keep, landed, scroll);
+    ReportStatus(app, VerbItems(sources.size(),
+                                action == FileOps::Action::Move ? L"Spostato " : L"Incollato ",
+                                action == FileOps::Action::Move ? L"Spostati " : L"Incollati ",
+                                action == FileOps::Action::Move ? L"Moved " : L"Pasted "));
 }
 
 // Un cambiamento visto da fuori: la cartella aperta toccata da un altro programma.
@@ -3278,53 +1844,17 @@ void DoPaste(AppState& app)
         return;
     }
 
-    const float scroll = app.scroll;
-    std::wstring error;
-    std::vector<std::wstring> created;
     // Nel registro, perche' una volta un incolla e' partito senza che si riuscisse a
     // capire da quale gesto: senza una riga, l'unica traccia era un messaggio di
     // stato che dura quattro secondi.
     DiagLog("  incolla: " + std::to_string(paths.size()) + " percorsi, " +
             (cut ? "tagliati" : "copiati") + ", in " + ToUtf8(LeafName(app.directory)));
-    const FileOps::Result result = cut ? FileOps::Move(app.window, paths, app.directory, &created, &error)
-                                       : FileOps::Copy(app.window, paths, app.directory, &created, &error);
 
-    if (result == FileOps::Result::Ok)
-    {
-        // Un taglio si consuma con l'incolla: lasciarlo nella clipboard farebbe
-        // spostare gli stessi file una seconda volta al prossimo Ctrl+V.
-        if (cut)
-            FileOps::ClearClipboard(app.window);
-
-        // Si seleziona cio' che la shell ha DAVVERO creato. Con un conflitto di
-        // nome il nome finale non e' quello di partenza, e selezionare quello di
-        // partenza metteva il cursore sull'originale: un Canc subito dopo
-        // cancellava la cosa sbagliata.
-        std::unordered_set<std::wstring> keep;
-        std::wstring landed;
-        for (const std::wstring& path : created)
-        {
-            const std::wstring name = LeafName(path);
-            keep.insert(name);
-            if (landed.empty())
-                landed = name;
-        }
-        if (keep.empty())
-        {
-            for (const std::wstring& path : paths)
-                keep.insert(LeafName(path));
-        }
-
-        ReloadKeeping(app, keep, landed, scroll);
-        ReportStatus(app, VerbItems(paths.size(),
-                                    cut ? L"Spostato " : L"Incollato ",
-                                    cut ? L"Spostati " : L"Incollati ",
-                                    cut ? L"Moved " : L"Pasted "));
-    }
-    else if (result == FileOps::Result::Failed)
-    {
-        ReportStatus(app, TrW(L"Incolla non riuscito: ", L"Paste failed: ") + error);
-    }
+    // L'operazione adesso e' lunga: si avvia sul suo thread e l'esito si raccoglie
+    // quando finisce, in `FinishOperation`. Qui si dice solo che e' partita.
+    BeginOperation(app,
+                   FileOps::Job::StartTransfer(app.window, paths, app.directory, cut),
+                   OperationSource::Command);
 }
 
 void DoDelete(AppState& app, bool permanently)
@@ -3333,23 +1863,10 @@ void DoDelete(AppState& app, bool permanently)
     if (paths.empty())
         return;
 
-    const float scroll = app.scroll;
-    std::wstring error;
-    const FileOps::Result result = FileOps::Delete(app.window, paths, permanently, &error);
-
-    if (result == FileOps::Result::Ok)
-    {
-        ReloadKeeping(app, /*keep=*/{}, /*preferCursor=*/{}, scroll);
-        ReportStatus(app, permanently
-                              ? VerbItems(paths.size(), L"Eliminato definitivamente ",
-                                          L"Eliminati definitivamente ", L"Deleted permanently ")
-                              : TrW(L"Nel cestino: ", L"Moved to the recycle bin: ") +
-                                    CountItems(paths.size()));
-    }
-    else if (result == FileOps::Result::Failed)
-    {
-        ReportStatus(app, TrW(L"Eliminazione non riuscita: ", L"Delete failed: ") + error);
-    }
+    // Anche l'eliminazione e' lunga — un albero di cartelle intero — e passa dallo
+    // stesso pannello della copia.
+    BeginOperation(app, FileOps::Job::StartDelete(app.window, paths, permanently),
+                   OperationSource::Command);
 }
 
 void DoNewFolder(AppState& app)
@@ -3446,46 +1963,9 @@ void FillNewItemContent(AppState& app, const ShellNew::Template& model,
     }
 }
 
-// Crea una voce nuova dal modello |index| del registro, col meccanismo del
-// sistema: il nome definitivo lo sceglie la shell ("Nuovo documento di testo.txt",
-// e "(2)" se esiste gia'), il contenuto lo mette `FillNewItemContent`.
-void CreateNewItem(AppState& app, size_t index)
-{
-    const std::vector<ShellNew::Template>& templates = ShellNew::Templates();
-    if (index >= templates.size())
-        return;
-
-    const std::wstring wanted = templates[index].suggestedName;
-    const float scroll = app.scroll;
-    std::vector<std::wstring> created;
-    std::wstring error;
-    const FileOps::Result result =
-        FileOps::NewItem(app.window, app.directory, wanted, &created, &error);
-
-    if (result != FileOps::Result::Ok)
-    {
-        if (result == FileOps::Result::Failed)
-            ReportStatus(app, TrW(L"File non creato: ", L"File not created: ") + error);
-        return;
-    }
-
-    const std::wstring path = created.empty() ? JoinPath(app.directory, wanted)
-                                              : created.front();
-    FillNewItemContent(app, templates[index], path);
-
-    const std::wstring name = LeafName(path);
-    std::unordered_set<std::wstring> keep;
-    keep.insert(name);
-    ReloadKeeping(app, keep, name, scroll);
-
-    // Creare e rinominare sono un'azione sola, come per la cartella: chi crea
-    // vuole dare un nome, non guardare un altro "Nuovo documento di testo".
-    BeginRename(app);
-}
-
 // --- menu execution ---------------------------------------------------------
-void RunCommand(AppState& app, int command);
-int  ShowProperties(HWND owner, const std::vector<std::wstring>& paths);
+// `RunCommand` e `ShowProperties` arrivano dagli header (`app_actions.h`,
+// `view_context_menu.h`).
 
 void RunPaletteSelection(AppState& app)
 {
@@ -3516,1005 +1996,10 @@ void RunGoToSelection(AppState& app)
     app.goTo.open = false;
 }
 
-// --- il pannello delle opzioni (M9) -----------------------------------------
-//
-// Il riferimento non mette le preferenze dentro la lista dei comandi: ha un
-// **pannello di opzioni**, una lista cercabile in cui ogni riga porta tre cose —
-// il nome, la ragione e il controllo del tipo giusto. Il componente c'e' gia':
-// `GroupMenu` filtra, raggruppa, naviga con Su/Giu' e si chiude con Esc. Quello
-// che gli mancava sono i **controlli tipizzati**, ed e' quello che si aggiunge
-// qui.
-//
-// La verita' di un'opzione sta in `AppState`: `RefreshOptionItem` e' l'unico
-// posto che la porta nella riga, e `ApplyOptionFromItem` l'unico che la riporta
-// indietro. Cosi' non esistono due copie di "i suggerimenti sono accesi".
-enum OptionId
-{
-    OptFont, OptFontSize, OptInspectorFont, OptInspectorFontSize,
-    OptSpacing, OptZoom, OptAnimations, OptRoundCorners, OptSystemScheme,
-    OptColorScheme, OptAlternatingRows, OptInactiveOpacity, OptFileExtension,
-    OptLongPaths, OptCompactPaths,
-    OptTooltips, OptHoverToSelect, OptUnderlineOnHover, OptSingleClick,
-    OptSingleClickFoldersOnly, OptActOnPress, OptDoubleClickToParent,
-    OptShowCheckboxes, OptSidebar, OptGridIconSize, OptLanguage,
-};
-
-// L'altezza di una riga del pannello: due linee di testo, e **non** `Spacing`.
-// Se seguisse la preferenza che sta comandando, lo slider si tirerebbe dietro le
-// proprie righe e il bersaglio si sposterebbe mentre lo si trascina.
-constexpr float kOptionRowHeight = 46.0f;
-
-float MenuRowHeight(const Layout& layout, const GroupMenu& menu)
-{
-    return menu.richRows ? kOptionRowHeight * layout.scale : layout.rowHeight;
-}
-
-// La prima riga visibile: la stessa formula per il disegno e per il clic, o le
-// due non sarebbero d'accordo su cosa sta sotto il puntatore.
-int GroupMenuFirstVisible(const GroupMenu& menu, float listTop, float listBottom, float rowHeight)
-{
-    const int visible = (std::max)(1, static_cast<int>((listBottom - listTop) / rowHeight));
-    int first = 0;
-    if (menu.selected >= first + visible)
-        first = menu.selected - visible + 1;
-    if (menu.selected < first)
-        first = menu.selected;
-    return first;
-}
-
-// Un nome di carattere esiste? `CreateFontW` sostituisce in silenzio quello che
-// non conosce, quindi la domanda non e' se la chiamata riesce: e' se la faccia
-// che torna e' quella chiesta. Senza questo controllo, un nome sbagliato
-// cambierebbe il carattere di tutta l'interfaccia senza dirlo.
-bool FontInstalled(const std::wstring& face)
-{
-    if (face.empty())
-        return false;
-    HDC dc = CreateCompatibleDC(nullptr);
-    if (dc == nullptr)
-        return false;
-    HFONT font = CreateFontW(-12, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
-                             OUT_TT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY,
-                             DEFAULT_PITCH | FF_DONTCARE, face.c_str());
-    bool installed = false;
-    if (font != nullptr)
-    {
-        HGDIOBJ previous = SelectObject(dc, font);
-        wchar_t actual[LF_FACESIZE] = {};
-        GetTextFaceW(dc, LF_FACESIZE, actual);
-        installed = _wcsicmp(actual, face.c_str()) == 0;
-        SelectObject(dc, previous);
-        DeleteObject(font);
-    }
-    DeleteDC(dc);
-    return installed;
-}
-
-// L'atlante dei glifi si rifa' solo quando una delle tre misure cambia davvero:
-// rasterizzarlo a ogni fotogramma sarebbe un lavoro che nessuno vede.
-void ApplyFonts(AppState& app)
-{
-    std::string error;
-    const int smallSize = (std::max)(AppState::kUiFontSizeMin,
-                                     app.uiFontSize - AppState::kSmallFontDelta);
-    app.font.Build(*app.renderer, app.fontFace.c_str(), app.uiFontSize, kGlyphLayer,
-                   kTextureLayerSize, &error);
-    app.smallFont.Build(*app.renderer, app.fontFace.c_str(), smallSize, kSmallGlyphLayer,
-                        kTextureLayerSize, &error);
-    app.monoFontOk = app.monoFont.Build(*app.renderer, app.monoFace.c_str(), app.monoFontSize,
-                                        kMonoLayer, kTextureLayerSize, &error);
-}
-
-void RefreshOptionItem(const AppState& app, GroupMenuItem& item)
-{
-    item.enabled = true;
-    switch (static_cast<OptionId>(item.id))
-    {
-        case OptFont:
-            item.control   = OptionControl::Text;
-            item.valueText = ToUtf8(app.fontFace);
-            break;
-        case OptFontSize:
-            item.control   = OptionControl::Stepper;
-            item.valueText = std::to_string(app.uiFontSize);
-            break;
-        case OptInspectorFont:
-            item.control   = OptionControl::Text;
-            item.valueText = ToUtf8(app.monoFace);
-            break;
-        case OptInspectorFontSize:
-            item.control   = OptionControl::Stepper;
-            item.valueText = std::to_string(app.monoFontSize);
-            break;
-        case OptSpacing:
-            item.control  = OptionControl::Slider;
-            item.fraction = (app.rowSpacing - AppState::kRowSpacingMin) /
-                            (AppState::kRowSpacingMax - AppState::kRowSpacingMin);
-            item.valueText = std::to_string(static_cast<int>(app.rowSpacing + 0.5f));
-            break;
-        case OptZoom:
-            item.control  = OptionControl::Slider;
-            item.fraction = (app.zoom - 0.6f) / 1.4f;
-            item.valueText = std::to_string(static_cast<int>(app.zoom * 100.0f + 0.5f)) + "%";
-            break;
-        case OptAlternatingRows:
-            item.control = OptionControl::Toggle;
-            item.toggleOn = app.alternatingRows;
-            break;
-        case OptTooltips:
-            item.control = OptionControl::Toggle;
-            item.toggleOn = app.showTooltips;
-            break;
-        case OptHoverToSelect:
-            item.control = OptionControl::Toggle;
-            item.toggleOn = app.hoverToSelect;
-            break;
-        case OptUnderlineOnHover:
-            item.control = OptionControl::Toggle;
-            item.toggleOn = app.underlineOnHover;
-            break;
-        case OptSingleClick:
-            item.control = OptionControl::Toggle;
-            item.toggleOn = app.singleClick;
-            break;
-        case OptSingleClickFoldersOnly:
-            item.control = OptionControl::Toggle;
-            item.toggleOn = app.singleClickFoldersOnly;
-            item.enabled = app.singleClick;   // da sola non vuol dire niente
-            break;
-        case OptActOnPress:
-            item.control = OptionControl::Toggle;
-            item.toggleOn = app.actOnPress;
-            break;
-        case OptDoubleClickToParent:
-            item.control = OptionControl::Toggle;
-            item.toggleOn = app.doubleClickToParent;
-            break;
-        case OptShowCheckboxes:
-            item.control = OptionControl::Toggle;
-            item.toggleOn = app.showCheckboxes;
-            break;
-        case OptSidebar:
-            item.control = OptionControl::Toggle;
-            item.toggleOn = app.sidebarVisible;
-            break;
-        case OptGridIconSize:
-            item.control  = OptionControl::Slider;
-            item.fraction = (app.gridIconSize - AppState::kGridIconMin) /
-                            (AppState::kGridIconMax - AppState::kGridIconMin);
-            item.valueText = std::to_string(static_cast<int>(app.gridIconSize));
-            break;
-        case OptLanguage:
-            item.control   = OptionControl::Choice;
-            item.valueText = (gLanguage == Language::English) ? "English" : "Italiano";
-            break;
-        // Le opzioni che il riferimento ha e che qui non ci sono. Si mostrano
-        // **spente**: un'opzione che non si puo' applicare sta in vista e dice
-        // che non si tocca, invece di sparire e far credere che non esista.
-        case OptAnimations:
-        case OptRoundCorners:
-        case OptLongPaths:
-            item.control  = OptionControl::Toggle;
-            item.toggleOn = true;
-            item.enabled  = false;
-            break;
-        // Le due dell'aspetto invece **si applicano**. L'interruttore dice se la
-        // tavolozza la decide il sistema; la scelta mostra quale tavolozza si sta
-        // usando adesso, anche quando e' il sistema a deciderla: un controllo che
-        // dichiara qualcosa di diverso da quello che si vede e' peggio di un
-        // controllo che non c'e'.
-        case OptSystemScheme:
-            item.control  = OptionControl::Toggle;
-            item.toggleOn = app.systemColorScheme;
-            break;
-        case OptColorScheme:
-            item.control   = OptionControl::Choice;
-            item.valueText = SchemeLabel(SchemeInUse(app));
-            // Col sistema a comandare questa scelta non fa niente, quindi si mostra
-            // **spenta** — continuando a dire qual e' la tavolozza in uso.
-            item.enabled   = !app.systemColorScheme;
-            break;
-        case OptInactiveOpacity:
-            item.control  = OptionControl::Slider;
-            item.fraction = 0.45f;
-            item.valueText = "45%";
-            item.enabled  = false;
-            break;
-        case OptFileExtension:
-            item.control  = OptionControl::Toggle;
-            item.toggleOn = true;
-            item.enabled  = false;
-            break;
-        case OptCompactPaths:
-            item.control  = OptionControl::Toggle;
-            item.toggleOn = false;
-            item.enabled  = false;
-            break;
-        default:
-            break;
-    }
-}
-
-void RefreshOptionItems(const AppState& app, GroupMenu& menu)
-{
-    for (GroupMenuItem& item : menu.items)
-        RefreshOptionItem(app, item);
-}
-
-void BuildOptionsMenu(AppState& app);
-
-void ApplyOptionFromItem(AppState& app, GroupMenuItem& item)
-{
-    const OptionId id = static_cast<OptionId>(item.id);
-    // `BuildOptionsMenu` ricostruisce l'elenco, quindi ogni riferimento a `item`
-    // scade da li' in poi: l'id si prende subito.
-    const int changedId = item.id;
-    bool fontsChanged = false;
-    bool saved        = true;
-
-    const auto clampInt = [](int value, int low, int high) {
-        return value < low ? low : (value > high ? high : value);
-    };
-
-    switch (id)
-    {
-        case OptFont:
-        case OptInspectorFont:
-        {
-            const std::wstring face = Widen(item.valueText);
-            if (!FontInstalled(face))
-            {
-                ReportStatus(app, TrW(L"Carattere inesistente: il nome non cambia",
-                                      L"No such font: the name is unchanged"));
-                saved = false;
-                break;
-            }
-            if (id == OptFont) app.fontFace = face;
-            else                app.monoFace = face;
-            fontsChanged = true;
-            break;
-        }
-        case OptFontSize:
-        {
-            const int size = clampInt(atoi(item.valueText.c_str()),
-                                      AppState::kUiFontSizeMin, AppState::kUiFontSizeMax);
-            if (size != app.uiFontSize)
-            {
-                app.uiFontSize = size;
-                fontsChanged   = true;
-            }
-            break;
-        }
-        case OptInspectorFontSize:
-        {
-            const int size = clampInt(atoi(item.valueText.c_str()),
-                                      AppState::kMonoFontSizeMin, AppState::kMonoFontSizeMax);
-            if (size != app.monoFontSize)
-            {
-                app.monoFontSize = size;
-                fontsChanged     = true;
-            }
-            break;
-        }
-        case OptSpacing:
-        {
-            const float value = AppState::kRowSpacingMin +
-                                item.fraction * (AppState::kRowSpacingMax - AppState::kRowSpacingMin);
-            app.rowSpacing = std::round(value);
-            break;
-        }
-        case OptZoom:
-            // A passi di 5%: uno zoom che cambia di un millesimo non si vede,
-            // e riempirebbe il file di impostazioni di cifre inutili.
-            app.zoom = std::round((0.6f + item.fraction * 1.4f) * 20.0f) / 20.0f;
-            break;
-        case OptGridIconSize:
-            app.gridIconSize = std::round((AppState::kGridIconMin +
-                                           item.fraction * (AppState::kGridIconMax - AppState::kGridIconMin)) /
-                                          2.0f) * 2.0f;
-            break;
-        case OptAlternatingRows: app.alternatingRows = item.toggleOn; break;
-        case OptTooltips:        app.showTooltips     = item.toggleOn; break;
-        case OptHoverToSelect:   app.hoverToSelect    = item.toggleOn; break;
-        case OptUnderlineOnHover: app.underlineOnHover = item.toggleOn; break;
-        case OptSingleClick:     app.singleClick      = item.toggleOn; break;
-        case OptSingleClickFoldersOnly: app.singleClickFoldersOnly = item.toggleOn; break;
-        case OptActOnPress:      app.actOnPress       = item.toggleOn; break;
-        case OptDoubleClickToParent: app.doubleClickToParent = item.toggleOn; break;
-        case OptShowCheckboxes:  app.showCheckboxes   = item.toggleOn; break;
-        case OptSidebar:         app.sidebarVisible   = item.toggleOn; break;
-        case OptSystemScheme:
-            app.systemColorScheme = item.toggleOn;
-            ApplyTheme(app);
-            break;
-        case OptColorScheme:
-            app.colorScheme = (item.valueText == SchemeLabel(ColorScheme::Light))
-                                  ? ColorScheme::Light
-                                  : ColorScheme::Dark;
-            ApplyTheme(app);
-            break;
-        case OptLanguage:
-            // Le due lingue sono due voci, non un interruttore: la scelta mostra
-            // sempre quale delle due e' accesa.
-            gLanguage = (item.valueText == "English") ? Language::English : Language::Italian;
-            break;
-        default:
-            saved = false;   // una riga spenta non ha niente da applicare
-            break;
-    }
-
-    if (fontsChanged)
-        ApplyFonts(app);
-
-    // Le etichette e le descrizioni del pannello sono scritte in una lingua:
-    // cambiandola, le righe costruite prima restano nella lingua vecchia. Si rifa'
-    // l'elenco e si rimette il cursore dove era, invece di riportarlo in cima.
-    if (id == OptLanguage)
-    {
-        const std::wstring filter = app.options.filter;
-        BuildOptionsMenu(app);
-        app.options.filter = filter;
-        app.options.dirty  = true;
-        GroupMenuRebuild(app.options);
-        for (int i = 0; i < static_cast<int>(app.options.rows.size()); ++i)
-        {
-            const GroupMenuRow& row = app.options.rows[static_cast<size_t>(i)];
-            if (!row.header && app.options.items[static_cast<size_t>(row.item)].id == changedId)
-            {
-                app.options.selected = i;
-                break;
-            }
-        }
-    }
-    else
-    {
-        RefreshOptionItems(app, app.options);
-    }
-
-    if (saved)
-        RememberSettings(app);
-    app.viewDirty = true;
-}
-
-// Il pannello vero e proprio. Una lista piatta, come nel riferimento: il campo in
-// alto filtra, e i gruppi sarebbero una seconda gerarchia sopra una lista che si
-// cerca gia' per nome.
-void BuildOptionsMenu(AppState& app)
-{
-    struct OptionRow
-    {
-        const char*  label;
-        const char*  descriptionIt;
-        const char*  descriptionEn;
-        OptionId     id;
-        bool         notApplied;   // il riferimento la ha, qui non e' applicata
-    };
-    static const OptionRow kRows[] = {
-        {"Font", "Il nome di un carattere installato, applicato a tutta l'interfaccia.",
-         "The system-installed font name that is applied to the entire UI.", OptFont, false},
-        {"Font Size", "La misura del testo dell'interfaccia.",
-         "Defines the size of the text in the interface.", OptFontSize, false},
-        {"Inspector Font", "Il carattere usato per il testo nell'inspector.",
-         "The system-installed font used when previewing text contents in the inspector.", OptInspectorFont, false},
-        {"Inspector Font Size", "La misura del testo nell'inspector.",
-         "Specifies the font size used to display text contents in the inspector.", OptInspectorFontSize, false},
-        {"Spacing", "Lo spazio fra le voci di una lista.",
-         "Defines the space between items in a list.", OptSpacing, false},
-        {"Zoom", "Ingrandisce o rimpicciolisce tutta l'interfaccia.",
-         "Scales the whole interface up or down.", OptZoom, false},
-        {"Animations", "Animazioni delle aperture, dello scorrimento e del cursore di testo.",
-         "Applies animations to new popups, view scrolling, text cursor, etc.", OptAnimations, true},
-        {"Round Corners", "Arrotonda gli angoli di pannelli, pulsanti e selezioni.",
-         "Applies rounding to the corners of UI elements such as popups, buttons, and selections.", OptRoundCorners, true},
-        {"System Light / Dark Scheme", "La tavolozza la decide il tema chiaro o scuro di Windows.",
-         "Automatically adapt between light and dark color schemes based on system settings.", OptSystemScheme, false},
-        {"Color Scheme", "Applica una tavolozza di colori a tutta l'interfaccia.",
-         "Applies a color palette to all UI elements.", OptColorScheme, false},
-        {"Alternating Row Colors", "Colora a righe alterne per distinguere righe vicine.",
-         "Applies alternating row colors to improve readability and distinguish adjacent rows.", OptAlternatingRows, false},
-        {"Inactive Panel Content Opacity", "Attenua il contenuto del pannello che non ha il fuoco.",
-         "Applies dimming to inactive panel contents to make the active panel stand out.", OptInactiveOpacity, true},
-        {"Show File Extension", "Mostra o nasconde l'estensione nei nomi dei file.",
-         "Toggle the visibility of file extensions.", OptFileExtension, true},
-        {"Long Paths Support", "Percorsi oltre 260 caratteri.",
-         "Enable support for paths longer than 260 characters.", OptLongPaths, true},
-        {"Display Compact Paths", "Accorcia i percorsi lunghi nella barra del percorso.",
-         "Displays compact paths in the toolbar.", OptCompactPaths, true},
-        {"Show Tooltips", "Mostra un suggerimento quando il puntatore si ferma su una riga.",
-         "Shows a hint when the pointer rests on a row.", OptTooltips, false},
-        {"Hover To Select", "Seleziona la riga sotto il puntatore dopo una pausa.",
-         "Selects the row under the pointer after a short pause.", OptHoverToSelect, false},
-        {"Underline On Hover", "Sottolinea il nome della riga sotto il puntatore.",
-         "Underlines the name of the row under the pointer.", OptUnderlineOnHover, false},
-        {"Single Click", "Apre con un clic invece che con due.",
-         "Opens an item with one click instead of two.", OptSingleClick, false},
-        {"Single Click Folders Only", "Con l'apertura a un clic, sui file ne servono ancora due.",
-         "With single click, still requires two clicks for files.", OptSingleClickFoldersOnly, false},
-        {"Act On Press", "Agisce appena il pulsante scende, non quando risale.",
-         "Acts as soon as the button goes down, not when it comes up.", OptActOnPress, false},
-        {"Double Click On Empty Space Goes Up", "Doppio clic sul fondo: va alla cartella superiore.",
-         "Goes to the parent folder when the empty space is double clicked.", OptDoubleClickToParent, false},
-        {"Show Checkboxes", "Una casella di scelta su ogni riga.",
-         "Shows a checkbox on every row.", OptShowCheckboxes, false},
-        {"Show The Sidebar", "Mostra il riquadro dei segnalibri e dei posti a sinistra.",
-         "Shows the bookmark and place panel on the left.", OptSidebar, false},
-        {"Grid Icon Size", "La misura di una cella nelle viste a icone e a riquadri.",
-         "The size of a cell in the icon and tile views.", OptGridIconSize, false},
-        {"Language", "La lingua dell'interfaccia.",
-         "The language of the interface. Applied immediately.", OptLanguage, false},
-    };
-    // Le righe che il riferimento ha e che qui non sono applicate: si mostrano
-    // spente: un'opzione che non si puo' applicare sta in vista e dice che non si
-    // tocca, invece di sparire e far credere che non esista. La ragione e' scritta
-    // accanto alla descrizione, dove si legge.
-    const char* notAppliedNote = Tr(" (non ancora applicata in Bolt)",
-                                    " (not yet applied in Bolt)");
-
-    std::vector<GroupMenuItem> items;
-    items.reserve(sizeof(kRows) / sizeof(kRows[0]));
-    for (const OptionRow& row : kRows)
-    {
-        GroupMenuItem item;
-        item.group       = "";          // lista piatta, come il riferimento
-        item.label       = row.label;
-        item.description = std::string(Tr(row.descriptionIt, row.descriptionEn)) +
-                           (row.notApplied ? notAppliedNote : "");
-        item.id          = row.id;
-        if (row.id == OptLanguage)
-        {
-            item.choices.push_back({"Italiano", 0});
-            item.choices.push_back({"English", 1});
-        }
-        else if (row.id == OptColorScheme)
-        {
-            // Le due voci sono le due tavolozze, con il nome tradotto: la scelta si
-            // rilegge da `SchemeLabel`, che e' la stessa stringa che mostra la riga.
-            item.choices.push_back({SchemeLabel(ColorScheme::Dark), 0});
-            item.choices.push_back({SchemeLabel(ColorScheme::Light), 1});
-        }
-        RefreshOptionItem(app, item);
-        items.push_back(std::move(item));
-    }
-
-    app.palette.open = false;
-    app.goTo.open    = false;
-    app.optionsChoice.open = false;
-    GroupMenuOpen(app.options, Tr("OPZIONI", "OPTIONS"),
-                  Tr("Scegli un'opzione...", "Select an option..."), std::move(items));
-    app.options.richRows = true;
-    app.options.hint     = Tr("Su Giu' per navigare   Invio per usare   Esc per chiudere",
-                              "Up Down to navigate   Enter to use   Escape to dismiss");
-}
-
-Rect MenuPanel(const AppState& app, const Layout& layout, const GroupMenu& menu);
-
-// La riga sotto un punto, dentro il pannello delle opzioni.
-int OptionRowAt(const Layout& layout, const GroupMenu& menu, const Rect& panel, float y)
-{
-    const float rowHeight  = MenuRowHeight(layout, menu);
-    const float listTop    = panel.y + 58.0f * layout.scale;
-    const float listBottom = panel.bottom() - 26.0f * layout.scale;
-    if (y < listTop || y >= listBottom)
-        return -1;
-    const int first   = GroupMenuFirstVisible(menu, listTop, listBottom, rowHeight);
-    const int visible = (std::max)(1, static_cast<int>((listBottom - listTop) / rowHeight));
-    const int index   = first + static_cast<int>((y - listTop) / rowHeight);
-    if (index >= first + visible || index < 0 || index >= static_cast<int>(menu.rows.size()))
-        return -1;
-    return index;
-}
-
-// Quanto e' largo il controllo di un tipo. La larghezza non dipende dalla riga:
-// e' la stessa per il disegno, per il clic e per il trascinamento di uno slider.
-float OptionControlWidth(const GroupMenuItem& item, float scale)
-{
-    switch (item.control)
-    {
-        case OptionControl::Text:    return 200.0f * scale;
-        case OptionControl::Choice:  return 170.0f * scale;
-        case OptionControl::Stepper: return 128.0f * scale;
-        case OptionControl::Slider:  return 150.0f * scale;
-        case OptionControl::Toggle:  return 40.0f * scale;
-        default:                     return 0.0f;
-    }
-}
-
-// Dove sta il controllo di una riga. Una funzione sola, perche' disegno e clic
-// devono scegliere lo stesso rettangolo.
-Rect OptionControlRect(const Layout& layout, const GroupMenuItem& item, const Rect& rowRect)
-{
-    const float scale = layout.scale;
-    const float height = 22.0f * scale;
-    const float width  = OptionControlWidth(item, scale);
-    return Rect{rowRect.right() - width - 14.0f * scale,
-                rowRect.y + (rowRect.h - height) * 0.5f, width, height};
-}
-
-void BeginOptionEdit(AppState& app, const GroupMenuItem& item)
-{
-    app.optionEditActive = true;
-    app.optionEditId     = item.id;
-    app.optionEditText   = item.valueText;
-}
-
-void CancelOptionEdit(AppState& app)
-{
-    app.optionEditActive = false;
-    app.optionEditId     = -1;
-    app.optionEditText.clear();
-    RefreshOptionItems(app, app.options);
-}
-
-void CommitOptionEdit(AppState& app)
-{
-    if (!app.optionEditActive)
-        return;
-    const int id = app.optionEditId;
-    std::string text = app.optionEditText;
-    app.optionEditActive = false;
-    app.optionEditId     = -1;
-    app.optionEditText.clear();
-
-    // Gli spazi ai bordi non fanno parte di un nome di carattere.
-    while (!text.empty() && (text.front() == ' ' || text.front() == '\t'))
-        text.erase(text.begin());
-    while (!text.empty() && (text.back() == ' ' || text.back() == '\t'))
-        text.pop_back();
-
-    for (GroupMenuItem& item : app.options.items)
-    {
-        if (item.id == id)
-        {
-            item.valueText = text;
-            ApplyOptionFromItem(app, item);
-            return;
-        }
-    }
-}
-
-void OpenOptionChoice(AppState& app, const GroupMenuItem& item)
-{
-    std::vector<GroupMenuItem> items;
-    for (const std::pair<std::string, int>& choice : item.choices)
-        items.push_back(GroupMenuItem{"", choice.first, "", choice.second});
-
-    app.optionsChoiceParent = item.id;
-    GroupMenuOpen(app.optionsChoice, item.label, Tr("Filtra i valori...", "Filter values..."),
-                  std::move(items));
-    app.optionsChoice.richRows = false;
-    app.optionsChoice.hint =
-        Tr("Invio sceglie   Esc torna al pannello", "Enter chooses   Esc goes back");
-}
-
-void RunOptionsChoiceSelection(AppState& app)
-{
-    const int parent = app.optionsChoiceParent;
-    const int value  = GroupMenuSelectedId(app.optionsChoice);
-    app.optionsChoice.open = false;
-    if (parent < 0 || value < 0)
-        return;
-
-    for (GroupMenuItem& item : app.options.items)
-    {
-        if (item.id != parent)
-            continue;
-        for (const std::pair<std::string, int>& choice : item.choices)
-            if (choice.second == value)
-                item.valueText = choice.first;
-        ApplyOptionFromItem(app, item);
-        return;
-    }
-}
-
-// I tasti che riguardano il **controllo** della riga scelta. Ritorna vero se il
-// tasto e' stato consumato: Su/Giu'/Home/Fine restano al componente.
-bool OptionsKeyDown(AppState& app, GroupMenu& menu, WPARAM key)
-{
-    if (menu.selected < 0 || menu.selected >= static_cast<int>(menu.rows.size()))
-        return false;
-    const GroupMenuRow& row = menu.rows[static_cast<size_t>(menu.selected)];
-    if (row.header || row.item < 0)
-        return false;
-    GroupMenuItem& item = menu.items[static_cast<size_t>(row.item)];
-
-    if (!item.enabled)
-        return key == VK_RETURN || key == VK_SPACE;
-
-    switch (key)
-    {
-        case VK_RETURN:
-        case VK_SPACE:
-            if (item.control == OptionControl::Toggle)
-            {
-                item.toggleOn = !item.toggleOn;
-                ApplyOptionFromItem(app, item);
-            }
-            else if (item.control == OptionControl::Choice)
-            {
-                OpenOptionChoice(app, item);
-            }
-            else if (item.control == OptionControl::Text)
-            {
-                BeginOptionEdit(app, item);
-            }
-            // Uno stepper e uno slider non hanno un "invio": si muovono con le
-            // frecce, che sono il gesto di chi cambia un numero.
-            return true;
-
-        case VK_LEFT:
-        case VK_RIGHT:
-        {
-            const int delta = (key == VK_RIGHT) ? 1 : -1;
-            if (item.control == OptionControl::Stepper)
-            {
-                item.valueText = std::to_string(atoi(item.valueText.c_str()) + delta);
-                ApplyOptionFromItem(app, item);
-                return true;
-            }
-            if (item.control == OptionControl::Slider)
-            {
-                float fraction = item.fraction + delta * 0.05f;
-                fraction = (fraction < 0.0f) ? 0.0f : (fraction > 1.0f ? 1.0f : fraction);
-                item.fraction = fraction;
-                ApplyOptionFromItem(app, item);
-                return true;
-            }
-            return false;
-        }
-        default:
-            return false;
-    }
-}
-
-// Un clic dentro il pannello delle opzioni. Non chiude il pannello: si cambiano
-// piu' preferenze di seguito, ed e' tutto il motivo per cui e' un pannello e non
-// un singolo comando.
-MenuAction OptionsClick(AppState& app, const Layout& layout, GroupMenu& menu, float x, float y)
-{
-    if (!menu.open)
-        return MenuAction::None;
-
-    const Rect panel = MenuPanel(app, layout, menu);
-    if (!panel.Contains(x, y))
-        return MenuAction::Close;
-
-    const int index = OptionRowAt(layout, menu, panel, y);
-    if (index < 0 || menu.rows[static_cast<size_t>(index)].header)
-        return MenuAction::None;
-    const GroupMenuRow& row = menu.rows[static_cast<size_t>(index)];
-    if (row.item < 0)
-        return MenuAction::None;
-
-    menu.selected = index;
-    GroupMenuItem& item = menu.items[static_cast<size_t>(row.item)];
-    if (!item.enabled)
-        return MenuAction::None;
-
-    const float rowHeight = MenuRowHeight(layout, menu);
-    const float listTop   = panel.y + 58.0f * layout.scale;
-    const int   first     = GroupMenuFirstVisible(menu, listTop, panel.bottom() - 26.0f * layout.scale,
-                                                  rowHeight);
-    const Rect  rowRect{panel.x + 6.0f * layout.scale,
-                        listTop + (index - first) * rowHeight,
-                        panel.w - 12.0f * layout.scale, rowHeight};
-    const Rect  control = OptionControlRect(layout, item, rowRect);
-
-    // Cambiare una preferenza vuole il puntatore **sul controllo**. Un clic sul
-    // resto della riga la sceglie e basta: sulla riga di `Spacing` un clic a
-    // sinistra avrebbe messo lo slider a zero, che non e' quello che si chiede
-    // cliccando un'etichetta.
-    if (!control.Contains(x, y))
-        return MenuAction::None;
-
-    switch (item.control)
-    {
-        case OptionControl::Toggle:
-            item.toggleOn = !item.toggleOn;
-            ApplyOptionFromItem(app, item);
-            break;
-        case OptionControl::Text:
-            BeginOptionEdit(app, item);
-            break;
-        case OptionControl::Choice:
-            OpenOptionChoice(app, item);
-            break;
-        case OptionControl::Stepper:
-            item.valueText = std::to_string(atoi(item.valueText.c_str()) +
-                                            (x < control.x + control.w * 0.5f ? -1 : 1));
-            ApplyOptionFromItem(app, item);
-            break;
-        case OptionControl::Slider:
-        {
-            const float knob  = control.h * 0.5f;
-            const float track = (std::max)(1.0f, control.w - knob * 2.0f);
-            float fraction = (x - (control.x + knob)) / track;
-            fraction = (fraction < 0.0f) ? 0.0f : (fraction > 1.0f ? 1.0f : fraction);
-            item.fraction = fraction;
-            app.optionSliderDrag = item.id;   // il trascinamento continua nel movimento
-            ApplyOptionFromItem(app, item);
-            break;
-        }
-        default:
-            break;
-    }
-    return MenuAction::None;
-}
-
-void RunCommand(AppState& app, int command)
-{
-    const int cursorIndex = CursorIndex(app);
-
-    switch (static_cast<CommandId>(command))
-    {
-        case CmdNewTab:  NewTab(app, app.directory.empty() ? L"C:\\" : app.directory); break;
-        case CmdCloseTab: CloseTab(app, app.activeTab); break;
-        case CmdNextTab:
-            if (app.tabs.size() > 1) ActivateTab(app, (app.activeTab + 1) % static_cast<int>(app.tabs.size()));
-            break;
-        case CmdPrevTab:
-            if (app.tabs.size() > 1)
-            {
-                const int count = static_cast<int>(app.tabs.size());
-                ActivateTab(app, (app.activeTab + count - 1) % count);
-            }
-            break;
-
-        // In una cartella dello spazio dei nomi il genitore lo sa la shell: sopra
-        // il cestino c'e' il desktop, e `ParentOf` su "::{...}" non troverebbe
-        // niente da tagliare.
-        //
-        // Da una **radice di volume** invece `ParentOf` non sale: `C:\` e' padre di
-        // se stesso, e salire da li' non faceva niente. Sopra un disco c'e' "This
-        // PC", che e' una cartella di spazio dei nomi: la stessa lista di unita'
-        // della barra laterale, raggiungibile col gesto che ci si aspetta.
-        case CmdGoUp:
-            if (ShellLocation::IsNamespace(app.directory))
-            {
-                const std::wstring up = ShellLocation::ParentOf(app.directory);
-                if (!up.empty())
-                    LoadDirectory(app, up);
-            }
-            else
-            {
-                const std::wstring up = ParentOf(app.directory);
-                if (up != app.directory)
-                    LoadDirectory(app, up);
-                else if (!app.thisPcPath.empty() && app.directory != app.thisPcPath)
-                    LoadDirectory(app, app.thisPcPath);
-            }
-            break;
-        case CmdBack:      NavigateBack(app); break;
-        case CmdForward:   NavigateForward(app); break;
-        case CmdGoTo:      BuildGoToMenu(app); break;
-        case CmdRefresh:   app.stats.ClearAll(); LoadDirectory(app, app.directory); break;
-        case CmdRecalcStats: app.stats.ClearAll(); break;
-
-        case CmdCopy:      DoCopyToClipboard(app, /*cut=*/false); break;
-        case CmdCut:       DoCopyToClipboard(app, /*cut=*/true); break;
-        case CmdPaste:     DoPaste(app); break;
-        case CmdRename:    BeginRename(app); break;
-        case CmdNewFolder: DoNewFolder(app); break;
-        case CmdDelete:          DoDelete(app, /*permanently=*/false); break;
-        case CmdDeletePermanent: DoDelete(app, /*permanently=*/true); break;
-
-        case CmdOpenExplorer:
-            // Dentro una cartella dello spazio dei nomi `/select` non vale, e non
-            // serve: si apre la cartella stessa, che e' quello che si vede.
-            if (ShellLocation::IsNamespace(app.directory))
-            {
-                ShellExecuteW(nullptr, L"open", L"explorer.exe", app.directory.c_str(), nullptr,
-                              SW_SHOWNORMAL);
-            }
-            else if (cursorIndex >= 0)
-            {
-                const std::wstring full = JoinPath(app.directory, app.entries[static_cast<size_t>(cursorIndex)].wideName);
-                const std::wstring arguments = L"/select,\"" + full + L"\"";
-                ShellExecuteW(nullptr, L"open", L"explorer.exe", arguments.c_str(), nullptr, SW_SHOWNORMAL);
-            }
-            else
-            {
-                ShellExecuteW(nullptr, L"open", L"explorer.exe", app.directory.c_str(), nullptr, SW_SHOWNORMAL);
-            }
-            break;
-
-        case CmdOpenConsole:
-            ShellExecuteW(nullptr, L"open", L"cmd.exe", nullptr, app.directory.c_str(), SW_SHOWNORMAL);
-            break;
-
-        case CmdToggleSidebar:
-            app.sidebarVisible = !app.sidebarVisible;
-            RememberSettings(app);
-            break;
-        // Una preferenza si cambia e si **ricorda**: e' quello che l'autore ha
-        // chiesto per la lingua, e vale per tutte quelle che si scelgono qui.
-        case CmdToggleHoverToSelect:    app.hoverToSelect    = !app.hoverToSelect;    RememberSettings(app); break;
-        case CmdToggleUnderlineOnHover: app.underlineOnHover = !app.underlineOnHover; RememberSettings(app); break;
-        case CmdToggleTooltips:         app.showTooltips     = !app.showTooltips;     RememberSettings(app); break;
-        case CmdSingleClick:            app.singleClick            = !app.singleClick;            RememberSettings(app); break;
-        case CmdSingleClickFoldersOnly: app.singleClickFoldersOnly = !app.singleClickFoldersOnly; RememberSettings(app); break;
-        case CmdActOnPress:             app.actOnPress             = !app.actOnPress;             RememberSettings(app); break;
-        case CmdDoubleClickToParent:    app.doubleClickToParent    = !app.doubleClickToParent;    RememberSettings(app); break;
-        case CmdShowCheckboxes:         app.showCheckboxes         = !app.showCheckboxes;         RememberSettings(app); break;
-        case CmdLanguageItalian:
-            gLanguage = Language::Italian;
-            RememberSettings(app);
-            ReportStatus(app, TrW(L"Impostazioni salvate in ", L"Settings saved to ") + SettingsPath());
-            break;
-        case CmdLanguageEnglish:
-            gLanguage = Language::English;
-            RememberSettings(app);
-            ReportStatus(app, TrW(L"Impostazioni salvate in ", L"Settings saved to ") + SettingsPath());
-            break;
-        case CmdShowSettingsPath:
-            ReportStatus(app, SettingsPath().empty()
-                                 ? TrW(L"Impostazioni non disponibili", L"Settings unavailable")
-                                 : TrW(L"Impostazioni in ", L"Settings in ") + SettingsPath());
-            break;
-        // Le tre dell'aspetto, che sono anche le tre chiavi dello spec. Sono la via
-        // rapida per cambiare tavolozza: dal pannello delle opzioni servono tre passaggi
-        // — aprire, cercare, scegliere — e qui uno.
-        case CmdColorSchemeLight:
-            SetColorScheme(app, ColorScheme::Light);
-            ReportStatus(app, TrW(L"Tema: chiaro", L"Theme: light"));
-            break;
-        case CmdColorSchemeDark:
-            SetColorScheme(app, ColorScheme::Dark);
-            ReportStatus(app, TrW(L"Tema: scuro", L"Theme: dark"));
-            break;
-        case CmdSystemColorScheme:
-            app.systemColorScheme = !app.systemColorScheme;
-            ApplyTheme(app);
-            RememberSettings(app);
-            ReportStatus(app, app.systemColorScheme
-                                 ? TrW(L"Tema: segue il sistema", L"Theme: follows the system")
-                                 : TrW(L"Tema: scelto a mano", L"Theme: chosen by hand"));
-            break;
-        case CmdOpenOptions:
-            BuildOptionsMenu(app);
-            break;
-        case CmdProperties:
-            OpenPropertiesPanel(app);
-            break;
-        case CmdPropertiesWindows:
-        {
-            const std::vector<std::wstring> paths = SelectedPaths(app);
-            if (paths.empty() || ShowProperties(app.window, paths) == 0)
-                ReportStatus(app, TrW(L"Proprietà non disponibili per la selezione.",
-                                      L"Properties unavailable for the selection."));
-            break;
-        }
-        case CmdCloseInTree:
-            CloseTabTree(app, app.tabs[static_cast<size_t>(app.activeTab)].id, /*wholeTree=*/false);
-            break;
-        case CmdCloseAllInTree:
-            CloseTabTree(app, app.tabs[static_cast<size_t>(app.activeTab)].id, /*wholeTree=*/true);
-            break;
-        case CmdDetachTab:
-        {
-            // "Stacca" riporta il tab alla radice: e' l'unico modo di disfare un
-            // annidamento senza cercarne un altro con il mouse.
-            Tab& tab = app.tabs[static_cast<size_t>(app.activeTab)];
-            tab.parentId = -1;
-            break;
-        }
-        case CmdZoomIn:    app.zoom = (std::min)(2.0f, app.zoom + 0.1f); break;
-
-        // Le quattro opzioni del visualizzatore. Cambiano il disegno del testo, non
-        // la lista: la riga da rifare e' quella delle righe visibili, e si rifa' da
-        // sola perche' il calcolo si accorge che l'andare a capo e' cambiato.
-        case CmdTextWhitespace:  app.textShowWhitespace = !app.textShowWhitespace; break;
-        case CmdTextLineNumbers: app.textLineNumbers = !app.textLineNumbers; break;
-        case CmdTextMinimap:     app.textMinimap = !app.textMinimap; break;
-        case CmdTextWrap:
-            app.textWrap = !app.textWrap;
-            app.textRowsDirty = true;
-            break;
-        case CmdTextZoomIn:
-            app.textZoom = (std::min)(2.4f, app.textZoom + 0.15f);
-            app.textRowsDirty = true;
-            break;
-        case CmdTextZoomOut:
-            app.textZoom = (std::max)(0.6f, app.textZoom - 0.15f);
-            app.textRowsDirty = true;
-            break;
-
-        // L'ingrandimento dell'anteprima e' **relativo all'adattamento**: il
-        // decoder la ridimensiona a 1024 px al massimo, quindi "1:1 rispetto
-        // all'originale" non e' una cosa che si possa promettere.
-        case CmdImageZoomIn:  app.imageZoom = (std::min)(4.0f, app.imageZoom + 0.25f); break;
-        case CmdImageZoomOut: app.imageZoom = (std::max)(0.25f, app.imageZoom - 0.25f); break;
-        case CmdImageZoomFit: app.imageZoom = 1.0f; break;
-        // La griglia dietro l'anteprima dell'immagine: si vede dove finisce lo sfondo
-        // dell'immagine e comincia quello del pannello. Si ricorda, come le altre
-        // preferenze.
-        case CmdToggleImageGrid:
-            app.inspectorHideGrid = !app.inspectorHideGrid;
-            RememberSettings(app);
-            break;
-        case CmdZoomOut:   app.zoom = (std::max)(0.6f, app.zoom - 0.1f); break;
-        case CmdZoomReset: app.zoom = app.dpiScale; break;
-        case CmdToggleDetails: app.palette.detailed = !app.palette.detailed; break;
-        // Cambiando vista le celle si spostano, e l'indice della riga sotto il
-        // puntatore non vuol piu' dire niente: il sovrappasso si azzera e lo
-        // ricalcola il prossimo movimento. Senza, il suggerimento resta appeso a
-        // una voce che non e' piu' quella sotto il mouse.
-        case CmdViewDetails: SetViewMode(app, ViewMode::Details); break;
-        case CmdViewList:    SetViewMode(app, ViewMode::List);    break;
-        case CmdViewTiles:   SetViewMode(app, ViewMode::Tiles);   break;
-        case CmdViewIcons:   SetViewMode(app, ViewMode::Icons);   break;
-        case CmdToggleBookmark: ToggleBookmark(app); break;
-        case CmdClearBookmarks: app.bookmarks.clear(); break;
-        case CmdClearRecents:   app.recents.clear(); break;
-
-        case CmdSortName:     app.sortColumn = SortColumn::Name;     SortEntries(app); app.viewDirty = true; break;
-        case CmdSortType:     app.sortColumn = SortColumn::Type;     SortEntries(app); app.viewDirty = true; break;
-        case CmdSortModified: app.sortColumn = SortColumn::Modified; SortEntries(app); app.viewDirty = true; break;
-        case CmdSortFolders:  app.sortColumn = SortColumn::Folders;  SortEntries(app); app.viewDirty = true; break;
-        case CmdSortFiles:    app.sortColumn = SortColumn::Files;    SortEntries(app); app.viewDirty = true; break;
-        case CmdSortSize:     app.sortColumn = SortColumn::Size;     SortEntries(app); app.viewDirty = true; break;
-        case CmdSortDirection: app.sortAscending = !app.sortAscending; SortEntries(app); app.viewDirty = true; break;
-
-        case CmdGroupNone:   app.groupMode = GroupMode::None;   app.viewDirty = true; break;
-        case CmdGroupName:   app.groupMode = GroupMode::Name;   app.viewDirty = true; break;
-        case CmdGroupDate:   app.groupMode = GroupMode::Date;   app.viewDirty = true; break;
-        case CmdGroupSize:   app.groupMode = GroupMode::Size;   app.viewDirty = true; break;
-        case CmdGroupCount:  app.groupMode = GroupMode::Count;  app.viewDirty = true; break;
-        case CmdGroupVolume: app.groupMode = GroupMode::Volume; app.viewDirty = true; break;
-
-        case CmdFocusFilter: app.filterActive = true; break;
-        case CmdClearFilter:
-            app.filter.clear();
-            app.filterActive = false;
-            app.viewDirty = true;
-            break;
-
-        case CmdScrollTop:
-            app.scroll = 0.0f;
-            break;
-        case CmdScrollBottom:
-        {
-            const Layout layout = ComputeLayout(app);
-            const float content = static_cast<float>(app.rows.size()) * layout.rowHeight;
-            app.scroll = (std::max)(0.0f, content - layout.list.h);
-            break;
-        }
-    }
-}
-
-Rect GroupMenuPanel(const AppState& app, const Layout& layout, const GroupMenu& menu)
-{
-    const float scale = layout.scale;
-    // Il pannello delle opzioni ha bisogno di piu' larghezza: una descrizione
-    // accanto a un controllo, dentro 560 px, non ci sta.
-    const float maxWidth = menu.richRows ? 760.0f : 560.0f;
-    const float width  = (std::min)(maxWidth * scale, static_cast<float>(app.viewportWidth) - 60.0f * scale);
-    const float height = (std::min)((menu.richRows ? 560.0f : 420.0f) * scale,
-                                    static_cast<float>(app.viewportHeight) - 90.0f * scale);
-    return Rect{(static_cast<float>(app.viewportWidth) - width) * 0.5f, 70.0f * scale, width, height};
-}
-
-// Il pannello dei valori di una colonna: piu' stretto degli altri, appoggiato sotto
-// l'intestazione e alto quanto basta ai suoi valori, invece di 420 px di vuoto.
-Rect ColumnMenuPanel(const AppState& app, const Layout& layout, const GroupMenu& menu)
-{
-    const float scale = layout.scale;
-    const float width = 260.0f * scale;
-    const float wanted = 84.0f * scale + static_cast<float>(menu.rows.size()) * layout.rowHeight;
-    const float room = static_cast<float>(app.viewportHeight) - menu.anchor.bottom() - 20.0f * scale;
-    const float height = (std::min)((std::min)(520.0f * scale, wanted), (std::max)(160.0f * scale, room));
-    float x = menu.anchor.x;
-    if (x + width > static_cast<float>(app.viewportWidth) - 10.0f * scale)
-        x = static_cast<float>(app.viewportWidth) - width - 10.0f * scale;
-    return Rect{x, menu.anchor.bottom() + 2.0f * scale, width, height};
-}
-
-Rect MenuPanel(const AppState& app, const Layout& layout, const GroupMenu& menu)
-{
-    return menu.anchored ? ColumnMenuPanel(app, layout, menu) : GroupMenuPanel(app, layout, menu);
-}
 
 // --- menu contestuale: geometria, disegno, interazione ----------------------
-void ActivateSelection(AppState& app);
+// Il menu contestuale e' un modulo (`view_context_menu.*`): qui resta il clic che lo
+// apre e la regola di quando un clic solo attiva.
 
 // Un clic solo attiva? Dipende da due chiavi, e la regola sta in un posto solo
 // perche' i tre gesti che la usano (pressione, rilascio, doppio clic) non possano
@@ -4534,1783 +2019,8 @@ bool SingleClickActivates(const AppState& app, const Entry& entry)
 // il primo, 1 il sottomenu aperto, e cosi' via. `openPath` tiene gli indici delle
 // voci aperte, uno per livello, e `levels` la scelta e la finestra di ogni
 // livello. Il livello piu' profondo aperto e' quello su cui si agisce.
-const std::vector<ContextMenuItem>* LevelItems(const ContextMenu& menu, int depth)
-{
-    const std::vector<ContextMenuItem>* items = &menu.items;
-    for (int i = 0; i < depth; ++i)
-    {
-        if (i >= static_cast<int>(menu.openPath.size()))
-            return nullptr;
-        const int index = menu.openPath[static_cast<size_t>(i)];
-        if (index < 0 || index >= static_cast<int>(items->size()))
-            return nullptr;
-        items = &(*items)[static_cast<size_t>(index)].children;
-    }
-    return items;
-}
 
-int LevelCount(const ContextMenu& menu, int depth)
-{
-    const std::vector<ContextMenuItem>* items = LevelItems(menu, depth);
-    return items == nullptr ? 0 : static_cast<int>(items->size());
-}
 
-const ContextMenuItem* LevelItem(const ContextMenu& menu, int depth, int index)
-{
-    const std::vector<ContextMenuItem>* items = LevelItems(menu, depth);
-    if (items == nullptr || index < 0 || index >= static_cast<int>(items->size()))
-        return nullptr;
-    return &(*items)[static_cast<size_t>(index)];
-}
-
-// Come LevelItem, ma per chi deve SCRIVERE nella voce: il contenuto di un
-// sottomenu della shell si copia dentro `children` alla prima apertura.
-ContextMenuItem* LevelItemMutable(ContextMenu& menu, int depth, int index)
-{
-    std::vector<ContextMenuItem>* items = &menu.items;
-    for (int i = 0; i < depth; ++i)
-    {
-        if (i >= static_cast<int>(menu.openPath.size()))
-            return nullptr;
-        const int parent = menu.openPath[static_cast<size_t>(i)];
-        if (parent < 0 || parent >= static_cast<int>(items->size()))
-            return nullptr;
-        items = &(*items)[static_cast<size_t>(parent)].children;
-    }
-    if (index < 0 || index >= static_cast<int>(items->size()))
-        return nullptr;
-    return &(*items)[static_cast<size_t>(index)];
-}
-
-// La voce ha qualcosa dentro? Vale anche per un sottomenu della shell **non
-// ancora letto**: il suo contenuto non esiste prima di aprirlo, e chiederlo per
-// tutti a ogni tasto destro costerebbe quanto interrogare la shell dieci volte.
-bool HasSubmenu(const ContextMenuItem& item)
-{
-    return item.shellSubmenu != nullptr || !item.children.empty() || item.lazyNewFile ||
-           item.lazySendTo;
-}
-
-int ActiveDepth(const ContextMenu& menu)
-{
-    return static_cast<int>(menu.openPath.size());
-}
-
-float ContextMenuWidth(const AppState& app, const Layout& layout, int depth)
-{
-    const float scale = layout.scale;
-    float widest = 0.0f;
-    float arrow  = 0.0f;
-    const int total = LevelCount(app.contextMenu, depth);
-    for (int i = 0; i < total; ++i)
-    {
-        const ContextMenuItem* item = LevelItem(app.contextMenu, depth, i);
-        widest = (std::max)(widest, app.font.Measure(item->label, scale));
-        if (HasSubmenu(*item))
-            arrow = 18.0f * scale;   // lo spazio del segno di sottomenu
-    }
-
-    // La larghezza si DERIVA dal contenuto, con un minimo e un massimo: fissa
-    // taglierebbe le voci lunghe come "Apri in Esplora risorse", e larga quanto
-    // l'etichetta piu' lunga lascerebbe il sottotitolo a sbattere sul bordo.
-    return (std::max)(220.0f * scale, (std::min)(340.0f * scale, widest + 56.0f * scale + arrow));
-}
-
-// Quante voci entrano nell'altezza utile, a partire da |firstItem|.
-//
-// Il taglio cade sempre fra due voci. Una voce mostrata a meta' si sceglie per
-// sbaglio, e con i verbi della shell il menu supera la finestra molto prima di
-// quanto si creda: venti voci su un monitor normale sono piu' della finestra.
-int ContextMenuVisibleCount(const AppState& app, const Layout& layout, int depth, int firstItem)
-{
-    const float scale     = layout.scale;
-    const float separator = 7.0f * scale;
-    // 8 px di margine sotto, 6 px di riempimento sopra e sotto: quello che resta
-    // e' lo spazio delle voci. Il sottotitolo ce l'ha solo il primo livello.
-    const float footer = (depth == 0) ? 22.0f * scale : 0.0f;
-    const float room = static_cast<float>(app.viewportHeight) - 8.0f * scale -
-                       12.0f * scale - footer;
-
-    const int total = LevelCount(app.contextMenu, depth);
-    float used  = 0.0f;
-    int   count = 0;
-    for (int i = firstItem; i < total; ++i)
-    {
-        const ContextMenuItem* item = LevelItem(app.contextMenu, depth, i);
-        const float height = (item != nullptr && item->separator) ? separator : layout.rowHeight;
-        // Almeno una voce si mostra sempre: un menu vuoto non si spiega.
-        if (count > 0 && used + height > room)
-            break;
-        used += height;
-        ++count;
-    }
-    return count;
-}
-
-// I due si chiamano a vicenda: il pannello di un sottomenu si ancora alla riga
-// della voce che lo apre, e la riga si misura dentro il pannello.
-Rect ContextMenuRowRect(const AppState& app, const Layout& layout, int depth, int index);
-
-Rect ContextMenuPanel(const AppState& app, const Layout& layout, int depth)
-{
-    const float scale     = layout.scale;
-    const float separator = 7.0f * scale;
-    const float padding   = 6.0f * scale;
-
-    const ContextMenu& menu = app.contextMenu;
-    const int first   = menu.levels[static_cast<size_t>(depth)].firstItem;
-    const int visible = ContextMenuVisibleCount(app, layout, depth, first);
-
-    float content = 0.0f;
-    for (int i = first; i < first + visible; ++i)
-    {
-        const ContextMenuItem* item = LevelItem(menu, depth, i);
-        content += (item != nullptr && item->separator) ? separator : layout.rowHeight;
-    }
-
-    const float width = ContextMenuWidth(app, layout, depth);
-    // 22 px in fondo per il sottotitolo, che c'e' solo nel primo livello.
-    const float footer = (depth == 0) ? 22.0f * scale : 0.0f;
-    const float height = content + padding * 2.0f + footer;
-
-    // L'ancora: il primo livello sta dove ha cliccato il puntatore, un sottomenu
-    // accanto alla voce che lo apre.
-    float anchorX = menu.x;
-    float anchorY = menu.y;
-    if (depth > 0)
-    {
-        const Rect parent = ContextMenuPanel(app, layout, depth - 1);
-        const int parentIndex = menu.openPath[static_cast<size_t>(depth - 1)];
-        const Rect row = ContextMenuRowRect(app, layout, depth - 1, parentIndex);
-        anchorX = parent.right() - 4.0f * scale;
-        anchorY = row.y - padding;
-
-        // A destra non ci sta? Si apre a sinistra, come i menu di Windows: un
-        // sottomenu che esce dalla finestra non si puo' leggere.
-        if (anchorX + width > static_cast<float>(app.viewportWidth) - 4.0f * scale)
-            anchorX = parent.x - width + 4.0f * scale;
-    }
-
-    // Il menu si ancora al puntatore ma non esce dalla finestra: aperto accanto
-    // al bordo destro finirebbe per meta' fuori e irraggiungibile.
-    const float maxX = static_cast<float>(app.viewportWidth) - width - 4.0f * scale;
-    const float maxY = static_cast<float>(app.viewportHeight) - height - 4.0f * scale;
-    const float x = (std::max)(4.0f * scale, (std::min)(anchorX, maxX));
-    const float y = (std::max)(4.0f * scale, (std::min)(anchorY, maxY));
-    return Rect{x, y, width, height};
-}
-
-// Ultimo indice disegnato, escluso. Fuori da questo intervallo una voce non
-// esiste: non si disegna, non si sovrappassa e non si clicca. Cosi' non serve
-// nessun taglio, perche' quello che non si disegna non sborda.
-int ContextMenuLastVisible(const AppState& app, const Layout& layout, int depth)
-{
-    const int first   = app.contextMenu.levels[static_cast<size_t>(depth)].firstItem;
-    const int visible = ContextMenuVisibleCount(app, layout, depth, first);
-    return (std::min)(LevelCount(app.contextMenu, depth), first + visible);
-}
-
-Rect ContextMenuRowRect(const AppState& app, const Layout& layout, int depth, int index)
-{
-    const Rect panel       = ContextMenuPanel(app, layout, depth);
-    const float scale      = layout.scale;
-    const float separator  = 7.0f * scale;
-    const float padding    = 6.0f * scale;
-
-    const ContextMenu& menu = app.contextMenu;
-    float top = panel.y + padding;
-    for (int i = menu.levels[static_cast<size_t>(depth)].firstItem; i < index; ++i)
-    {
-        const ContextMenuItem* item = LevelItem(menu, depth, i);
-        top += (item != nullptr && item->separator) ? separator : layout.rowHeight;
-    }
-
-    const ContextMenuItem* item = LevelItem(menu, depth, index);
-    const float height = (item != nullptr && item->separator) ? separator : layout.rowHeight;
-    return Rect{panel.x + 4.0f * scale, top, panel.w - 8.0f * scale, height};
-}
-
-// Tiene la finestra del menu dentro i limiti e ci tiene dentro la voce scelta:
-// l'Invio esegue quello che si vede, quindi la selezione non deve poter uscire
-// dal pannello.
-void ContextMenuClampWindow(AppState& app, const Layout& layout, int depth,
-                            bool followSelection = true)
-{
-    ContextMenu& menu = app.contextMenu;
-    if (depth < 0 || depth >= static_cast<int>(menu.levels.size()))
-        return;
-
-    ContextMenuLevel& level = menu.levels[static_cast<size_t>(depth)];
-    const int total = LevelCount(menu, depth);
-    if (total == 0)
-    {
-        level.firstItem = 0;
-        return;
-    }
-
-    // La rotella scorre la finestra SENZA trascinarsi dietro la scelta: la voce
-    // sotto il puntatore e' scelta dal sovrappasso, e obbligarla a restare
-    // visibile faceva resistire il menu alla rotella stessa. Per le frecce
-    // l'opposto e' vero, e la voce scelta non deve poter uscire dal pannello.
-    if (!followSelection)
-    {
-        const int capacity = (std::max)(1, ContextMenuVisibleCount(app, layout, depth, 0));
-        level.firstItem =
-            (std::max)(0, (std::min)(level.firstItem, (std::max)(0, total - capacity)));
-
-        if (level.selected >= 0 &&
-            (level.selected < level.firstItem ||
-             level.selected >= ContextMenuLastVisible(app, layout, depth)))
-            level.selected = -1;   // l'Invio esegue quello che si vede, o niente
-        return;
-    }
-
-    const int capacity = (std::max)(1, ContextMenuVisibleCount(app, layout, depth, 0));
-    level.firstItem = (std::max)(0, (std::min)(level.firstItem, (std::max)(0, total - capacity)));
-
-    if (level.selected < 0)
-        return;
-    if (level.selected < level.firstItem)
-    {
-        level.firstItem = level.selected;
-        return;
-    }
-
-    // Si avanza finche' la voce scelta non entra: quante ne entrano dipende da
-    // dove si comincia, perche' un separatore non e' alto quanto una voce.
-    while (level.firstItem < level.selected &&
-           level.firstItem + ContextMenuVisibleCount(app, layout, depth, level.firstItem) <=
-               level.selected)
-        ++level.firstItem;
-    level.firstItem = (std::min)(level.firstItem, level.selected);
-}
-
-// --- verbi della shell nel menu contestuale ---------------------------------
-//
-// La shell sa fare cose che non sono nostre: "Apri con", "Invia a", i verbi
-// delle estensioni installate. Non si reimplementa niente: le si chiede
-// l'oggetto di interfaccia della selezione, le si fa descrivere il proprio menu
-// dentro un HMENU che non mostriamo mai, se ne leggono le voci e se ne esegue una
-// quando l'utente la sceglie. Il binario di File Pilot fa esattamente questo —
-// `Win_ContextMenuBuild`, `P_GetContextMenu`, `P_ContextMenuInvoke`, e la
-// stringa `GCS_VERBW` per leggere i verbi.
-
-// Gli id della shell vivono in una banda riservata: dentro quella banda un id e'
-// un indice per IContextMenu, fuori e' un nostro CommandId.
-constexpr int kShellCmdFirst = 0x6000;
-constexpr int kShellCmdLast  = 0x6FFF;
-
-// Le voci di "Nuovo file" hanno una banda loro, per lo stesso motivo: l'indice e'
-// la posizione del modello nell'elenco letto dal registro.
-constexpr int kNewItemCmdFirst = 0x7000;
-constexpr int kNewItemCmdLast  = 0x70FF;
-
-// Le destinazioni di "Invia a": stessa banda per lo stesso motivo, l'indice e' la
-// posizione nell'elenco letto dalla cartella SendTo.
-constexpr int kSendToCmdFirst = 0x7100;
-constexpr int kSendToCmdLast  = 0x71FF;
-
-
-// L'atlante dei glifi copre il solo ASCII stampabile, quindi un'etichetta della
-// shell con un accento mostrerebbe un buco: si ripiega sull'ASCII, come fa gia'
-// "Proprieta'" scritto a mano.
-char FoldAccent(wchar_t c)
-{
-    switch (c)
-    {
-        case L'\u00e0': case L'\u00e1': case L'\u00e2': case L'\u00e3': case L'\u00e4': case L'\u00e5': return 'a';
-        case L'\u00c0': case L'\u00c1': case L'\u00c2': case L'\u00c3': case L'\u00c4': case L'\u00c5': return 'A';
-        case L'\u00e7': return 'c';
-        case L'\u00c7': return 'C';
-        case L'\u00e8': case L'\u00e9': case L'\u00ea': case L'\u00eb': return 'e';
-        case L'\u00c8': case L'\u00c9': case L'\u00ca': case L'\u00cb': return 'E';
-        case L'\u00ec': case L'\u00ed': case L'\u00ee': case L'\u00ef': return 'i';
-        case L'\u00cc': case L'\u00cd': case L'\u00ce': case L'\u00cf': return 'I';
-        case L'\u00f1': return 'n';
-        case L'\u00d1': return 'N';
-        case L'\u00f2': case L'\u00f3': case L'\u00f4': case L'\u00f5': case L'\u00f6': return 'o';
-        case L'\u00d2': case L'\u00d3': case L'\u00d4': case L'\u00d5': case L'\u00d6': return 'O';
-        case L'\u00f9': case L'\u00fa': case L'\u00fb': case L'\u00fc': return 'u';
-        case L'\u00d9': case L'\u00da': case L'\u00db': case L'\u00dc': return 'U';
-        case L'\u00fd': case L'\u00ff': return 'y';
-        default: break;
-    }
-    return '\0';
-}
-
-std::string ShellLabelToAscii(const std::wstring& text)
-{
-    std::string out;
-    out.reserve(text.size());
-    for (size_t i = 0; i < text.size(); ++i)
-    {
-        const wchar_t c = text[i];
-
-        // Nelle etichette della shell la e commerciale segnala il tasto di scelta
-        // rapida e si raddoppia per scriverla davvero: "Aggiungi ad &&Accesso"
-        // significa "Aggiungi ad &Accesso". Il nostro menu non ha tasti di scelta
-        // rapida, quindi l'occhiello si toglie invece di finire a schermo.
-        if (c == L'&')
-        {
-            if (i + 1 < text.size() && text[i + 1] == L'&')
-            {
-                out.push_back('&');
-                ++i;
-            }
-            continue;
-        }
-
-        if (c >= 32 && c < 127)
-        {
-            out.push_back(static_cast<char>(c));
-            continue;
-        }
-
-        // Gli accenti si passano come sono: l'atlante li disegna, adesso. Prima si
-        // ripiegavano su ASCII, e "Citta'" era l'unica forma scrivibile — anche per
-        // una cartella che si chiama "Città".
-        if (c >= 0x00A0 && c <= 0x00FF)
-        {
-            out += ToUtf8(std::wstring(1, c));
-            continue;
-        }
-
-        // Oltre il latino-1 resta il ripiego: meglio una lettera senza segno che un
-        // buco. Quello che non si sa ripiegare si passa lo stesso, e sara' l'atlante
-        // a non avere il glifo — che e' diverso dal perdere il carattere qui.
-        const char folded = FoldAccent(c);
-        if (folded != '\0')
-        {
-            out.push_back(folded);
-            continue;
-        }
-        out += ToUtf8(std::wstring(1, c));
-    }
-    return out;
-}
-
-bool SameWord(const wchar_t* a, const wchar_t* b)
-{
-    while (*a != L'\0' && *b != L'\0')
-    {
-        if (towlower(*a) != towlower(*b))
-            return false;
-        ++a;
-        ++b;
-    }
-    return *a == *b;
-}
-
-// I verbi che il nostro menu gia' offre: ripeterli accanto ai nostri comandi
-// darebbe due "Taglia" e due "Proprieta'" nella stessa lista. Il confronto e' per
-// verbo canonico e non per etichetta, perche' l'etichetta e' tradotta e il verbo
-// no. "Apri con" (openas) NON e' fra questi: e' proprio uno dei motivi per cui
-// la shell viene interrogata.
-//
-// Sul menu della CARTELLA l'elenco e' piu' corto, e non per svogliatezza: la'
-// il nostro menu non ha ne' "Apri" ne' "Proprieta'", quindi quelli della shell
-// sono un guadagno e non un doppione. Resta fuori solo cio' che c'e' in tutti e
-// due, cioe' l'incolla.
-bool IsOwnShellVerb(const wchar_t* verb, bool folderBackground)
-{
-    if (folderBackground)
-        return SameWord(verb, L"paste");
-
-    static const wchar_t* const kOwn[] = {
-        L"open", L"cut", L"copy", L"paste", L"delete", L"rename", L"properties",
-    };
-    for (const wchar_t* own : kOwn)
-    {
-        if (SameWord(verb, own))
-            return true;
-    }
-    return false;
-}
-
-// Rilascia quello che la shell ci ha prestato. Va chiamato a ogni chiusura del
-// menu: un IContextMenu tenuto in vita e' una DLL di estensione che non si
-// scarica, e un HMENU mai distrutto e' una risorsa utente che cola.
-// Il menu **lascia andare** gli oggetti della shell: non li distrugge, perche' non
-// sono suoi. Il proprietario e' la memoria dei verbi, che li rilascia quando il
-// risultato non serve piu' a nessuno (`ReleaseShellMenuCache`).
-void ShellMenuDetach(ContextMenu& menu)
-{
-    menu.shell     = nullptr;
-    menu.shellMenu = nullptr;
-}
-
-// Rilascia davvero. Si chiama quando la selezione cambia, quando la memoria scade,
-// e all'uscita.
-void ReleaseShellMenuCache(AppState& app)
-{
-    AppState::ShellMenuCache& cache = app.shellMenuCache;
-    if (cache.shell != nullptr)
-    {
-        cache.shell->Release();
-        cache.shell = nullptr;
-    }
-    if (cache.handle != nullptr)
-    {
-        DestroyMenu(cache.handle);
-        cache.handle = nullptr;
-    }
-    cache.valid = false;
-    cache.items.clear();
-    cache.key.clear();
-}
-
-// I sottomenu che la shell popola **da sé** — "Nuovo", "Invia a", "Dare accesso
-// a" — e che da qui non si possono eseguire: la shell consegna i comandi di
-// quei sottomenu alla finestra del menu, e noi una finestra di menu non
-// l'abbiamo. Offrirli sarebbe offrire voci che non fanno niente.
-//
-// Il confronto è per verbo canonico. Una voce senza verbo viene trattata come
-// della shell: non si può sapere di chi è, e la prudenza costa una voce, non un
-// comando che finge di riuscire.
-bool IsShellOwnSubmenuVerb(const wchar_t* verb)
-{
-    if (verb[0] == L'\0')
-        return true;
-
-    static const wchar_t* const kShellOwn[] = {
-        L"New",      L"Windows.Share", L"Windows.SendTo", L"SendTo",
-        L"View",     L"Arrange",       L"Arrangement",    L"Sort",
-        L"Group",    L"Layout",        L"Background",     L"Customize",
-    };
-    for (const wchar_t* own : kShellOwn)
-    {
-        if (SameWord(verb, own))
-            return true;
-    }
-    return false;
-}
-
-// Legge le voci di un menu della shell — separatori compresi — e le traduce nel
-// nostro elenco. Vale per il menu della selezione, per quello del fondo della
-// cartella, e un livello alla volta per un sottomenu.
-void ReadShellMenu(IContextMenu* shell, HMENU handle, bool folderBackground,
-                   std::vector<ContextMenuItem>* out, int* outSkipped)
-{
-        const int count = GetMenuItemCount(handle);
-        for (int i = 0; i < count; ++i)
-        {
-            MENUITEMINFOW basic{};
-            basic.cbSize = sizeof(basic);
-            basic.fMask  = MIIM_FTYPE | MIIM_ID | MIIM_STATE | MIIM_SUBMENU;
-            if (!GetMenuItemInfoW(handle, static_cast<UINT>(i), TRUE, &basic))
-                continue;
-
-            if ((basic.fType & MFT_SEPARATOR) != 0)
-            {
-                out->push_back({"", 0, /*separator=*/true});
-                continue;
-            }
-
-            // Fuori banda la voce non si potrebbe eseguire: meglio non offrirla
-            // che offrirla e non farla partire.
-            if (basic.wID < kShellCmdFirst || basic.wID >= kShellCmdLast)
-                continue;
-
-            const UINT offset = static_cast<UINT>(basic.wID) - kShellCmdFirst;
-
-            wchar_t verb[128]{};
-            const bool haveVerb = SUCCEEDED(shell->GetCommandString(
-                offset, GCS_VERBW, nullptr, reinterpret_cast<LPSTR>(verb), 128));
-
-            if (haveVerb && IsOwnShellVerb(verb, folderBackground))
-                continue;
-
-            wchar_t text[256]{};
-            MENUITEMINFOW detailed{};
-            detailed.cbSize     = sizeof(detailed);
-            detailed.fMask      = MIIM_STRING;
-            detailed.dwTypeData = text;
-            detailed.cch        = 255;
-            GetMenuItemInfoW(handle, static_cast<UINT>(i), TRUE, &detailed);
-
-            ContextMenuItem item;
-            item.label    = ShellLabelToAscii(text);
-            item.command  = static_cast<int>(basic.wID);
-            item.disabled = (basic.fState & (MFS_DISABLED | MFS_GRAYED)) != 0;
-
-            // Un sottomenu si legge **quando si apre**, non adesso: il suo
-            // contenuto non esiste prima di WM_INITMENUPOPUP, e chiederlo per
-            // tutti a ogni tasto destro costerebbe quanto interrogare la shell
-            // dieci volte, per voci che magari nessuno apre. `shellPosition` e'
-            // dove la voce sta nel menu padre, e la shell vuole saperlo per
-            // decidere cosa popolare.
-            if (basic.hSubMenu != nullptr)
-            {
-                // Che sia di un'estensione o della shell decide se la voce si
-                // potra' eseguire: vedi IsShellOwnSubmenuVerb.
-                if (!haveVerb || IsShellOwnSubmenuVerb(verb))
-                {
-                    DiagLog("  saltata (sottomenu della shell, non eseguibile): '" +
-                            item.label + "'");
-                    ++(*outSkipped);
-                    continue;
-                }
-                item.command       = 0;
-                item.shellSubmenu  = basic.hSubMenu;
-                item.shellPosition = i;
-            }
-
-            // Le voci disegnate da chi le ha messe (ownerdraw) non portano il
-            // testo nel menu: il ripiego e' il testo di aiuto, che e' meglio del
-            // nome tecnico del verbo.
-            if (item.label.empty())
-            {
-                wchar_t help[256]{};
-                if (SUCCEEDED(shell->GetCommandString(offset, GCS_HELPTEXTW, nullptr,
-                                                      reinterpret_cast<LPSTR>(help), 256)))
-                    item.label = ShellLabelToAscii(help);
-            }
-            if (item.label.empty())
-            {
-                DiagLog("  saltata (senza etichetta): verbo '" + ShellLabelToAscii(verb) + "'");
-                ++(*outSkipped);
-                continue;
-            }
-
-            DiagLog("  voce: '" + item.label + "'" + (haveVerb ? " verbo '" : " verbo '?") +
-                    ShellLabelToAscii(verb) + "'" + (item.disabled ? " (spenta)" : ""));
-            out->push_back(std::move(item));
-        }
-
-        // La shell apre e chiude con dei separatori suoi, che accanto ai nostri
-        // diventerebbero doppi; e togliendo le voci che offriamo gia' possono
-        // restarne due di fila.
-        std::vector<ContextMenuItem> cleaned;
-        for (ContextMenuItem& item : *out)
-        {
-            if (item.separator && (cleaned.empty() || cleaned.back().separator))
-                continue;
-            cleaned.push_back(std::move(item));
-        }
-        while (!cleaned.empty() && cleaned.back().separator)
-            cleaned.pop_back();
-        *out = std::move(cleaned);
-}
-
-// Chiede alla shell il menu della selezione e ne copia le voci utilizzabili.
-// L'IContextMenu esce da qui perche' serve ancora al momento dell'esecuzione: la
-// shell non accetta un verbo senza l'oggetto da cui e' uscito.
-bool BuildShellItems(HWND owner, const std::vector<std::wstring>& paths,
-                     const std::vector<const BYTE*>& selectionPidls, bool folderBackground,
-                     IContextMenu** outMenu, HMENU* outHandle,
-                     std::vector<ContextMenuItem>* out, int* outSkipped)
-{
-    *outMenu    = nullptr;
-    *outHandle  = nullptr;
-    *outSkipped = 0;
-    if (paths.empty())
-        return false;
-
-    std::vector<PIDLIST_ABSOLUTE> pidls;
-    IShellFolder* parent = nullptr;
-    IContextMenu* shell   = nullptr;
-
-    // Il menu del FONDO della cartella non e' il menu della cartella come
-    // elemento, e la shell li tiene distinti. La differenza si vede: il secondo
-    // offre Taglia, Copia ed Elimina **sulla cartella stessa**, che a destra di
-    // un fondo non se li aspetta nessuno. Il fondo si chiede alla vista, con
-    // `CreateViewObject`; la cartella come elemento con `GetUIObjectOf`. Chiedere
-    // quello sbagliato non da' un errore: da' un menu plausibile e pericoloso.
-    if (folderBackground)
-    {
-        PIDLIST_ABSOLUTE pidl = nullptr;
-        if (SUCCEEDED(SHParseDisplayName(paths.front().c_str(), nullptr, &pidl, 0, nullptr)))
-        {
-            IShellFolder* folder = nullptr;
-            if (SUCCEEDED(SHBindToObject(nullptr, pidl, nullptr, IID_IShellFolder,
-                                         reinterpret_cast<void**>(&folder))))
-            {
-                folder->CreateViewObject(owner, IID_IContextMenu,
-                                         reinterpret_cast<void**>(&shell));
-                folder->Release();
-            }
-            CoTaskMemFree(pidl);
-        }
-    }
-    else if (!selectionPidls.empty())
-    {
-        // Le voci selezionate **hanno un PIDL**: si usa quello, e non il loro nome.
-        // Per una voce di spazio dei nomi il nome e' un'altra cosa — il percorso del
-        // file dentro `$Recycle.Bin` — e la shell, se le si chiede il menu di quel
-        // nome, risponde col menu di quel file: "Ripristina" non c'e', e al suo
-        // posto ci sono i verbi del tipo di file. Sembra ragionevole ed e' sbagliato.
-        PCUIDLIST_ABSOLUTE first = reinterpret_cast<PCUIDLIST_ABSOLUTE>(selectionPidls.front());
-        if (SUCCEEDED(SHBindToParent(first, IID_IShellFolder, reinterpret_cast<void**>(&parent),
-                                     nullptr)) &&
-            parent != nullptr)
-        {
-            std::vector<PCUITEMID_CHILD> children;
-            children.reserve(selectionPidls.size());
-            for (const BYTE* pidl : selectionPidls)
-                children.push_back(ILFindLastID(reinterpret_cast<PCUIDLIST_ABSOLUTE>(pidl)));
-
-            parent->GetUIObjectOf(owner, static_cast<UINT>(children.size()), children.data(),
-                                  IID_IContextMenu, nullptr, reinterpret_cast<void**>(&shell));
-        }
-    }
-    else
-    {
-        for (const std::wstring& path : paths)
-        {
-            PIDLIST_ABSOLUTE pidl = nullptr;
-            if (FAILED(SHParseDisplayName(path.c_str(), nullptr, &pidl, 0, nullptr)))
-                break;
-
-            // La lista mostra una cartella sola, quindi il padre di tutti i percorsi
-            // selezionati e' lo stesso: quello del primo.
-            if (parent == nullptr &&
-                FAILED(SHBindToParent(pidl, IID_IShellFolder, reinterpret_cast<void**>(&parent), nullptr)))
-            {
-                CoTaskMemFree(pidl);
-                break;
-            }
-            pidls.push_back(pidl);
-        }
-
-        if (parent != nullptr && !pidls.empty())
-        {
-            // GetUIObjectOf vuole i figli relativi alla cartella padre, e l'ultimo id
-            // di un pidl assoluto e' esattamente quello.
-            std::vector<PCUITEMID_CHILD> children;
-            children.reserve(pidls.size());
-            for (PIDLIST_ABSOLUTE pidl : pidls)
-                children.push_back(ILFindLastID(pidl));
-
-            parent->GetUIObjectOf(owner, static_cast<UINT>(children.size()),
-                                  children.data(), IID_IContextMenu, nullptr,
-                                  reinterpret_cast<void**>(&shell));
-        }
-    }
-
-    if (shell != nullptr)
-    {
-        HMENU handle = CreatePopupMenu();
-        if (handle != nullptr &&
-            SUCCEEDED(shell->QueryContextMenu(handle, 0, kShellCmdFirst, kShellCmdLast, CMF_NORMAL)))
-        {
-            ReadShellMenu(shell, handle, folderBackground, out, outSkipped);
-
-            if (!out->empty())
-            {
-                *outMenu   = shell;
-                *outHandle = handle;
-                shell  = nullptr;
-                handle = nullptr;
-            }
-        }
-
-        if (handle != nullptr)
-            DestroyMenu(handle);
-        if (shell != nullptr)
-            shell->Release();
-    }
-    if (parent != nullptr)
-        parent->Release();
-
-    for (PIDLIST_ABSOLUTE pidl : pidls)
-        CoTaskMemFree(pidl);
-
-    return *outMenu != nullptr;
-}
-
-// Aggiunge al menu le voci della shell, se ce ne sono. Il blocco resta separato
-// dai nostri comandi: sono di un altro, e mescolarli farebbe sembrare nostro
-// quello che non lo e'.
-void AppendShellItems(AppState& app, ContextMenu& menu)
-{
-    // La chiave dice **cosa** si e' chiesto, non quando: la stessa selezione nello
-    // stesso posto da' gli stessi verbi, e un'estensione non cambia mestiere fra un
-    // tasto destro e il successivo.
-    const bool folderBackground = app.selection.empty();
-    std::wstring key = app.directory;
-    key += folderBackground ? L"|sfondo" : L"|selezione";
-    for (const std::wstring& name : app.selection)
-    {
-        key += L"|";
-        key += name;
-    }
-
-    AppState::ShellMenuCache& cache = app.shellMenuCache;
-    // La scadenza c'e' per una ragione precisa: al primo menu della sessione le
-    // estensioni moderne di Windows 11 non si sono ancora registrate, e quello che
-    // si e' letto e' un elenco **incompleto**. Tenendolo per sempre, "Apri nel
-    // Terminale" non comparirebbe mai; tenendolo mezzo minuto, si corregge da solo.
-    if (cache.valid && cache.key == key && NowSeconds() - cache.stamp < 30.0)
-    {
-        DiagLog("--- " + DiagClock() + " verbi della shell **ripresi dalla memoria**: " +
-                std::to_string(cache.items.size()) + " voci");
-        menu.shell             = cache.shell;
-        menu.shellMenu         = cache.handle;
-        menu.shellIsBackground = cache.background;
-        for (const ContextMenuItem& item : cache.items)
-            menu.items.push_back(item);
-        menu.items.push_back({"", 0, /*separator=*/true});
-        return;
-    }
-
-    std::vector<std::wstring> paths = SelectedPaths(app);
-
-    // Nel vuoto il contesto della shell e' **la cartella aperta**: il menu che si
-    // apre col tasto destro sul fondo parla della cartella, non di un file. Sono
-    // gli stessi verbi su un altro oggetto, ed e' da li' che arrivano "Apri in
-    // Terminale", "Condividi" e la finestra delle proprieta' della cartella.
-    if (folderBackground)
-    {
-        if (app.directory.empty())
-            return;
-        paths.push_back(app.directory);
-    }
-
-    const double started = NowSeconds();
-    std::vector<ContextMenuItem> items;
-    IContextMenu* shell    = nullptr;
-    HMENU handle           = nullptr;
-    int skipped            = 0;
-    // I PIDL servono solo per la selezione: sul fondo della cartella il contesto
-    // della shell e' la cartella stessa.
-    const std::vector<const BYTE*> pidls = folderBackground ? std::vector<const BYTE*>()
-                                                            : SelectedPidls(app);
-    BuildShellItems(app.window, paths, pidls, folderBackground, &shell, &handle, &items, &skipped);
-    const double elapsed = (NowSeconds() - started) * 1000.0;
-
-    DiagLog("--- " + DiagClock() + (folderBackground ? " sfondo," : " selezione,") + " " +
-            std::to_string(paths.size()) + " percorsi, " + std::to_string(items.size()) +
-            " voci, " + std::to_string(skipped) + " saltate, " + std::to_string(elapsed) + " ms");
-
-    // Il risultato vecchio si rilascia **dopo** aver costruito il nuovo: se la
-    // costruzione fallisce, quello che c'era non e' gia' stato buttato via.
-    ReleaseShellMenuCache(app);
-
-    if (shell == nullptr)
-    {
-        ShellMenuDetach(menu);
-        return;
-    }
-
-    cache.valid      = true;
-    cache.background = folderBackground;
-    cache.key        = key;
-    cache.items      = items;      // una copia: il menu ne prende la sua
-    cache.shell      = shell;
-    cache.handle     = handle;
-    cache.stamp      = NowSeconds();
-
-    menu.shell             = shell;
-    menu.shellMenu         = handle;
-    menu.shellIsBackground = folderBackground;
-    for (ContextMenuItem& item : items)
-        menu.items.push_back(std::move(item));
-    // Il separatore va DOPO il blocco: chi lo innesta ci mette il proprio davanti,
-    // e in testa a un menu che comincia con la shell sarebbe stato un separatore
-    // orfano.
-    menu.items.push_back({"", 0, /*separator=*/true});
-}
-
-void ContextMenuClose(AppState& app)
-{
-    ContextMenu& menu = app.contextMenu;
-    menu.open = false;
-    // I livelli non si svuotano: restano uno solo, vuoto. Un array vuoto
-    // significherebbe che il livello 0 non esiste, e ogni funzione di geometria
-    // lo indicizza.
-    menu.openPath.clear();
-    menu.levels.assign(1, ContextMenuLevel{});
-    menu.items.clear();
-    menu.shellIsBackground = false;
-    ShellMenuDetach(menu);   // gli oggetti restano in memoria, per la stessa selezione
-}
-
-// Quanti handle di kernel ha in mano il processo. Serve a distinguere un costo da
-// una perdita: un'estensione che si carica una volta e' un costo, un handle che
-// non torna piu' giu' e' una perdita, e le due cose si vedono uguali contando le
-// aperture del menu.
-static DWORD OpenHandleCount()
-{
-    DWORD count = 0;
-    GetProcessHandleCount(GetCurrentProcess(), &count);
-    return count;
-}
-
-void BuildContextMenu(AppState& app, float x, float y)
-{
-    ContextMenu& menu = app.contextMenu;
-    const DWORD handlesStart = OpenHandleCount();
-    menu.items.clear();
-    menu.x = x;
-    menu.y = y;
-    menu.openPath.clear();
-    menu.levels.assign(1, ContextMenuLevel{});
-    menu.shellIsBackground = false;
-
-    const size_t count = app.selection.size();
-    menu.subtitle = count == 0
-                        ? std::string(Tr("niente selezionato", "nothing selected"))
-                        : std::to_string(count) +
-                              (count == 1 ? Tr(" elemento", " item") : Tr(" elementi", " items"));
-
-    // Il menu si adatta al contesto: nel vuoto restano solo le voci che valgono
-    // per la cartella, perche' offrire "Rinomina" senza niente da rinominare e'
-    // promettere qualcosa che non si puo' mantenere.
-    // In una cartella che non e' un percorso — il cestino — le voci che agiscono su
-    // un percorso si spengono invece di sparire: la loro assenza non spiegherebbe
-    // niente, e un comando che dice "qui non si puo'" lo dice solo dopo essere
-    // stato scelto. Spente, si vede che li' non valgono.
-    const bool namespaced = ShellLocation::IsNamespace(app.directory);
-
-    // Li' dentro "Apri" vale per le cartelle (una cartella nel cestino si apre) e
-    // non per i file: un file nel cestino non si apre, si ripristina.
-    bool cursorIsFile = false;
-    if (namespaced && count > 0)
-    {
-        for (const Entry& entry : app.entries)
-        {
-            if (entry.wideName == app.cursor)
-            {
-                cursorIsFile = !entry.isDirectory;
-                break;
-            }
-        }
-    }
-
-    if (count > 0)
-    {
-        menu.items.push_back({Tr("Apri", "Open"), kContextOpen, false, namespaced && cursorIsFile});
-        menu.items.push_back({Tr("Apri in Esplora risorse", "Open in Explorer"), CmdOpenExplorer,
-                              false, namespaced});
-        menu.items.push_back({"", 0, /*separator=*/true});
-        menu.items.push_back({Tr("Taglia", "Cut"), CmdCut, false, namespaced});
-        menu.items.push_back({Tr("Copia", "Copy"), CmdCopy, false, namespaced});
-
-        // "Invia a" qui e non in fondo: e' dove sta in Esplora risorse, subito
-        // dopo il blocco Taglia/Copia, e li' la mano lo cerca.
-        DiagLog("  handle: prima di 'Invia a' +" +
-                std::to_string(OpenHandleCount() - handlesStart));
-        if (!ShellSendTo::Targets().empty())
-        {
-            ContextMenuItem sendTo;
-            sendTo.label      = Tr("Invia a", "Send to");
-            sendTo.lazySendTo = true;
-            sendTo.disabled   = namespaced;
-            menu.items.push_back(std::move(sendTo));
-        }
-        menu.items.push_back({"", 0, true});
-        menu.items.push_back({Tr("Rinomina", "Rename"), CmdRename, false, namespaced});
-        menu.items.push_back({Tr("Elimina", "Delete"), CmdDelete, false, namespaced});
-        menu.items.push_back({Tr("Elimina definitivamente", "Delete permanently"),
-                              CmdDeletePermanent, false, namespaced});
-        menu.items.push_back({"", 0, true});
-        menu.items.push_back({Tr("Proprietà", "Properties"), kContextProperties, false, namespaced});
-        menu.items.push_back({Tr("Proprietà di Windows", "Windows properties"),
-                              kContextPropertiesWindows, false, namespaced});
-
-        // I verbi della shell stanno dopo i nostri: i nostri sono quelli che si
-        // usano davvero, e non devono scendere sotto una lista lunga quanto le
-        // estensioni installate su questa macchina.
-        menu.items.push_back({"", 0, true});
-        AppendShellItems(app, menu);
-    }
-    else
-    {
-        // Col tasto destro sul fondo, invece, la shell apre il menu: quello e' il
-        // contesto di cio' su cui si e' cliccato.
-        AppendShellItems(app, menu);
-    }
-
-    menu.items.push_back({count > 0 ? Tr("Incolla qui", "Paste here") : Tr("Incolla", "Paste"),
-                          CmdPaste, false, namespaced});
-    menu.items.push_back({Tr("Nuova cartella", "New folder"), CmdNewFolder, false, namespaced});
-
-    // "Nuovo file": i tipi che Windows sa creare, dal registro. Se il registro non
-    // ne ha nessuno la voce non si mette, perche' un sottomenu vuoto non si spiega.
-    DiagLog("  handle: dopo 'Invia a' e i verbi +" +
-            std::to_string(OpenHandleCount() - handlesStart));
-    if (!ShellNew::Templates().empty())
-    {
-        ContextMenuItem newFile;
-        newFile.label       = Tr("Nuovo file", "New file");
-        newFile.lazyNewFile = true;
-        newFile.disabled    = namespaced;
-        menu.items.push_back(std::move(newFile));
-    }
-
-    menu.items.push_back({"", 0, true});
-    menu.items.push_back({Tr("Aggiorna", "Refresh"), CmdRefresh});
-    menu.items.push_back({Tr("Apri un terminale qui", "Open a console here"), CmdOpenConsole, false,
-                          namespaced});
-
-    DiagLog("  handle: dopo 'Nuovo file' +" +
-            std::to_string(OpenHandleCount() - handlesStart));
-    menu.open = true;
-}
-
-void ContextMenuMove(AppState& app, const Layout& layout, int delta)
-{
-    ContextMenu& menu = app.contextMenu;
-    const int depth = ActiveDepth(menu);
-    ContextMenuLevel& level = menu.levels[static_cast<size_t>(depth)];
-    const int count = LevelCount(menu, depth);
-    if (count == 0 || delta == 0)
-        return;
-
-    // Niente e' selezionato all'apertura, e la prima freccia deve scegliere la
-    // PRIMA voce. Partendo da 0 l'incremento del ciclo salterebbe proprio quella
-    // e la selezione comincerebbe dalla seconda: l'errore era invisibile con la
-    // prima voce separata da un separatore e non con le altre.
-    //
-    // Le frecce saltano i separatori e le voci spente: fermarcisi sopra non vuol
-    // dire niente e l'Invio non avrebbe nulla da eseguire.
-    int index = level.selected < 0 ? (delta > 0 ? -1 : count) : level.selected;
-    for (int step = 0; step < count; ++step)
-    {
-        index = (index + delta + count * 2) % count;
-        const ContextMenuItem* item = LevelItem(menu, depth, index);
-        if (item != nullptr && !item->separator && !item->disabled)
-            break;
-    }
-    level.selected = index;
-
-    // Se la voce scelta sta fuori dal pannello, il menu scivola di quel tanto.
-    ContextMenuClampWindow(app, layout, depth);
-}
-
-// Porta la scelta alla prima o all'ultima voce eseguibile.
-void ContextMenuJump(AppState& app, const Layout& layout, bool toFirst)
-{
-    ContextMenu& menu = app.contextMenu;
-    const int depth = ActiveDepth(menu);
-    ContextMenuLevel& level = menu.levels[static_cast<size_t>(depth)];
-    const int count = LevelCount(menu, depth);
-    if (count == 0)
-        return;
-
-    const int step = toFirst ? 1 : -1;
-    int index = toFirst ? -1 : count;
-    for (int i = 0; i < count; ++i)
-    {
-        index = (index + step + count * 2) % count;
-        const ContextMenuItem* item = LevelItem(menu, depth, index);
-        if (item != nullptr && !item->separator && !item->disabled)
-            break;
-    }
-    level.selected = index;
-    ContextMenuClampWindow(app, layout, depth);
-}
-
-// Apre la finestra delle proprieta' di Windows sulla selezione: la stessa che
-// apre Esplora risorse, quindi schede, permessi, versioni e anteprime sono quelli
-// del sistema e non una nostra imitazione. Restituisce quante ne ha aperte.
-int ShowProperties(HWND owner, const std::vector<std::wstring>& paths)
-{
-    int launched = 0;
-    for (const std::wstring& path : paths)
-    {
-        SHELLEXECUTEINFOW info{};
-        info.cbSize = sizeof(info);
-        info.fMask  = SEE_MASK_INVOKEIDLIST | SEE_MASK_FLAG_NO_UI;
-        info.hwnd   = owner;
-        info.lpVerb = L"properties";
-        info.lpFile = path.c_str();
-        info.nShow  = SW_SHOWNORMAL;
-        if (ShellExecuteExW(&info))
-            ++launched;
-    }
-    return launched;
-}
-
-// --- il menu "Nuovo file", che facciamo noi ---------------------------------
-//
-// La shell il proprio "Nuovo" lo popola in un sottomenu, e i comandi di quel
-// sottomenu non si possono eseguire da qui (vedi `IsShellOwnSubmenuVerb`), quindi
-// il menu "Nuovo file" se lo costruisce Bolt dalle stesse fonti che usa la shell:
-// le chiavi `ShellNew` del registro. Vedi `docs/04-roadmap.md`, sezione M7.
-
-// Riempie il sottomenu coi modelli del registro: un CommandId della banda per
-// ciascuno, che e' la sua posizione nell'elenco.
-void FillNewFileMenu(ContextMenuItem& item)
-{
-    const double started = NowSeconds();
-    const std::vector<ShellNew::Template>& templates = ShellNew::Templates();
-    const double elapsed = (NowSeconds() - started) * 1000.0;
-
-    for (size_t i = 0; i < templates.size(); ++i)
-    {
-        ContextMenuItem entry;
-        entry.label   = ShellLabelToAscii(templates[i].label);
-        entry.command = kNewItemCmdFirst + static_cast<int>(i);
-        item.children.push_back(std::move(entry));
-        DiagLog("    nuovo file: '" + item.children.back().label + "'");
-    }
-
-    DiagLog("  modelli di 'Nuovo file': " + std::to_string(templates.size()) + " voci, " +
-            std::to_string(elapsed) + " ms");
-}
-
-// --- il menu "Invia a", che facciamo noi -------------------------------------
-//
-// Stessa storia del "Nuovo": la shell il proprio "Invia a" lo popola in un
-// sottomenu, e quei comandi non si possono eseguire da fuori. La differenza e' che
-// qui la fonte non e' nascosta: "Invia a" e' **una cartella vera**
-// (`%APPDATA%\Microsoft\Windows\SendTo`), quindi si legge e si esegue a mano.
-// Vedi `src/shell_sendto.h`.
-
-// Riempie il sottomenu con le destinazioni: un CommandId della banda per ciascuna,
-// che e' la sua posizione nell'elenco letto adesso.
-void FillSendToMenu(ContextMenuItem& item)
-{
-    const double started = NowSeconds();
-    const std::vector<ShellSendTo::Target> targets = ShellSendTo::Targets();
-    const double elapsed = (NowSeconds() - started) * 1000.0;
-
-    for (size_t i = 0; i < targets.size(); ++i)
-    {
-        ContextMenuItem entry;
-        entry.label   = ShellLabelToAscii(targets[i].label);
-        entry.command = kSendToCmdFirst + static_cast<int>(i);
-        item.children.push_back(std::move(entry));
-    }
-
-    // Deliberatamente **senza le etichette**: l'elenco delle destinazioni dice
-    // quali programmi ha installato chi usa questo computer, e nel registro
-    // diagnostico non ci finisce. Vedi `AGENTS.md` §0.
-    DiagLog("  destinazioni di 'Invia a': " + std::to_string(targets.size()) + " voci, " +
-            std::to_string(elapsed) + " ms");
-}
-
-// Lascia cadere la selezione su una voce della cartella SendTo.
-//
-// Non si avvia con `ShellExecuteEx`, e la ragione e' nel registro: la voce
-// "cartella compressa" della cartella SendTo **non e' un programma**, e' un file
-// `.ZFSendToTarget` che contiene un CLSID, e il suo handler e' registrato come
-// `DropHandler` — il registro lo dice con le parole "Drag Files onto this icon to
-// compress them". Avviarla non le da' niente da comprimere: `ShellExecuteEx`
-// restituisce TRUE e non succede niente, che e' la peggiore delle risposte.
-//
-// Quindi si fa quello che farebbe il mouse: si prende il bersaglio di caduta della
-// voce e gli si lascia cadere sopra la selezione. Vale per tutte le voci della
-// cartella, compresi i collegamenti ai programmi, che si aprono con i file
-// ricevuti — e' quello che fa la shell quando ci si trascina sopra qualcosa.
-bool DropOnSendToTarget(HWND owner, const std::wstring& path, IDataObject* data)
-{
-    if (data == nullptr)
-        return false;
-
-    PIDLIST_ABSOLUTE item = nullptr;
-    if (FAILED(SHParseDisplayName(path.c_str(), nullptr, &item, 0, nullptr)) || item == nullptr)
-        return false;
-
-    PIDLIST_ABSOLUTE parent = ILClone(item);
-    bool dropped = false;
-
-    IShellFolder* folder = nullptr;
-    if (parent != nullptr)
-    {
-        ILRemoveLastID(parent);
-        if (SUCCEEDED(SHBindToObject(nullptr, parent, nullptr, IID_IShellFolder,
-                                    reinterpret_cast<void**>(&folder))) &&
-            folder != nullptr)
-        {
-            PCUITEMID_CHILD child = ILFindLastID(item);
-            IDropTarget* target = nullptr;
-            if (SUCCEEDED(folder->GetUIObjectOf(owner, 1, &child, IID_IDropTarget, nullptr,
-                                                reinterpret_cast<void**>(&target))) &&
-                target != nullptr)
-            {
-                // `DROPEFFECT_COPY`: "invia a" manda una copia, non sposta — e'
-                // quello che fa la shell, ed e' anche quello che serve alla
-                // cartella compressa, che legge i file senza portarli via.
-                POINTL point{};
-                DWORD  effect = DROPEFFECT_COPY;
-                if (SUCCEEDED(target->DragEnter(data, MK_LBUTTON, point, &effect)))
-                {
-                    effect = DROPEFFECT_COPY;
-                    dropped = SUCCEEDED(target->Drop(data, MK_LBUTTON, point, &effect));
-                    DiagLog("  caduta su voce: effetto restituito " + std::to_string(effect));
-                }
-                target->Release();
-            }
-            folder->Release();
-        }
-        CoTaskMemFree(parent);
-    }
-    CoTaskMemFree(item);
-    return dropped;
-}
-
-// Manda la selezione a una destinazione di "Invia a".
-void SendToTargets(AppState& app, size_t index, const std::vector<std::wstring>& paths)
-{
-    const std::vector<ShellSendTo::Target> targets = ShellSendTo::Targets();
-    if (index >= targets.size())
-        return;
-    if (paths.empty())
-        return;   // mandare "niente" da qualche parte non e' un'azione
-
-    IDataObject* data = DragDrop::DataObjectFor(paths);
-    const bool dropped = DropOnSendToTarget(app.window, targets[index].path, data);
-    if (data != nullptr)
-        data->Release();
-
-    if (!dropped)
-    {
-        // Nel registro va l'indice, **non l'etichetta**: le destinazioni dicono
-        // quali programmi ha installato chi usa il computer. Vedi `AGENTS.md` §0.
-        DiagLog("  invio a voce " + std::to_string(index) + ": non riuscito");
-        ReportStatus(app, L"\"" + targets[index].label +
-                              TrW(L"\" non ha accettato i file.",
-                                  L"\" did not accept the files."));
-        return;
-    }
-
-    DiagLog("  invio a voce " + std::to_string(index) + ": riuscito");
-
-    // "Avviato", non "fatto": la destinazione puo' copiare, comprimere o aprire
-    // una finestra sua, e il suo esito non e' nostro da dichiarare.
-    ReportStatus(app, TrW(L"Avviato: ", L"Launched: ") + targets[index].label);
-}
-
-// Chiede alla shell il contenuto di un sottomenu e lo copia nel nostro albero.
-//
-// Un sottomenu della shell **non ha contenuto** finche' non arriva
-// WM_INITMENUPOPUP: leggerlo prima vuol dire leggere un menu vuoto e concludere
-// che la voce non ha niente dentro. E il messaggio va mandato alla voce giusta,
-// perche' la shell decide COSA popolare in base alla posizione della voce nel
-// menu padre — "Invia a" di un file non e' quello di una cartella.
-void FillShellSubmenu(AppState& app, ContextMenuItem& item)
-{
-    if (item.shellSubmenu == nullptr || !item.children.empty())
-        return;
-    if (app.contextMenu.shell == nullptr)
-        return;
-
-    IContextMenu2* menu2 = nullptr;
-    if (SUCCEEDED(app.contextMenu.shell->QueryInterface(IID_IContextMenu2,
-                                                       reinterpret_cast<void**>(&menu2))))
-    {
-        menu2->HandleMenuMsg(WM_INITMENUPOPUP,
-                             reinterpret_cast<WPARAM>(item.shellSubmenu),
-                             static_cast<LPARAM>(item.shellPosition));
-        menu2->Release();
-    }
-
-    int skipped = 0;
-    ReadShellMenu(app.contextMenu.shell, item.shellSubmenu,
-                  app.contextMenu.shellIsBackground, &item.children, &skipped);
-    DiagLog("    sottomenu di '" + item.label + "': " + std::to_string(item.children.size()) +
-            " voci, " + std::to_string(skipped) + " saltate");
-}
-
-// Tiene i livelli da 0 a |depth| compreso e butta via quelli sotto.
-void CloseSubmenusBelow(ContextMenu& menu, int depth)
-{
-    const int wanted = depth + 1;
-    if (static_cast<int>(menu.levels.size()) <= wanted)
-        return;
-    menu.openPath.resize(static_cast<size_t>(depth));
-    menu.levels.resize(static_cast<size_t>(wanted));
-}
-
-// Apre il sottomenu della voce |index| del livello |depth|. Restituisce falso se
-// quella voce un sottomenu non ce l'ha, o se e' rimasto vuoto.
-bool OpenSubmenu(AppState& app, const Layout& layout, int depth, int index)
-{
-    ContextMenu& menu = app.contextMenu;
-    ContextMenuItem* item = LevelItemMutable(menu, depth, index);
-    if (item == nullptr || item->disabled || !HasSubmenu(*item))
-        return false;
-
-    // Gia' aperto esattamente cosi': non si rifa' niente. I movimenti del mouse
-    // arrivano a decine al secondo, e riaprire il sottomenu a ogni movimento
-    // azzererebbe la scelta che ci si e' appena spostati a fare.
-    if (static_cast<int>(menu.openPath.size()) > depth &&
-        menu.openPath[static_cast<size_t>(depth)] == index)
-        return true;
-
-    if (item->lazyNewFile && item->children.empty())
-        FillNewFileMenu(*item);
-    if (item->lazySendTo && item->children.empty())
-        FillSendToMenu(*item);
-
-    FillShellSubmenu(app, *item);
-    if (item->children.empty())
-    {
-        // Un sottomenu che resta vuoto non si apre: si vedrebbe un pannello vuoto
-        // e non si capirebbe se e' colpa nostra o della shell.
-        DiagLog("  sottomenu vuoto: '" + item->label + "'");
-        return false;
-    }
-
-    menu.openPath.resize(static_cast<size_t>(depth) + 1);
-    menu.openPath[static_cast<size_t>(depth)] = index;
-    menu.levels.resize(static_cast<size_t>(depth) + 2);
-
-    // La scelta cade sulla prima voce eseguibile: subito dopo si sta li' con le
-    // frecce, e un sottomenu aperto senza niente scelto non dice dove si e'.
-    ContextMenuLevel& level = menu.levels.back();
-    level.selected  = -1;
-    level.firstItem = 0;
-
-    const int newDepth = static_cast<int>(menu.openPath.size());
-    const int count = LevelCount(menu, newDepth);
-    for (int i = 0; i < count; ++i)
-    {
-        const ContextMenuItem* child = LevelItem(menu, newDepth, i);
-        if (child != nullptr && !child->separator && !child->disabled)
-        {
-            level.selected = i;
-            break;
-        }
-    }
-    ContextMenuClampWindow(app, layout, newDepth);
-    return true;
-}
-
-// Esc e freccia sinistra: si risale di un livello, e solo dal primo livello si
-// chiude il menu. E' l'unico modo di uscire da un sottomenu senza eseguire
-// niente, ed e' quello che fanno tutti i menu.
-void ContextMenuRaiseLevel(AppState& app)
-{
-    const int depth = ActiveDepth(app.contextMenu);
-    if (depth == 0)
-        ContextMenuClose(app);
-    else
-        CloseSubmenusBelow(app.contextMenu, depth - 1);
-}
-
-void ContextMenuActivate(AppState& app)
-{
-    ContextMenu& menu = app.contextMenu;
-    const int depth = ActiveDepth(menu);
-    const ContextMenuItem* chosen = LevelItem(menu, depth,
-                                              menu.levels[static_cast<size_t>(depth)].selected);
-    if (chosen == nullptr || chosen->separator || chosen->disabled)
-        return;
-
-    // Una voce con un sottomenu non esegue niente: lo apre, e ci si lavora
-    // dentro. E' l'Invio che scende, come nei menu di Windows.
-    if (HasSubmenu(*chosen))
-    {
-        OpenSubmenu(app, ComputeLayout(app), depth,
-                    menu.levels[static_cast<size_t>(depth)].selected);
-        return;
-    }
-
-    // Una voce di "Nuovo file": la posizione nella banda e' l'indice del modello
-    // letto dal registro. Il menu si chiude come per ogni altra voce: senza questo
-    // resterebbe aperto sopra la rinomina che parte subito dopo.
-    if (chosen->command >= kNewItemCmdFirst && chosen->command < kNewItemCmdLast)
-    {
-        const size_t model = static_cast<size_t>(chosen->command - kNewItemCmdFirst);
-        ContextMenuClose(app);
-        CreateNewItem(app, model);
-        return;
-    }
-
-    // Una destinazione di "Invia a": stessa forma — la posizione nella banda e'
-    // l'indice nell'elenco letto dalla cartella SendTo.
-    if (chosen->command >= kSendToCmdFirst && chosen->command < kSendToCmdLast)
-    {
-        const size_t target = static_cast<size_t>(chosen->command - kSendToCmdFirst);
-        const std::vector<std::wstring> paths = SelectedPaths(app);
-        ContextMenuClose(app);
-        SendToTargets(app, target, paths);
-        return;
-    }
-
-    const ContextMenuItem item = *chosen;
-    const std::vector<std::wstring> paths = SelectedPaths(app);
-
-    // Un id nella banda riservata appartiene alla shell, e l'IContextMenu serve
-    // ancora al momento dell'esecuzione: lo si prende prima di chiudere, perche'
-    // chiudere lo rilascia.
-    IContextMenu* shell  = app.contextMenu.shell;
-    const int     offset = item.command - kShellCmdFirst;
-    if (shell != nullptr)
-        shell->AddRef();
-    ContextMenuClose(app);
-
-    if (item.command >= kShellCmdFirst)
-    {
-        if (shell == nullptr)
-        {
-            ReportStatus(app, TrW(L"Comando della shell non piu' disponibile.",
-                                  L"Shell command no longer available."));
-            return;
-        }
-
-        CMINVOKECOMMANDINFOEX info{};
-        info.cbSize  = sizeof(info);
-        info.fMask   = CMIC_MASK_UNICODE | CMIC_MASK_FLAG_NO_UI;
-        info.hwnd    = app.window;
-        info.lpVerb  = MAKEINTRESOURCEA(static_cast<WORD>(offset));
-        info.lpVerbW = MAKEINTRESOURCEW(static_cast<WORD>(offset));
-        info.nShow   = SW_SHOWNORMAL;
-
-        const HRESULT hr = shell->InvokeCommand(reinterpret_cast<LPCMINVOKECOMMANDINFO>(&info));
-        shell->Release();
-
-        // Un'azione che fallisce in silenzio e' peggio di una che non parte.
-        if (FAILED(hr))
-        {
-            ReportStatus(app, TrW(L"Il comando della shell non e' partito.",
-                                  L"The shell command did not start."));
-            return;
-        }
-
-        // Un verbo della shell puo' aver cambiato la cartella: "Ripristina" toglie la
-        // voce dal cestino, "Estrai qui" aggiunge dei file. La vista si rifa', e la
-        // selezione si tiene per nome: quello che non c'e' piu' sparisce da solo.
-        ReloadKeeping(app, app.selection, app.cursor, app.scroll);
-        return;
-    }
-
-    if (item.command == kContextOpen)
-    {
-        ActivateSelection(app);
-        return;
-    }
-    if (item.command == kContextProperties)
-    {
-        // In-app: le stesse righe dell'inspector, in una finestra nostra.
-        app.contextMenu.open = false;
-        OpenPropertiesPanel(app);
-        return;
-    }
-    if (item.command == kContextPropertiesWindows)
-    {
-        // Un'azione che non fa niente in silenzio e' peggio di una che non parte:
-        // se non si apre niente, l'utente deve sapere perche'.
-        if (paths.empty())
-            ReportStatus(app, TrW(L"Niente su cui aprire le proprieta'.",
-                                  L"Nothing to show properties for."));
-        else if (ShowProperties(app.window, paths) == 0)
-            ReportStatus(app, TrW(L"Proprietà non disponibili per la selezione.",
-                                  L"Properties unavailable for the selection."));
-        return;
-    }
-
-    // Tutto il resto e' un comando che esiste gia': il menu contestuale non
-    // aggiunge capacita', rende raggiungibile dove serve quella che c'e'.
-    RunCommand(app, item.command);
-}
-
-// Disegna un livello del menu. Il livello 0 e' il menu, gli altri i sottomenu:
-// stesso pannello, senza sottotitolo, e col segno che dice quali voci ne hanno
-// uno dentro.
-void ContextMenuDrawLevel(AppState& app, const Layout& layout, int depth)
-{
-    ContextMenu& menu = app.contextMenu;
-    IRenderer& r = *app.renderer;
-    const Theme& t = app.theme;
-    const float scale = layout.scale;
-    const Rect panel = ContextMenuPanel(app, layout, depth);
-    const ContextMenuLevel& level = menu.levels[static_cast<size_t>(depth)];
-
-    r.Draw(UIDraw::Shadow(Rect{panel.x + 2.0f * scale, panel.y + 5.0f * scale, panel.w, panel.h},
-                          t.shadow, 20.0f * scale, 8.0f * scale));
-    r.Draw(UIDraw::Fill(panel, t.panelBg, 8.0f * scale));
-    r.Draw(UIDraw::Border(panel, t.panelBorder, 1.0f, 8.0f * scale));
-
-    // Solo le voci dentro la finestra del menu: quelle fuori non si disegnano, e
-    // quello che non si disegna non sborda fuori dal pannello.
-    for (int i = level.firstItem; i < ContextMenuLastVisible(app, layout, depth); ++i)
-    {
-        const ContextMenuItem* item = LevelItem(menu, depth, i);
-        if (item == nullptr)
-            continue;
-        const Rect row = ContextMenuRowRect(app, layout, depth, i);
-
-        if (item->separator)
-        {
-            r.FillRect(Rect{row.x + 6.0f * scale, row.y + row.h * 0.5f,
-                            row.w - 12.0f * scale, 1.0f},
-                       t.separator);
-            continue;
-        }
-
-        if (i == level.selected && !item->disabled)
-            r.FillRect(row, t.rowHover, 4.0f * scale);
-
-        app.font.Draw(r, row.x + 10.0f * scale, TextY(layout, row, app.font), item->label,
-                      item->disabled ? t.textDim : t.text, scale);
-
-        // Il segno che la voce ne contiene altre. L'atlante dei glifi e' ASCII,
-        // quindi e' un '>' e non una punta: si legge uguale, e non chiede un
-        // carattere che l'atlante non ha.
-        if (HasSubmenu(*item))
-            app.font.Draw(r, row.right() - 18.0f * scale, TextY(layout, row, app.font), ">",
-                          t.textDim, scale);
-    }
-
-    // La barra dice che sopra o sotto c'e' dell'altro: un menu che scorre senza
-    // dirlo sembra un menu a cui mancano delle voci.
-    const int total   = LevelCount(menu, depth);
-    const int visible = ContextMenuLastVisible(app, layout, depth) - level.firstItem;
-    if (visible < total)
-    {
-        const float footer = (depth == 0) ? 22.0f * scale : 0.0f;
-        const float trackY = panel.y + 6.0f * scale;
-        const float trackH = panel.h - 12.0f * scale - footer;
-        const float thumbH = trackH * static_cast<float>(visible) / static_cast<float>(total);
-        const float travel = trackH - thumbH;
-        const float offset = static_cast<float>(level.firstItem) /
-                             static_cast<float>((std::max)(1, total - visible));
-        r.FillRect(Rect{panel.right() - 7.0f * scale, trackY, 3.0f * scale, trackH}, t.separator);
-        r.FillRect(Rect{panel.right() - 7.0f * scale, trackY + travel * offset,
-                        3.0f * scale, thumbH},
-                   t.textDim);
-    }
-
-    // Il sottotitolo e' del primo livello soltanto: un sottomenu non conta niente.
-    if (depth == 0)
-        app.smallFont.Draw(r, panel.x + 14.0f * scale, panel.bottom() - 17.0f * scale,
-                           menu.subtitle, t.textDim, scale);
-}
-
-void ContextMenuDraw(AppState& app, const Layout& layout)
-{
-    if (!app.contextMenu.open)
-        return;
-
-    // Dal primo livello in giu': ogni pannello disegna sopra il precedente, che e'
-    // l'ordine in cui stanno sullo schermo.
-    for (int depth = 0; depth <= ActiveDepth(app.contextMenu); ++depth)
-        ContextMenuDrawLevel(app, layout, depth);
-}
-
-// Vero se il clic e' stato consumato dal menu.
-bool ContextMenuClick(AppState& app, const Layout& layout, float x, float y)
-{
-    if (!app.contextMenu.open)
-        return false;
-
-    ContextMenu& menu = app.contextMenu;
-
-    // Dal livello piu' profondo al primo: il pannello aperto per ultimo sta sopra
-    // gli altri, quindi e' lui che riceve il clic.
-    for (int depth = ActiveDepth(menu); depth >= 0; --depth)
-    {
-        if (!ContextMenuPanel(app, layout, depth).Contains(x, y))
-            continue;
-
-        ContextMenuLevel& level = menu.levels[static_cast<size_t>(depth)];
-        for (int i = level.firstItem; i < ContextMenuLastVisible(app, layout, depth); ++i)
-        {
-            if (!ContextMenuRowRect(app, layout, depth, i).Contains(x, y))
-                continue;
-            level.selected = i;
-            ContextMenuActivate(app);
-            return true;
-        }
-        return true;   // dentro il pannello, ma non su una voce
-    }
-
-    ContextMenuClose(app);
-    return true;   // un clic fuori chiude, e non deve arrivare alla lista
-}
-
-// Freccia destra: scende nel sottomenu della voce scelta. Se non ce l'ha non fa
-// niente — una voce semplice non e' un errore.
-void ContextMenuDescend(AppState& app, const Layout& layout)
-{
-    const ContextMenu& menu = app.contextMenu;
-    const int depth = ActiveDepth(menu);
-    const int index = menu.levels[static_cast<size_t>(depth)].selected;
-    if (index < 0)
-        return;
-    OpenSubmenu(app, layout, depth, index);
-}
-
-// Con il menu aperto il puntatore sceglie la voce, non la riga sotto: la lista e'
-// coperta, e sovrappassarla sarebbe un secondo stato che l'utente non vede.
-//
-// Il puntatore sceglie anche il LIVELLO: entrando in un pannello piu' profondo si
-// agisce su quello, e su una voce che contiene un sottomenu il sottomenu si apre
-// da solo. Col mouse e' cosi' che si usano i menu, ed e' anche l'unico modo di
-// accorgersi che quella voce ne aveva uno.
-bool ContextMenuHover(AppState& app, const Layout& layout, float x, float y)
-{
-    ContextMenu& menu = app.contextMenu;
-    if (!menu.open)
-        return false;
-
-    for (int depth = ActiveDepth(menu); depth >= 0; --depth)
-    {
-        if (!ContextMenuPanel(app, layout, depth).Contains(x, y))
-            continue;
-
-        ContextMenuLevel& level = menu.levels[static_cast<size_t>(depth)];
-        for (int i = level.firstItem; i < ContextMenuLastVisible(app, layout, depth); ++i)
-        {
-            const ContextMenuItem* item = LevelItem(menu, depth, i);
-            if (item == nullptr || item->separator || item->disabled ||
-                !ContextMenuRowRect(app, layout, depth, i).Contains(x, y))
-                continue;
-
-            level.selected = i;
-            if (HasSubmenu(*item))
-                OpenSubmenu(app, layout, depth, i);
-            else
-                CloseSubmenusBelow(menu, depth);   // questa voce non ne contiene altri
-            return true;
-        }
-
-        // Dentro il pannello ma non su una voce: la scelta di QUESTO livello cade,
-        // i livelli sotto restano dove sono.
-        level.selected = -1;
-        return true;
-    }
-
-    // Fuori da ogni pannello non si tocca niente: la scelta della tastiera non
-    // deve cadere perche' il puntatore e' andato altrove.
-    return true;
-}
-
-// Il disegno del controllo dentro una riga di opzione. Il tipo decide la forma,
-// e una opzione spenta si vede spenta invece di sparire: e' la lezione del
-// riferimento, dove `System Light / Dark Scheme` sta li' ma non si tocca.
-void DrawOptionControl(AppState& app, const Layout& layout, const GroupMenuItem& item,
-                       const Rect& control)
-{
-    IRenderer& r = *app.renderer;
-    const Theme& t = app.theme;
-    const float scale = layout.scale;
-    const Color ink  = item.enabled ? t.text : t.textDim.WithAlpha(0.55f);
-    const Color line = item.enabled ? t.panelBorder : t.separator;
-
-    switch (item.control)
-    {
-        case OptionControl::Toggle:
-        {
-            const Color track = item.enabled ? (item.toggleOn ? t.accent : t.panelBorder) : t.separator;
-            r.Draw(UIDraw::Fill(control, track, control.h * 0.5f));
-            const float knob = control.h - 4.0f * scale;
-            const float x = item.toggleOn ? control.right() - knob - 2.0f * scale
-                                          : control.x + 2.0f * scale;
-            r.Draw(UIDraw::Fill(Rect{x, control.y + 2.0f * scale, knob, knob},
-                                item.enabled ? Color{0.98f, 0.99f, 1.0f, 1.0f}
-                                             : t.textDim.WithAlpha(0.55f), knob * 0.5f));
-            break;
-        }
-        case OptionControl::Stepper:
-        {
-            r.Draw(UIDraw::Fill(control, t.windowBg, 4.0f * scale));
-            r.Draw(UIDraw::Border(control, line, 1.0f, 4.0f * scale));
-            const float box = control.w / 3.0f;
-            const float textY = TextY(layout, control, app.font);
-            app.font.Draw(r, control.x + box * 0.42f, textY, "-", ink, scale);
-            app.font.Draw(r, control.right() - box * 0.58f, textY, "+", ink, scale);
-            const float w = app.font.Measure(item.valueText, scale);
-            app.font.Draw(r, control.x + (control.w - w) * 0.5f, textY, item.valueText, ink, scale);
-            break;
-        }
-        case OptionControl::Slider:
-        {
-            const float knob   = control.h * 0.5f;
-            const float trackH = 4.0f * scale;
-            const Rect  track{control.x + knob, control.y + (control.h - trackH) * 0.5f,
-                              (std::max)(1.0f, control.w - knob * 2.0f), trackH};
-            r.Draw(UIDraw::Fill(track, item.enabled ? t.panelBorder : t.separator, trackH * 0.5f));
-            float fraction = item.fraction;
-            fraction = (fraction < 0.0f) ? 0.0f : (fraction > 1.0f ? 1.0f : fraction);
-            const float filled = track.w * fraction;
-            if (filled > 0.0f)
-                r.Draw(UIDraw::Fill(Rect{track.x, track.y, filled, track.h},
-                                    item.enabled ? t.accent : t.separator, trackH * 0.5f));
-            r.Draw(UIDraw::Fill(Rect{track.x + filled - knob, control.y, knob * 2.0f, knob * 2.0f},
-                                item.enabled ? Color{0.95f, 0.96f, 1.0f, 1.0f}
-                                             : t.textDim.WithAlpha(0.55f), knob));
-            break;
-        }
-        case OptionControl::Text:
-        {
-            const bool editing = app.optionEditActive && app.optionEditId == item.id;
-            r.Draw(UIDraw::Fill(control, t.windowBg, 4.0f * scale));
-            r.Draw(UIDraw::Border(control, editing ? t.accent : line, 1.0f, 4.0f * scale));
-            const std::string shown = editing ? app.optionEditText : item.valueText;
-            const float textY = TextY(layout, control, app.font);
-            app.font.Draw(r, control.x + 8.0f * scale, textY, shown, ink, scale);
-            if (editing)
-            {
-                const float caretX = control.x + 8.0f * scale + app.font.Measure(shown, scale) + 1.0f * scale;
-                r.FillRect(Rect{caretX, control.y + 4.0f * scale, 1.0f, control.h - 8.0f * scale}, t.text);
-            }
-            break;
-        }
-        case OptionControl::Choice:
-        {
-            r.Draw(UIDraw::Fill(control, t.windowBg, 4.0f * scale));
-            r.Draw(UIDraw::Border(control, line, 1.0f, 4.0f * scale));
-            const float textY = TextY(layout, control, app.smallFont);
-            app.smallFont.Draw(r, control.x + 10.0f * scale, textY, item.valueText, ink, scale);
-            app.smallFont.Draw(r, control.right() - 16.0f * scale,
-                               TextY(layout, control, app.smallFont), ">", ink, scale);
-            break;
-        }
-        default:
-            break;
-    }
-}
-
-void GroupMenuDraw(AppState& app, const Layout& layout, GroupMenu& menu)
-{
-    if (!menu.open)
-        return;
-
-    IRenderer& r = *app.renderer;
-    const Theme& t = app.theme;
-    const float scale = layout.scale;
-    const Rect panel = MenuPanel(app, layout, menu);
-
-    r.FillRect(Rect{0.0f, 0.0f, static_cast<float>(app.viewportWidth),
-                    static_cast<float>(app.viewportHeight)}, Color{0.0f, 0.0f, 0.0f, 0.45f});
-
-    r.Draw(UIDraw::Shadow(Rect{panel.x + 3.0f * scale, panel.y + 6.0f * scale, panel.w, panel.h},
-                          t.shadow, 22.0f * scale, 10.0f * scale));
-    r.Draw(UIDraw::Fill(panel, t.panelBg, 10.0f * scale));
-    r.Draw(UIDraw::Border(panel, t.panelBorder, 1.0f, 10.0f * scale));
-
-    app.smallFont.Draw(r, panel.x + 16.0f * scale, panel.y + 12.0f * scale,
-                  menu.title, t.textDim, scale);
-
-    const std::string query = menu.filter.empty() ? menu.placeholder : ToUtf8(menu.filter);
-    app.font.Draw(r, panel.x + 16.0f * scale, panel.y + 32.0f * scale, query,
-                  menu.filter.empty() ? t.textDim : t.text, scale);
-    if (!menu.filter.empty())
-    {
-        const float caretX = panel.x + 16.0f * scale + app.font.Measure(query, scale) + 1.0f * scale;
-        r.FillRect(Rect{caretX, panel.y + 32.0f * scale, 1.0f, app.font.LineHeight() * scale}, t.text);
-    }
-
-    const float listTop    = panel.y + 58.0f * scale;
-    const float listBottom = panel.bottom() - 26.0f * scale;
-    const float rowHeight  = MenuRowHeight(layout, menu);
-    r.FillRect(Rect{panel.x + 1.0f, listTop - 4.0f * scale, panel.w - 2.0f, 1.0f}, t.separator);
-
-    const int firstVisible =
-        GroupMenuFirstVisible(menu, listTop, listBottom, rowHeight);
-
-    for (int i = firstVisible; i < static_cast<int>(menu.rows.size()); ++i)
-    {
-        const float y = listTop + (i - firstVisible) * rowHeight;
-        if (y + rowHeight > listBottom)
-            break;
-
-        const GroupMenuRow& row = menu.rows[static_cast<size_t>(i)];
-        const Rect rowRect{panel.x + 6.0f * scale, y, panel.w - 12.0f * scale, rowHeight};
-
-        if (row.header)
-        {
-            const std::string& name = menu.groups[static_cast<size_t>(row.group)];
-            const bool collapsed = menu.collapsed.count(name) != 0;
-            r.FillRect(rowRect, t.headerBg, 3.0f * scale);
-            const float arrow = 10.0f * scale;
-            r.Draw(DisclosureArrow(Rect{rowRect.x + 7.0f * scale,
-                                        rowRect.y + (rowRect.h - arrow) * 0.5f, arrow, arrow},
-                                   t.textDim, /*pointsDown=*/!collapsed));
-            app.smallFont.Draw(r, rowRect.x + 22.0f * scale, TextY(layout, rowRect, app.smallFont),
-                          name, t.text, scale);
-
-            ClickTarget target;
-            target.rect  = rowRect;
-            target.kind  = ClickTarget::Kind::MenuHeader;
-            target.label = name;
-            app.clickTargets.push_back(target);
-            continue;
-        }
-
-        const GroupMenuItem& item = menu.items[static_cast<size_t>(row.item)];
-        if (i == menu.selected)
-            r.FillRect(rowRect, t.rowSelected, 3.0f * scale);
-
-        // La riga del pannello delle opzioni: nome, descrizione e controllo. Non
-        // lascia un bersaglio da clic perche' la geometria la rifa' `OptionsClick`:
-        // due calcoli della stessa riga sono due occasioni di non essere d'accordo.
-        if (menu.richRows)
-        {
-            const Color nameInk = item.enabled ? t.text : t.textDim.WithAlpha(0.6f);
-            const Color descInk = item.enabled ? t.textDim : t.textDim.WithAlpha(0.45f);
-            app.font.Draw(r, rowRect.x + 14.0f * scale, rowRect.y + 7.0f * scale,
-                          item.label, nameInk, scale);
-            const Rect control = OptionControlRect(layout, item, rowRect);
-            const float descMax = control.x - (rowRect.x + 14.0f * scale) - 16.0f * scale;
-            if (descMax > 24.0f)
-                app.smallFont.Draw(r, rowRect.x + 14.0f * scale, rowRect.y + 27.0f * scale,
-                                   FitText(app.smallFont, item.description, scale, descMax),
-                                   descInk, scale);
-            DrawOptionControl(app, layout, item, control);
-            continue;
-        }
-
-        // L'etichetta e il dettaglio si dividono la riga. Il dettaglio, quando c'e',
-        // prende al massimo poco piu' di meta' riga e si taglia **davanti** — di un
-        // percorso la parte che dice dove si va e' la coda; l'etichetta prende quello
-        // che resta e si taglia in fondo. Con un carattere largo scelto dalle opzioni
-        // i due si sovrapponevano, e due testi uno sopra l'altro non si leggono.
-        std::string label = item.label;
-        if (menu.detailed)
-        {
-            // Il dettaglio prende quello che avanza dopo l'etichetta, e si taglia
-            // **davanti** — di un percorso la parte che dice dove si va e' la coda.
-            // Se non avanza niente, si tiene una scheggia e si accorcia l'etichetta:
-            // meglio due testi troncati che due testi sovrapposti.
-            const std::string& raw = item.detail.empty() ? item.group : item.detail;
-            const float labelNeed = app.font.Measure(label, scale);
-            const float detailRoom = (std::max)(60.0f * scale,
-                                                rowRect.w - labelNeed - 34.0f * scale);
-            const std::string detail = FitTextTail(app.smallFont, raw, scale, detailRoom);
-            const float width = app.smallFont.Measure(detail, scale);
-            app.smallFont.Draw(r, rowRect.right() - width - 12.0f * scale,
-                               TextY(layout, rowRect, app.smallFont), detail, t.textDim, scale);
-            const float room = rowRect.right() - width - 20.0f * scale - (rowRect.x + 14.0f * scale);
-            label = FitText(app.font, label, scale, (std::max)(0.0f, room));
-        }
-        else
-        {
-            label = FitText(app.font, label, scale, rowRect.w - 28.0f * scale);
-        }
-
-        app.font.Draw(r, rowRect.x + 14.0f * scale, TextY(layout, rowRect, app.font),
-                      label, t.text, scale);
-
-        ClickTarget target;
-        target.rect  = rowRect;
-        target.kind  = ClickTarget::Kind::MenuRow;
-        target.index = row.item;
-        app.clickTargets.push_back(target);
-    }
-
-    // La barra di scorrimento, quando le righe non ci stanno tutte: con venti
-    // opzioni il cursore va giu' ma il pollice e' l'unica cosa che dice quanto
-    // lungo sia l'elenco.
-    if (menu.richRows)
-    {
-        const float total = static_cast<float>(menu.rows.size()) * rowHeight;
-        const float room  = listBottom - listTop;
-        if (total > room)
-        {
-            const float barW = 4.0f * scale;
-            const Rect  track{panel.right() - 10.0f * scale, listTop, barW, room};
-            r.Draw(UIDraw::Fill(track, t.separator, barW * 0.5f));
-            const float thumbH = (std::max)(24.0f * scale, room * room / total);
-            const float maxOffset = (std::max)(1.0f, total - room);
-            const float offset = (firstVisible * rowHeight) / maxOffset;
-            r.Draw(UIDraw::Fill(Rect{track.x, track.y + (room - thumbH) * offset, barW, thumbH},
-                                t.scrollThumb, barW * 0.5f));
-        }
-    }
-
-    char footerText[96];
-    std::snprintf(footerText, sizeof(footerText), Tr("%d di %zu", "%d of %zu"),
-                  menu.matchCount, menu.items.size());
-    const std::string footer = std::string(footerText) + "   " + menu.hint;
-    app.smallFont.Draw(r, panel.x + 16.0f * scale, panel.bottom() - 20.0f * scale,
-                  footer, t.textDim, scale);
-}
 
 void DrawFrame(AppState& app, const Layout& layout)
 {
@@ -6369,6 +2079,12 @@ void DrawFrame(AppState& app, const Layout& layout)
     // Il pannello dei valori sta attaccato all'intestazione da cui e' nato, e si
     // disegna per ultimo: e' l'unico che deve coprire la lista.
     GroupMenuDraw(app, layout, app.columnMenu);
+    // L'editor dei tasti prende il posto delle opzioni: si apre da una loro riga, e
+    // aprendosi le chiude, quindi non si vedono mai insieme.
+    GroupMenuDraw(app, layout, app.keyMap);
+    // Le destinazioni del fissaggio stanno sopra tutto: si aprono dal menu contestuale
+    // o dalla palette, che si chiudono nell'aprirsi.
+    GroupMenuDraw(app, layout, app.pinMenu);
     // Le opzioni stanno sopra tutto il resto tranne il proprio sottoelenco: un
     // controllo `Choice` aperto e' l'ultima cosa su cui si sta agendo.
     GroupMenuDraw(app, layout, app.options);
@@ -6377,6 +2093,9 @@ void DrawFrame(AppState& app, const Layout& layout)
     // Il pannello delle proprieta' e' modale come un menu, e si disegna per ultimo:
     // copre tutto quello che c'e' sotto.
     DrawPropertiesPanel(app, layout);
+    // L'operazione in corso sta sopra anche alle proprieta': e' l'unica cosa che si
+    // sta muovendo, e l'unica su cui si puo' agire.
+    DrawOperationPanel(app, layout);
 
     // Il suggerimento viene dopo tutto, ma non prende clic: non e' un menu.
     DrawTooltip(app, layout);
@@ -6412,17 +2131,6 @@ void RenderFrame(AppState& app)
     app.renderer->Present();
 }
 
-// --- input -----------------------------------------------------------------
-const ClickTarget* HitTest(const AppState& app, float x, float y, ClickTarget::Kind kind)
-{
-    // Reverse order: later targets are drawn on top.
-    for (auto it = app.clickTargets.rbegin(); it != app.clickTargets.rend(); ++it)
-    {
-        if (it->kind == kind && it->rect.Contains(x, y))
-            return &*it;
-    }
-    return nullptr;
-}
 
 // A click inside an open group menu. The caller turns the action into whatever
 // the menu means: running a command, or going to a location.
@@ -6548,42 +2256,6 @@ void FinishRectSelection(AppState& app)
     {
         app.cursor          = last;
         app.selectionAnchor = last;
-    }
-}
-
-void ActivateSelection(AppState& app)
-{
-    const int cursorIndex = CursorIndex(app);
-    if (cursorIndex < 0)
-        return;
-
-    const Entry& entry = app.entries[static_cast<size_t>(cursorIndex)];
-    const std::wstring full = EntryLocation(app, entry);
-    if (entry.isDirectory && entry.navigable)
-    {
-        LoadDirectory(app, full);
-    }
-    else if (entry.isDirectory)
-    {
-        // Dentro il cestino il nome di una cartella e' il percorso del file
-        // riciclato: aprirlo mostrerebbe il blob, non quello che si vede. Li' una
-        // cartella si ripristina.
-        ReportStatus(app, L"\"" + entry.wideName +
-                              TrW(L"\" non si apre da qui: si ripristina.",
-                                  L"\" does not open from here: restore it."));
-    }
-    else if (!entry.location.empty())
-    {
-        // Un file dentro il cestino non si apre: si ripristina o si elimina, e
-        // quei comandi sono del menu contestuale della shell. Dirlo e' meglio che
-        // far finta di averlo aperto.
-        ReportStatus(app, L"\"" + entry.wideName +
-                              TrW(L"\" non si apre da qui: usa il menu contestuale.",
-                                  L"\" does not open from here: use the context menu."));
-    }
-    else
-    {
-        ShellExecuteW(nullptr, L"open", full.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
     }
 }
 
@@ -6778,6 +2450,11 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
             if (app != nullptr)
             {
                 const Layout layout = ComputeLayout(*app);
+
+                // Il pannello dell'operazione in corso e' modale, e sta sopra a
+                // tutto: la rotella non scorre niente sotto di lui.
+                if (OperationPanelVisible(*app))
+                    return 0;
 
                 // Il pannello delle proprieta' e' modale: la rotella lo scorre e
                 // basta.
@@ -7072,16 +2749,23 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
                         // vista li sta ancora mostrando.
                         if ((effect & DROPEFFECT_MOVE) != 0 && dragged > 0)
                         {
-                            ReloadKeeping(*app, /*keep=*/{}, /*preferCursor=*/{}, app->scroll);
                             // Il messaggio lo da' chi ha eseguito la caduta, se e'
                             // stato uno di noi: sa dove sono finiti i file, e
                             // "Spostati 3 elementi" senza dire dove e' meno di
                             // "Buttati via 3 elementi nel cestino". Qui si parla
                             // solo se la destinazione era un'altra applicazione,
                             // che non ha modo di dirlo.
+                            //
+                            // Se l'ha eseguita questa finestra l'operazione sta
+                            // ancora girando e la vista si rifa' quando finisce:
+                            // rifarla adesso la svuoterebbe per poi rimetterla, che
+                            // e' un lampo e non un'informazione.
                             if (!app->dropReported)
+                            {
+                                ReloadKeeping(*app, /*keep=*/{}, /*preferCursor=*/{}, app->scroll);
                                 ReportStatus(*app, VerbItems(dragged, L"Spostato ", L"Spostati ",
                                                              L"Moved "));
+                            }
                         }
                         return 0;
                     }
@@ -7132,6 +2816,22 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
             {
                 const float x = static_cast<float>(GET_X_LPARAM(lparam));
                 const float y = static_cast<float>(GET_Y_LPARAM(lparam));
+
+                // L'operazione in corso e' modale come un menu: prende il puntatore
+                // prima di tutto il resto. Un clic fuori dal pannello non fa niente:
+                // chiudere con un clic sarebbe un annullamento per sbaglio, ed e'
+                // l'ultima cosa che si vuole mentre qualcosa si sta muovendo.
+                if (OperationPanelVisible(*app))
+                {
+                    const Layout layout = ComputeLayout(*app);
+                    const Rect panel = OperationPanelRect(*app, layout);
+                    if (OperationCancelButton(*app, layout, panel).Contains(x, y))
+                    {
+                        app->operation->Cancel();
+                        ReportStatus(*app, TrW(L"Annullamento...", L"Cancelling..."));
+                    }
+                    return 0;
+                }
 
                 // Il pannello delle proprieta' e' modale: il clic o cade sul suo
                 // pulsante, o lo chiude, o non fa altro.
@@ -7198,7 +2898,13 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
                         // carattere digitato dopo sarebbe finito in un campo chiuso.
                         if (menu == &app->options)
                             CancelOptionEdit(*app);
-                        menu->open = false;
+                        // E chiudere l'editor dei tasti non deve lasciare appesa una
+                        // cattura: un clic fuori dal pannello mentre si aspetta il
+                        // tasto nuovo e' un modo normale di ripensarci.
+                        if (menu == &app->keyMap)
+                            CloseKeyMap(*app);
+                        else
+                            menu->open = false;
                     }
                     else if (action == MenuAction::Activate)
                     {
@@ -7208,6 +2914,10 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
                             RunGoToSelection(*app);
                         else if (menu == &app->optionsChoice)
                             RunOptionsChoiceSelection(*app);
+                        else if (menu == &app->keyMap)
+                            RunKeyMapSelection(*app);
+                        else if (menu == &app->pinMenu)
+                            RunPinMenuSelection(*app);
                         else
                             RunColumnMenuSelection(*app);
                     }
@@ -7505,6 +3215,14 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
         case WM_KEYDOWN:
             if (app != nullptr)
             {
+                // Il pannello dell'operazione in corso e' modale come un menu, e sta
+                // sopra a tutto: prende la tastiera prima di ogni altra cosa.
+                if (OperationPanelVisible(*app))
+                {
+                    OperationPanelKey(*app, wparam);
+                    return 0;
+                }
+
                 // Il pannello delle proprieta' e' modale come un menu: prende la
                 // tastiera prima di tutto il resto, e non lascia passare niente.
                 if (app->propertiesOpen)
@@ -7541,18 +3259,35 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
                         return 0;
                     }
 
+                    // La cattura del tasto sta **prima** di ogni altra lettura: mentre
+                    // e' aperta il tasto premuto e' il dato che si sta scrivendo, non
+                    // un comando — altrimenti `Ctrl+P` aprirebbe il GoTo invece di
+                    // diventare il tasto di un comando.
+                    if (app->keyCaptureCommand >= 0)
+                    {
+                        KeyMapKeyDown(*app, wparam);
+                        return 0;
+                    }
+
                     // Ogni menu si richiude col suo tasto. Le scorciatoie sono
                     // quelle del riferimento: Ctrl+P e F4 al GoTo, Ctrl+Maiusc+P ai
                     // comandi, Ctrl+, alle opzioni.
                     const bool toggling = control &&
                         ((menu == &app->goTo    && wparam == 'P' && !shift) ||
                          (menu == &app->palette && wparam == 'P' && shift)  ||
-                         (menu == &app->options && wparam == VK_OEM_COMMA));
+                         ((menu == &app->options || menu == &app->keyMap) &&
+                          wparam == VK_OEM_COMMA));
                     if (toggling)
                     {
                         if (menu == &app->options)
                             CancelOptionEdit(*app);
+                        // Dall'editor si **torna alle opzioni**, perche' e' da li' che si
+                        // e' aperto: il tasto che le apre le riapre, invece di
+                        // chiudere tutto e lasciare il posto dov'era.
+                        const bool backToOptions = (menu == &app->keyMap);
                         menu->open = false;
+                        if (backToOptions)
+                            BuildOptionsMenu(*app);
                         return 0;
                     }
 
@@ -7566,7 +3301,10 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
                     {
                         if (menu == &app->options)
                             CancelOptionEdit(*app);
-                        menu->open = false;
+                        if (menu == &app->keyMap)
+                            CloseKeyMap(*app);
+                        else
+                            menu->open = false;
                     }
                     else if (action == MenuAction::Activate)
                     {
@@ -7576,6 +3314,10 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
                             RunGoToSelection(*app);
                         else if (menu == &app->optionsChoice)
                             RunOptionsChoiceSelection(*app);
+                        else if (menu == &app->keyMap)
+                            RunKeyMapSelection(*app);
+                        else if (menu == &app->pinMenu)
+                            RunPinMenuSelection(*app);
                         else
                             RunColumnMenuSelection(*app);
                     }
@@ -7633,6 +3375,27 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
                     return 0;
                 }
 
+                // Prima di tutto il resto: **che comando e' questo tasto**? La
+                // risposta la da' la mappa (un dato, che si puo' cambiare); i tasti
+                // che non sono comandi — le frecce, l'Invio, `Ctrl+A` che seleziona
+                // tutto, `Ctrl+rotella` — restano qui sotto, perche' sono
+                // comportamenti dell'input e non voci di un menu.
+                {
+                    const bool ctrl  = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
+                    const bool shift = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
+                    const bool alt   = (GetKeyState(VK_MENU) & 0x8000) != 0;
+                    const int command = app->keys.CommandFor(static_cast<unsigned>(wparam), ctrl, shift, alt);
+                    if (command >= 0)
+                    {
+                        // **Lo stesso esecutore della palette e dei menu.** Prima il
+                        // tasto e il comando erano due strade con lo stesso corpo
+                        // scritto due volte — `case 'C': DoCopyToClipboard(...)` qui e
+                        // `case CmdCopy:` la' — e due copie divergono sempre.
+                        RunCommand(*app, command);
+                        return 0;
+                    }
+                }
+
                 switch (wparam)
                 {
                     case VK_ESCAPE:
@@ -7678,19 +3441,6 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
                         EnsureSelectionVisible(*app, layout);
                         break;
                     }
-                    case '1':
-                    case '2':
-                    case '3':
-                    case '4':
-                        if ((GetKeyState(VK_CONTROL) & 0x8000) != 0)
-                        {
-                            app->viewMode = (wparam == '1') ? ViewMode::Details
-                                          : (wparam == '2') ? ViewMode::List
-                                          : (wparam == '3') ? ViewMode::Tiles
-                                                            : ViewMode::Icons;
-                            app->viewDirty = true;
-                        }
-                        break;
                     case VK_RETURN:
                         ActivateSelection(*app);
                         break;
@@ -7710,12 +3460,6 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
                             RunCommand(*app, CmdGoUp);
                         }
                         break;
-                    case VK_F5:
-                        // A refresh means the tree may have changed: drop the
-                        // cached folder statistics so they are counted again.
-                        app->stats.ClearAll();
-                        LoadDirectory(*app, app->directory);
-                        break;
                     case VK_APPS:
                         // Il tasto Menu: aprire il menu contestuale e' l'unica
                         // cosa che possa significare.
@@ -7734,20 +3478,6 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
                         }
                         break;
                     }
-                    case VK_OEM_PLUS:
-                    case VK_ADD:
-                        // Zoom moved to Ctrl+plus so that a plain '+' can be typed
-                        // into the filter, which is what CharacterKeyAction's
-                        // TypeInFilter mode requires.
-                        if ((GetKeyState(VK_CONTROL) & 0x8000) != 0)
-                            app->zoom = (std::min)(2.0f, app->zoom + 0.1f);
-                        break;
-                    case VK_OEM_MINUS:
-                    case VK_SUBTRACT:
-                        if ((GetKeyState(VK_CONTROL) & 0x8000) != 0)
-                            app->zoom = (std::max)(0.6f, app->zoom - 0.1f);
-                        break;
-
                     case 'A':
                         if ((GetKeyState(VK_CONTROL) & 0x8000) != 0)
                         {
@@ -7761,59 +3491,6 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
                             }
                         }
                         break;
-                    case 'C':
-                        if ((GetKeyState(VK_CONTROL) & 0x8000) != 0)
-                            DoCopyToClipboard(*app, /*cut=*/false);
-                        break;
-                    case 'X':
-                        if ((GetKeyState(VK_CONTROL) & 0x8000) != 0)
-                            DoCopyToClipboard(*app, /*cut=*/true);
-                        break;
-                    case 'V':
-                        if ((GetKeyState(VK_CONTROL) & 0x8000) != 0)
-                            DoPaste(*app);
-                        break;
-                    case 'N':
-                        // Ctrl+Shift+N, come Esplora risorse. Ctrl+N da solo resta
-                        // libero: non c'e' ancora una finestra nuova da aprire.
-                        if ((GetKeyState(VK_CONTROL) & 0x8000) != 0 &&
-                            (GetKeyState(VK_SHIFT) & 0x8000) != 0)
-                            DoNewFolder(*app);
-                        break;
-                    case VK_F2:
-                        BeginRename(*app);
-                        break;
-                    case VK_DELETE:
-                    {
-                        const bool shift = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
-                        DoDelete(*app, shift);
-                        break;
-                    }
-                    case 'T':
-                        if ((GetKeyState(VK_CONTROL) & 0x8000) != 0)
-                            NewTab(*app, app->directory.empty() ? L"C:\\" : app->directory);
-                        break;
-                    case 'P':
-                        // Le scorciatoie del riferimento: Ctrl+Maiusc+P apre i
-                        // comandi, Ctrl+P va a una cartella. Erano scambiate.
-                        if ((GetKeyState(VK_CONTROL) & 0x8000) != 0)
-                        {
-                            if ((GetKeyState(VK_SHIFT) & 0x8000) != 0)
-                                BuildPaletteMenu(*app);
-                            else
-                                BuildGoToMenu(*app);
-                        }
-                        break;
-                    case VK_F4:
-                        // F4 da solo: Alt+F4 resta la chiusura della finestra, e
-                        // arriva come WM_SYSKEYDOWN, quindi non passa di qui.
-                        if ((GetKeyState(VK_MENU) & 0x8000) == 0)
-                            BuildGoToMenu(*app);
-                        break;
-                    case VK_OEM_COMMA:
-                        if ((GetKeyState(VK_CONTROL) & 0x8000) != 0)
-                            BuildOptionsMenu(*app);
-                        break;
                     case 'G':
                         // GoTo ha preso Ctrl+P e F4, come il riferimento. Ctrl+G
                         // resta libero: ciclare il raggruppamento sta su
@@ -7825,18 +3502,6 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
                             app->viewDirty = true;
                         }
                         break;
-                    case 'W':
-                        if ((GetKeyState(VK_CONTROL) & 0x8000) != 0)
-                            CloseTab(*app, app->activeTab);
-                        break;
-                    case VK_TAB:
-                        if ((GetKeyState(VK_CONTROL) & 0x8000) != 0)
-                        {
-                            const int count = static_cast<int>(app->tabs.size());
-                            if (count > 1)
-                                ActivateTab(*app, (app->activeTab + 1) % count);
-                        }
-                        break;
                     default:
                         break;
                 }
@@ -7846,6 +3511,18 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
         case WM_CHAR:
             if (app != nullptr)
             {
+                // La cattura di un tasto vuole **il tasto**, non il carattere che ne
+                // esce: senza questo, premendo `C` per rimappare Copia il `c`
+                // finirebbe nel filtro dell'elenco sotto.
+                if (app->keyCaptureCommand >= 0)
+                    return 0;
+
+                // Il pannello dell'operazione in corso e' modale anche per i
+                // caratteri: senza questo, una lettera digitata andrebbe nel filtro
+                // della lista sotto il pannello.
+                if (OperationPanelVisible(*app))
+                    return 0;
+
                 // Il pannello delle proprieta' e' modale, e i suoi tasti li ha gia'
                 // presi `WM_KEYDOWN`: senza questo, un carattere digitato andrebbe
                 // nel filtro della lista **sotto** il pannello.
@@ -7890,6 +3567,15 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
             return 0;
 
         case WM_SYSKEYDOWN:
+            // La cattura prende anche i tasti di sistema: `Alt` li rende tali, e senza
+            // questo `Alt+qualcosa` non si potrebbe assegnare — e `Alt+F4` chiuderebbe
+            // la finestra mentre si sta scegliendo un tasto.
+            if (app != nullptr && app->keyCaptureCommand >= 0)
+            {
+                KeyMapKeyDown(*app, wparam);
+                return 0;
+            }
+
             // Shift+F10 e' un tasto di sistema come Alt+freccia: F10 da solo
             // attiva il menu della finestra, quindi non passa da WM_KEYDOWN.
             if (app != nullptr && wparam == VK_F10 && (GetKeyState(VK_SHIFT) & 0x8000) != 0)
@@ -7917,6 +3603,13 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
                 RunCommand(*app, CmdGoUp);
                 return 0;
             }
+            break;
+
+        case WM_SYSCHAR:
+            // `Alt`+lettera produce anche questo, oltre a `WM_SYSKEYDOWN`: senza
+            // rispondere, la cattura di un tasto con `Alt` suonerebbe.
+            if (app != nullptr && app->keyCaptureCommand >= 0)
+                return 0;
             break;
 
         case WM_SETCURSOR:
@@ -8093,6 +3786,527 @@ void ShowError(const std::string& message)
 
 } // namespace
 
+// Le azioni che restano in questo file e che i moduli chiamano: **la cucitura dello
+// spezzamento**. Ognuna di queste dovrebbe avere un modulo suo, e il nome lo dice:
+// `RememberSettings` vorrebbe un `settings.*` (il file delle preferenze vive ancora
+// qui), `BuildKeyMapMenu`/`CloseKeyMap` un `view_keymap.*`, `ClosePinMenu` un
+// `view_pins.*`. Finche' non ce l'hanno, il confine e' **dichiarato qui** invece di
+// essere implicito in una funzione interna che nessun altro file puo' chiamare:
+// `src/app_actions.h` e' la lista, e questa e' l'unica implementazione.
+namespace Bolt
+{
+
+// Chiudere l'editor chiude anche la cattura: un tasto in attesa di essere scritto non
+// deve sopravvivere al pannello che lo stava chiedendo, o al primo tasto premuto
+// dopo cambierebbe la mappa senza che nessuno l'abbia chiesto.
+void CloseKeyMap(AppState& app)
+{
+    app.keyMap.open       = false;
+    app.keyCaptureCommand = -1;
+}
+
+void BuildKeyMapMenu(AppState& app, int selectCommand)
+{
+    std::vector<GroupMenuItem> items;
+    items.reserve(sizeof(kCommandTable) / sizeof(kCommandTable[0]) + 1);
+
+    // I tasti di partenza, in cima e **senza banda di gruppo**: non e' un comando, e
+    // metterlo sotto l'intestazione di una famiglia sarebbe dire che lo e'. Sta dove
+    // lo si trova senza cercarlo, perche' e' l'unica via d'uscita da una mappa che ha
+    // tolto i tasti per riaprire questa lista.
+    {
+        GroupMenuItem item;
+        item.label = Tr("Tasti di partenza", "Default keys");
+        item.id    = kKeyMapResetId;
+        items.push_back(std::move(item));
+    }
+
+    for (const CommandDef& command : kCommandTable)
+    {
+        GroupMenuItem item;
+        item.group = command.group;
+        item.label = CommandLabel(command);
+        // Vuoto quando il comando non ha tasti: la riga si legge lo stesso, e il
+        // posto vuoto a destra **e'** l'informazione che manca.
+        item.detail = app.keys.LabelFor(command.id);
+        item.id     = command.id;
+        items.push_back(std::move(item));
+    }
+
+    CloseKeyMap(app);
+    ClosePinMenu(app);
+    app.options.open       = false;
+    app.optionsChoice.open = false;
+    app.palette.open       = false;
+    app.goTo.open          = false;
+
+    GroupMenuOpen(app.keyMap, Tr("MAPPA DEI TASTI", "KEY MAP"),
+                  Tr("Scrivi per filtrare i comandi...", "Type to filter commands..."),
+                  std::move(items));
+    // Il tasto si scrive a destra della riga: `detailed` e' quello che fa disegnare il
+    // dettaglio, ed e' l'unica cosa che questo elenco ha in piu' della palette.
+    app.keyMap.detailed = true;
+    app.keyMap.hint     = Tr("Invio rimappa   Canc toglie   Esc chiude",
+                             "Enter rebinds   Del removes   Esc closes");
+
+    // Il cursore resta sul comando appena toccato: dopo una rimappatura l'elenco si
+    // rifa' (la riga mostra il tasto nuovo).
+    if (selectCommand >= 0)
+        SelectKeyMapCommand(app, selectCommand);
+}
+
+void ClosePinMenu(AppState& app)
+{
+    app.pinMenu.open = false;
+}
+
+// --- layout ----------------------------------------------------------------
+
+Layout ComputeLayout(const AppState& app)
+{
+    const float scale = app.zoom;
+    const float width = static_cast<float>(app.viewportWidth);
+    const float height = static_cast<float>(app.viewportHeight);
+
+    const float sidebarWidth   = app.sidebarVisible ? 186.0f * scale : 0.0f;
+    const float inspectorWidth = 292.0f * scale;
+    const float titleHeight    = 34.0f * scale;
+    const float toolbarHeight  = 38.0f * scale;
+    // A grid view has no columns to head, so it gives the space back to the list.
+    const bool gridView = (app.viewMode == ViewMode::Tiles || app.viewMode == ViewMode::Icons);
+    const float headerHeight   = gridView ? 0.0f : 26.0f * scale;
+    const float statusHeight   = 22.0f * scale;
+    const float filterHeight   = 24.0f * scale;
+    const float gap            = 6.0f * scale;
+
+    Layout layout;
+    layout.scale      = scale;
+    // `Spacing` e' una preferenza: l'altezza della riga di lista la segue, e per
+    // questo e' un valore derivato e non un 24 scritto a mano.
+    layout.rowHeight  = (app.rowSpacing > 0.0f ? app.rowSpacing : 24.0f) * scale;
+    layout.titleBar   = Rect{0.0f, 0.0f, width, titleHeight};
+    layout.toolbar    = Rect{0.0f, titleHeight, width, toolbarHeight};
+    layout.sidebar    = Rect{gap, titleHeight + toolbarHeight + gap, sidebarWidth,
+                             height - titleHeight - toolbarHeight - statusHeight - gap * 3};
+    layout.header     = Rect{sidebarWidth + gap * 2, titleHeight + toolbarHeight + gap,
+                             width - sidebarWidth - inspectorWidth - gap * 4, headerHeight};
+    layout.filterBar  = Rect{layout.header.x, height - statusHeight - gap - filterHeight,
+                             layout.header.w, filterHeight};
+    layout.list       = Rect{layout.header.x, layout.header.bottom(),
+                             layout.header.w,
+                             layout.filterBar.y - gap - layout.header.bottom()};
+    layout.inspector  = Rect{width - inspectorWidth - gap, titleHeight + toolbarHeight + gap,
+                             inspectorWidth, layout.list.h + headerHeight + filterHeight + gap};
+    layout.statusBar  = Rect{0.0f, height - statusHeight, width, statusHeight};
+    return layout;
+}
+
+void ActivateSelection(AppState& app)
+{
+    const int cursorIndex = CursorIndex(app);
+    if (cursorIndex < 0)
+        return;
+
+    const Entry& entry = app.entries[static_cast<size_t>(cursorIndex)];
+    const std::wstring full = EntryLocation(app, entry);
+    if (entry.isDirectory && entry.navigable)
+    {
+        LoadDirectory(app, full);
+    }
+    else if (entry.isDirectory)
+    {
+        // Dentro il cestino il nome di una cartella e' il percorso del file
+        // riciclato: aprirlo mostrerebbe il blob, non quello che si vede. Li' una
+        // cartella si ripristina.
+        ReportStatus(app, L"\"" + entry.wideName +
+                              TrW(L"\" non si apre da qui: si ripristina.",
+                                  L"\" does not open from here: restore it."));
+    }
+    else if (!entry.location.empty())
+    {
+        // Un file dentro il cestino non si apre: si ripristina o si elimina, e
+        // quei comandi sono del menu contestuale della shell. Dirlo e' meglio che
+        // far finta di averlo aperto.
+        ReportStatus(app, L"\"" + entry.wideName +
+                              TrW(L"\" non si apre da qui: usa il menu contestuale.",
+                                  L"\" does not open from here: use the context menu."));
+    }
+    else
+    {
+        ShellExecuteW(nullptr, L"open", full.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+    }
+}
+
+// --- l'anteprima di quello che c'e' dentro una cartella ----------------------
+
+
+// --- il pannello delle proprieta' in-app ------------------------------------
+//
+// La voce `Proprietà` non apre piu' la finestra di Windows: apre questa, che mostra
+// le stesse righe dell'inspector in una finestra nostra. `Proprietà di Windows`
+// resta, accanto, per cio' che solo la shell sa — permessi, versioni precedenti, le
+// pagine registrate dai gestori dei tipi di file, e la scrittura.
+//
+// Le righe le costruisce `BuildInspectorRows`, la stessa che usa l'inspector: due
+// viste della stessa cosa con un solo calcolo, o prima o poi mostrerebbero numeri
+// diversi.
+void OpenPropertiesPanel(AppState& app)
+{
+    app.propertiesRows.clear();
+    app.propertiesScroll = 0.0f;
+
+    const int selectedCount = static_cast<int>(app.selection.size());
+    const int cursorIndex   = CursorIndex(app);
+
+    if (selectedCount > 1)
+    {
+        // Piu' voci: l'aggregato, come nell'inspector.
+        uint64_t totalBytes = 0;
+        int files = 0;
+        int folders = 0;
+        std::unordered_map<std::string, int> byType;
+        for (const std::wstring& name : app.selection)
+        {
+            const int index = FindEntryByName(app, name);
+            if (index < 0)
+                continue;
+            const Entry& item = app.entries[static_cast<size_t>(index)];
+            if (item.isDirectory)
+            {
+                ++folders;
+                DirStats stats;
+                if (app.stats.TryGet(JoinPath(app.directory, item.wideName), &stats))
+                    totalBytes += stats.logicalBytes;
+            }
+            else
+            {
+                ++files;
+                totalBytes += item.bytes;
+            }
+            ++byType[item.typeText];
+        }
+        std::vector<std::pair<std::string, int>> types(byType.begin(), byType.end());
+        std::sort(types.begin(), types.end(),
+                  [](const std::pair<std::string, int>& a, const std::pair<std::string, int>& b) {
+                      return a.second > b.second;
+                  });
+
+        app.propertiesTitle    = TrW(L"PROPRIETÀ", L"PROPERTIES");
+        app.propertiesSubtitle = std::to_wstring(selectedCount) +
+                                 TrW(L" elementi selezionati", L" items selected");
+        app.propertiesRows.push_back(
+            {Tr("Elementi", "Items"), std::to_string(files) + Tr(" file, ", " files, ") +
+                                       std::to_string(folders) +
+                                       (folders == 1 ? Tr(" cartella", " folder")
+                                                     : Tr(" cartelle", " folders")),
+             false, false});
+        app.propertiesRows.push_back(
+            {Tr("Dimensione", "Size"), HumanBytes(totalBytes), false, false});
+        for (size_t i = 0; i < types.size(); ++i)
+            app.propertiesRows.push_back({(i == 0) ? Tr("Tipi", "Types") : "",
+                                          std::to_string(types[i].second) + " " + types[i].first,
+                                          false, false});
+    }
+    else if (cursorIndex >= 0)
+    {
+        const Entry& entry = app.entries[static_cast<size_t>(cursorIndex)];
+        app.propertiesTitle    = TrW(L"PROPRIETÀ", L"PROPERTIES");
+        app.propertiesSubtitle = Widen(entry.name);
+        BuildInspectorRows(app, entry, &app.propertiesRows);
+    }
+    else
+    {
+        return;   // niente da mostrare, niente pannello
+    }
+
+    app.propertiesOpen = true;
+}
+
+// Crea una voce nuova dal modello |index| del registro, col meccanismo del
+// sistema: il nome definitivo lo sceglie la shell ("Nuovo documento di testo.txt",
+// e "(2)" se esiste gia'), il contenuto lo mette `FillNewItemContent`.
+void CreateNewItem(AppState& app, size_t index)
+{
+    const std::vector<ShellNew::Template>& templates = ShellNew::Templates();
+    if (index >= templates.size())
+        return;
+
+    const std::wstring wanted = templates[index].suggestedName;
+    const float scroll = app.scroll;
+    std::vector<std::wstring> created;
+    std::wstring error;
+    const FileOps::Result result =
+        FileOps::NewItem(app.window, app.directory, wanted, &created, &error);
+
+    if (result != FileOps::Result::Ok)
+    {
+        if (result == FileOps::Result::Failed)
+            ReportStatus(app, TrW(L"File non creato: ", L"File not created: ") + error);
+        return;
+    }
+
+    const std::wstring path = created.empty() ? JoinPath(app.directory, wanted)
+                                              : created.front();
+    FillNewItemContent(app, templates[index], path);
+
+    const std::wstring name = LeafName(path);
+    std::unordered_set<std::wstring> keep;
+    keep.insert(name);
+    ReloadKeeping(app, keep, name, scroll);
+
+    // Creare e rinominare sono un'azione sola, come per la cartella: chi crea
+    // vuole dare un nome, non guardare un altro "Nuovo documento di testo".
+    BeginRename(app);
+}
+
+void RunCommand(AppState& app, int command)
+{
+    const int cursorIndex = CursorIndex(app);
+
+    switch (static_cast<CommandId>(command))
+    {
+        case CmdNewTab:  NewTab(app, app.directory.empty() ? L"C:\\" : app.directory); break;
+        case CmdCloseTab: CloseTab(app, app.activeTab); break;
+        case CmdNextTab:
+            if (app.tabs.size() > 1) ActivateTab(app, (app.activeTab + 1) % static_cast<int>(app.tabs.size()));
+            break;
+        case CmdPrevTab:
+            if (app.tabs.size() > 1)
+            {
+                const int count = static_cast<int>(app.tabs.size());
+                ActivateTab(app, (app.activeTab + count - 1) % count);
+            }
+            break;
+
+        // In una cartella dello spazio dei nomi il genitore lo sa la shell: sopra
+        // il cestino c'e' il desktop, e `ParentOf` su "::{...}" non troverebbe
+        // niente da tagliare.
+        //
+        // Da una **radice di volume** invece `ParentOf` non sale: `C:\` e' padre di
+        // se stesso, e salire da li' non faceva niente. Sopra un disco c'e' "This
+        // PC", che e' una cartella di spazio dei nomi: la stessa lista di unita'
+        // della barra laterale, raggiungibile col gesto che ci si aspetta.
+        case CmdGoUp:
+            if (ShellLocation::IsNamespace(app.directory))
+            {
+                const std::wstring up = ShellLocation::ParentOf(app.directory);
+                if (!up.empty())
+                    LoadDirectory(app, up);
+            }
+            else
+            {
+                const std::wstring up = ParentOf(app.directory);
+                if (up != app.directory)
+                    LoadDirectory(app, up);
+                else if (!app.thisPcPath.empty() && app.directory != app.thisPcPath)
+                    LoadDirectory(app, app.thisPcPath);
+            }
+            break;
+        case CmdBack:      NavigateBack(app); break;
+        case CmdForward:   NavigateForward(app); break;
+        case CmdGoTo:      BuildGoToMenu(app); break;
+        case CmdPalette:   BuildPaletteMenu(app); break;
+        case CmdRefresh:   app.stats.ClearAll(); LoadDirectory(app, app.directory); break;
+        case CmdRecalcStats: app.stats.ClearAll(); break;
+
+        case CmdCopy:      DoCopyToClipboard(app, /*cut=*/false); break;
+        case CmdCut:       DoCopyToClipboard(app, /*cut=*/true); break;
+        case CmdPaste:     DoPaste(app); break;
+        case CmdRename:    BeginRename(app); break;
+        case CmdNewFolder: DoNewFolder(app); break;
+        case CmdDelete:          DoDelete(app, /*permanently=*/false); break;
+        case CmdDeletePermanent: DoDelete(app, /*permanently=*/true); break;
+
+        case CmdOpenExplorer:
+            // Dentro una cartella dello spazio dei nomi `/select` non vale, e non
+            // serve: si apre la cartella stessa, che e' quello che si vede.
+            if (ShellLocation::IsNamespace(app.directory))
+            {
+                ShellExecuteW(nullptr, L"open", L"explorer.exe", app.directory.c_str(), nullptr,
+                              SW_SHOWNORMAL);
+            }
+            else if (cursorIndex >= 0)
+            {
+                const std::wstring full = JoinPath(app.directory, app.entries[static_cast<size_t>(cursorIndex)].wideName);
+                const std::wstring arguments = L"/select,\"" + full + L"\"";
+                ShellExecuteW(nullptr, L"open", L"explorer.exe", arguments.c_str(), nullptr, SW_SHOWNORMAL);
+            }
+            else
+            {
+                ShellExecuteW(nullptr, L"open", L"explorer.exe", app.directory.c_str(), nullptr, SW_SHOWNORMAL);
+            }
+            break;
+
+        case CmdOpenConsole:
+            ShellExecuteW(nullptr, L"open", L"cmd.exe", nullptr, app.directory.c_str(), SW_SHOWNORMAL);
+            break;
+
+        case CmdToggleSidebar:
+            app.sidebarVisible = !app.sidebarVisible;
+            RememberSettings(app);
+            break;
+        // Una preferenza si cambia e si **ricorda**: e' quello che l'autore ha
+        // chiesto per la lingua, e vale per tutte quelle che si scelgono qui.
+        case CmdToggleHoverToSelect:    app.hoverToSelect    = !app.hoverToSelect;    RememberSettings(app); break;
+        case CmdToggleUnderlineOnHover: app.underlineOnHover = !app.underlineOnHover; RememberSettings(app); break;
+        case CmdToggleTooltips:         app.showTooltips     = !app.showTooltips;     RememberSettings(app); break;
+        case CmdSingleClick:            app.singleClick            = !app.singleClick;            RememberSettings(app); break;
+        case CmdSingleClickFoldersOnly: app.singleClickFoldersOnly = !app.singleClickFoldersOnly; RememberSettings(app); break;
+        case CmdActOnPress:             app.actOnPress             = !app.actOnPress;             RememberSettings(app); break;
+        case CmdDoubleClickToParent:    app.doubleClickToParent    = !app.doubleClickToParent;    RememberSettings(app); break;
+        case CmdShowCheckboxes:         app.showCheckboxes         = !app.showCheckboxes;         RememberSettings(app); break;
+        case CmdLanguageItalian:
+            gLanguage = Language::Italian;
+            RememberSettings(app);
+            ReportStatus(app, TrW(L"Impostazioni salvate in ", L"Settings saved to ") + SettingsPath());
+            break;
+        case CmdLanguageEnglish:
+            gLanguage = Language::English;
+            RememberSettings(app);
+            ReportStatus(app, TrW(L"Impostazioni salvate in ", L"Settings saved to ") + SettingsPath());
+            break;
+        case CmdShowSettingsPath:
+            ReportStatus(app, SettingsPath().empty()
+                                 ? TrW(L"Impostazioni non disponibili", L"Settings unavailable")
+                                 : TrW(L"Impostazioni in ", L"Settings in ") + SettingsPath());
+            break;
+        // Le tre dell'aspetto, che sono anche le tre chiavi dello spec. Sono la via
+        // rapida per cambiare tavolozza: dal pannello delle opzioni servono tre passaggi
+        // — aprire, cercare, scegliere — e qui uno.
+        case CmdColorSchemeLight:
+            SetColorScheme(app, ColorScheme::Light);
+            ReportStatus(app, TrW(L"Tema: chiaro", L"Theme: light"));
+            break;
+        case CmdColorSchemeDark:
+            SetColorScheme(app, ColorScheme::Dark);
+            ReportStatus(app, TrW(L"Tema: scuro", L"Theme: dark"));
+            break;
+        case CmdSystemColorScheme:
+            app.systemColorScheme = !app.systemColorScheme;
+            ApplyTheme(app);
+            RememberSettings(app);
+            ReportStatus(app, app.systemColorScheme
+                                 ? TrW(L"Tema: segue il sistema", L"Theme: follows the system")
+                                 : TrW(L"Tema: scelto a mano", L"Theme: chosen by hand"));
+            break;
+        case CmdOpenOptions:
+            BuildOptionsMenu(app);
+            break;
+        case CmdEditKeyMap:
+            BuildKeyMapMenu(app);
+            break;
+        case CmdPinTo:   BuildPinMenu(app, /*removing=*/false); break;
+        case CmdUnpin:   BuildPinMenu(app, /*removing=*/true);  break;
+        case CmdProperties:
+            OpenPropertiesPanel(app);
+            break;
+        case CmdPropertiesWindows:
+        {
+            const std::vector<std::wstring> paths = SelectedPaths(app);
+            if (paths.empty() || ShowProperties(app.window, paths) == 0)
+                ReportStatus(app, TrW(L"Proprietà non disponibili per la selezione.",
+                                      L"Properties unavailable for the selection."));
+            break;
+        }
+        case CmdCloseInTree:
+            CloseTabTree(app, app.tabs[static_cast<size_t>(app.activeTab)].id, /*wholeTree=*/false);
+            break;
+        case CmdCloseAllInTree:
+            CloseTabTree(app, app.tabs[static_cast<size_t>(app.activeTab)].id, /*wholeTree=*/true);
+            break;
+        case CmdDetachTab:
+        {
+            // "Stacca" riporta il tab alla radice: e' l'unico modo di disfare un
+            // annidamento senza cercarne un altro con il mouse.
+            Tab& tab = app.tabs[static_cast<size_t>(app.activeTab)];
+            tab.parentId = -1;
+            break;
+        }
+        case CmdZoomIn:    app.zoom = (std::min)(2.0f, app.zoom + 0.1f); break;
+
+        // Le quattro opzioni del visualizzatore. Cambiano il disegno del testo, non
+        // la lista: la riga da rifare e' quella delle righe visibili, e si rifa' da
+        // sola perche' il calcolo si accorge che l'andare a capo e' cambiato.
+        case CmdTextWhitespace:  app.textShowWhitespace = !app.textShowWhitespace; break;
+        case CmdTextLineNumbers: app.textLineNumbers = !app.textLineNumbers; break;
+        case CmdTextMinimap:     app.textMinimap = !app.textMinimap; break;
+        case CmdTextWrap:
+            app.textWrap = !app.textWrap;
+            app.textRowsDirty = true;
+            break;
+        case CmdTextZoomIn:
+            app.textZoom = (std::min)(2.4f, app.textZoom + 0.15f);
+            app.textRowsDirty = true;
+            break;
+        case CmdTextZoomOut:
+            app.textZoom = (std::max)(0.6f, app.textZoom - 0.15f);
+            app.textRowsDirty = true;
+            break;
+
+        // L'ingrandimento dell'anteprima e' **relativo all'adattamento**: il
+        // decoder la ridimensiona a 1024 px al massimo, quindi "1:1 rispetto
+        // all'originale" non e' una cosa che si possa promettere.
+        case CmdImageZoomIn:  app.imageZoom = (std::min)(4.0f, app.imageZoom + 0.25f); break;
+        case CmdImageZoomOut: app.imageZoom = (std::max)(0.25f, app.imageZoom - 0.25f); break;
+        case CmdImageZoomFit: app.imageZoom = 1.0f; break;
+        // La griglia dietro l'anteprima dell'immagine: si vede dove finisce lo sfondo
+        // dell'immagine e comincia quello del pannello. Si ricorda, come le altre
+        // preferenze.
+        case CmdToggleImageGrid:
+            app.inspectorHideGrid = !app.inspectorHideGrid;
+            RememberSettings(app);
+            break;
+        case CmdZoomOut:   app.zoom = (std::max)(0.6f, app.zoom - 0.1f); break;
+        case CmdZoomReset: app.zoom = app.dpiScale; break;
+        case CmdToggleDetails: app.palette.detailed = !app.palette.detailed; break;
+        // Cambiando vista le celle si spostano, e l'indice della riga sotto il
+        // puntatore non vuol piu' dire niente: il sovrappasso si azzera e lo
+        // ricalcola il prossimo movimento. Senza, il suggerimento resta appeso a
+        // una voce che non e' piu' quella sotto il mouse.
+        case CmdViewDetails: SetViewMode(app, ViewMode::Details); break;
+        case CmdViewList:    SetViewMode(app, ViewMode::List);    break;
+        case CmdViewTiles:   SetViewMode(app, ViewMode::Tiles);   break;
+        case CmdViewIcons:   SetViewMode(app, ViewMode::Icons);   break;
+        case CmdToggleBookmark: ToggleBookmark(app); break;
+        case CmdClearBookmarks: app.bookmarks.clear(); break;
+        case CmdClearRecents:   app.recents.clear(); break;
+
+        case CmdSortName:     app.sortColumn = SortColumn::Name;     SortEntries(app); app.viewDirty = true; break;
+        case CmdSortType:     app.sortColumn = SortColumn::Type;     SortEntries(app); app.viewDirty = true; break;
+        case CmdSortModified: app.sortColumn = SortColumn::Modified; SortEntries(app); app.viewDirty = true; break;
+        case CmdSortFolders:  app.sortColumn = SortColumn::Folders;  SortEntries(app); app.viewDirty = true; break;
+        case CmdSortFiles:    app.sortColumn = SortColumn::Files;    SortEntries(app); app.viewDirty = true; break;
+        case CmdSortSize:     app.sortColumn = SortColumn::Size;     SortEntries(app); app.viewDirty = true; break;
+        case CmdSortDirection: app.sortAscending = !app.sortAscending; SortEntries(app); app.viewDirty = true; break;
+
+        case CmdGroupNone:   app.groupMode = GroupMode::None;   app.viewDirty = true; break;
+        case CmdGroupName:   app.groupMode = GroupMode::Name;   app.viewDirty = true; break;
+        case CmdGroupDate:   app.groupMode = GroupMode::Date;   app.viewDirty = true; break;
+        case CmdGroupSize:   app.groupMode = GroupMode::Size;   app.viewDirty = true; break;
+        case CmdGroupCount:  app.groupMode = GroupMode::Count;  app.viewDirty = true; break;
+        case CmdGroupVolume: app.groupMode = GroupMode::Volume; app.viewDirty = true; break;
+
+        case CmdFocusFilter: app.filterActive = true; break;
+        case CmdClearFilter:
+            app.filter.clear();
+            app.filterActive = false;
+            app.viewDirty = true;
+            break;
+
+        case CmdScrollTop:
+            app.scroll = 0.0f;
+            break;
+        case CmdScrollBottom:
+        {
+            const Layout layout = ComputeLayout(app);
+            const float content = static_cast<float>(app.rows.size()) * layout.rowHeight;
+            app.scroll = (std::max)(0.0f, content - layout.list.h);
+            break;
+        }
+    }
+}
+} // namespace Bolt
+
 // --- trascinamento: la parte che sa la vista -------------------------------
 //
 // Il modulo OLE (`drag_drop.cpp`) non sa cosa sia una riga o una cartella aperta:
@@ -8186,77 +4400,29 @@ void Highlight(HWND window, const DragDrop::Target& target)
         RenderFrame(*app);
 }
 
-void Drop(HWND window, const std::vector<std::wstring>& sources, const DragDrop::Target& target,
+bool Drop(HWND window, const std::vector<std::wstring>& sources, const DragDrop::Target& target,
           bool move)
 {
     AppState* app = reinterpret_cast<AppState*>(GetWindowLongPtrW(window, GWLP_USERDATA));
     if (app == nullptr || sources.empty())
-        return;
+        return false;
 
-    const float scroll = app->scroll;
-    std::wstring error;
-    std::vector<std::wstring> created;
     const bool discard = target.verb == DragDrop::DropVerb::Discard;
-    const FileOps::Result result =
-        discard ? FileOps::Delete(window, sources, /*permanently=*/false, &error)
-                : (move ? FileOps::Move(window, sources, target.path, &created, &error)
-                        : FileOps::Copy(window, sources, target.path, &created, &error));
 
-    // Un annullamento non e' un guasto, ma non e' nemmeno "fatto": un gesto che
-    // finisce senza dire niente e' indistinguibile da un difetto, e chi ha appena
-    // mollato un file deve poter sapere che non e' successo niente.
-    if (result == FileOps::Result::Cancelled)
-    {
+    const bool started =
+        BeginOperation(*app,
+                       discard ? FileOps::Job::StartDelete(window, sources, /*permanently=*/false)
+                               : FileOps::Job::StartTransfer(window, sources, target.path, move),
+                       OperationSource::Drop);
+
+    // La caduta dichiara che l'esito lo dira' questa finestra **solo se e' partita**:
+    // chi ha lasciato andare il tasto riceve l'effetto prima che l'operazione sia
+    // finita, e senza questo segno crederebbe che l'abbia fatta un altro programma e
+    // racconterebbe lui come e' andata. Se non e' partita, l'effetto e' "niente" e
+    // non c'e' niente da raccontare.
+    if (started)
         app->dropReported = true;
-        ReportStatus(*app, discard ? TrW(L"Eliminazione annullata", L"Delete cancelled")
-                                   : TrW(L"Operazione annullata", L"Operation cancelled"));
-        return;
-    }
-
-    if (result == FileOps::Result::Failed)
-    {
-        DiagLog("  caduta non riuscita: " + ToUtf8(error));
-        app->dropReported = true;
-        ReportStatus(*app, (discard ? TrW(L"Eliminazione non riuscita: ", L"Delete failed: ")
-                                    : (move ? TrW(L"Spostamento non riuscito: ", L"Move failed: ")
-                                            : TrW(L"Copia non riuscita: ", L"Copy failed: "))) +
-                               error);
-        return;
-    }
-
-    // La vista si rifa' sempre: uno spostamento toglie gli originali da qui, e una
-    // copia puo' aver aggiunto qualcosa se la destinazione e' la cartella aperta.
-    // Si seleziona solo cio' che e' arrivato *qui*, perche' quello che e' finito
-    // altrove non si vede e non si potrebbe evidenziare.
-    std::unordered_set<std::wstring> keep;
-    std::wstring landed;
-    if (!discard && _wcsicmp(target.path.c_str(), app->directory.c_str()) == 0)
-    {
-        for (const std::wstring& path : created)
-        {
-            const std::wstring name = LeafName(path);
-            keep.insert(name);
-            if (landed.empty())
-                landed = name;
-        }
-    }
-    ReloadKeeping(*app, keep, landed, scroll);
-
-    app->dropReported = true;
-    DiagLog("  esito della caduta: " + std::string(discard ? "eliminazione"
-                                                           : (move ? "spostamento" : "copia")) +
-            " di " + std::to_string(sources.size()) + " elementi" +
-            (discard ? std::string()
-                     : ", prodotti " + std::to_string(created.size())));
-    const bool one = sources.size() == 1;
-    const std::wstring verb =
-        discard ? TrW(one ? L"Buttato via " : L"Buttati via ", L"Thrown away ")
-        : move  ? TrW(one ? L"Spostato " : L"Spostati ", L"Moved ")
-                : TrW(one ? L"Copiato " : L"Copiati ", L"Copied ");
-    std::wstring outcome = verb + CountItems(sources.size());
-    outcome += discard ? TrW(L" nel cestino", L" to the recycle bin")
-                       : TrW(L" in ", L" into ") + LeafName(target.path);
-    ReportStatus(*app, outcome);
+    return started;
 }
 
 } // namespace DragDrop
@@ -8609,10 +4775,28 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, LPWSTR, int)
             }
         }
 
+        // Un'operazione lunga finita: l'esito si raccoglie qui, una volta sola, e il
+        // pannello si chiude. Prima di disegnare, o l'ultimo fotogramma mostrerebbe un
+        // pannello che ha gia' finito.
+        if (app.operation != nullptr && !app.operation->Running())
+            FinishOperation(app);
+
         RenderFrame(app);
     }
 
     SetWindowLongPtrW(window, GWLP_USERDATA, 0);
+
+    // Un'operazione a meta' non si abbandona: il thread tiene lo stato che il pannello
+    // sta leggendo, e quello stato non puo' sopravvivere all'applicazione. Si chiede di
+    // fermarsi e si aspetta, **prima** di `CoUninitialize` — dopo, il thread di lavoro
+    // sarebbe l'unico rimasto con COM addosso.
+    if (app.operation != nullptr)
+    {
+        app.operation->Cancel();
+        app.operation->Finish(nullptr, nullptr);
+        app.operation.reset();
+    }
+
     app.stats.Stop();
     OleUninitialize();
     app.watcher.Stop();

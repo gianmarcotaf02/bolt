@@ -26,6 +26,7 @@ void BuildSidebarRows(const AppState& app, std::vector<SidebarRow>* rows)
             row.freeText     = place.freeText;
             row.usedFraction = place.usedFraction;
             row.volume       = !place.freeText.empty();
+            row.pinned       = place.ours;
             rows->push_back(std::move(row));
         }
     };
@@ -33,8 +34,32 @@ void BuildSidebarRows(const AppState& app, std::vector<SidebarRow>* rows)
     // QUICK ACCESS si mostra solo se ha qualcosa dentro: una sezione vuota qui non
     // vuol dire "non ne hai fissata nessuna", vuol dire che la cartella della shell
     // non si e' letta — e una sezione vuota senza spiegazione non si capisce.
-    if (!app.quickAccess.empty())
-        section("QUICK ACCESS", Tr("ACCESSO RAPIDO", "QUICK ACCESS"), app.quickAccess);
+    //
+    // Le righe **nostre** stanno in cima e quelle della shell restano com'erano: i
+    // fissaggi di Windows non si toccano (`docs/04` M6, decisione (a)), quindi la
+    // sezione mostra due elenchi uno sotto l'altro e il segno dice quale e' il nostro.
+    if (!app.pins.empty() || !app.quickAccess.empty())
+    {
+        std::vector<Place> quick;
+        quick.reserve(app.pins.size() + app.quickAccess.size());
+        for (const std::wstring& path : app.pins)
+        {
+            // Il nome di una cartella e' la coda del percorso; una cartella di spazio
+            // dei nomi — il cestino, "Questo PC" — una coda non ce l'ha, e il nome lo
+            // da' la shell.
+            const std::wstring label = ShellLocation::IsNamespace(path) ? LocationLabel(app, path)
+                                                                      : LeafName(path);
+            Place place;
+            place.label = ToUtf8(label);
+            place.path  = path;
+            place.icon  = path;
+            place.ours  = true;
+            quick.push_back(std::move(place));
+        }
+        for (const Place& place : app.quickAccess)
+            quick.push_back(place);
+        section("QUICK ACCESS", Tr("ACCESSO RAPIDO", "QUICK ACCESS"), quick);
+    }
 
     // I recenti: le cartelle visitate in questa sessione, la piu' recente per
     // prima. E' il ranking dei recenti (M4) nella sua forma minima — solo cartelle,
@@ -166,6 +191,17 @@ void DrawSidebar(AppState& app, const Layout& layout)
         }
         app.font.Draw(r, row.x + 30.0f * scale, row.y + 5.0f * scale, item.label,
                       active ? t.text : t.textDim, scale);
+
+        // Il segno delle righe **nostre**: la stella dei segnalibri, la stessa della
+        // barra strumenti — e' li' che si e' imparato a leggerla. Sta in fondo alla
+        // riga e non davanti al nome: davanti sposterebbe le etichette di una riga
+        // sola, e l'elenco non sarebbe piu' allineato.
+        if (item.pinned)
+        {
+            const float width = app.smallFont.Measure("★", scale);
+            app.smallFont.Draw(r, row.right() - width - 10.0f * scale, row.y + 6.0f * scale,
+                               "★", t.accent, scale);
+        }
 
         if (item.volume)
         {

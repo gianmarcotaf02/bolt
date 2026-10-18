@@ -49,6 +49,10 @@ public static class Win32Capture
     [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
     [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hWnd, int cmd);
     [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr hWnd);
+    [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
+    [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr h, IntPtr p);
+    [DllImport("user32.dll")] public static extern bool AttachThreadInput(uint a, uint b, bool f);
+    [DllImport("kernel32.dll")] public static extern uint GetCurrentThreadId();
 }
 '@
 }
@@ -60,8 +64,26 @@ $handle = $process.MainWindowHandle
 if ($handle -eq [IntPtr]::Zero) { throw "process '$ProcessName' has no main window yet" }
 
 if ([Win32Capture]::IsIconic($handle)) { [void][Win32Capture]::ShowWindow($handle, 9) }  # SW_RESTORE
-[void][Win32Capture]::SetForegroundWindow($handle)
+
+# `SetForegroundWindow` **non basta**: Windows lo rifiuta quando il primo piano ce l'ha
+# un'altra applicazione, e la chiamata riesce lo stesso. Serve `AttachThreadInput` al
+# thread che possiede il primo piano (e' quello che fa `focus-window.ps1`).
+if ([Win32Capture]::GetForegroundWindow() -ne $handle) {
+    $foregroundThread = [Win32Capture]::GetWindowThreadProcessId([Win32Capture]::GetForegroundWindow(), [IntPtr]::Zero)
+    $mine = [Win32Capture]::GetCurrentThreadId()
+    [void][Win32Capture]::AttachThreadInput($mine, $foregroundThread, $true)
+    [void][Win32Capture]::SetForegroundWindow($handle)
+    [void][Win32Capture]::AttachThreadInput($mine, $foregroundThread, $false)
+}
 Start-Sleep -Milliseconds $SettleMs
+
+# E se il primo piano e' ancora di qualcun altro, **non si cattura**: quello che sta
+# sopra finirebbe dentro il rettangolo della finestra, e una cattura cosi' e' la
+# schermata di chi lavora, non una prova. E' successo il 2026-10-18, ed e' la ragione
+# di queste righe.
+if ([Win32Capture]::GetForegroundWindow() -ne $handle) {
+    throw "la finestra di '$ProcessName' non e' in primo piano: non catturo (sopra c'e' un'altra finestra)"
+}
 
 if ($ClientOnly) {
     $rect = New-Object Win32Capture+RECT

@@ -294,4 +294,19 @@ UIDraw DisclosureArrow(const Rect& box, Color color, bool pointsDown)
     return UIDraw::Triangle(shape, color, pointsDown);
 }
 
+// L'atlante dei glifi si rifa' solo quando una delle tre misure cambia davvero:
+// rasterizzarlo a ogni fotogramma sarebbe un lavoro che nessuno vede.
+void ApplyFonts(AppState& app)
+{
+    std::string error;
+    const int smallSize = (std::max)(AppState::kUiFontSizeMin,
+                                     app.uiFontSize - AppState::kSmallFontDelta);
+    app.font.Build(*app.renderer, app.fontFace.c_str(), app.uiFontSize, kGlyphLayer,
+                   kTextureLayerSize, &error);
+    app.smallFont.Build(*app.renderer, app.fontFace.c_str(), smallSize, kSmallGlyphLayer,
+                        kTextureLayerSize, &error);
+    app.monoFontOk = app.monoFont.Build(*app.renderer, app.monoFace.c_str(), app.monoFontSize,
+                                        kMonoLayer, kTextureLayerSize, &error);
+}
+
 } // namespace Bolt

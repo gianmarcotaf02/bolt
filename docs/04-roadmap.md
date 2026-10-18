@@ -4,7 +4,7 @@ Sequenza di lavoro, ordinata in modo che ogni milestone produca qualcosa di
 funzionante e verificabile. Le stime sono per lavoro part-time.
 
 Stato corrente: **M1, M2, M2b, M5, M5b, M5c, M5d, M8 e M10 completate**; M3, M4,
-M6, M7 e M9 parziali; M3b non iniziata. Questo riassunto invecchia a ogni
+M6, M7 e M9 parziali; M3b completata. Questo riassunto invecchia a ogni
 milestone: la tabella viva è in `docs/05-stato-e-prossimi-passi.md` §1, che si
 aggiorna a ogni pausa lunga.
 
@@ -97,7 +97,7 @@ Nato come contorno della milestone 2, ma è ciò che rende il programma usabile.
 
 ---
 
-## M3 — Statistiche di cartella 🟡 ◀ **il pezzo che distingue il prodotto**
+## M3 — Statistiche di cartella ✅
 
 > **Correzione.** Questa milestone era intitolata "Statistiche da MFT" e
 > prevedeva la lettura e l'aggregazione del Master File Table. Quella ipotesi è
@@ -199,16 +199,65 @@ il lavoro sui casi limite (reparse point, hard link, errori di I/O parziali).
 
 ---
 
-## M3b — Attributi NTFS di un file ⬜
+## M3b — Attributi NTFS di un file ✅
 
 Feature separata e più piccola, dedotta dalla tabella `AT_*` e dagli import
-`CreateFileW` + `DeviceIoControl`.
+`CreateFileW` + `DeviceIoControl`. **Scritta e verificata il 2026-10-18** in
+`src/ntfs_attributes.*`, e collegata all'ispettore.
 
-- [ ] apertura del volume raw `\\.\X:`
-- [ ] `FSCTL_GET_NTFS_FILE_RECORD` per il record di un file identificato
-- [ ] mappatura dei codici di attributo ai nomi della tabella `AT_*`
-- [ ] presentazione nell'inspector
-- [ ] degradazione pulita senza privilegi elevati
+- [x] apertura del volume raw `\\.\X:`
+- [x] `FSCTL_GET_NTFS_FILE_RECORD` per il record di un file identificato
+      (`FileIdInfo` → riferimento MFT a 64 bit: numero di record nei 48 bit bassi,
+      sequenza nei 16 alti)
+- [x] mappatura dei codici di attributo ai nomi della tabella `AT_*` — indice
+      `(codice >> 4) - 1`, che è la forma misurata sul binario: `AT_IndexRoot` è
+      l'elemento **8**, cioè `0x90`
+- [x] presentazione nell'inspector: una riga `NTFS` e la lista sotto, col nome
+      dell'attributo nella colonna del **valore** (la colonna dell'etichetta è larga
+      74 punti e "Standard Information" ci si troncherebbe a metà parola)
+- [x] degradazione pulita senza privilegi elevati: `Status::NoPrivilege` →
+      la riga dice «serve l'amministratore», e **non** una lista vuota
+
+**Il record si corregge prima di leggerlo.** La *update sequence array* in testa al
+record protegge gli ultimi due byte di ogni settore da una scrittura interrotta:
+senza rimetterli, un record sano si legge come corrotto proprio sui confini di
+settore. `ParseRecord` la applica, ed è la ragione per cui è una funzione separata
+da `Read`: non fa I/O, quindi si prova anche dove i privilegi non ci sono.
+
+**Verificato il 2026-10-18, senza amministratore** (`analysis/tmp/ntfstest/`,
+sei controlli positivi e tre negativi): un record costruito a mano con sei
+attributi — residente, non residente, uno stream nominato `:stessa`, e il sesto
+attributo messo apposta **a cavallo** della fine del primo settore — si legge con
+i nomi e le dimensioni giusti; **senza** la correzione dei settori lo stesso record
+non si legge (è il controllo che dice che la correzione serve); firma sbagliata e
+record troncato dicono **no** invece di restituire metà elenco; e su un file vero,
+senza privilegi, la risposta è `NoPrivilege`.
+
+**Verificato a schermo e contro disco, elevato** (la macchina era libera, e chi
+lavora ha autorizzato il prompt):
+
+| file | record letto | torna? |
+|---|---|---|
+| `nota.txt` | Standard Information 72, File Name 82, Data 23 | il file è di 23 byte e il nome di 8 caratteri: `0x48 = 72`, `0x42 + 2×8 = 82` |
+| `appunti.txt` | Standard Information 72, File Name 88, Data 17 | 17 byte; nome di 11 caratteri: `0x42 + 22 = 88` |
+| `documenti\` (cartella) | Standard Information 72, **due** File Name (82 e 84), Index Root 376 B **($I30)** | il nome lungo e quello DOS 8.3; l'indice ha il nome standard `$I30` |
+
+Nell'ispettore la lista compare come riga `NTFS` con gli attributi sotto
+(`analysis/tmp/m3b-inspettore-ntfs.png`), e **senza** privilegi la stessa riga dice
+«serve l'amministratore»: le due facce sono state guardate tutte e due, quella
+degradata prima e quella vera dopo.
+
+**Due trappole pagate in questa prova**, ora in `docs/05` §5: un'applicazione
+**elevata** non riceve i clic sintetici di un banco non elevato (UIPI), e non si
+chiude con `taskkill`. La prima si aggira aprendo Bolt **direttamente sulla cartella
+di prova**, così il cursore cade sulla prima riga e non c'è niente da cliccare; la
+seconda vuole un `UAC` in più, e va messa in conto prima di avviare.
+
+**Limiti dichiarati.** La lista è tenuta per percorso, come le proprietà del tipo
+di file: se il record cambia (uno stream nuovo, un collegamento fisico in più) la
+voce resta quella letta la prima volta finché non cambia la selezione. E il codice
+`0xD0` (EA Information) è l'unico dei sedici che il riferimento **non** nomina: si
+scrive in esadecimale invece di indovinarne il nome.
 
 *Stima: 3–5 giorni.* È un percorso isolato e ben delimitato.
 
@@ -315,7 +364,7 @@ di una cartella fuori schermo avvierebbe lavoro che l'utente non vede.
 
 ---
 
-## M5c — Modalità di visualizzazione 🟡
+## M5c — Modalità di visualizzazione ✅
 
 Due impaginazioni (righe di testo, griglia di celle) e due dimensioni di cella
 coprono le otto voci di visualizzazione di Explorer, perché la maggior parte di
@@ -395,7 +444,7 @@ Il secondo corpo di glifi è fatto.
 
 ---
 
-## M5d — Sovrappasso e comportamento del clic 🟡
+## M5d — Sovrappasso e comportamento del clic ✅
 
 Non era nei piani. È emerso da una domanda dell'utente — «quando passo sopra dei
 file si preseleziona qualcosa?» — e la risposta era che **no, e non era previsto**:
@@ -473,7 +522,7 @@ movimento.
 
 ---
 
-## M6 — Tab, quick access, palette, GoTo 🟡
+## M6 — Tab, quick access, palette, GoTo ✅
 
 - [x] tab multipli: creazione, chiusura, attivazione, stato indipendente
 - [x] barra del titolo propria al posto di quella nativa, con pulsanti di finestra
@@ -490,6 +539,97 @@ movimento.
 - [x] **pulsanti di navigazione** nella barra strumenti: indietro, avanti, su,
       aggiorna, segnalibro — gli stessi comandi della tastiera e della palette
 - [x] il terzo contesto del componente a gruppi: il menu contestuale (fatto in M7)
+- [x] **il fissaggio in qualunque sezione** — deciso dall'autore il 2026-10-16, e fatto:
+      `Fissa in...` e `Togli da...` (palette e menu contestuale) mettono una cartella in
+      **accesso rapido** o nei **segnalibri**, e nell'accesso rapido le nostre righe
+      stanno in cima a quelle della shell con una **stella** che le distingue. Anche
+      una cartella standard si fissa come qualsiasi altra. Vedi sotto
+
+### Il fissaggio, e cosa si può fissare — *Scelta dell'autore*
+
+Deciso il 2026-10-16: **qualsiasi categoria si può pinnare** — accesso rapido,
+segnalibri, o anche una cartella standard come Desktop. Non e' "aggiungi ai
+segnalibri": e' **fissa questa cartella dove dico io**, e le sezioni della barra
+laterale sono le destinazioni possibili.
+
+Due cose vanno decise **prima** di scrivere, e sono tutte e due di sostanza:
+
+1. **La lista della shell non si scrive.** L'accesso rapido di Windows non ha
+   un'API documentata per aggiungerci una voce: i suoi fissaggi stanno in un
+   *jump list* (`%APPDATA%\Microsoft\Windows\Recent\AutomaticDestinations`), e
+   l'unico modo di toccarlo e' `ICustomDestinationList`, che pero' scrive un file
+   **della shell**. Due strade, e la seconda va provata prima di prometterla:
+   **(a)** i fissaggi sono **nostri** e la sezione li mostra accanto a quelli che la
+   shell ha gia' (una riga con la nostra stella, le loro com'erano); **(b)** si
+   scrive il jump list e si accetta che Windows possa riscriverlo. La (a) e' il
+   default; la (b) e' una prova da fare e da dichiarare se fallisce.
+2. **Dove vivono i fissaggi.** Un elenco di percorsi fissati e' un elenco di
+   **cartelle di qualcuno**, e `docs/06` dice che `settings.ini` non contiene ne'
+   nomi di file ne' cartelle. Quindi, come i segnalibri di oggi: **in memoria, per la
+   sessione**. Ricordarli fra le sessioni vuol dire cambiare quella regola, e quella
+   e' una decisione dell'autore, non un dettaglio di implementazione.
+
+Quello che c'era da fare — un comando (`Fissa in...`) nel menu contestuale e nella
+palette, le sezioni che accettano le righe fissate, e il toglimento — **adesso c'e'**:
+
+- **`Fissa in...`** apre l'elenco delle destinazioni — **Accesso rapido** e
+  **Segnalibri**, le due sezioni che accettano una riga — e **`Togli da...`** apre lo
+  stesso elenco per togliere. Due comandi e non uno con un verso: chi cerca "togli"
+  non deve leggere "fissa" e capire da solo che fa il contrario. La riga di una
+  destinazione che non cambierebbe niente lo **dice** (`Accesso rapido (e' gia'
+  fissata qui)`), invece di essere disegnata spenta: il componente dei menu non sa
+  disegnare una riga spenta — lo sa solo il pannello delle opzioni — e per due righe
+  non vale la pena darglielo. Se non c'e' niente da fare, il pannello non si apre e
+  l'esito si legge nella barra di stato.
+- **Nell'accesso rapido le nostre righe stanno in cima**, con la stella dei
+  segnalibri in fondo alla riga e in colore d'accento; quelle della shell restano
+  sotto, come erano, senza stella. La stella sta in fondo e non davanti al nome
+  perche' davanti avrebbe spostato le etichette di una riga sola, e l'elenco non
+  sarebbe piu' allineato.
+- **Una cartella standard si fissa come qualsiasi altra**: `PLACES` e' di sola
+  lettura e resta di sola lettura — e' anche il posto giusto per le cartelle standard,
+  che ci sono gia' — ma "fissa Desktop" vuol dire metterlo qui, fra i nostri.
+
+**Le due decisioni, applicate.** La (a): i fissaggi sono **nostri** e la sezione li
+mostra accanto a quelli che la shell ha gia'. La (b) — scrivere il jump list di
+Windows — **non si e' provata, e non serve**: guardando il menu contestuale si vede
+che il verbo della shell per farlo c'e' gia' (`Aggiungi a Preferiti`, quello di
+Esplora risorse), e lo scrive **il sistema**. Farlo noi vorrebbe dire lasciare una
+traccia nella barra laterale di chi lavora per un guadagno che nessuno vede. I
+fissaggi vivono quindi in memoria, per la sessione, come i segnalibri e i recenti:
+`settings.ini` non contiene percorsi (`docs/06`).
+
+**Limiti dichiarati.**
+
+- **I due comandi agiscono sulla cartella aperta, non sulla selezione.** Per questo
+  nel menu contestuale compaiono **solo sul fondo**: li' sotto non c'e' una selezione
+  con cui confonderli. Con una cartella scelta, "fissa in..." vorrebbe dire "fissa la
+  voce scelta", che non e' quello che questo comando fa — e offrirlo lo stesso
+  sarebbe promettere qualcosa che non mantiene.
+- **Il toglimento sta nella palette o nel menu contestuale**, non su un gesto della
+  riga: un tasto destro su una voce della barra laterale non c'e'. Il gesto giusto
+  sarebbe quello, e non c'e' ancora.
+- **I fissaggi non sopravvivono alla sessione**, come i segnalibri di oggi: e' la
+  decisione (a), non una dimenticanza.
+
+**Verificato a schermo** (catture in `analysis/tmp/keys/pin-*.png`): quattro cartelle
+fissate in accesso rapido, ognuna con la stella, sopra le righe della shell che la
+stella non ce l'hanno; la stella della barra strumenti che si accende fissando nei
+segnalibri; `Togli da...` che toglie — la riga sparisce dalla barra laterale e la
+stella si spegne — con l'esito nella barra di stato (`Fissata in Accesso rapido`,
+`Tolta da Accesso rapido`); la riga fissata che **porta** alla cartella cliccandola;
+le due voci della palette e le due del menu contestuale, presenti sul fondo e **non**
+con una selezione; e le stesse schermate in inglese (`PIN TO`, `Where?`, `Quick
+access`, `Bookmarks`).
+
+**Una trappola pagata qui, e vale per il prossimo menu:** un menu nuovo si registra in
+**quattro** posti — `OpenMenu`, il disegno in `RenderFrame`, e le due sedi che
+eseguono una voce attivata (clic e tastiera). Me n'ero dimenticato uno, il disegno: il
+pannello si apriva, prendeva i tasti, e non si vedeva. E' la **schermata** che l'ha
+detto, non il codice, che sembrava giusto; e sotto c'era un secondo guasto, una
+condizione invertita che faceva uscire il pannello subito con un messaggio **falso**
+(«gia' fissata in tutte le sezioni», la prima volta che si usava il comando). Trovato
+con una riga di registro, non ragionando. Vedi `docs/02` §7.57.
 
 ### L'albero dei tab, verificato — *Visto*
 
@@ -724,9 +864,11 @@ a gruppi, invece di scriverne tre.
 - [x] **trascinare *fuori* da una cartella di spazio dei nomi**: le voci portano
       l'oggetto dati della shell invece di un nome, e l'oggetto lo chiede **la
       cartella che le possiede** — montarlo a mano lo faceva accettare e non fare
-      niente (§7.34 di `docs/02`). Verificato per una cartella normale; **per una
-      voce riciclata la destinazione dichiara "copia" e non copia**: limite
-      dichiarato, non risolto
+      niente (§7.34 di `docs/02`). Verificato per una cartella normale **e per una
+      voce riciclata**: trascinata fuori dal cestino in una cartella si **ripristina**
+      lì (28 byte, contenuto identico, sparita dal cestino), che è quello che fa anche
+      Esplora risorse. Visto il 2026-10-17, dopo due giri in cui il banco diceva il
+      contrario: vedi §7.34
 - [x] **navigazione nello spazio dei nomi** e **ripristino dal cestino**: il
       cestino è un collegamento nella barra laterale, si apre come una cartella,
       e "Ripristina" è il verbo della shell sulla voce — che esiste solo se alla
@@ -745,7 +887,60 @@ a gruppi, invece di scriverne tre.
       cartella come elemento. Il clic destro sul fondo azzera la selezione, come
       in Esplora risorse, e da lì arrivano `Proprietà`, `Apri nel Terminale`,
       `Apri con …` e le voci delle estensioni
-- [ ] dialogo di progressione con annullamento proprio
+- [x] **dialogo di progressione con annullamento proprio**: copia, spostamento e
+      cestino girano su un **thread di lavoro** con un conto che si muove e un
+      pulsante che ferma davvero (`FileOps::Job`, sotto)
+
+### Il dialogo di progressione, e cosa la shell non fa — *Ricostruito*
+
+Una copia da 5 GB non è un'attesa: è qualcosa che si guarda e che si può fermare.
+Prima non si poteva né l'una né l'altra cosa — l'operazione girava **sincrona sul
+thread della finestra**, che restava ferma — e le tre cose che mancavano erano un
+conto, un numero che si muove e un pulsante.
+
+Adesso `FileOps::Job` esegue copia, spostamento e cestino su un **thread di lavoro**
+(COM `MTA`: su quel thread nessuno pompa messaggi, e un appartamento ad attesa
+singola che aspetta una chiamata che nessuno consegna è un blocco), e il pannello
+disegnato da noi prende il posto della finestra della shell, spenta con
+`FOF_SILENT`. Le tre operazioni non hanno più un finale ciascuna: l'esito si legge in
+un posto solo (`FinishOperation`) quando `Running()` diventa falso, e il registro
+(`BOLT_DIAG=1`) porta una riga per ogni operazione.
+
+Due cose la shell non le dà, ed entrambe si sono dovute misurare:
+
+- **Non c'è un `Abort`.** `IFileOperation` non ha un metodo per fermarsi: chi annulla
+  è il **sink**, che risponde con un codice d'errore. Il documento dice che un errore
+  da `Pre*Item` annulla l'operazione **e tutte quelle in coda**; `UpdateProgress`
+  passa di lì anche a metà di un file solo, ed è l'unico punto da cui fermare una
+  copia da 5 GB prima della sua fine. Verificato: annullata a metà di un file da
+  4 GB, la shell **cancella da sola il file parziale** che aveva creato.
+- **I "punti" di `UpdateProgress` non sono byte.** Misurati con `BOLT_DIAG=1`: un
+  file da 4 GB sono **131074 punti** (32 KB l'uno), un file da 23 byte sono **2
+  punti**. La frazione è una frazione, e moltiplicata per i byte che `Job` misura
+  prima di partire dà un conto **esatto per un file solo** e interpolato su tante
+  voci piccole (i punti sono "proporzionali al tempo", non ai byte). Il conto vero
+  si legge nella stessa riga del registro, così la differenza si vede invece di
+  supporla.
+
+Il pannello compare solo se l'operazione sta ancora girando dopo 0,35 s: una copia di
+due file piccoli finisce prima, e un pannello che compare per tre fotogrammi è
+peggio di nessun pannello. `Esc` e il pulsante `Annulla` chiedono la stessa cosa, e
+finché la shell non ha davvero smesso il pannello lo dice.
+
+Una cosa che l'asincrono ha reso possibile e che va **rifiutata**: una seconda
+operazione mentre la prima gira. Sostituirla vuol dire annullarla senza dirlo, e per
+una caduta è peggio — chi ha mollato il tasto legge dalla destinazione se
+l'operazione è riuscita, e su `DROPEFFECT_MOVE` cancella gli originali. Una caduta
+rifiutata adesso dichiara `DROPEFFECT_NONE`. **Restano dichiarati**: una sola
+operazione per volta (non c'è coda) e l'annullamento che dipende dal fatto che la
+shell legga il codice d'errore del sink, che è documentato per i `Pre*Item` e
+osservato per `UpdateProgress`.
+
+Verificato a schermo e contro disco, nella sandbox: il conto che si muove dentro un
+file solo (938 MB → 1,8 GB sulla stessa copia), l'annullamento col tasto **e** col
+pulsante (nessun file parziale rimasto), un incolla normale (`nota - Copia.txt`
+creato e selezionato), un'eliminazione nel cestino, e una caduta su una riga. I
+riscontri sono in `analysis/tmp/op*.png`.
 
 ### Le proprietà, in-app e di Windows — *Ricostruito*
 
@@ -1136,9 +1331,48 @@ incollato un file al suo interno e essere risaliti mostra `0 | 1 | 5 B`.
       trasparente la lascia vedere, una foto la copre. Comando in palette
       (`Image: toggle background grid`), preferenza ricordata in `settings.ini`
       come `inspectorHideGrid`
+- [x] **il contenuto di una cartella scelta, in fondo al pannello**, in **elenco**:
+      le prime voci con la loro icona o miniatura, senza aprirla — la domanda «cosa
+      c'è qui dentro?» fatta con gli occhi. **Richiesto dall'autore**, non
+      ricostruito dall'originale
 
 *Stima: 3 settimane.* Il rasterizzatore di font proprio dell'originale
 (`WinFontRasterizer.cpp`) resta fuori perimetro: GDI è sufficiente.
+
+### Il contenuto di una cartella, senza aprirla — *Scelta*
+
+Richiesto dall'autore: scegliendo una cartella, l'ispettore ne mostra il contenuto
+sotto i metadati, in **elenco** — icona e nome, una voce per riga. Serve a riconoscere
+una cartella **prima** di aprirla, e a non perdere il posto nell'elenco per andare a
+guardarci dentro. La prima stesura era una **griglia** di miniature; l'autore l'ha
+chiesta in elenco, che e' anche la forma in cui i nomi si leggono tutti.
+
+Tre decisioni, e vale la pena scriverle:
+
+- **La lettura è limitata a dodici voci.** Una cartella con centomila file si ferma
+  alla tredicesima: la domanda è «cosa c'è qui», non «elenca tutto», e questa lettura
+  gira sul thread dell'interfaccia quando il cursore si sposta. Che ce ne siano altre
+  si sa da **una** voce in più invece che contandole tutte, e lo si dice sulla riga
+  dell'intestazione (`e altre voci`, a destra): come riga a sé costava una riga di
+  celle, e la scelta diventava fra mostrarne nove col conteggio o dodici senza.
+- **Le anteprime sono quelle della lista**, nello stesso ordine: miniatura vera se
+  ce n'è una, altrimenti quella del tipo. Una strada sola per la stessa domanda, e
+  nessuna coda di lavori in più.
+- **Le righe sono alte quanto quelle dell'ispettore** (20 px) e l'icona è quella
+  della riga dei **dettagli** della lista: miniatura vera se ce n'è una, altrimenti
+  quella del tipo. A 16 px non si chiede alla shell l'icona grande — sarebbe una
+  rasterizzazione da 128 px per disegnarne 16. E l'opzione che spegne le anteprime le
+  spegne anche qui: è la stessa domanda, e due risposte diverse nella stessa finestra
+  sono due bugie di cui una sola è voluta.
+
+**Non è interattiva**, ed è dichiarato: le righe si guardano soltanto. Cliccarle
+vorrebbe dire dare all'ispettore dei bersagli, e l'ispettore oggi non ne ha.
+
+Limiti dichiarati: il contenuto si legge quando la cartella **scelta cambia**, quindi
+un file arrivato da fuori mentre quella cartella è scelta non compare finché non si
+sposta il cursore (la sorveglianza delle cartelle non è ricorsiva); e una cartella di
+spazio dei nomi non si elenca con `FindFirstFile`, quindi lì l'elenco non c'è — per
+il cestino la domanda non ha comunque senso.
 
 ### La griglia dell'immagine — *Ricostruito*
 
@@ -1245,7 +1479,9 @@ palette (`Tema: chiaro`, `Tema: scuro`, `Tema: segui il sistema`).
       uso. Il riquadro di DWM si allinea alla stessa decisione, o si ottiene una
       finestra chiara col bordo scuro. Tutto ricordato in `settings.ini`
       (`colorScheme`, `systemColorScheme`)
-- [ ] mappa tasti rimappabile sui 319 comandi — **in memoria**, per la sessione
+- [x] mappa tasti rimappabile — **in memoria**, per la sessione: la **mappa c'e'** ed
+      e' la fonte unica (`src/keymap.*`), e l'**editor** pure — la riga `Key Map` fra le
+      opzioni, e `CmdEditKeyMap` anche dalla palette. Vedi sotto
 - [ ] viste per cartella con ereditarietà e applicazione ricorsiva — **in memoria**
 - [ ] layout salvabili — **in memoria**
 - [ ] le opzioni che l'originale ha e qui **non** sono applicate (animazioni,
@@ -1257,6 +1493,96 @@ palette (`Tema: chiaro`, `Tema: scuro`, `Tema: segui il sistema`).
       memoria del processo
 
 *Stima: 3–4 settimane.*
+
+### La mappa dei tasti, e l'editor — *Ricostruito*
+
+Le scorciatoie non erano un dato: erano **quarantasei `case`** dentro `WindowProc`,
+dove il tasto e cosa fa stavano nella stessa riga (`case 'C': if (ctrl)
+DoCopyToClipboard(...)`). Finché nessuno le vuole cambiare va bene — e appunto,
+cambiarle era la richiesta — perché lì **il tasto è il codice**, e non esiste un posto
+in cui scrivere un tasto diverso.
+
+Adesso il tasto è un dato, in `src/keymap.*`: una tabella `comando -> tasto` che si
+legge per decidere, si legge per **scrivere la scorciatoia accanto a una voce**, e si
+può cambiare. Due cose sono cadute fuori da sole, e sono la prova che il confine era
+quello giusto:
+
+- **l'esecutore è tornato uno.** I `case` che eseguivano un comando erano copie di
+  quelli di `RunCommand` (il `case 'C'` e il `case CmdCopy:` facevano la stessa cosa in
+  due punti). Adesso il tasto chiama **lo stesso** `RunCommand` della palette e dei
+  menu: una strada sola, e due copie non possono più divergere.
+- **le righe di fondo dei menu si scrivono da sole.** `Ctrl+Maiusc+P apre e chiude`
+  era una frase con le lettere dentro; adesso è `keys.LabelFor(CmdPalette)`, e per
+  `GoTo` dice `Ctrl+P o F4` perché ha due tasti. Se il tasto cambia, cambia quello che
+  si legge.
+
+Una cosa si è dovuta aggiungere perché la mappa fosse completa: la **tavolozza dei
+comandi** era l'unica cosa che si apriva da un tasto **senza essere un comando**
+(`Ctrl+Maiusc+P` chiamava `BuildPaletteMenu` e basta). Adesso è `CmdPalette`, con la
+sua riga in tabella e il suo tasto nella mappa.
+
+I tasti che **non sono comandi** restano nel gestore dei messaggi, e sono una scelta:
+`Ctrl+A` che seleziona tutto, `Ctrl+G` che cicla il raggruppamento, `Ctrl+Home`,
+le frecce, l'Invio. Sono comportamenti dell'input, non voci che si possono eseguire da
+un menu, e metterli in tabella vorrebbe dire inventare comandi che non esistono.
+
+**Quello che mancava era l'editor**, e adesso c'è: `Rebind`, `Clear`, `Reset` e
+`Bindings()` sono chiamati da un posto nella finestra invece che solo dal codice.
+Sta fra le opzioni — una riga `Key Map` con un pulsante `Modifica...`, che è il primo
+controllo di tipo **`Action`**: un pulsante che non ha un valore da leggere ma apre
+un'altra cosa — e lo stesso comando (`CmdEditKeyMap`) è nella palette, senza tasto di
+partenza.
+
+Com'è fatto, in quattro righe:
+
+- **una riga per comando, non per tasto**, costruita dalla tabella dei comandi e non
+dalle righe della mappa: un comando che un tasto non ce l'ha deve poterlo ricevere, e
+il posto vuoto a destra **è** l'informazione che manca. Il tasto lo scrive `LabelFor`,
+quindi quella riga non può dire una cosa diversa da quella che il tasto fa.
+- **la cattura**: `Invio` su una riga, e il campo di ricerca diventa il messaggio
+(«premi un tasto per *Rinomina*») invece di un secondo riquadro. Da lì il tasto
+premuto è il **dato** che si sta scrivendo, non un comando da eseguire: la cattura
+sta *prima* di ogni altra lettura della tastiera, `WM_SYSKEYDOWN` compreso (altrimenti
+`Alt+qualcosa` non si potrebbe assegnare, e `Alt+F4` chiuderebbe la finestra mentre si
+sta scegliendo un tasto). `Esc` annulla, `Canc` toglie, e `Rebind` si porta via il
+tasto da chi lo aveva: due comandi sullo stesso tasto sarebbero un tasto che fa due
+cose a seconda di chi guarda.
+- **i tasti di partenza** sono la prima riga dell'elenco, e non un comando: sono
+l'unica via d'uscita da una mappa che ha tolto i tasti per riaprire quella lista.
+L'esito si legge nella barra di stato, come ogni altra azione.
+- **la riga in fondo avvisa** quando il tasto che si sta spostando è proprio quello
+che apre l'elenco (`Ctrl+,`, `Ctrl+Maiusc+P`, o il comando stesso): la mappa è di
+sessione, quindi un riavvio la riporta ai valori di partenza — ma per rientrare
+bisognerebbe chiudere l'applicazione, e questo è un limite **dichiarato**, non un
+divieto.
+
+Due limiti della mappa, detti dove vivono:
+
+- **un tasto da scrivere sciolto non si assegna.** Senza `Ctrl` e senza `Alt` un tasto
+lettera arriva alla casella di testo — il filtro e la rinomina — quindi un comando su
+`C` renderebbe impossibile scrivere una parola che contiene una `c`. `Maiusc` non
+conta: `Maiusc+C` **è** una `C` maiuscola. Un tasto rifiutato non sparisce in
+silenzio: la riga in fondo dice cosa serve (un modificatore o un tasto funzione).
+- **il nome di un tasto di punteggiatura lo dà Windows**, nella lingua della tastiera
+in uso: `Label` ha i suoi nomi scritti a mano per i tasti che l'applicazione usa nei
+tasti di partenza, e per tutti gli altri chiede `GetKeyNameTextW` sul codice di
+scansione, dichiarando il bit che distingue i tasti **estesi** (senza, `Insert` si
+chiamerebbe "0"). Un tasto senza nome non si potrebbe assegnare, e sarebbe un buco
+travestito da rifiuto.
+
+Una cosa si è dovuta correggere nel componente dei menu: la colonna di destra, quando
+il dettaglio manca, prendeva il **gruppo** della voce. Va bene per la palette, dove il
+gruppo è il contesto di un comando, ma non qui, dove quella colonna vuol dire una cosa
+sola — il tasto — e un gruppo scritto dov'era il tasto sarebbe una bugia su un comando
+senza tasti. Adesso il ripiego succede **solo** dove il menu lo chiede
+(`GroupMenu::detailFallsBackToGroup`), e la palette è l'unico che lo chiede.
+
+Le catture della verifica sono in `analysis/tmp/keys/`: la riga fra le opzioni, l'elenco
+con i tasti accanto, il filtro, la cattura con il cursore sul comando, una rimappatura,
+un tasto tolto con `Canc`, `F5` rubato ad `Aggiorna`, i tasti di partenza rimessi col
+messaggio nella barra di stato, il tasto nuovo che rinomina davvero, il vecchio che non
+fa piu' niente, l'avviso su un tasto d'ingresso, un tasto di punteggiatura rifiutato
+sciolto e accettato con `Ctrl`, e le stesse schermate in inglese.
 
 ### Cosa si perde, e perché va bene
 
@@ -1306,28 +1632,75 @@ cercarla — sono esattamente il tipo di cosa che «la lingua e' finita» nascon
 Il modulo sta in `src/language.h`/`.cpp` perche' anche `file_ops.cpp` ha i suoi due o
 tre messaggi: il secondo utilizzatore e' la ragione per cui e' un file a se'.
 
-**Cosa resta in inglese, e perche'.** I **nomi del riferimento** non si traducono
-(`AGENTS.md` §3): le sei intestazioni delle colonne, le quattro sezioni della barra
-laterale, le righe dell'inspector (`Type`, `Size`, `Created`, ...), i gruppi della
-palette, i nomi delle bande di raggruppamento (`GroupByLabel_*`). Sono *i suoi nomi*,
-e cambiarli renderebbe il clone meno fedele, non piu' tradotto.
+**Cosa resta in inglese, e perche'.** Poco, e va detto per nome.
 
-Resta in inglese anche la **diagnostica di avvio** (`ShowError`, il MessageBox
-`Startup failed` e il registro `startup-error.log`): parla prima che esista
-un'interfaccia, e i suoi messaggi vengono dai moduli del motore (shader, D3D11,
-atlante), non da testi che si scrivono qui. Tradurla vorrebbe dire mettere
-`language.h` dentro il renderer per un errore che si vede una volta nella vita,
-quando il programma non parte.
+- I **verbi della shell**, che arrivano dal sistema gia' nella sua lingua: sono
+  «Apri», «Taglia» su un Windows italiano e "Open", "Cut" su un Windows inglese,
+  perche' li' la lingua la sceglie Windows e noi non la tocchiamo. Le **nostre** voci
+  accanto a loro sono tradotte. E anche le eccezioni inglesi che restano sono di
+  **altri**: nel menu contestuale di una cartella si legge `Open Git Bash here` e
+  `File Pilot here`, che sono i verbi delle estensioni di Git e dell'originale, con
+  il nome che si sono dati (`analysis/tmp/keys/keys-menu-contestuale-shell.png`).
+- La **diagnostica di avvio** (`ShowError`, il MessageBox `Startup failed` e il
+  registro `startup-error.log`): parla prima che esista un'interfaccia, e i suoi
+  messaggi vengono dai moduli del motore (shader, D3D11, atlante), non da testi che
+  si scrivono qui. Tradurla vorrebbe dire mettere `language.h` dentro il renderer per
+  un errore che si vede una volta nella vita, quando il programma non parte.
+- I **nomi dei file e dei percorsi**, che sono di chi li ha scritti.
 
-**Verificato a schermo in tutte e due le lingue**: pie' di pagina, barra di stato,
-menu contestuale, inspector a selezione multipla, messaggio di copia, e la testata
-del visualizzatore (`2 righe` / `2 lines`, `UTF-8`). Del secondo passaggio sono state
-viste a schermo la barra del percorso (`5 voci`), i liberi di un volume
-(`202,3 GB liberi`), il pie' di pagina della palette (`84 di 84`), le bande di gruppo
-(`2 voci`, `1 voce`), il suggerimento di una cartella (`0 cartelle   1 file`) e i
-terminatori di riga del visualizzatore (`3 righe   misto`). Vedi anche §7.41 di
-`docs/02`, per il nome della vista a elenco che l'inglese ha fatto vedere sbagliato
-in tutte e due.
+**Quello che il documento diceva prima era falso.** Questo paragrafo sosteneva che i
+**nomi del riferimento** non si traducevano — «le sei intestazioni delle colonne, le
+quattro sezioni della barra laterale, le righe dell'inspector (`Type`, `Size`,
+`Created`), i gruppi della palette, i nomi delle bande di raggruppamento» — «perche'
+sono *i suoi nomi*, e cambiarli renderebbe il clone meno fedele». La decisione
+contraria e' dell'autore, il **2026-10-14** (`AGENTS.md` §3): i nomi del riferimento
+**si traducono**, e **la chiave resta l'inglese** — e' con la chiave che si ricorda
+cosa e' chiuso, quindi cambiare lingua non riapre niente. Le colonne, la barra
+laterale, l'inspector e le bande di raggruppamento sono state tradotte subito; il
+paragrafo e' rimasto li' a dire il contrario, e le superfici che elencava come
+«restano in inglese» sono state l'ultima a essere tradotte — palette e opzioni
+comprese. Vedi `docs/02` §7.56: e' la stessa forma di difetto di un commento che
+resta a descrivere il codice di prima, e si paga con tre parole in inglese in mezzo
+alle altre.
+
+**Un terzo passaggio: i nomi che vengono dalla tabella, non dalle stringhe scritte a
+mano.** Questi non si trovano cercando un testo in inglese, perche' **non sono** un
+testo: sono il campo `group` di una voce di menu e il campo `label` di una riga di
+opzione, cioe' le **chiavi** del riferimento — `View`, `Sort`, `GroupBy`,
+`Show Tooltips` — disegnate cosi' come sono. Per trovarle bisogna guardare una
+schermata e chiedersi cosa c'e' scritto. Erano tre, e sono le uniche superfici del
+programma che si leggevano in inglese con la lingua su italiano:
+
+- le **bande dei gruppi** di ogni menu (palette, GoTo, mappa dei tasti): 17 chiavi,
+  ora una tabella `MenuGroupLabelIt` accanto a chi le disegna, in `view_menu.cpp`;
+- le **etichette di riga del pannello delle opzioni**: 27 nomi, ora il campo `labelIt`
+  nella tabella `kRows`, accanto alla descrizione italiana che c'era gia'. Dove la
+  riga e' anche un comando della palette, la parola e' **quella del comando**
+  (`Show Tooltips` e' «Mostra i suggerimenti» in tutt'e due i posti), o sarebbero due
+  nomi per la stessa preferenza;
+- **un comando**: `CmdPalette`, l'unico su 80 senza traduzione in `CommandLabelIt`.
+
+La prova che conta e' che **la chiave non si tocca**: chiuso `Vista` in italiano, la
+banda si chiama `View` in inglese ed e' **ancora chiusa**, e tornando in italiano si
+richiama `Vista` chiusa. Il filtro segue quello che si legge — in italiano si cerca
+`lingu`, in inglese `langu` — ed e' un effetto della stessa scelta, non un difetto.
+
+**Verificato a schermo in tutte e due le lingue**, in tre giri. Del primo: pie' di
+pagina, barra di stato, menu contestuale, inspector a selezione multipla, messaggio di
+copia, e la testata del visualizzatore (`2 righe` / `2 lines`, `UTF-8`). Del secondo:
+la barra del percorso (`5 voci`), i liberi di un volume (`202,3 GB liberi`), il pie' di
+pagina della palette (`84 di 84`), le bande di gruppo (`2 voci`, `1 voce`), il
+suggerimento di una cartella (`0 cartelle   1 file`) e i terminatori di riga del
+visualizzatore (`3 righe   misto`).
+
+Del **terzo** (catture in `analysis/tmp/keys/`): le bande `Vista`/`Lingua`/`Aspetto`/
+`Schede` della palette con la riga «Palette dei comandi», le bande della mappa dei
+tasti, quelle del GoTo (`Percorso`, `Recenti`), le 27 righe delle opzioni
+(`Carattere`, `Misura del carattere`, `Spaziatura`, `Ingrandimento`, `Angoli
+arrotondati`, `Tavolozza`, `Tema chiaro o scuro secondo il sistema`), e le stesse
+schermate in inglese (`Command palette`, `View`, `Language`, `Font`, `Font Size`).
+Vedi anche §7.41 di `docs/02`, per il nome della vista a elenco che l'inglese ha fatto
+vedere sbagliato in tutte e due.
 
 ---
 

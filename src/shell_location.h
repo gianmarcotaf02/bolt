@@ -82,6 +82,25 @@ struct Item
     bool navigable = false;
 };
 
+// Un volume: se un percorso **e'** la radice di un volume, il file system e lo
+// spazio. Non sono proprieta' del file ma del volume che lo contiene, e si chiedono
+// al sistema — lo dice anche `docs/03`: l'occupazione dei volumi si ottiene con
+// `GetDiskFreeSpaceExW`.
+//
+// Sta qui e non nell'ispettore perche' i due posti che lo chiedono devono ricevere
+// la **stessa** risposta: l'elenco, che decide se una voce e' un'unita' (e quindi se
+// la sua icona dipende dal disco), e l'ispettore, che mostra file system e spazio.
+struct Volume
+{
+    bool        isVolume = false;
+    std::string fileSystem;
+    std::string freeText;
+    std::string totalText;
+    float       usedFraction = 0.0f;
+};
+
+Volume VolumeOf(const std::wstring& location);
+
 // Le voci della cartella. Vuoto con |error| pieno se non si apre: una cartella che
 // non si apre e' un'informazione, non un elenco vuoto.
 std::vector<Item> Read(const std::wstring& location, std::string* error);

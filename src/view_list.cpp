@@ -1440,4 +1440,48 @@ void DrawList(AppState& app, const Layout& layout, const float* columnX)
     }
 }
 
+
+// --- operazioni su file (M7) ------------------------------------------------
+// Percorsi completi di cio' che e' selezionato **e visibile**, nell'ordine della
+// lista.
+//
+// Filtrare puo' nascondere righe che restano nella selezione: la selezione e'
+// per nome e sopravvive al cambio di filtro. Senza questo controllo il menu
+// contestuale offriva "Elimina definitivamente" su un file che l'utente non
+// vedeva piu', e un'azione su qualcosa che non si vede e' esattamente cio' che
+// non deve poter succedere. La regola e' quella che Ctrl+A gia' segue: il filtro
+// fa parte della domanda, quindi fa parte della risposta.
+std::vector<std::wstring> SelectedPaths(const AppState& app)
+{
+    std::vector<std::wstring> paths;
+    for (const Row& row : app.rows)
+    {
+        if (row.header)
+            continue;
+        const Entry& entry = app.entries[static_cast<size_t>(row.entry)];
+        if (app.selection.count(entry.wideName) != 0)
+            paths.push_back(EntryLocation(app, entry));
+    }
+    return paths;
+}
+
+
+// La selezione come PIDL, nello stesso ordine dei percorsi. Le voci normali non ne
+// hanno uno, e va bene: per quelle il percorso basta ed e' la forma che le
+// operazioni su file si aspettano. Le voci di spazio dei nomi invece il PIDL ce
+// l'hanno per forza, ed e' l'unico modo di chiedere alla shell il loro menu.
+std::vector<const BYTE*> SelectedPidls(const AppState& app)
+{
+    std::vector<const BYTE*> pidls;
+    for (const Row& row : app.rows)
+    {
+        if (row.header)
+            continue;
+        const Entry& entry = app.entries[static_cast<size_t>(row.entry)];
+        if (app.selection.count(entry.wideName) != 0 && !entry.pidl.empty())
+            pidls.push_back(entry.pidl.data());
+    }
+    return pidls;
+}
+
 } // namespace Bolt

@@ -4,10 +4,56 @@ Documento di lavoro, non di progetto: serve a riprendere senza rileggere la
 conversazione. Aggiornarlo è l'ultima cosa da fare prima di una pausa lunga o di
 una compattazione del contesto.
 
-Ultimo aggiornamento: **2026-10-16**, dopo lo **spezzamento di `main.cpp`** (da
-11.394 a **8.632** righe: il confine in `src/app_state.h`, i supporti in
-`src/app_ui.*`, e fuori quattro moduli — `view_sidebar`, `view_titlebar`,
-`tabs` e la **lista con le colonne**, `src/view_list.*`), il **tema chiaro**
+Ultimo aggiornamento: **2026-10-16**, dopo la **mappa dei tasti** (M9) e il suo
+**editor**. Le scorciatoie non sono piu' quarantasei `case` dentro `WindowProc` ma una
+tabella in `src/keymap.*`, e il tasto chiama **lo stesso** `RunCommand` della palette
+(le due copie dello stesso corpo sono sparite). Le righe di fondo dei menu si scrivono
+da lei. E l'**editor** adesso c'e': una riga `Key Map` fra le opzioni (e
+`CmdEditKeyMap` nella palette) apre i comandi col tasto accanto, e da li' si rimappa,
+si toglie e si torna ai tasti di partenza — `docs/04` M9 ha cosa fa e i limiti che
+dichiara. Nella stessa sessione l'autore ha **chiesto** perché la palette dei comandi
+fosse ancora in inglese con la lingua su italiano, e la risposta era in tre posti:
+le **bande dei gruppi** di ogni menu, le **righe del pannello delle opzioni** e
+**un comando** su ottanta — tutte cose che si disegnavano da una **chiave** del
+riferimento invece che da una frase, e che il paragrafo «Cosa resta in inglese» di
+`docs/04` diceva di lasciare in inglese. Adesso sono tradotte e la chiave non si e'
+mossa: chiuso `Vista` in italiano, in inglese la banda si chiama `View` ed e' **ancora
+chiusa**. Vedi `docs/02` §7.56. Poi, **sempre in ordine**, il **fissaggio in qualunque
+sezione** (M6): `Fissa in...` e `Togli da...` mettono una cartella in accesso rapido o
+nei segnalibri, e nell'accesso rapido le nostre righe stanno in cima a quelle di
+Windows con la stella che le distingue — `docs/04` M6, e `docs/02` §7.57 per il difetto
+che si e' pagato strada facendo. **Poi il trascinamento fuori dal cestino** (§7.34),
+che era il primo della lista come *diagnosi*: il difetto non c'era piu' — una voce
+riciclata trascinata in una cartella si ripristina li' — e i due giri precedenti
+avevano sbagliato per colpa del **banco**, non di OLE (il primo piano non vinto, e una
+riga misurata a occhio invece che a pixel). Nel farlo e' successa una cosa che vale piu'
+della diagnosi: **una finestra di prova e' nata sulla scrivania virtuale su cui l'autore
+stava studiando**, e portarla in primo piano gliel'ha messa davanti. Da li' la regola
+nuova in `AGENTS.md` §0 — la scrivania di chi lavora non e' un banco di prova — e
+`tools/focus-window.ps1`, che si rifiuta di attivare una finestra che non sta sulla
+scrivania corrente. L'autore aveva anche
+**deciso**: per **M6** il fissaggio vale per **qualunque sezione** (accesso rapido,
+segnalibri, o anche una cartella standard come Desktop), con le due conseguenze
+scritte in `docs/04` — la lista della shell non si scrive, e i fissaggi restano in
+memoria; **M4, M7 e M9** restano come sono. Prima, il secondo blocco di
+**spezzamento**: la **barra di stato** (`src/view_statusbar.*`) e i **menu a gruppi**
+(`src/view_menu.*`, 535 righe), e `main.cpp` da 8.080 a **7.414**. Prima,
+l'**ispettore** intero (`src/view_inspector.*`, 1.053 righe), che l'aveva portato da
+9.134 a 8.080. Prima, il **contenuto della
+cartella nell'ispettore**: scegliendo una cartella, il pannello ne mostra in fondo le
+prime voci **in elenco**, con la loro icona o miniatura, **senza aprirla** (funzione
+chiesta dall'autore; `PeekEntry` in `src/app_state.h`). Prima, il **dialogo di
+progressione di M7**:
+copia, spostamento e cestino girano su un **thread di lavoro** con il conto dei byte,
+la voce in corso e un annullamento che ferma davvero (`FileOps::Job` in
+`src/file_ops.*`, il pannello in `main.cpp`). E' la prima cosa di M7 che si tocca con
+le mani — prima l'operazione teneva ferma la finestra — e ha portato con se' due
+cose che il documento di progetto dava per vere e non lo erano: `IFileOperation`
+**non ha** un `Abort`, e i "punti" di `UpdateProgress` **non sono** byte (§5).
+Prima, il primo **spezzamento di `main.cpp`**: il confine in
+`src/app_state.h`, i supporti in `src/app_ui.*`, e fuori quattro moduli —
+`view_sidebar`, `view_titlebar`, `tabs` e la **lista con le colonne**,
+`src/view_list.*`. Poi il **tema chiaro**
 (`src/theme.*`: i ruoli di colore che hanno un lettore, le due tavolozze, la scelta
 dal pannello e dalla palette, `SystemColorScheme` che segue Windows anche a
 finestra aperta) e **tre difetti trovati mentre si faceva**: il **suggerimento che
@@ -27,10 +73,14 @@ la **lingua su tutte le superfici**, la **salita da una radice di volume**, le
 — oggetto, applicazione, e grandi alla misura giusta (§7.43, §7.44,
 §7.45) —, i **byte allocati** (§7.46), **`InspectorHideGrid`** e il **backend
 Direct3D 11** (M10).
-Registro: **cinquantatre'** difetti trovati e risolti e **tre aperti** — la caduta
-rara all'avvio (§7.54), l'ispettore che mostra una voce nascosta dal filtro (§7.55)
-e il backend Direct3D spento apposta (§7.52) —, **due** cose da fare, i limiti
-dichiarati sparsi dove vivono.
+Registro: **cinquantasette** voci, **cinquantacinque risolte** e **due aperte** —
+l'ispettore che mostra una voce nascosta dal filtro (§7.55) e il backend Direct3D
+spento apposta (§7.52), che aspettano **una decisione**, non una diagnosi. La caduta
+rara all'avvio (§7.54) e' chiusa il 2026-10-18: era §7.53 visto dall'altro lato, con
+la pila che era gia' in `%LOCALAPPDATA%\CrashDumps`. §7.34 non ha piu' un residuo
+dichiarato: il trascinamento fuori dal cestino e' stato visto funzionare. **Una** cosa
+da fare, piu' quelle che vogliono una sessione propria: i limiti dichiarati stanno dove
+vivono.
 
 ---
 
@@ -42,20 +92,25 @@ dichiarati sparsi dove vivono.
 | M2 — icone e anteprime | 🟡 oggetti e applicazioni fatti, manca la resa monocromatica (provata e tolta su richiesta dell'autore) |
 | M2b — navigazione | ✅ |
 | M3 — statistiche di cartella | ✅ byte logici e **allocati**, e i numeri si aggiornano da soli quando la cartella cambia da fuori (`ReadDirectoryChangesW`, con il limite dichiarato di due livelli) |
+| M3b — attributi NTFS | ✅ il record del file letto dal volume raw (`FSCTL_GET_NTFS_FILE_RECORD`), i nomi della tabella `AT_*`, la lista nell'ispettore e la degradazione dichiarata senza privilegi (`src/ntfs_attributes.*`, `docs/04` M3b) |
 | M5 — filtro, ordinamento, raggruppamento, selezione | ✅ |
 | M5c — modalità di visualizzazione | ✅ quattro viste, celle **derivate** da una misura continua (icona, larghezza e altezza), raggruppamento in griglia e nell'elenco, ridimensionamento continuo con `Ctrl`+rotella, **selettori di vista e misura delle anteprime nella barra in fondo**, e **icone grandi chieste alla misura giusta** invece di ingrandite (`docs/02` §7.45) |
 | M5d — sovrappasso e comportamento del clic | ✅ evidenzia righe e celle, e le otto chiavi di interazione: `HoverToSelect`, `UnderlineOnHover`, `ShowTooltips`, `SingleClick`, `SingleClickFoldersOnly`, `ActOnPress`, `DoubleClickToParent`, `ShowCheckboxes` |
 | M5b — colonne | ✅ ridimensionabili col mouse, con filtri per valore nelle intestazioni e **filtro di testo sul nome** |
-| M6 — tab, barra del titolo, palette, GoTo | 🟡 fatti tab, titolo, palette, GoTo, **barra laterale a sezioni** (fissaggi, recenti, segnalibri, volumi, cartelle standard), **pulsanti di navigazione** e **albero dei tab verificato** (creazione per trascinamento, chiusura per ramo, distacco); resta il quick access pinnato |
+| M6 — tab, barra del titolo, palette, GoTo | ✅ tab, titolo, palette, GoTo, **barra laterale a sezioni** (fissaggi, recenti, segnalibri, volumi, cartelle standard), **pulsanti di navigazione**, **albero dei tab verificato** (creazione per trascinamento, chiusura per ramo, distacco) e il **fissaggio in qualunque sezione**: `Fissa in...` / `Togli da...` (palette e menu contestuale) mettono una cartella in accesso rapido o nei segnalibri, e nell'accesso rapido le nostre righe stanno in cima a quelle della shell con la stella che le distingue. I limiti sono dichiarati in `docs/04` M6 (i comandi agiscono sulla cartella aperta, il toglimento non ha un gesto sulla riga, i fissaggi sono di sessione) |
 | M7 — operazioni su file | 🟡 copia, sposta, rinomina, cestino, clipboard interoperabile, **menu contestuale a più livelli** con **`Proprietà` in-app** e **`Proprietà di Windows`**, le **voci di primo livello della shell**, il **menu della cartella** sul fondo, i **sottomenu delle estensioni**, **`Nuovo file >`** (tipi dal registro, creazione con
 contenuto), **`Invia a >`** (destinazioni della cartella SendTo, eseguite lasciandoci
-cadere sopra la selezione), **drag&drop dentro e fuori** con OLE e la **navigazione
-nello spazio dei nomi** col **ripristino dal cestino** e il **trascinamento sul
+cadere sopra la selezione), **drag&drop dentro e fuori** con OLE, la **navigazione
+nello spazio dei nomi** col **ripristino dal cestino**, il **trascinamento sul
 riquadro di navigazione** (che sul cestino è il gesto per buttare via, non una
-copia). Mancano le cartelle riciclate (che si ripristinano, non si aprono) e il
-trascinamento **fuori** dal cestino, che resta un limite dichiarato |
-| M8 — inspector | ✅ metadati, proprietà `PROPSYS`, conteggio per tipo, **visualizzatore di testo** (righe, minimap, spazi visibili, andare a capo, ingrandimento, codifica), **anteprima immagine** decodificata con adattamento e ingrandimento e **griglia di sfondo** (`InspectorHideGrid`). Le voci di spazio dei nomi mostrano le colonne della shell (percorso originale, data di eliminazione) |
-| M9 — configurazione e temi | 🟡 pannello delle opzioni (`Ctrl+,`) con i controlli tipizzati, preferenze ricordate in `%APPDATA%\Bolt\settings.ini`, **lingua su tutte le superfici** e **tavolozza chiara e scura** con `SystemColorScheme` che segue Windows; mancano la mappa tasti rimappabile, le viste per cartella e i layout salvabili |
+copia) e il **dialogo di progressione**: copia, spostamento e cestino su un thread di
+lavoro, il conto dei byte, la voce in corso, `Esc` e `Annulla` che fermano davvero, e
+il file parziale che la shell cancella da sola, e il **trascinamento fuori dal
+cestino** (una voce riciclata trascinata in una cartella **si ripristina** li': visto
+il 2026-10-17, `docs/02` §7.34). Mancano le cartelle riciclate, che si ripristinano e
+non si aprono |
+| M8 — inspector | ✅ metadati, proprietà `PROPSYS`, conteggio per tipo, **visualizzatore di testo** (righe, minimap, spazi visibili, andare a capo, ingrandimento, codifica), **anteprima immagine** decodificata con adattamento e ingrandimento, **griglia di sfondo** (`InspectorHideGrid`) e il **contenuto della cartella scelta** in fondo al pannello, **in elenco** (le prime voci con la loro icona o miniatura, senza aprirla, **a richiesta dell'autore**). Le voci di spazio dei nomi mostrano le colonne della shell (percorso originale, data di eliminazione) |
+| M9 — configurazione e temi | 🟡 pannello delle opzioni (`Ctrl+,`) con i controlli tipizzati, preferenze ricordate in `%APPDATA%\Bolt\settings.ini`, **lingua su tutte le superfici** — comandi, bande dei gruppi di ogni menu, righe delle opzioni, barra laterale, colonne, inspector, con la **chiave** che resta l'inglese (`docs/02` §7.56) —, **tavolozza chiara e scura** con `SystemColorScheme` che segue Windows e l'**editor della mappa dei tasti** (la riga `Key Map` fra le opzioni, `CmdEditKeyMap` nella palette: elenco dei comandi col tasto accanto, cattura del tasto nuovo, `Canc` che toglie, tasti di partenza in cima); mancano le viste per cartella e i layout salvabili |
 | M10 — backend D3D11 | 🟡 `IRenderer` dietro cui stanno **OpenGL** e **Direct3D 11** (stessi shader in HLSL, stesso batcher di quadrilateri), con scelta all'avvio (`BOLT_BACKEND`) e fallback all'OpenGL. Lo shader HLSL incorporato pero' **non compila** — `point` e' una parola riservata — quindi il Direct3D non e' mai partito davvero e il fallback faceva sembrare tutto a posto. Il rimedio e' una parola e non e' applicato: accenderebbe il secondo backend **per default**, e quel percorso non ha avuto un giro completo. `docs/02` §7.52 |
 
 L'applicazione è **usabile**: si naviga, si filtra, si raggruppa, si seleziona, si
@@ -68,30 +123,84 @@ lavorano i file — inclusa l'apertura delle proprietà di Windows.
 
 Ordinato per quanto morde.
 
-0. **Una caduta rara all'avvio — localizzata, aperta.** `docs/02` §7.54: **4
-   cadute su 4**, coi breadcrumb, hanno l'ultima riga dentro la lettura
-   dell'**accesso rapido** (`ShellLocation::Read`), prima della prima chiamata alla
-   shell. Il tasso va a raffiche (`0 su 30`, poi `5 su 55`, poi `0 su 40`, `0 su 40`,
-   `0 su 60`), quindi dipende dallo stato della macchina, non dal percorso di codice;
-   `0 su 12` sotto AddressSanitizer, che quindi non ne da' una pila. **Per chiuderla
-   serve un dump** (`LocalDumps` di WER + un debugger, oppure `devenv /debugexe`
-   aperto ad aspettare): tutto il resto e' scritto — dove guardare e quanto spesso.
-1. **`src/main.cpp` e' a 8.632 righe, ed erano 11.394.** Lo spezzamento e' in
-   corso: il confine che mancava ora c'e' (`src/app_state.h` per lo stato e i tipi
-   condivisi, `src/app_ui.*` per i supporti), e sono usciti quattro moduli — tre di
-   vista (`src/view_sidebar.*`, `src/view_titlebar.*` e la **lista con le colonne**,
-   `src/view_list.*`) piu' la parte pura del modello dei tab (`src/tabs.*`). La lista
-   e' uscita intera, e con essa le domande su una voce — cursore, selezione, percorso,
-   icona — che prima l'input e il disegno si ricalcolavano ognuno per conto suo.
-   Il numero e' **risalito** di 156 righe con il tema (le due opzioni, le tre voci di
-   palette, il caricamento e il salvataggio): un pezzo nuovo scritto dove c'e' ancora
-   il collo di bottiglia. Restano dentro **l'inspector, la barra di stato, i menu, i
-   comandi e l'input**: sono circa duemilacinquecento righe, e adesso si spostano una
-   per volta **senza toccare quello che resta**, perche' la direzione delle
-   dipendenze e' fissata. I confini dei componenti ci sono (`GroupMenu`,
-   `ContextMenu`, `file_ops`, `dir_stats`, `shell_*`, `drag_drop`) ma quelli della
-   vista vivono ancora nello stesso file. Spostarli e' un lavoro meccanico ma largo,
-   e va fatto quando c'e' spazio per riverificare tutto.
+0. **La caduta rara all'avvio — chiusa il 2026-10-18.** `docs/02` §7.54: i nove dump
+   gia' presenti in `%LOCALAPPDATA%\CrashDumps` mostrano quattro cadute dentro
+   `windows.storage.dll`, tre delle quali **in `ILGetSize`** chiamata dal nostro
+   codice: era §7.53 visto dall'altro lato, un pidl liberato e poi letto. Rimettendo
+   l'ordine di prima la caduta torna (6 su 120 avvii), togliendolo sparisce (0 su
+   515). Resta dichiarata, e non riprodotta, una **seconda famiglia** di dump caduti
+   dentro il nostro eseguibile (cinque, tutti prima del 2026-10-16): vedi la voce.
+1. **`src/main.cpp` e' a 4.816 righe, ed erano 11.394** — scesa a 7.344 con lo
+   spezzamento, risalita a 7.895 con l'editor dei tasti e il fissaggio, e scesa di
+   **3.079** il 2026-10-18 in cinque tagli: `src/view_options.*` (764 righe, con cinque
+   funzioni andate nel modulo a cui appartenevano), **`src/shell_menu.*`** (537 righe:
+   i verbi della shell e la loro cache) e **`src/view_context_menu.*`** (1.078 righe: la
+   superficie del menu contestuale — geometria, livelli, disegno, clic, tasti — coi sei
+   comandi che chiama) e **`src/settings.*`** (213 righe: leggere, scrivere e ricordare
+   le preferenze, che era il pezzo con meno dipendenze rimasto li'), **`src/navigation.*`**
+   (538 righe: leggere una cartella, la storia avanti/indietro, l'albero dei tab) e
+   **`src/input_targets.*`** (il registro dei bersagli, spostato **perche'** la
+   navigazione lo chiedeva: un modulo non puo' chiamare una funzione interna a un
+   altro), piu' le due domande sulla selezione
+   (`SelectedPaths`/`SelectedPidls`) passate a `view_list`, che e' il modulo che
+   risponde gia' a "cosa e' selezionato". Sono usciti **dieci** moduli di vista e
+   modello — `src/view_sidebar.*`, `src/view_titlebar.*`, la **lista con le colonne**
+   (`src/view_list.*`), la parte pura dei tab (`src/tabs.*`), **l'ispettore intero**
+   (`src/view_inspector.*`), la **barra di stato** (`src/view_statusbar.*`), i **menu a
+   gruppi** (`src/view_menu.*`), il **pannello delle opzioni** (`src/view_options.*`),
+   i **verbi della shell** (`src/shell_menu.*`) e il **menu contestuale**
+   (`src/view_context_menu.*`), le **impostazioni** (`src/settings.*`), la
+   **navigazione** (`src/navigation.*`) e il **registro dei bersagli**
+   (`src/input_targets.*`) — piu' i supporti (`src/app_ui.*`) e il confine
+   (`src/app_state.h`).
+
+   **La decisione sul confine, presa il 2026-10-18.** `WindowProc` non si sposta: e' la
+   colla della finestra, e le sue 1.319 righe non sono una unita' ma **i suoi `case`** —
+   `WM_LBUTTONDOWN` 319 righe, `WM_KEYDOWN` 296, `WM_MOUSEMOVE` 226. Va spezzato **per
+   messaggio**, e ogni messaggio va dove sta la cosa che quel messaggio muove. Ma il
+   corpo di un `case` **e'** l'azione della superficie che riceve l'evento: finche' la
+   superficie e' una funzione interna a `main.cpp`, spostare il `case` vuol dire
+   trascinarsi dietro la superficie. Quindi l'ordine e':
+
+   1. **prima le superfici** — una per volta, come si e' fatto finora (`view_menu` e,
+      il 2026-10-18, `view_options`);
+   2. **poi gli eventi** — con le superfici fuori, `WM_KEYDOWN` puo' diventare
+      `input_keys.*` e i messaggi del mouse `input_mouse.*`, perche' non hanno piu'
+      niente da trascinarsi;
+   3. **`main.cpp` resta la finestra**: `wWinMain`, la classe, i messaggi che
+      riguardano la finestra e basta (`WM_NCCALCSIZE`, `WM_NCHITTEST`, `WM_SIZE`,
+      `WM_SETTINGCHANGE`, `WM_DESTROY`) e lo `switch` che smista agli altri.
+
+   **La cucitura, dichiarata invece che implicita.** Un modulo che ha bisogno di una
+   funzione rimasta in `main.cpp` non puo' chiamarla: e' interna. La scelta non e' fra
+   chiamarla e non chiamarla, e' fra **dichiararla** e lasciarla invisibile, e allora
+   c'e' `src/app_actions.h`: l'elenco delle azioni ancora dentro il file, con accanto il
+   modulo che dovrebbero avere (`RememberSettings` → `settings.*`,
+   `BuildKeyMapMenu`/`CloseKeyMap` → `view_keymap.*`, `ClosePinMenu` → `view_pins.*`).
+
+   Il 2026-10-18 la lista e' cresciuta di sei voci — `RunCommand`,
+   `ActivateSelection`, `ReloadKeeping`, `ComputeLayout`, `OpenPropertiesPanel`,
+   `CreateNewItem` — e non e' un errore: la superficie del menu contestuale *chiede ai
+   comandi di fare*, e i comandi non hanno ancora un modulo. La regola resta quella, ma
+   il conto va letto nell'ordine giusto: la lista si accorcia **quando il pezzo che
+   manca arriva**, e il pezzo che manca qui e' `src/commands.*` — `RunCommand` e i
+   `Do*`, che sono anche l'ultima cosa che `WindowProc` chiama. Se dopo quello la lista
+   non si accorcia, la cucitura e' nel posto sbagliato. Intanto si e' gia' accorciata di
+   **due**: `RememberSettings` e' uscita con `src/settings.*` e `ReloadKeeping` con
+   `src/navigation.*` — i due casi in cui la cucitura funzionava come previsto, un pezzo
+   che trova il suo modulo e sparisce dall'elenco.
+
+   Restano dentro **i comandi e l'input**: i **comandi** (`RunCommand` e i `Do*`, piu' le
+   azioni che il menu chiama) e i `case` di `WindowProc`. Le superfici sono fuori tutte,
+   quindi il passo 2 della decisione e' **sbloccato**: `WM_KEYDOWN` e i messaggi del
+   mouse possono diventare `input_keys.*` e `input_mouse.*` senza trascinarsi niente
+   dietro. I confini dei componenti ci sono (`GroupMenu`,
+   `ContextMenu`, `file_ops`, `dir_stats`, `shell_*`, `drag_drop`) ma quelli della vista
+   vivono ancora nello stesso file. Spostarli e' un lavoro meccanico ma largo, e va
+   fatto quando c'e' spazio per riverificare tutto: il numero era **risalito** due volte
+   — 156 righe col tema, 302 col dialogo di progressione, 200 col contenuto della
+   cartella — ed e' il prezzo di scrivere un pezzo nuovo dove c'e' ancora il collo di
+   bottiglia. Spostarne uno subito dopo costa meno che aspettare.
 2. **Nessun controllo di versione locale.** Il repository è su GitHub
    (`gianmarcotaf02/bolt`) e il sistema salva con commit automatici a ogni turno,
    ma non c'è una convenzione di branch: si lavora su `main`.
@@ -103,6 +212,22 @@ Ordinato per quanto morde.
    secondo corpo vengono scalati, quindi il ricampionamento torna. Eliminarlo
    richiede una rasterizzazione a runtime per ogni dimensione: è un altro
    mestiere, non un difetto da correggere adesso.
+5. **Una sola operazione su file per volta, e il conto dei byte interpolato.** Il
+   dialogo di progressione non ha una **coda**: una seconda caduta mentre la prima
+   gira viene rifiutata — dichiarando `DROPEFFECT_NONE`, cosi' l'origine non cancella
+   niente — invece di essere messa in fila come fa Esplora risorse. E i byte mostrati
+   sono la frazione dei **punti** della shell moltiplicata per i byte che `Job` ha
+   misurato prima di partire: **esatti per un file solo**, interpolati su tante voci
+   piccole, perche' i punti sono proporzionali al tempo e non ai byte. Entrambi sono
+   scritti nel codice (`src/file_ops.cpp`) e misurati in `bolt-diag.log`.
+6. **Il componente dei menu non sa disegnare una riga spenta: lo sa solo il pannello
+   delle opzioni.** `GroupMenuItem::enabled` lo legge il ramo `richRows` e i tasti
+   delle opzioni; in un menu normale la riga spenta si disegna come le altre e si
+   **attiva** lo stesso. Oggi non e' un difetto visibile — nessun menu normale ha
+   righe spente — ma il fissaggio ci e' arrivato vicino: le due destinazioni che non
+   cambierebbero niente dicono la ragione **nel nome** (`Segnalibri (non e' fissata
+   qui)`) perche' il meccanismo non c'era. Il secondo utilizzatore e' arrivato: il
+   prossimo menu che ha bisogno di una riga spenta lo paga.
 
 ---
 
@@ -110,8 +235,10 @@ Ordinato per quanto morde.
 
 **Tre numeri, che sono tre cose diverse e non vanno confusi.**
 
-- **Cinquantatre'** difetti **trovati e risolti**: il registro è `docs/02` §7, uno per
-  uno, con sintomo, causa e correzione. È un cumulativo, non una lista di lavoro.
+- **Cinquantasette** voci nel registro `docs/02` §7, una per una con sintomo, causa e
+  correzione: **cinquantacinque risolte**, e le due che restano aperte — §7.52 e §7.55
+  — aspettano una **decisione**, non una diagnosi. È un cumulativo, non una lista di
+  lavoro.
 - **Due** cose **da fare**: la lista qui sotto.
 - I **limiti dichiarati**: cose che si è scelto di non fare, scritte dove vivono con
   la ragione accanto (il tetto di 1 MB nella lettura dei testi, i modelli `ShellNew`
@@ -120,9 +247,10 @@ Ordinato per quanto morde.
   volta che nei documenti c'è scritto "dichiarato", vuol dire questo: non risolto, e
   detto.
 
-Qualche voce dei cinquanta porta con sé un residuo dichiarato — §7.34 ha risolto
-l'oggetto dati ma la voce riciclata che non viene presa resta un limite — e il
-conteggio non lo nasconde: il residuo è scritto nella voce stessa.
+Alcune voci portano con sé un residuo dichiarato — §7.34 ne aveva uno, la voce
+riciclata che non veniva presa, e il 2026-10-17 si è visto che non c'era più: una voce
+riciclata trascinata fuori si ripristina — e il conteggio non lo nasconde, perché il
+residuo è scritto nella voce stessa e sparisce quando sparisce.
 
 In ordine di valore, non di facilità.
 
@@ -133,12 +261,62 @@ In ordine di valore, non di facilità.
 > **l'albero dei tab**, **`InspectorHideGrid`**, il **backend Direct3D 11** e il
 > **tema chiaro** erano voci
 > di questa lista, e sono fatte: vedi `docs/04` M9, M6, M8 e M10, e §7.40/§7.41/§7.42
-> di `docs/02`. Restano della M9 la **mappa tasti rimappabile** sui 319 comandi, le
-> **viste per cartella** e i **layout salvabili**; di M4 il **punteggio** dei recenti,
-> che adesso e' solo l'ordine
+> di `docs/02`. Restano della M9 le **viste per cartella** e i **layout salvabili**
+> (la **mappa tasti rimappabile** ha il suo editor: vedi sotto); di M4 il
+> **punteggio** dei recenti, che adesso e' solo l'ordine
 > di visita.
 
-### L'ordine deciso il 2026-10-16
+### L'ordine deciso il 2026-10-16, e dove siamo
+
+**Fatto per primo, com'era nell'ordine: l'editore della mappa dei tasti** (M9,
+`docs/04`). La mappa era gia' un dato, e `Rebind`/`Clear`/`Reset`/`Bindings()` erano
+scritti e non li chiamava nessuno; adesso c'e' il posto da cui rimappare. Una riga
+`Key Map` fra le opzioni (lo stesso comando, `CmdEditKeyMap`, e' anche nella palette)
+apre l'elenco dei comandi col tasto accanto; `Invio` comincia la cattura del tasto
+(«premi un tasto per *Rinomina*»), `Esc` annulla, `Canc` toglie, e i tasti di partenza
+sono la prima riga dell'elenco. Verificato a schermo, non a impressione: rimappato
+`Rinomina` su un tasto nuovo e visto quel tasto rinominare davvero, e il vecchio non
+piu'; tolto un tasto con `Canc`; rubato `F5` ad `Aggiorna`; rimesso tutto con la riga
+dei tasti di partenza, con l'esito nella barra di stato. I limiti — mappa di sessione,
+un tasto da scrivere sciolto che non si assegna, e l'avviso quando si sposta il tasto
+che apre l'elenco — sono scritti in `docs/04` M9.
+
+**Poi, com'era nell'ordine: il fissaggio in qualunque sezione** (M6, `docs/04`). Le due
+decisioni che andavano prese prima di scrivere sono applicate: i fissaggi sono
+**nostri** (la lista della shell non si tocca) e vivono **in memoria**, per la
+sessione. `Fissa in...` e `Togli da...`, dalla palette e dal menu contestuale, mettono
+una cartella in **accesso rapido** o nei **segnalibri**; nell'accesso rapido le nostre
+righe stanno in cima a quelle della shell, con la stella che le distingue. Verificato a
+schermo: quattro cartelle fissate, la stella della barra strumenti che si accende
+fissando nei segnalibri, una riga tolta con `Togli da...` e sparita dalla barra
+laterale, la riga fissata che porta alla cartella cliccandola, le due voci presenti sul
+fondo del menu contestuale e **non** con una selezione, e le stesse schermate in
+inglese. La decisione (b) — scrivere il jump list di Windows — non si e' provata e non
+serve: il verbo della shell per farlo c'e' gia' nel menu contestuale (`Aggiungi a
+Preferiti`) e lo scrive **il sistema**. I limiti sono in `docs/04` M6; il difetto
+trovato strada facendo (un menu nuovo si registra in quattro posti, e me n'era sfuggito
+uno) e' in `docs/02` §7.57.
+
+**Poi il trascinamento fuori dal cestino** (§7.34), che era il primo della lista come
+*diagnosi*: e' **fatto**, e il difetto non c'era piu'. Una voce riciclata trascinata in
+una cartella si ripristina li' — 28 byte, contenuto identico, sparita dal cestino,
+`DROPEFFECT_MOVE` nel registro — e una prova di controllo con un file normale arriva
+uguale. I due tentativi precedenti avevano concluso il contrario per colpa del **banco**:
+`SetForegroundWindow` non bastava a vincere il primo piano, e la riga sotto il puntatore
+era stata misurata a occhio da una cattura piccola. Adesso c'e'
+`tools/focus-window.ps1`. Una prova sola per caso, pero': la ripetizione e' saltata
+perche' la finestra di prova era nata su un'altra scrivania virtuale (`AGENTS.md` §0).
+
+**Il prossimo lavoro, in ordine**:
+
+1. **Da fare in una sessione propria**, perche' non sono aggiunte in coda a
+   un'altra: l'**ultimo blocco dello spezzamento** (`WindowProc` e i comandi: una
+   decisione sul confine, non uno spostamento). **M3b** e' **chiusa** il 2026-10-18
+   (`src/ntfs_attributes.*`, `docs/04`): il record si legge dal volume, la lista
+   compare nell'ispettore, e senza privilegi la riga lo dice. La **caduta rara
+   all'avvio** era la prima di queste, ed e' chiusa: §7.54.
+
+### L'ordine deciso il 2026-10-16 (storico)
 
 Discusso e scelto con l'autore, in risposta a «come procediamo». In ordine:
 
@@ -152,32 +330,50 @@ Discusso e scelto con l'autore, in risposta a «come procediamo». In ordine:
    DWM allineato. Il residuo e' dichiarato in `theme.h`: dei 35 token dello spec
    esistono quelli che **hanno un lettore**, gli altri sono elencati e aspettano un
    posto che li legga.
-3. **Il dialogo di progressione** di M7: oggi una copia da 5 GB non dice a che punto
-   e' e non si ferma. E' il prossimo, e si tocca con le mani. Primo passo, scritto
-   qui perche' non vada perso: `file_ops.cpp` esegue `IFileOperation` in modo
-   sincrono; per avere il conto serve un `IFileOperationProgressSink` (quattro
-   metodi contano: `PreCopyItem`, `PostCopyItem`, `UpdateProgress`, `PostDeleteItem`)
-   agganciato con `Advise`, `FOF_SILENT` per spegnere la finestra della shell (che
-   l'originale sostituisce con la sua `OperationStatusWindow`), l'operazione su un
-   **thread di lavoro** e lo stato (byte fatti, byte totali, voce in corso, annulla)
-   in `AppState`; il pannello e' un modale come quello delle proprieta', e il
-   pulsante chiama `IFileOperation::Abort`. Si verifica con un file grande nella
-   sandbox: il conto deve muoversi e l'annullamento deve fermare davvero.
+3. **Il dialogo di progressione** di M7 — **fatto**. E' `FileOps::Job`
+   (`src/file_ops.*`): copia, spostamento e cestino su un **thread di lavoro**,
+   un `IFileOperationProgressSink` registrato con `Advise`, `FOF_SILENT` al posto
+   della finestra della shell, e il pannello disegnato da noi con `Esc` e un
+   pulsante. Il primo passo scritto qui prevedeva due cose che la misura ha
+   corretto: il pulsante **non** chiama `IFileOperation::Abort` — quel metodo non
+   esiste — e lo stato non sta in `AppState` ma dentro il `Job`, che e' l'unico a
+   doverlo condividere col sink. Verificato nella sandbox con un file da 4 GB: il
+   conto si muove **dentro il singolo file** (938 MB → 1,8 GB sulla stessa copia),
+   `Esc` e il pulsante fermano davvero, e il file parziale sparisce. Il residuo e'
+   dichiarato nella voce 5 di §2.
 4. Il motivo dell'ordine: lo spezzamento non si vede, quindi farlo tutto di fila sono
    tre sessioni senza niente da guardare; e cominciarlo **adesso** costa meno di
    cominciarlo dopo, perche' ogni funzione nuova che arriva prima paga il file unico.
+5. **Il pannello dell'ispettore fuori da `main.cpp`** — **fatto**, ed e'
+   `src/view_inspector.*`: **1.053 righe** uscite intere (metadati, immagine grande,
+   visualizzatore di testo, contenuto della cartella), `main.cpp` da **9.134 a
+   8.080**. E' uscito **intero** invece che a pezzi perche' i pezzi si chiamano fra
+   loro — le righe le costruisce chi le disegna — e dividere a meta' avrebbe voluto
+   dire una funzione in due file. Una cosa si e' mossa fuori dal modulo:
+   `VolumeOf`, che e' andato in `shell_location` perche' lo chiede anche l'elenco,
+   quando decide se una voce e' un'unita'. Verificato con la regola che vale per uno
+   spostamento: **le stesse cinque catture di prima, pixel per pixel** (§4,
+   `rif-*.png`), e le sedici funzioni contate una per una prima e dopo.
+6. **La barra di stato e i menu a gruppi** — **fatto**: `src/view_statusbar.*` (151
+   righe) e `src/view_menu.*` (535), `main.cpp` da **8.080 a 7.414**. I menu sono
+   usciti come **widget**: stato, filtro, geometria e disegno, con
+   `GroupMenuClick`/`GroupMenuKeyDown` che restituiscono un `MenuAction` e non
+   eseguono niente. Erano gia' scritti cosi', quindi la logica non e' stata toccata —
+   e si vede dal fatto che le **20 funzioni sono identiche al testo di partenza**,
+   carattere per carattere, non solo "della stessa lunghezza". Una e' rimasta in
+   `main.cpp`: `GroupMenuClick`, che chiede dove sono le righe a `HitTest`, cioe' al
+   registro dei bersagli, che sta con l'input. Verificato a schermo su **cinque**
+   superfici: palette, opzioni, GoTo, valori di una colonna e menu contestuale
+   (§4, `menu-*.png`).
 3. **B e C si possono invertire** se si preferisce vedere subito qualcosa di grosso:
    il tema chiaro si tocca con gli occhi, il dialogo di progressione con le mani.
 
-Le due cose da fare, che restano tali:
+La cosa che resta da fare, e che non e' una diagnosi:
 
-1. **Il trascinamento fuori dal cestino** — l'oggetto dati adesso c'è e le voci
-   normali escono davvero, ma una voce **riciclata** non viene presa (la
-   destinazione dichiara "copia" e non copia). La causa non è ricostruita: §7.34 di
-   `docs/02`. Se non si trova, resta un limite dichiarato.
-2. **Spezzare `main.cpp`** — **8.632 righe** (erano 11.394) e ventiquattro moduli: il confine c'è, e
-   file che lo contiene resta il collo di bottiglia dichiarato fin dall'inizio, ma non piu' intatto:
-   vedi la voce 1.
+1. **Spezzare `main.cpp`** — **7.116 righe** (erano 11.394, scese a 7.344, risalite a
+   7.895, e scese di 780 il 2026-10-18) e ventinove moduli: il confine c'è, e il file
+   che lo contiene resta il collo di bottiglia dichiarato fin dall'inizio, ma non piu'
+   intatto: la decisione e l'ordine dei prossimi passi stanno nella voce 1 di §2.
 
 
 ---
@@ -232,7 +428,37 @@ a 460 px), `list-*.png` (la lista con le colonne: dettagli, elenco, icone, grupp
 nelle due viste, filtro per valore, filtro di testo, scorrimento in griglia),
 `theme-*.png`, `ch-*.png`, `sc-*.png` e `d3d-*.png` (il tema: le due tavolozze, il
 pannello delle opzioni, la scelta, il filtro della palette, il suggerimento, e il
-giro del secondo backend dopo §7.52).
+giro del secondo backend dopo §7.52), e `op*.png` (il dialogo di progressione: il
+conto che si muove dentro un file da 4 GB, il pannello annullato col tasto e col
+pulsante, lo stato "Operazione annullata", l'incolla normale, l'eliminazione nel
+cestino e la caduta su una riga). Le prove con un file grande si fanno **solo** nella
+sandbox: `fsutil file createnew analysis\tmp\sandbox\big.bin <byte>` la crea in un
+terzo di secondo, e va cancellata prima di lasciare la sessione, e `rif-*.png` e' lo spostamento
+dell'ispettore (le stesse catture prima e dopo, da confrontare a pixel), `menu-*.png` sono
+le cinque superfici dei menu dopo lo spostamento (palette, opzioni, GoTo, valori di una
+colonna, contestuale), `key-*.png` sono i tasti che passano dalla mappa (le due righe di
+fondo scritte da lei, la rinomina, l'incolla, le tre viste, la scheda nuova e chiusa,
+l'eliminazione), `peek-*.png` e' il
+contenuto della cartella nell'ispettore (una cartella con immagini e miniature, una
+con dodici voci e la riga «e altre voci», una con due file di testo, una vuota, un
+file singolo — dove non c'e' — e sei voci scelte, dove non c'e' perche' l'ispettore
+mostra l'aggregato). `split-opzioni.png` e' il pannello delle opzioni dopo lo spostamento in
+`src/view_options.*`, ritagliato al solo pannello; `shell-menu-02.png` e' il menu
+contestuale di un file dopo lo spostamento dei verbi della shell in
+`src/shell_menu.*` — comandi nostri sopra, blocco della shell sotto;
+`cm-submenu.png` e' la superficie del menu contestuale dopo lo spostamento in
+`src/view_context_menu.*`, con un sottomenu aperto dalla tastiera (`Destra`);
+`nav-tab.png` e' la striscia dei tab e la barra del percorso dopo lo spostamento della
+navigazione in `src/navigation.*` (una scheda sola, dopo `Ctrl+T` e `Ctrl+W`). `m3b-inspettore-ntfs.png` e
+`m3b-degradato.png` sono le due facce degli
+attributi NTFS nell'ispettore (la lista, e «serve l'amministratore» senza
+privilegi), ritagliate al solo pannello perche' il resto della finestra porta i
+nomi dell'accesso rapido di chi lavora (`AGENTS.md` §0). Il banco per una caduta rara all'avvio sta in
+`analysis/tmp/crashprobe/` (`probe.exe` lancia l'eseguibile su un desktop Win32
+**invisibile**, `dumpscan.exe` legge un dump senza debugger: exception stream,
+module list e pila con `StackWalk64`, e `qa.exe` chiama `ShellLocation::Read` in un
+ciclo stretto): sono diagnostici, non versionati, e si riscrivono in mezz'ora — la
+ricetta sta in `docs/02` §7.54.
 
 ---
 
@@ -266,6 +492,12 @@ invisibile il secondo. Dopo aver corretto qualcosa, rimisurare — il bordo
 - `keybd_event` va preceduto da `SetForegroundWindow`, altrimenti i tasti vanno
   altrove. Un falso negativo da mancanza di focus sembra un bug dell'app e non lo
   è: **verificare il codice prima di correggerlo**.
+- `SetForegroundWindow` **da solo non basta** quando il primo piano ce l'ha un'altra
+  applicazione (la chiamata riesce, la finestra non viene davanti, i tasti vanno
+  altrove): serve `AttachThreadInput`, che è quello che fa `tools/focus-window.ps1`.
+  Lo stesso script **si rifiuta** di agire su una finestra che non sta sulla scrivania
+  virtuale corrente, perché attivarla riporterebbe lì chi sta lavorando altrove
+  (`AGENTS.md` §0).
 - `GetKeyState` **non** vede un modificatore iniettato con `SendMessage`: per i
   tasti con `Ctrl`/`Shift` serve `keybd_event`. Per i tasti senza modificatore
   `SendMessage` con `WM_KEYDOWN`/`WM_CHAR` è più affidabile.
@@ -441,7 +673,68 @@ AddressSanitizer. Tre tentativi per parte non distinguono il 40% dal 10%, e una
 diagnosi sbagliata manda a cercare il difetto nel posto sbagliato. Per attribuire
 una caduta rara servono **campioni**, e per trovarne la causa una **pila** (un
 debugger, ASan): se sotto lo strumento non si riproduce, si dichiara con i numeri
-che si hanno.
+che si hanno. La caduta dell'accesso rapido (`docs/02` §7.54) e' stata chiusa cosi',
+e vale la pena scrivere come: la pila **c'era gia'**, e la lezione e' nelle due voci
+qui sotto.
+
+**Prima di armare un banco, si guarda cosa c'e' gia' nella cartella dei dump.**
+`%LOCALAPPDATA%\CrashDumps` conteneva **nove** dump di Bolt, scritti nei giorni in
+cui la caduta si misurava, da una configurazione di `LocalDumps` che qualcuno aveva
+messo e poi tolto. Tre di quelli danno lo stesso indirizzo dentro
+`windows.storage.dll`, e hanno chiuso la questione che un pomeriggio di avvii non
+aveva chiuso: cercare li' costa un `ls`, riprodurre una caduta rara costa ore.
+
+**WER rate-limita i dump locali, e in una raffica si mangia proprio quelli che
+servono.** Con `LocalDumps\Bolt.exe` configurato in `HKCU` (`DumpType=1`), **sei**
+cadute riprodotte di fila non hanno scritto **nessun** dump — nemmeno per un
+programma di tre righe che dereferenzia il nullo. La traccia sta in una riga sola,
+`HKCU\Software\Microsoft\Windows\Windows Error Reporting\
+LastRateLimitedDumpGenerationTime`. Quindi: se i dump non arrivano, non e' detto che
+le cadute non ci siano; e i dump che servono si cercano fra quelli **vecchi**.
+
+**Una caduta che AddressSanitizer non riproduce non e' una caduta che non c'e':**
+puo' essere nell'allocatore di **qualcun altro**. Il pidl di §7.54 lo alloca la
+shell, e ASAN strumenta il CRT nostro: liberare e rileggere un blocco di
+`windows.storage.dll` non e' un errore *per ASAN*. `0 su 12` voleva dire «questo
+strumento non lo vede», non «non c'e'».
+
+**Un banco che legge l'accesso rapido stampa i nomi delle cartelle di chi lavora.**
+E' successo il 2026-10-18: una prova che serviva a misurare la dimensione dei pidl
+ha scritto l'elenco dei fissaggi veri, e il file e' stato cancellato subito. Un
+banco di questo tipo scrive **numeri** — quante voci, quanti byte — e non nomi:
+la regola di `AGENTS.md` §0 vale anche per un `.log` in `analysis/tmp`.
+
+**Il banco non sa fare ogni gesto, e quando non lo sa lo dice a meta'.** Il
+2026-10-18, provando le opzioni: `send-keys.ps1` non ha un'azione per `Ctrl+,`
+(`ctrl+oem_comma` risponde `azione sconosciuta`, e **poi** stampa `ok`: leggere la
+prima riga, non l'ultima), e `backspace` non svuota il filtro della palette. Le due
+strade che funzionano: si arriva alle opzioni dalla **palette** (`Ctrl+Maiusc+P`, poi
+`opz`, poi `Invio`), e il filtro si svuota **chiudendo e riaprendo** invece di
+cancellare. Aggiungere l'azione `comma` al banco e' la correzione vera, ed e' una
+riga.
+
+**La cattura riprende quello che sta sopra, e "procedi" non vuol dire "la macchina e'
+libera".** Il 2026-10-18, dopo un'autorizzazione data a inizio sessione, una cattura ha
+ripreso la finestra di un'altra applicazione — il materiale di studio di chi lavora —
+perche' era in primo piano sopra Bolt: `capture-window.ps1` legge il **rettangolo**
+della finestra di Bolt, e dentro quel rettangolo c'era quello che c'era. Il file e'
+stato cancellato subito e la preferenza cambiata dalla prova rimessa com'era, ma la
+lezione e' l'opposto di una comodita': **la domanda "posso aprire una finestra adesso?"
+si rifa' a ogni giro di catture**, non si eredita da un via libera di mezz'ora prima.
+Un `GetForegroundWindow` prima di catturare, e la cattura si rifiuta se il primo piano
+non e' la finestra che si vuole fotografare, costerebbe una riga — ed e' la correzione
+giusta per il banco.
+
+**Un'applicazione elevata non riceve i clic sintetici, e non si chiude con
+`taskkill`.** Serve l'amministratore per leggere un volume raw, quindi per provare
+M3b Bolt e' stato avviato col prompt `UAC`. Da li' in poi il banco non elevato ha
+sbattuto su due muri, tutti e due dell'UIPI: i clic di `send-mouse.ps1` arrivavano
+alla finestra e **non facevano niente** (la selezione non cambiava, e sembrava che
+l'applicazione ignorasse l'input), e `taskkill` rispondeva `Accesso negato`.
+Le due uscite: aprire Bolt **direttamente sulla cartella di prova**, cosi' il
+cursore cade sulla prima riga e non c'e' niente da cliccare (ed e' cosi' che la
+prova e' stata fatta); e mettere in conto **un `UAC` in piu'** per chiudere, che va
+fatto **prima** di avviare, non dopo.
 
 **Il registro diagnostico è il posto giusto per una caduta intermittente.**
 L'applicazione spariva entrando in una cartella (`docs/02` §7.51), senza nessun
@@ -492,6 +785,74 @@ processo avesse sette finestre senza nome, e invece il marshalling ANSI leggeva 
 sedici bit una stringa scritta a sedici bit. Il difetto era nello strumento, come
 il §7.14: prima di dichiarare che una finestra non esiste, si verifica che la
 sonda la sappia leggere.
+
+**`IFileOperation` non ha un metodo per fermarsi.** Non esiste `Abort`: chi annulla e'
+il **sink**, che risponde con un codice d'errore. Il documento dice che un errore da
+`Pre*Item` annulla l'operazione e **tutte quelle in coda**, e `UpdateProgress` passa
+di li' anche a meta' di un file solo. Il primo passo di M7, scritto in §3 di questo
+documento, diceva `IFileOperation::Abort`: e' stato il **compilatore** a dire che quel
+metodo non c'e', dopo che la riga era stata scritta in un documento di progetto e
+riletta come se fosse vera. Un documento di progetto e' una fonte come il grafo: una
+derivazione, non la verita'.
+
+**I "punti" di `UpdateProgress` non sono byte.** Misurati: un file da 4 GB sono
+**131074 punti** (32 KB l'uno), un file da 23 byte sono **2 punti**. La frazione e'
+una frazione e vale come stima del tempo; per avere dei **byte** serve un denominatore
+misurato da noi. Un conto che sembra esatto e non lo e' e' peggio di un conto
+dichiarato approssimativo, e il modo di accorgersene e' una riga di registro che scrive
+le due cose **nella stessa riga**: `operazione: 4294967296 byte misurati, 1 voci,
+131074 punti dichiarati dalla shell, 69760 fatti`.
+
+**Un'operazione lunga su un thread di lavoro rende possibile la seconda operazione.**
+Sostituire quella in corso vuol dire annullarla **senza dirlo**, e per una caduta e'
+peggio che per un comando: chi ha mollato il tasto legge dalla destinazione se
+l'operazione e' riuscita, e su `DROPEFFECT_MOVE` cancella gli originali. Una caduta
+rifiutata deve dichiarare `DROPEFFECT_NONE`, o il rifiuto diventa una perdita di dati.
+
+**Due catture si confrontano solo a parita' di stato — e l'ispettore ha una riga che
+cambia da sola.** Per verificare lo spostamento dell'ispettore ho confrontato le
+stesse cinque catture prima e dopo: 72 pixel diversi in ognuna, tutti nella riga
+**Accesso**. Non era il refactor: era la **data di ultimo accesso** della cartella,
+cambiata fra i due giri perche' nel frattempo qualcuno l'aveva letta (12:39 → 15:30).
+Lo stesso binario, due giri di fila, da' catture **identiche** tranne il pixel di
+vetro del bordo. Morale doppia: un confronto a pixel va fatto **nello stesso giro**
+quando c'e' di mezzo un tempo, e una cattura che differisce in una riga di data non
+dice niente sul codice.
+
+**Un taglio con una graffa in meno non da' "graffa mancante": da' "chiamata ambigua
+a funzione in overload".** Spostando i menu, la cucitura fra la prima funzione e il
+resto ha perso una graffa: la funzione e la graffa che chiudeva il namespace anonimo si
+sono scambiate i ruoli, e **tutto il resto del file e' finito dentro il namespace
+anonimo**. Il compilatore l'ha detto cosi': `'Bolt::anonymous-namespace'::GroupMenuMove':
+chiamata ambigua a funzione in overload`, con due candidati identici. Un errore che nomina
+l'overload quando il problema e' una graffa si risolve leggendo la **cucitura**, non la
+funzione che l'errore nomina. E vale la regola di sempre: dopo un taglio si legge cio'
+che si e' tolto e cosa sta **attorno** alla cucitura.
+
+**La finestra si sposta a ogni avvio, e una prova con l'origine sbagliata non
+fallisce: misura un'altra cosa.** `send-keys.ps1` e `send-mouse.ps1` vogliono
+coordinate **cliente** e le convertono da soli, ma `capture-rect.ps1` e
+`drag-mouse.ps1` vogliono coordinate **schermo**, e l'origine va **rimisurata dopo
+ogni avvio** (`window-rect.ps1`): `CW_USEDEFAULT` la sposta. In questa sessione due
+catture sono uscite sul riquadro sbagliato — la barra delle schede invece della lista
+— perche' l'origine era quella dell'istanza precedente. Una cattura sbagliata sembra
+una prova, ed e' per questo che fa perdere piu' tempo di un errore.
+
+**Due istanze di Bolt, e i tasti vanno a una sola.** `send-keys.ps1` e
+`send-mouse.ps1` prendono il processo con `Get-Process Bolt | Select-Object -First 1`:
+con due istanze vive — l'istanza vecchia ancora in chiusura e la nuova appena partita —
+meta' dei tasti finisce in una finestra e meta' nell'altra, e il risultato sembra
+un'applicazione che ignora i tasti a caso. Prima di una prova con l'input: si uccide
+il processo e si **aspetta che non ci sia piu'** (`while (Get-Process Bolt) { Start-Sleep
+-200 }`), poi si avvia. E' successo mentre si costruiva il contenuto della cartella nell'ispettore: tre `giu'` di fila
+hanno spostato il cursore di **una** riga, e la cattura sembrava dire che il pannello
+non si aggiornava.
+
+**`small` e' una macro di `rpcndr.h`.** `const Rect small{...}` non compila, e l'errore
+dice `'Rect' non puo' essere seguito da 'char'` — nomina il tipo, **non** la macro, e
+sembra un errore di sintassi. Vale per gli identificatori che il C aveva gia' preso
+(`small`, `near`, `far`): un errore che nomina il tipo accanto a un identificatore
+innocuo si risolve guardando l'identificatore, non il tipo.
 
 ---
 

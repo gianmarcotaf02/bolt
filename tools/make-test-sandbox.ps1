@@ -9,7 +9,8 @@
     renderla comoda oltre che obbligatoria.
 
     Il contenuto e' finto, deterministico e sempre uguale: due cartelle, qualche
-    file di testo, un CSV e una PNG generata. Cosi' una prova ripetuta due volte
+    file di testo, un CSV e qualche PNG di colori distinti (sono le anteprime da
+    guardare). Cosi' una prova ripetuta due volte
     parte dalle stesse condizioni, e il risultato e' confrontabile.
 
     La cartella e' sotto analysis/, che e' esclusa dal controllo di versione:
@@ -54,6 +55,43 @@ $graphics.Clear([System.Drawing.Color]::FromArgb(76, 141, 255))   # l'accento di
 $graphics.Dispose()
 $bitmap.Save((Join-Path $sandbox 'immagini\riquadro.png'), [System.Drawing.Imaging.ImageFormat]::Png)
 $bitmap.Dispose()
+
+# Qualche anteprima in piu', di **colori distinti**: servono a guardare le miniature
+# — nella griglia dell'ispettore e nella lista — senza usare immagini di qualcuno. Un
+# colore diverso per file e' quello che rende visibile a colpo d'occhio una cella
+# vuota, una miniatura sbagliata o una al posto di un'altra.
+foreach ($item in @(
+    @('caldo.png',  230, 108,  90),
+    @('verde.png',   76, 200, 141),
+    @('scuro.png',   35,  36,  40))) {
+    $bmp = New-Object System.Drawing.Bitmap 64, 64
+    $g = [System.Drawing.Graphics]::FromImage($bmp)
+    $g.Clear([System.Drawing.Color]::FromArgb($item[1], $item[2], $item[3]))
+    $g.Dispose()
+    $bmp.Save((Join-Path $sandbox "immagini\$($item[0])"), [System.Drawing.Imaging.ImageFormat]::Png)
+    $bmp.Dispose()
+}
+
+# Una sottocartella e un testo dentro `immagini`, perche' una griglia di sole
+# miniature non mostra i due casi che si vedono piu' spesso: una cartella e un file
+# senza niente da mostrare.
+New-Item -ItemType Directory -Force -Path (Join-Path $sandbox 'immagini\vecchie') | Out-Null
+Set-Content -Path (Join-Path $sandbox 'immagini\didascalia.txt') -Value "didascalia di prova`n" -NoNewline
+$bmp = New-Object System.Drawing.Bitmap 64, 64
+$g = [System.Drawing.Graphics]::FromImage($bmp)
+$g.Clear([System.Drawing.Color]::FromArgb(145, 149, 160))
+$g.Dispose()
+$bmp.Save((Join-Path $sandbox 'immagini\vecchie\sbiadita.png'), [System.Drawing.Imaging.ImageFormat]::Png)
+$bmp.Dispose()
+
+# Una cartella **vuota** e una con piu' voci di quante ne stiano in griglia: sono i
+# due casi che l'anteprima dell'ispettore deve saper dire («(vuota)» e «e altre
+# voci»), e senza di loro si provano solo i casi comodi.
+New-Item -ItemType Directory -Force -Path (Join-Path $sandbox 'vuota') | Out-Null
+New-Item -ItemType Directory -Force -Path (Join-Path $sandbox 'molte') | Out-Null
+1..15 | ForEach-Object {
+    Set-Content -Path (Join-Path $sandbox ("molte\voce-{0:d2}.txt" -f $_)) -Value "x" -NoNewline
+}
 
 Write-Output "cartella di prova pronta: $sandbox"
 Get-ChildItem -Recurse $sandbox | ForEach-Object {

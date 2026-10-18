@@ -62,6 +62,13 @@ int  FindEntryByName(const AppState& app, const std::wstring& name);
 int  CursorIndex(const AppState& app);
 bool IsEntrySelected(const AppState& app, const Entry& entry);
 
+// Cio' che e' selezionato **e visibile**, nell'ordine della lista: i percorsi completi
+// e i PIDL per le voci che ne hanno uno. Il filtro fa parte della domanda — filtrare
+// puo' nascondere righe che restano nella selezione, e un'azione su qualcosa che non
+// si vede e' esattamente cio' che non deve poter succedere.
+std::vector<std::wstring> SelectedPaths(const AppState& app);
+std::vector<const BYTE*> SelectedPidls(const AppState& app);
+
 // **Dove sta una voce**: un solo posto decide, cosi' aprire, selezionare e chiedere
 // un verbo alla shell non possono divergere sul significato di "questo file".
 std::wstring EntryLocation(const AppState& app, const Entry& entry);

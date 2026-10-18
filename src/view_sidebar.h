@@ -31,6 +31,9 @@ struct SidebarRow
     bool         volume = false;
     float        usedFraction = 0.0f;
     std::string  freeText;
+    // Fissata da **noi** (`Fissa in...`) e non dalla shell: e' l'unica delle due che
+    // si puo' togliere, e si disegna con il segno che lo dice.
+    bool         pinned = false;
 };
 
 // Riempie l'elenco: le sezioni, e dentro ognuna le voci.

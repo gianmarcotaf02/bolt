@@ -27,7 +27,8 @@ powershell -ExecutionPolicy Bypass -File tools/make-test-sandbox.ps1
 ```
 
 Il contenuto è finto, deterministico e ripetibile: due cartelle, qualche file di
-testo, un CSV e una PNG generata. `analysis/` è esclusa dal controllo di versione,
+testo, un CSV e qualche PNG generata (colori distinti: sono le anteprime da
+guardare). `analysis/` è esclusa dal controllo di versione,
 quindi niente di tutto questo finisce nel repository.
 
 Mai usare il Desktop, i Download o le Immagini di chi lavora, **nemmeno come
@@ -86,6 +87,38 @@ chiede**, mai di iniziativa: mostra le cartelle personali di chi lavora, e una
 cattura è una copia. Non si copia nel repository, non se ne citano i nomi che si
 vedono dentro, e se ne prendono solo le **decisioni di interfaccia** — quali
 pannelli esistono, cosa mostrano, dove stanno.
+
+### La scrivania di chi lavora, in particolare
+
+Chi usa questo computer ci lavora **mentre** l'agente lavora, e su Windows può avere
+più **scrivanie virtuali**: una per il suo lavoro, una per le prove. Lo schermo non è
+un banco di prova privato, e le finestre delle prove non devono comparire dove non
+sono state chieste.
+
+Succede esattamente questo se non ci si pensa (è successo il 2026-10-17):
+
+- **un programma lanciato finisce sulla scrivania che è attiva in quel momento.** Se
+  chi lavora sta studiando sulla scrivania 2, il `Bolt.exe` di prova nasce **lì**;
+- **portare in primo piano una finestra cambia la scrivania che si vede.** Windows
+  passa alla scrivania della finestra attivata: chi studiava si ritrova davanti il
+  banco di prova;
+- **una finestra di Esplora risorse resta** dove è stata aperta, e chi torna alla
+  scrivania 1 la trova lì senza sapere perché.
+
+Quindi, per le prove che hanno bisogno dello schermo:
+
+1. **si fanno solo quando chi lavora dice che la macchina è libera**, e si dice cosa
+   si sta per aprire;
+2. **non si porta in primo piano niente** senza prima aver verificato che la finestra
+   sia sulla scrivania virtuale **corrente** (`tools/focus-window.ps1` lo controlla e
+   si rifiuta: `IVirtualDesktopManager::IsWindowOnCurrentVirtualDesktop`);
+3. **si chiude tutto quello che si è aperto** — la finestra di Esplora risorse
+   compresa, che non se ne va da sola — e si tolgono i `topmost` eventualmente messi;
+4. **nessuna finestra di prova si sposta sull'altra scrivania** di chi lavora: se una
+   prova richiede due scrivanie, quella prova non si fa.
+
+Il resto di `AGENTS.md` vale dentro questa regola: le prove si fanno sul banco, e il
+banco non si prende il computer di chi ci lavora.
 
 ---
 
@@ -175,7 +208,14 @@ skill in chat — `/graphify`, o `/graphify --update` per documenti e immagini.
 
 ### Perché
 
-- `src/main.cpp` è **8.632 righe** e sta calando. Leggerlo per intero per rispondere a «dove sta
+- `src/main.cpp` è **4.816 righe**: scesa da 11.394 a **7.344** con lo spezzamento,
+  **risalita** a 7.895 con l'editor della mappa dei tasti e il fissaggio, e scese di
+  **3.079** con il pannello delle opzioni, i verbi della shell, il menu contestuale, le impostazioni e la navigazione — la curva di un
+  file unico che accoglie ogni funzione nuova. Gli ultimi pezzi usciti sono
+  l'**ispettore** intero (`src/view_inspector.*`, 1.053 righe), la **barra di stato**
+  (`src/view_statusbar.*`) e i **menu a gruppi** (`src/view_menu.*`, 535): l'ispettore
+  e il contenuto della cartella avevano appena riportato il file a 9.134, e spostarli
+  subito è costato meno che spostarli dopo. Leggerlo per intero per rispondere a «dove sta
   X?» costa decine di migliaia di token e dà comunque una vista parziale.
 - Una query restituisce **etichetta, file, riga e comunità** di ogni nodo: è
   l'indice di cui altrimenti ricostruiresti a mano con `rg`.
@@ -290,6 +330,20 @@ powershell -ExecutionPolicy Bypass -File tools/find-window.ps1 -Needle <parola> 
 Stampa classe e visibilità, non i titoli: un titolo può contenere il nome di un
 file personale.
 
+**Portare una finestra in primo piano**, prima di mandare tasti o clic — e solo se
+sta sulla scrivania virtuale corrente, che è la condizione per non spostare la vista
+di chi lavora (`AGENTS.md` §0):
+
+```bash
+powershell -ExecutionPolicy Bypass -File tools/focus-window.ps1 -ProcessName Bolt [-X 0 -Y 0 -Width 1240 -Height 760]
+```
+
+`SetForegroundWindow` da solo **non basta**: Windows lo rifiuta quando il primo piano
+ce l'ha un'altra applicazione, e la chiamata riesce lo stesso — il sintomo è che i
+tasti successivi vanno altrove e sembra che l'applicazione non risponda. Lo script
+usa `AttachThreadInput`, ripristina la finestra se è ridotta, e **si rifiuta** se la
+finestra non è sulla scrivania corrente. Vedi §5.
+
 **Log di avvio**: `build/RelWithDebInfo/startup-error.log` (sovrascritto a ogni
 avvio; assente significa nessun errore).
 
@@ -371,6 +425,17 @@ Costano tempo, sembrano bug dell'applicazione e non lo sono. Vedi anche §5 di
 - **`keybd_event` va preceduto da `SetForegroundWindow`**, o i tasti vanno
   altrove. Un falso negativo da mancanza di focus sembra un bug dell'app: **leggi
   il codice prima di correggerlo**.
+- **`SetForegroundWindow` da solo non basta quando il primo piano ce l'ha un'altra
+  applicazione**: Windows lo rifiuta, la chiamata riesce lo stesso, e i tasti e i clic
+  successivi vanno da un'altra parte. Serve `AttachThreadInput` al thread che possiede
+  il primo piano: è quello che fa `tools/focus-window.ps1`, che **si rifiuta** anche di
+  agire su una finestra che non sta sulla scrivania virtuale corrente (`§0`). È così che
+  il 2026-10-17 una prova di trascinamento è sembrata «non riproducibile in questo
+  banco» — e la conclusione era sbagliata: il banco aveva il primo piano da un'altra
+  parte.
+- **Una finestra può restare `topmost`** dopo una prova: `SetWindowPos` con
+  `HWND_TOPMOST` non si toglie da solo, e le finestre di dialogo finiscono dietro. Si
+  toglie alla fine, o si chiude il processo di prova.
 - **Su una finestra non attiva il primo clic la attiva e non fa altro.** Un
   trascinamento che comincia da lì non comincia, e sembra che la funzione di
   trascinamento non funzioni: è successo per due tentativi di fila. Prima di un
@@ -471,11 +536,40 @@ conteggio per funzione (`OpenPropertiesPanel` sparito): due strumenti, non l'occ
   scriveva come se fosse un fatto: un disco da 952 GB dichiarato vuoto (§7.31). Non
   basta che la funzione risponda: bisogna che la domanda sia quella giusta.
 
+### Operazioni su file
+
+- **`IFileOperation` non ha un metodo per fermarsi.** Non esiste `Abort`: chi annulla
+  e' il **sink**, che risponde con un codice d'errore. Un errore da `Pre*Item` annulla
+  l'operazione **e tutte quelle in coda** (e' nel documento di quel metodo);
+  `UpdateProgress` passa di li' anche a meta' di un file solo, ed e' l'unico punto da
+  cui fermare una copia da 5 GB prima della sua fine. Verificato: annullata a meta' di
+  un file da 4 GB, la shell **cancella da sola il file parziale** che aveva creato.
+- **I "punti" di `UpdateProgress` non sono byte.** Misurati: un file da 4 GB sono
+  **131074 punti** (32 KB l'uno), un file da 23 byte sono **2 punti**. La frazione e'
+  una frazione — una buona stima del tempo — e i **byte** vogliono un denominatore
+  misurato da noi. Si legge in `bolt-diag.log` (`BOLT_DIAG=1`), che scrive byte
+  misurati e punti dichiarati **nella stessa riga**: cosi' la differenza si vede
+  invece di supporla.
+- **Un'operazione lunga su un thread di lavoro rende possibile la seconda
+  operazione.** Sostituire quella in corso vuol dire annullarla **senza dirlo**, e
+  per una caduta e' peggio che per un comando: chi ha mollato il tasto legge dalla
+  destinazione se l'operazione e' riuscita, e su `DROPEFFECT_MOVE` cancella gli
+  originali. Una caduta rifiutata deve dichiarare `DROPEFFECT_NONE`.
+- **La finestra di Bolt si sposta a ogni avvio.** `send-keys.ps1` e `send-mouse.ps1`
+  vogliono coordinate **cliente** e le convertono da soli; `capture-rect.ps1` e
+  `drag-mouse.ps1` vogliono coordinate **schermo**, e l'origine va **rimisurata dopo
+  ogni avvio** con `window-rect.ps1`. Con l'origine vecchia la cattura esce su un
+  altro riquadro, e una cattura sbagliata **sembra** una prova.
+
 ### Test
 
 - **Usa una cartella usa e getta** dentro il progetto. Le operazioni su file
   cancellano davvero. **Mai provare su file personali** — vedi §0, che vale senza
   eccezioni.
+- **Un file grande per provare il conto e l'annullamento** si crea nella sandbox in
+  un terzo di secondo — `fsutil file createnew analysis\tmp\sandbox\big.bin
+  4294967296` — e si cancella prima di lasciare la sessione. Non serve un file vero:
+  quello che si guarda e' il conto, non il contenuto.
 
 ---
 
@@ -560,14 +654,25 @@ col carattere scelto e non e' un elemento.
 
 | file | responsabilità |
 |---|---|
-| `src/main.cpp` | finestra Win32, navigazione, layout, input, disegno; sceglie e possiede il backend (`BOLT_BACKEND`, fallback). **Lo spezzamento è in corso: 8.632 righe, erano 11.394** |
+| `src/main.cpp` | finestra Win32, navigazione, layout, input, disegno; sceglie e possiede il backend (`BOLT_BACKEND`, fallback). **Lo spezzamento è in corso: 4.816 righe, erano 11.394** (scesa a 7.344, risalita a 7.895, scesa di 3.079 il 2026-10-18: vedi §2-bis e `docs/05` §2) |
 | `src/theme.*` | i **ruoli di colore** che l'interfaccia legge e le **due tavolozze** (chiara e scura), piu' la preferenza del sistema (`AppsUseLightTheme`). I 35 token dello spec che hanno un lettore stanno qui; quelli che non ce l'hanno sono elencati in `theme.h`, invece di essere campi scritti e mai letti |
 | `src/app_state.h` | lo stato della finestra e i tipi che piu' moduli condividono: il **confine** che prima non esisteva (`docs/05` §2) |
 | `src/app_ui.*` | i supporti che piu' di un modulo usa: UTF-8/UTF-16, nomi di percorso, numeri in lettere, date, `FitText`, `NowSeconds` |
-| `src/view_sidebar.*` | la barra laterale: costruzione delle voci e disegno, primo modulo di **vista** uscito da `main.cpp` |
+| `src/view_sidebar.*` | la barra laterale: costruzione delle voci e disegno, primo modulo di **vista** uscito da `main.cpp`. Le sezioni sono quattro piu' i recenti, e in `ACCESSO RAPIDO` le righe **nostre** (`AppState::pins`, in memoria) stanno in cima a quelle della shell con la stella che le distingue |
 | `src/tabs.*` | l'albero dei tab: identita', genitore, ordine di lettura. La parte **pura** del modello; chi apre e chiude tocca la navigazione e resta in `main.cpp` |
 | `src/view_titlebar.*` | la striscia dei tab, il menu e i tre pulsanti di finestra; la **geometria** dei pulsanti resta qui e l'input la legge dai bersagli registrati |
 | `src/view_list.*` | la **lista con le colonne**: ordinamento, filtro, gruppi e viste (dalle voci alle righe, `RebuildView`), la geometria della griglia e delle righe (`ComputeViewMetrics`, `ItemRect`) e il disegno. Le domande su una voce — cursore, selezione, percorso, icona — stanno qui, cosi' l'input e il disegno non se le ricalcolano in due modi |
+| `src/view_inspector.*` | il pannello di destra **intero**: le righe dei metadati (`BuildInspectorRows`, le stesse che usa il pannello delle proprieta'), l'immagine grande decodificata, il visualizzatore di testo e il contenuto della cartella scelta |
+| `src/view_statusbar.*` | la barra di stato e la riga in fondo: l'esito di quello che si e' appena fatto, i numeri, e i selettori di vista/misura/ingrandimento. Registra i loro rettangoli come bersagli e **non** risponde ai clic: quello lo fa l'input |
+| `src/view_options.*` | il **pannello delle opzioni** (`Ctrl+,`): la costruzione dell'elenco delle preferenze, il passaggio dello stato alla riga e ritorno (`RefreshOptionItem`/`ApplyOptionFromItem`, le due direzioni di una verità sola), i controlli tipizzati — testo, numero, interruttore, scelta — la modifica in linea, e i tasti e i clic del pannello. Uscito da `main.cpp` il 2026-10-18 |
+| `src/shell_menu.*` | i **verbi della shell**: leggere `IContextMenu` dentro le nostre voci, la banda di id riservata (`kShellCmdFirst..Last`), le etichette ridotte ad ASCII, la cache per non interrogare la shell a ogni tasto destro, e il rilascio degli oggetti COM. Il *disegno* del menu contestuale e l'esecuzione delle voci restano in `main.cpp` |
+| `src/view_context_menu.*` | il **menu contestuale** come superficie: i livelli, la geometria delle righe, lo scorrimento, il disegno, il puntatore, il clic, i tasti, e le azioni del menu (aprire un sottomenu, eseguire una voce, le proprietà). I verbi **non** li legge: quelli sono `shell_menu.*` |
+| `src/navigation.*` | la **navigazione** e i **tab**: leggere una cartella (`LoadDirectory`, `ReadDirectory`, e le voci di spazio dei nomi), la storia avanti/indietro, e l'albero dei tab — aprirne, attivarlo, chiuderlo, chiudere un ramo, e accogliere un tab trascinato sopra un altro |
+| `src/input_targets.*` | il **registro dei bersagli** (`HitTest`): chi disegna registra un rettangolo e un tipo, chi riceve il clic chiede qui cosa c'è sotto il puntatore invece di ricalcolare le geometrie |
+| `src/settings.*` | le **preferenze** su disco: `%APPDATA%\Bolt\settings.ini`, una riga per preferenza, testo semplice cancellabile a mano, e il "ricorda" che dice quando non riesce. Il file non contiene nomi di file né cartelle visitate (`docs/06`) |
+| `src/app_actions.h` | **la cucitura dello spezzamento**: le azioni che vivono ancora in `main.cpp` e che i moduli chiamano (l'editor della mappa dei tasti, la chiusura del menu dei fissaggi, i comandi che il menu contestuale chiama), ognuna col modulo che dovrebbe avere accanto. Una lista che deve **accorciarsi** |
+| `src/view_menu.*` | il componente a gruppi — palette, GoTo, opzioni, valori di una colonna — con lo stato, il filtro, la geometria e il disegno. `GroupMenuClick`/`GroupMenuKeyDown` restituiscono un `MenuAction`: **cosa significa** una voce scelta lo sa chi ha costruito il menu |
+| `src/keymap.*` | **quale tasto fa quale comando**: una tabella `comando -> tasto` con i tasti di partenza, la ricerca (`CommandFor`), la scrittura (`LabelFor`), la rimappatura (`Rebind`, `Clear`, `Reset`) e il nome di un tasto (`Label`, che per quelli che non hanno un nome scritto a mano lo chiede a Windows). E' la fonte unica: l'input la interroga invece di conoscere i tasti, e le righe di fondo dei menu si scrivono da lei. Chi la **cambia** sta in `main.cpp`: la riga `Key Map` fra le opzioni (e `CmdEditKeyMap` dalla palette) apre l'elenco dei comandi col tasto accanto, e la cattura del tasto nuovo |
 | `src/ui_renderer.*` | il backend **OpenGL** dietro `IRenderer`: quad batcher, una draw call, catena di mipmap |
 | `src/d3d11_renderer.*` | il backend **Direct3D 11** della stessa interfaccia: stessi 30 float per vertice, stessi shader in HLSL, swap chain che segue la finestra |
 | `src/font_atlas.*` | atlante di glifi GDI → strato dell'array; ClearType ridotto a copertura in scala di grigi, con gutter fra le celle |
@@ -577,12 +682,13 @@ col carattere scelto e non e' un elemento.
 | `src/image_preview.*` | decodifica di un'immagine via WIC, ridimensionata per l'anteprima grande |
 | `src/text_view.*` | decodifica di un file di testo: codifica, righe, terminatori, rifiuto dei binari |
 | `src/shell_location.*` | le cartelle che non sono percorsi (cestino, Questo PC): enumerazione, nomi, PIDL |
+| `src/ntfs_attributes.*` | gli attributi del record NTFS di un file: volume raw in sola lettura, `FSCTL_GET_NTFS_FILE_RECORD`, la *update sequence array*, i nomi della tabella `AT_*`. La parte che interpreta i byte e' separata da quella che fa I/O, cosi' si prova anche senza privilegi |
 | `src/shell_new.*` | i modelli del menu "Nuovo": chiavi `ShellNew` del registro, etichette risolte con `SHLoadIndirectString` |
 | `src/shell_sendto.*` | le destinazioni di "Invia a": la cartella SendTo, letta a ogni apertura |
 | `src/shell_preview.*` | anteprime via `IShellItemImageFactory` → strato 2, worker MTA |
 | `src/dir_stats.*` | statistiche ricorsive: job, profili di volume, budget di tempo riprendibile; l'allocato si legge a blocchi per cartella |
 | `src/dir_watch.*` | sorveglianza della cartella aperta (`ReadDirectoryChangesW`), per aggiornare i numeri senza `F5`; limite: non e' ricorsiva |
-| `src/file_ops.*` | copia, sposta, rinomina, cestino via `IFileOperation`; clipboard `CF_HDROP` |
+| `src/file_ops.*` | copia, sposta, rinomina, cestino via `IFileOperation`, e le **operazioni lunghe** — copia, spostamento, cestino — su un **thread di lavoro** (`FileOps::Job`) col conto dei byte, la voce in corso e l'annullamento che passa dal sink; clipboard `CF_HDROP` |
 | `src/language.*` | quale delle due lingue si mostra, con `Tr`/`TrW` e i conteggi (`Copiato 1 elemento` / `Copiati 3 elementi`); le coppie di stringhe restano dove si usano |
 | `src/gl_loader.*` | entry point OpenGL 3.3 caricate a runtime |
 | `src/bolt.rc`, `src/resource.h` | icona incorporata, da `brand/bolt.ico` |
@@ -593,8 +699,9 @@ col carattere scelto e non e' un elemento.
 
 - `docs/04-roadmap.md` — le milestone, con le caselle spuntate e i difetti aperti.
 - `docs/05-stato-e-prossimi-passi.md` — dove si è arrivati, cosa resta, le trappole.
-- `docs/02-architettura-ricostruita.md` — l'architettura e i **cinquanta** difetti
-  trovati e risolti, §7.
+- `docs/02-architettura-ricostruita.md` — l'architettura e le **cinquantasette** voci
+  del registro dei difetti, §7: trovate guardando l'applicazione, con sintomo, causa e
+  correzione (tre sono aperte e lo dicono nel titolo).
 - `docs/03-spec-funzionale.md` — la spec ricostruita dall'originale: 1124 chiavi,
   319 comandi, 35 token di tema, 23 colonne.
 - `graphify-out/graph.json` — la **mappa** del repository (nodi, archi, comunità):
@@ -623,7 +730,7 @@ col carattere scelto e non e' un elemento.
   mani»: una query costa poco, una lettura costa migliaia di token che restano nel
   contesto per tutta la sessione. Vedi §2-bis.
 - **Non aprire nuove sessioni di refactoring largo** senza spazio per riverificare
-  tutto: `main.cpp` a 8.632 righe è un problema noto e in corso di soluzione, non una scoperta.
+  tutto: `main.cpp` a 4.816 righe è un problema noto e in corso di soluzione, non una scoperta.
 
 ---
 

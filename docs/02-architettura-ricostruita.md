@@ -340,8 +340,8 @@ Questi punti sono il perimetro di lavoro del reverse mirato descritto in
 Documentati perché il metodo conta quanto il risultato: quasi tutti sono stati
 trovati **guardando uno screenshot della propria applicazione**, non leggendo il
 codice. Il ciclo usato è in `tools/capture-window.ps1`. Alcune voci sono **aperte** e
-lo dicono nel titolo: §7.52 (Direct3D spento apposta), §7.54 (la caduta rara
-all'avvio) e §7.55 (l'ispettore e il filtro).
+lo dicono nel titolo: §7.52 (Direct3D spento apposta, per una decisione) e §7.55
+(l'ispettore e il filtro, per una decisione).
 
 ### 7.1 `gl_VertexID` in una draw call indicizzata — *il bug che nascondeva tutto*
 
@@ -1181,27 +1181,44 @@ La lezione e' la stessa del menu contestuale, in un altro posto: **l'oggetto dat
 chiede la cartella che possiede le voci**, con `IShellFolder::GetUIObjectOf`, invece
 di montarlo. Il cestino non e' una cartella come le altre, e chi lo sa e' la shell.
 
-**Limite dichiarato.** Con l'oggetto chiesto alla cartella, il trascinamento fuori
-funziona per le voci di una cartella **normale**: verificato con una prova di
-controllo, un file trascinato dalla sandbox a una finestra di Esplora risorse arriva
-davvero. Per una voce **riciclata** invece la destinazione dichiara ancora `COPY` e
-non arriva niente: il cestino, per la shell, e' un'altra cosa anche da questo lato, e
-la causa **non e' stata ricostruita**. Non si dichiara risolto.
+**Il residuo dichiarato, chiuso il 2026-10-17.** Con l'oggetto chiesto alla cartella
+il trascinamento fuori funziona per le voci di una cartella **normale** (prova di
+controllo) e **anche per una voce riciclata**: un file della sandbox messo nel cestino
+dall'applicazione, cercato col filtro sul suo nome, trascinato dal cestino a una
+cartella del progetto dentro una finestra di Esplora risorse, e' **arrivato** — 28
+byte, contenuto identico, sparito dal cestino, con `esito dichiarato 2`
+(`DROPEFFECT_MOVE`) nel registro. Non e' un "copia": trascinare fuori dal cestino
+**ripristina**, ed e' quello che fa anche Esplora risorse.
 
-**Ritentato il 2026-10-14, senza esito.** L'oggetto dati della voce riciclata,
-chiesto con `GetUIObjectOf`, **offre `CF_HDROP` e `CFSTR_SHELLIDLIST`** (letto dal
-registro: `[49386 15 49158 ...] hdrop=1`) — la forma dei dati e' quella giusta. Il
-rilascio però non trasferisce: offrendo `COPY` la destinazione lo dichiara e non
-esegue, offrendo il solo `MOVE` rifiuta con `NONE`. **E lo stesso succede a un file
-normale** nella stessa prova: e' il trascinamento *sintetico* (`mouse_event`) verso
-Esplora risorse a non essere riproducibile in questo banco, non il cestino. La
-verifica del giro precedente era stata fatta a mano, ed e' quella che vale. La
-modifica "solo `MOVE`" e' stata provata e **ritirata**: era un'ipotesi che la prova
-non conferma.
+**Perche' i due tentativi precedenti avevano concluso il contrario.** Non era OLE: era
+il **banco**, in due modi diversi, e vale la pena scriverli perche' sono due trappole
+di `AGENTS.md` §5 che si sono presentate insieme.
+
+1. **Il primo piano.** `SetForegroundWindow` non vince il primo piano quando ce l'ha
+   un'altra applicazione (Windows lo blocca, e la chiamata riesce lo stesso): la
+   pressione del trascinamento andava a un'altra finestra, il gesto non cominciava, e
+   la conclusione fu «il trascinamento sintetico verso Esplora risorse non e'
+   riproducibile in questo banco». Adesso c'e' `tools/focus-window.ps1`
+   (`AttachThreadInput`), e la stessa prova riesce.
+2. **La misura della riga, sbagliata a occhio.** Il primo tentativo di oggi ha
+   trascinato **un altro file**: la riga sotto il puntatore era stata stimata da una
+   cattura piccola (passo 30 px invece di **24**), quindi la pressione e' caduta una
+   riga piu' in basso. Il sospetto che ne e' nato — «il test dei clic non e' d'accordo
+   col disegno, di una riga» — e' stato **falsificato misurando i pixel** della
+   cattura invece di guardarla: il clic era giusto, la stima no. E' §5 alla lettera:
+   una cattura si legge da un pixel, non dalla miniatura.
+
+**Quante volte e' stato visto.** La prova di controllo (file normale) una volta, quella
+della voce riciclata **una** volta: la ripetizione e' stata annullata perche' la
+finestra di prova era stata aperta su un'altra scrivania virtuale e non si e' toccato
+niente (`AGENTS.md` §0). Un secondo giro costa cinque minuti e va fatto appena la
+macchina e' libera; fino ad allora il difetto e' **risolto con una prova**, non con
+due.
 
 Nota per chi ci riprova: la finestra di Bolt **rifiuta di proposito** le voci di
 spazio dei nomi (`TargetAt` esce vuoto se `draggingNamespaceItems`), quindi la prova
-va fatta **verso un'altra applicazione**, con un gesto vero.
+va fatta **verso un'altra applicazione**. E il cestino si guarda **solo col filtro**
+sul nome del file di prova: `AGENTS.md` §0.
 
 ### 7.35 Cambiando vista, il suggerimento restava appeso
 
@@ -1929,32 +1946,100 @@ conteggio dei file nella sandbox, non una cattura del cestino — `AGENTS.md` §
 
 ### 7.54 La cartella che si elenca e qualche volta porta via l'applicazione
 
-**Aperto.** L'applicazione cade all'avvio circa una volta su dieci, in raffiche.
+**Chiuso il 2026-10-18. Non era un difetto a sé: era §7.53 guardato dall'altro
+lato** — lo stesso pidl liberato e poi letto, nella lettura dell'accesso rapido.
 
-**Dove.** Non è un'ipotesi: messi dei breadcrumb in tutta la strada dell'avvio,
-**4 cadute su 4** hanno l'ultima riga scritta in `BuildQuickAccess`, subito prima
-della `ShellLocation::Read` dell'**accesso rapido** — cioè dentro la prima chiamata
-alla shell di quella lettura (`SHParseDisplayName` della posizione). Il registro
-diagnostico riscrive il file a ogni riga, quindi l'ultima riga è davvero l'ultima
-cosa fatta.
+**Sintomo.** Cadute all'avvio circa una volta su dieci, **a raffiche**: `0 su 30`,
+poi `5 su 55`, poi `3 su 8` col Direct3D, e piu' tardi `0 su 40`, `0 su 40`,
+`0 su 60`. Coi breadcrumb, **4 cadute su 4** avevano l'ultima riga in
+`BuildQuickAccess`, subito prima della lettura dell'accesso rapido.
 
-**Quanto.** Misurato su ~250 avvii: `0 su 30` col commit precedente, `5 su 55` con
-le modifiche del 2026-10-16, `3 su 8` col Direct3D, `0 su 12` sotto
-AddressSanitizer, e poi `0 su 40`, `0 su 40` e `0 su 60` a distanza di un'ora. Le
-raffiche dicono che dipende da qualcosa che cambia nel tempo — lo stato dell'accesso
-rapido e delle estensioni di shell che si caricano con esso — non dal percorso di
-codice, che è sempre lo stesso.
+**La pila che mancava era gia' su disco.** Nessuno l'aveva cercata: in
+`%LOCALAPPDATA%\CrashDumps` c'erano **nove** dump di Bolt, scritti fra il 2026-10-13
+e il 2026-10-15 — cioe' nei giorni in cui il difetto si misurava — perche' la
+cartella dei dump era gia' configurata da qualcuno, prima che si decidesse che
+serviva un debugger. Quattro sono di questa famiglia:
 
-**Cosa non è.** Non è l'appartamento COM (il thread principale è `OleInitialize`,
-quindi STA, che è quello giusto), non è il registro diagnostico (l'esperimento
-alternato con e senza `BOLT_DIAG`, 30 avvii per parte, ha dato 0 e 0), e non è il
-backend. Non è riproducibile a comando, quindi non c'è una pila: serve un debugger
-installato che aspetti la caduta, o un campione molto più grande.
+| dump | quando | dentro quale modulo | chiamato da |
+|---|---|---|---|
+| `740`, `8520`, `13868` | 2026-10-15, 22:31–22:35 | `windows.storage.dll`, **`ILGetSize+0x10`** | `Bolt.exe+0x98B05` |
+| `76812` | 2026-10-14, 01:06 | `windows.storage.dll+0x159EF0` | `Bolt.exe+0x90A65` |
 
-**Cosa farebbe chiudere la questione.** Un dump: `LocalDumps` di Windows Error
-Reporting (una chiave in `HKCU`) più un debugger per leggerlo, oppure aspettare la
-caduta con `devenv /debugexe` aperto. Il resto è già scritto: dove guardare, e
-quanto spesso.
+Le tre del 22:31–22:35 sono **lo stesso indirizzo** dentro la stessa versione della
+DLL, e sono a quattro minuti di distanza: e' la raffica, fotografata. Lo stack non
+l'ha camminato un debugger — su questa macchina `cdb.exe` non c'e' — ma un lettore
+scritto per l'occasione (`dumpscan`, `StackWalk64` + `MiniDumpReadDumpStream`, in
+`analysis/tmp/crashprobe/`): intestazione, exception stream e module list bastano a
+dire *dove*, e la camminata dice *chi l'ha chiamato*.
+
+**Causa.** `ILGetSize` che legge un pidl **gia' restituito a `CoTaskMemAlloc`**.
+Fino al commit `93bfa66` (2026-10-14) `ShellLocation::Read` faceva cosi':
+
+```cpp
+CoTaskMemFree(absolute);
+...
+const size_t size = ILGetSize(absolute);      // <-- legge memoria restituita
+item.pidl.assign(...absolute + size);         // ... e ne copia il contenuto
+if (... ILIsEqual(absolute, reparsed) ...)    // ... e la confronta
+```
+
+E' **lo stesso difetto di §7.53**, che era stato trovato togliendo dei breadcrumb e
+corretto spostando quel `CoTaskMemFree` in fondo al blocco: qui era la stessa riga
+vista da fuori, come una caduta. Una cosa sola, due sintomi: uno silenzioso (il
+pidl copiato era di un altro blocco) e uno rumoroso (la caduta).
+
+**Perche' AddressSanitizer non la riproduceva.** Il pidl lo alloca **la shell**, con
+il proprio allocatore: ASAN strumenta quello del CRT nostro, non quello di
+`windows.storage.dll`. Liberare e rileggere un blocco di qualcun altro non e' un
+errore *per ASAN*, quindi `0 su 12` non voleva dire «il difetto non c'e'»: voleva
+dire «questo strumento non lo vede». E' la stessa lezione di §2: se il difetto e'
+invisibile allo strumento, lo strumento e' sbagliato.
+
+**Prova, e non correlazione.** La correzione era gia' nel codice; per sapere se e'
+*quella* correzione, l'ordine di prima e' stato rimesso apposta e la build rifatta:
+
+| build | avvii | cadute |
+|---|---|---|
+| ordine di prima (`free` prima delle due letture) | 120 | **6** (5%), `0xC0000005` |
+| ordine corretto (`free` in fondo al blocco) | **515** | **0** |
+
+Le sei cadute riprodotte hanno il registro diagnostico che si ferma **tutte e sei**
+fra `--- backend: OpenGL` e `accesso rapido: N voci` — la stessa riga dei breadcrumb
+del 2026-10-16, ricavata con lo stesso metodo. Il tasso ritrovato (5%) e' quello
+delle raffiche storiche. Con l'ordine corretto, **0 su 515** (i 455 avvii della
+misura di oggi piu' 60 di controllo): con zero su 515, il tetto al 95% e' ~0,6%,
+contro il 10% misurato prima.
+
+Il primo taglio dell'esperimento riusciva **troppo** bene: `150 su 150` di
+`0xC0000374` (corruzione dell'heap). Era un difetto del taglio, non una conferma:
+aveva lasciato **due** `CoTaskMemFree(absolute)` dove l'originale ne aveva uno, e
+due liberazioni sono un altro difetto (deterministico) — non l'ordine da provare.
+Vale la regola di §5 di `AGENTS.md` al contrario: quando una prova riesce meglio del
+previsto, si rilegge il diff prima di scriverne il risultato.
+
+**Perche' non arrivavano dump nuovi.** Mentre si riproduceva, `LocalDumps` (chiave
+`HKCU`, `DumpType=1`) non scriveva **niente**, nemmeno per un programma di tre righe
+che dereferenzia il nullo. La ragione sta in una riga sola che WER tiene in `HKCU`:
+`LastRateLimitedDumpGenerationTime`. WER **limita** i dump locali, e in una raffica
+di avvii il limite si mangia proprio quelli che servono. I dump che hanno chiuso la
+questione sono quindi quelli **vecchi**, non quelli che si sarebbero potuti
+scrivere: prima di armare un banco, si guarda cosa c'e' gia' nella cartella dei
+dump. Vedi `docs/05` §5.
+
+**Il banco, perche' la prossima caduta rara costa meno.** Un desktop Win32
+**invisibile** (`CreateDesktop` + `STARTUPINFO.lpDesktop`): le finestre nascono e
+muoiono la' dentro, quindi niente compare sullo schermo di chi lavora e nessuna
+scrivania virtuale viene cambiata (`AGENTS.md` §0). Un avvio costa ~0,5 s, il
+processo si ferma al primo fotogramma visibile, e le cartelle di prova sono quelle
+della sandbox.
+
+**Resta una seconda famiglia, dichiarata e non di questa voce.** Cinque dump cadono
+**dentro il nostro eseguibile** (`+0x1AA6BB` due volte, `+0x19F9DB`, `+0x16EBC9`,
+`+0x162999`; due con `0xC0000409` e parametro 7, cioe' un `terminate`), tutti fra il
+2026-10-13 e il 2026-10-15. **Non si sono riprodotti**: 0 su 515 avvii oggi, e non
+hanno la firma di questa voce (non passano da `ILGetSize`, e la pila sotto il primo
+frame e' gia' spazzatura). Vanno cercati con lo stesso banco se ricompaiono; qui
+restano scritti perche' e' successo.
 
 ### 7.55 L'ispettore che mostra una voce che la lista non ha
 
@@ -1974,3 +2059,92 @@ cursore non è visibile (`EntryVisible`, la stessa funzione del filtro), o il fi
 **sposta il cursore** sulla prima riga visibile — che è quello che fa Esplora
 risorse, e che renderebbe impossibile lo stato "cursore su una riga che non c'è".
 La seconda è più coerente ma tocca la selezione: va decisa, non improvvisata.
+
+### 7.56 Le tre superfici che restavano in inglese
+
+**Sintomo.** Con la lingua su **italiano**, la palette dei comandi si apriva con le
+bande `View`, `Language`, `Appearance`, `Tabs` e una riga `Command palette` in mezzo
+alle altre, e il pannello delle opzioni mostrava `Font`, `Font Size`, `Spacing`,
+`Zoom` sopra descrizioni italiane. Lo ha visto l'autore, guardando la palette: «sbaglio
+o molte cose sono in inglese?».
+
+**Causa.** Due cose, e la seconda è quella che conta.
+
+La prima è meccanica: quelle tre non sono stringhe scritte a mano — non si trovano
+cercando un testo in inglese — sono **chiavi** disegnate così come sono. Le bande di
+un menu disegnano il campo `group` dell'item (`View`, `Sort`, `GroupBy`), le righe
+delle opzioni disegnano il campo `label` della tabella, e `CommandLabelIt` — la
+tabella delle traduzioni dei comandi — non aveva la voce di `CmdPalette`, l'unica
+mancante su ottanta.
+
+La seconda è che **il documento diceva che andava bene così**. Il paragrafo «Cosa
+resta in inglese, e perché» di `docs/04` sosteneva che i nomi del riferimento non si
+traducono — «sono *i suoi nomi*, e cambiarli renderebbe il clone meno fedele» —
+elencando proprio le colonne, le sezioni della barra laterale, le righe dell'inspector
+e i gruppi della palette. Ma la decisione contraria è dell'autore, il **2026-10-14**
+(`AGENTS.md` §3): i nomi del riferimento si traducono, e **la chiave resta l'inglese**
+proprio perché è con la chiave che si ricorda cosa è chiuso. Il paragrafo non è mai
+stato corretto: le superfici tradotte subito (colonne, barra laterale, inspector,
+bande di raggruppamento) hanno continuato a funzionare, e quelle che il paragrafo
+elencava sono rimaste in inglese **perché il paragrafo diceva che era giusto**.
+`docs/05` nel frattempo dichiarava «lingua su tutte le superfici».
+
+**Correzione.** Una tabella `MenuGroupLabelIt` in `view_menu.cpp` accanto a chi
+disegna le bande (17 chiavi, una voce per i gruppi che non si chiamano come in
+italiano: `File` resta `File`), usata **al disegno** e non sulla chiave; il campo
+`labelIt` nella tabella `kRows` delle opzioni (27 nomi, con la parola del comando
+dove la riga e l'ordine sono la stessa cosa — `Show Tooltips` è «Mostra i
+suggerimenti» in tutt'e due i posti); la voce mancante di `CmdPalette`; e il paragrafo
+di `docs/04` riscritto con quello che resta davvero in inglese (i verbi della shell,
+che sono del sistema, la diagnostica di avvio, i nomi dei file). Il commento sopra
+`CommandLabelIt`, che diceva «la lista è tenuta corta apposta», è stato corretto: con
+ottanta voci su ottanta non è più una lista corta.
+
+**Verificato a schermo**, in tutte e due le lingue — palette, GoTo, mappa dei tasti,
+pannello delle opzioni — e con la prova che conta: **chiusa la banda `Vista` in
+italiano, in inglese si chiama `View` ed è ancora chiusa**, e tornando indietro è di
+nuovo `Vista` chiusa. La chiave non si è mossa. Catture in `analysis/tmp/keys/`.
+
+**La lezione.** Un documento che descrive il codice di prima è la stessa specie di
+difetto di un commento che lo fa: costa come un commento sbagliato e si paga a
+schermo. E le superfici nate da una **chiave** invece che da una frase non si trovano
+leggendo il codice — bisogna guardare la schermata e chiedersi cosa c'è scritto.
+
+### 7.57 Il pannello che si apriva e non si vedeva (e diceva il falso)
+
+**Sintomo.** `Fissa in...` scelto dalla palette non faceva **niente**: la palette si
+chiudeva, nessun pannello compariva, e la barra di stato non diceva nulla. Due volte
+di fila, con lo stesso esito, che è il modo in cui un guasto diventa «quel comando non
+funziona».
+
+**Causa: due, una sotto l'altra.** La prima era una **registrazione mancante**: un menu
+nuovo va iscritto in **quattro** posti — `OpenMenu` (chi risponde all'input), il
+disegno in `RenderFrame`, e le **due** sedi che eseguono una voce attivata, il clic e la
+tastiera. Ne avevo fatti tre: il pannello si apriva, prendeva i tasti, e non si
+disegnava. Il codice sembrava giusto perché lo era — per metà.
+
+Tolta quella, il pannello **non si apriva ancora**. Qui la lezione è il metodo: invece
+di rileggere il codice ho aggiunto **due righe di registro** (`DiagLog` con
+`BOLT_DIAG=1`) — il comando che arriva e l'identificativo scelto dalla palette — e in
+un colpo solo si è visto che il comando *arrivava* (`palette id 77`, `cmd 77`) e che
+l'unica funzione che non compariva nel registro era `BuildPinMenu`. Il difetto era
+dentro di lei: `applicable` era **invertita** (`!= removing` invece di `== removing`),
+quindi il pannello usciva subito per «niente da fare» e scriveva in barra di stato
+«questa cartella è già fissata in tutte le sezioni» — **la prima volta che si usava il
+comando**, quando non era fissata da nessuna parte. Un messaggio falso, che è peggio
+del silenzio: avrebbe fatto cercare il difetto nella lista dei fissaggi.
+
+**Correzione.** La riga di disegno in `RenderFrame`; il verso della condizione (con il
+commento accanto che dice cosa vuol dire «applicabile»: la destinazione **cambierebbe**
+qualcosa) e la strumentazione tolta.
+
+**Verificato a schermo.** Le catture di `docs/04` M6, e in particolare le due che
+sarebbero state impossibili con la condizione invertita: il pannello con la riga
+«Accesso rapido (è già fissata qui)» accanto a «Segnalibri», e `Togli da...` con la
+riga «Segnalibri (non è fissata qui)».
+
+**La lezione.** Un menu nuovo si registra in quattro posti e nessun compilatore li
+tiene insieme: vale la pena scriverlo qui perché il prossimo menu lo pagherà uguale. E
+quando la schermata dice «non succede niente», **una riga di registro** distingue in
+trenta secondi «il comando non arriva» da «arriva e esce subito», che sono due difetti
+in due file diversi.

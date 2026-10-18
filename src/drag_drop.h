@@ -101,5 +101,10 @@ Target TargetAt(HWND window, POINT client);
 void Highlight(HWND window, const Target& target);
 
 // Esegue la caduta di |sources| su |target|. |move| vale per DropInto.
-void Drop(HWND window, const std::vector<std::wstring>& sources, const Target& target, bool move);
+//
+// Restituisce vero se l'operazione e' stata **accettata**. Non e' una comodita': chi
+// ha mollato il tasto legge dalla destinazione se la cosa e' andata a buon fine, e
+// con `DROPEFFECT_MOVE` cancella gli originali. Una caduta rifiutata e dichiarata
+// riuscita sarebbe una perdita di dati, quindi il rifiuto va detto.
+bool Drop(HWND window, const std::vector<std::wstring>& sources, const Target& target, bool move);
 } // namespace DragDrop

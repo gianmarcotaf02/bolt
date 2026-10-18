@@ -22,6 +22,7 @@
 
 #include <array>
 #include <cstdint>
+#include <memory>
 #include <set>
 #include <string>
 #include <unordered_map>
@@ -30,9 +31,12 @@
 
 #include "dir_stats.h"
 #include "dir_watch.h"
+#include "file_ops.h"
 #include "font_atlas.h"
 #include "image_preview.h"
+#include "keymap.h"
 #include "language.h"
+#include "ntfs_attributes.h"
 #include "shell_icons.h"
 #include "shell_preview.h"
 #include "shell_location.h"
@@ -111,6 +115,17 @@ struct Entry
     bool volumeRoot = false;
 };
 
+// Una voce dell'anteprima di una cartella: il minimo per disegnarne una cella. Non
+// e' un `Entry` perche' non e' una riga di lista: non si ordina, non si seleziona,
+// non si apre — si guarda.
+struct PeekEntry
+{
+    std::wstring path;         // il percorso completo, per chiedere alla shell l'anteprima
+    std::string  name;         // il nome, da scrivere sotto la cella
+    std::string  extension;    // minuscola, senza punto; vuota per le cartelle
+    bool         isDirectory = false;
+};
+
 struct Place
 {
     std::string  label;
@@ -127,6 +142,12 @@ struct Place
     // il resto — una cartella non ha un'occupazione da mostrare.
     float       usedFraction = 0.0f;
     std::string freeText;
+
+    // **Nostra**, non della shell: e' una riga che ha fissato l'utente con
+    // `Fissa in...`, e nell'accesso rapido sta accanto a quelle che ci ha messo
+    // Windows. Si disegna con un segno suo, perche' e' l'unica delle due che si puo'
+    // togliere da qui — l'altra la conosce solo il jump list della shell.
+    bool        ours = false;
 };
 
 // Rectangles recorded while drawing, so input handling can hit test them without
@@ -237,8 +258,20 @@ enum CommandId
     CmdCopy, CmdCut, CmdPaste, CmdDelete, CmdDeletePermanent, CmdRename, CmdNewFolder,
     // M9: il pannello delle opzioni, raggiungibile anche dalla palette.
     CmdOpenOptions,
+    // L'editor della mappa dei tasti. Un comando come gli altri — sta nella palette
+    // e si puo' rimappare lui stesso — ma **senza tasto di partenza**: finche' non
+    // gliene si da' uno, si arriva dalla sua riga fra le opzioni.
+    CmdEditKeyMap,
+    // Il fissaggio: due domande — dove, e da dove togliere — sulla stessa lista di
+    // destinazioni. Sono due comandi e non uno con un verso, perche' chi cerca
+    // "togli" non deve leggere "fissa" e capire da solo che fa il contrario.
+    CmdPinTo, CmdUnpin,
     // Le proprieta': quella in-app e quella di Windows, due voci distinte.
     CmdProperties, CmdPropertiesWindows,
+    // La tavolozza dei comandi. Era l'unica cosa che si apriva da un tasto
+    // **senza essere un comando**: adesso lo e', e il tasto sta nella mappa come
+    // tutti gli altri.
+    CmdPalette,
 };
 
 // Item ids below this are CommandId values; above it they are indexes into
@@ -262,6 +295,9 @@ enum class OptionControl
     Slider,   // valore continuo
     Text,     // campo di testo modificabile
     Choice,   // pulsante con freccia: apre un elenco di valori
+    // Un pulsante che apre qualcos'altro. Non e' una preferenza: non ha un valore
+    // da leggere, e il suo id dice **cosa apre**, non cosa vale.
+    Action,
 };
 
 struct GroupMenuItem
@@ -302,6 +338,12 @@ struct GroupMenu
     // Il pannello delle opzioni: righe a due linee (nome e descrizione) con il
     // controllo a destra, alte una misura fissa che **non** segue `Spacing`.
     bool         richRows  = false;
+    // Con `detailed`, la colonna di destra e' `item.detail`; quando manca, il
+    // ripiego e' il **gruppo**, ma solo per i menu che lo chiedono. La palette lo
+    // chiede: li' il gruppo e' il contesto di una voce, e sta bene accanto. L'editor
+    // dei tasti no: li' quella colonna vuol dire una cosa sola — il tasto — e un
+    // gruppo scritto dov'era il tasto sarebbe una bugia su un comando senza tasti.
+    bool         detailFallsBackToGroup = false;
     // Dove appoggiarlo. Vuoto: al centro, come la palette. Riempito: sotto
     // quell'angolo, come il pannello dei valori di una colonna, che deve stare
     // attaccato all'intestazione da cui e' nato.
@@ -501,6 +543,18 @@ inline std::string ColumnLabel(int index)
 // colonna invece di stringerla.
 constexpr float kMinColumnWidth = 44.0f;
 
+// Da dove e' partita l'operazione su file in corso. Serve perche' un comando e una
+// caduta raccontano l'esito in modo diverso — "Incollato N elementi" contro
+// "Copiato N elementi in <cartella>" — e cambiano cose diverse: l'incolla consuma la
+// clipboard, la caduta dichiara subito un esito che altrimenti racconterebbe
+// l'origine.
+enum class OperationSource
+{
+    None,
+    Command,   // da un comando: incolla, elimina
+    Drop,      // da una caduta: copia, spostamento, cestino
+};
+
 struct AppState
 {
     // Il backend di disegno, dietro l'interfaccia: OpenGL o Direct3D 11. Lo
@@ -545,6 +599,13 @@ struct AppState
 
     std::vector<Place> quickAccess;
     std::vector<Place> volumes;
+    // I fissaggi **nostri** di accesso rapido: le cartelle che l'utente ha fissato
+    // con `Fissa in...`. Stanno separati da `quickAccess` perche' quello e' della
+    // shell e non si tocca — il jump list di Windows non ha un'API per aggiungere una
+    // voce, e l'unico modo di toccarlo scriverebbe un file **della shell** (`docs/04`
+    // M6, decisione (a)). Vivono in memoria, per la sessione: sono cartelle di
+    // qualcuno, e `settings.ini` non ne contiene (`docs/06`).
+    std::vector<std::wstring> pins;
     std::unordered_set<std::string> collapsedSections;
 
     // Dove punta un collegamento, per percorso. Si risolve una volta per file: la
@@ -555,6 +616,12 @@ struct AppState
     // Le proprieta' che il file system non dice (le dimensioni di un'immagine, per
     // esempio): anche queste si leggono una volta per percorso.
     std::unordered_map<std::wstring, FileProperties> fileProperties;
+
+    // Gli attributi NTFS di un file, per percorso. La lettura apre il volume raw e
+    // costa un `DeviceIoControl`: una volta per voce scelta, non una volta per
+    // fotogramma — e anche il **motivo** per cui non ci sono si tiene, altrimenti
+    // senza privilegi si riproverebbe a ogni ridisegno.
+    std::unordered_map<std::wstring, NtfsAttributes::Result> ntfsAttributes;
 
     // --- visualizzatore di testo (M8) ---------------------------------------
     //
@@ -599,6 +666,16 @@ struct AppState
     float textRowsWidth = 0.0f;
     float textRowsZoom  = 0.0f;
     size_t textLongest  = 0;           // la riga piu' lunga, per la minimap
+
+    // --- l'anteprima di quello che c'e' dentro una cartella scelta -----------
+    //
+    // Le prime voci della cartella, con il solo necessario a disegnarne una cella.
+    // Si leggono **quando la cartella scelta cambia**, non a ogni fotogramma: la
+    // lettura tocca il disco, e l'ispettore si ridisegna sessanta volte al secondo.
+    std::vector<PeekEntry> peekEntries;
+    std::wstring           peekFolder;      // a quale cartella appartengono ("" = nessuna)
+    bool                   peekReadable = false;   // la cartella si e' potuta aprire
+    bool                   peekMore = false;   // ce n'erano altre oltre quelle lette
 
     std::vector<Tab> tabs;
     int              activeTab = 0;
@@ -864,6 +941,20 @@ struct AppState
     GroupMenu options;                       // Ctrl+, item id = OptionId
     GroupMenu optionsChoice;                 // valori di un controllo Choice
     int       optionsChoiceParent = -1;      // OptionId dell'opzione da cui e' nato
+
+    // L'editor della mappa dei tasti: si apre da una riga delle opzioni e ne prende
+    // il posto. Gli id delle righe sono `CommandId`, piu' `kKeyMapResetId` in cima.
+    // `keyCaptureCommand` e' il comando che sta aspettando il tasto nuovo, -1 quando
+    // non si sta aspettando niente: e' l'unico stato della cattura.
+    GroupMenu keyMap;
+    int       keyCaptureCommand = -1;
+
+    // Le destinazioni di `Fissa in...` e di `Togli da...`: le sezioni della barra
+    // laterale che accettano una riga. `pinMenuRemoving` dice **quale delle due
+    // domande** sta rispondendo il pannello — la lista e' la stessa, vista al
+    // contrario, e per questo e' un menu solo.
+    GroupMenu pinMenu;
+    bool      pinMenuRemoving = false;
     ContextMenu contextMenu;                 // tasto destro
 
     // Il pannello delle **proprieta' in-app**: le stesse righe dell'inspector, ma
@@ -875,6 +966,21 @@ struct AppState
     std::wstring               propertiesTitle;
     std::wstring               propertiesSubtitle;
     std::vector<InspectorRow>  propertiesRows;
+
+    // --- l'operazione su file in corso ---------------------------------------
+    //
+    // Copia, spostamento e cestino girano su un thread di lavoro (`FileOps::Job`),
+    // perche' una copia da 5 GB non puo' tenere ferma la finestra. Qui c'e' il
+    // lavoro, da dove e' partito, e quando e' cominciato — l'ora serve a non far
+    // lampeggiare il pannello per un'operazione che finisce in un fotogramma.
+    std::unique_ptr<FileOps::Job> operation;
+    OperationSource               operationSource = OperationSource::None;
+    double                        operationStart  = 0.0;
+
+    // La mappa dei tasti: quale tasto fa quale comando. E' **stato della sessione** —
+    // `docs/04` dice cosi' per M9 — quindi vive qui e non in un file: si rimappa, si
+    // usa, e uscendo si torna ai tasti di partenza.
+    KeyMap keys;
     std::vector<std::wstring> goToTargets;
     std::vector<std::wstring> recents;       // visited this run: StoreRecents = Session
     std::vector<std::wstring> bookmarks;     // this run; persistence is milestone 9

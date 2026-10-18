@@ -1,5 +1,6 @@
 #include "shell_location.h"
 
+#include "app_ui.h"
 #include "language.h"
 
 #include <shellapi.h>
@@ -94,6 +95,54 @@ bool DetailTime(IShellFolder2* folder, PCUITEMID_CHILD child, const PROPERTYKEY&
 
 } // namespace
 
+// Il volume di un percorso: e' la radice di un volume? Che file system ha, e quanto
+// spazio. `Volume` sta nell'intestazione perche' lo legge anche chi decide se una
+// voce della lista e' un'unita'.
+Volume VolumeOf(const std::wstring& location)
+{
+    Volume info;
+    if (location.empty())
+        return info;
+
+    // La domanda e' "questo percorso **e'** la radice di un volume", non "sta su un
+    // volume". `GetDriveTypeW` risponde `DRIVE_FIXED` anche per una cartella in
+    // mezzo al disco — risolve il percorso al volume che lo contiene — quindi ogni
+    // file e ogni cartella su `C:` diventava un volume, con la capacita' del disco
+    // al posto della propria dimensione: 952,6 GB per una cartella da 36 byte.
+    //
+    // Il modo giusto e' chiedere **qual e'** la radice del volume e confrontarla col
+    // percorso. Regge anche i volumi montati dentro una cartella, che una radice di
+    // unita' non li copre.
+    wchar_t root[MAX_PATH]{};
+    if (GetVolumePathNameW(location.c_str(), root, MAX_PATH) == FALSE)
+        return info;
+
+    const auto trim = [](std::wstring text) {
+        while (text.size() > 1 && text.back() == L'\\')
+            text.pop_back();
+        return text;
+    };
+    if (_wcsicmp(trim(location).c_str(), trim(root).c_str()) != 0)
+        return info;   // e' una cartella o un file che sta **sopra** un volume
+
+    info.isVolume = true;
+
+    wchar_t fileSystem[64]{};
+    if (GetVolumeInformationW(location.c_str(), nullptr, 0, nullptr, nullptr, nullptr, fileSystem,
+                              64) != FALSE)
+        info.fileSystem = Bolt::ToUtf8(fileSystem);
+
+    ULARGE_INTEGER available{};
+    ULARGE_INTEGER total{};
+    if (GetDiskFreeSpaceExW(location.c_str(), &available, &total, nullptr) && total.QuadPart > 0)
+    {
+        info.freeText  = Bolt::HumanBytes(available.QuadPart);
+        info.totalText = Bolt::HumanBytes(total.QuadPart);
+        info.usedFraction = 1.0f - static_cast<float>(static_cast<double>(available.QuadPart) /
+                                                     static_cast<double>(total.QuadPart));
+    }
+    return info;
+}
 bool IsNamespace(const std::wstring& location)
 {
     // Due forme, e sono due cose diverse: `::{CLSID}` cerca una cartella dentro lo

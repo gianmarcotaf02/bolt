@@ -25,6 +25,21 @@ add_executable(Bolt WIN32
     src/view_titlebar.cpp
     src/view_list.cpp
     src/view_list.h
+    src/view_inspector.cpp
+    src/view_inspector.h
+    src/view_statusbar.cpp
+    src/view_statusbar.h
+    src/view_context_menu.cpp
+    src/view_context_menu.h
+    src/view_menu.cpp
+    src/view_menu.h
+    src/view_options.cpp
+    src/view_options.h
+    src/app_actions.h
+    src/input_targets.cpp
+    src/input_targets.h
+    src/keymap.cpp
+    src/keymap.h
     src/ui_renderer.cpp
     src/ui_renderer.h
     src/d3d11_renderer.cpp
@@ -35,8 +50,16 @@ add_executable(Bolt WIN32
     src/image_preview.h
     src/shell_icons.cpp
     src/shell_icons.h
+    src/navigation.cpp
+    src/navigation.h
+    src/settings.cpp
+    src/settings.h
+    src/shell_menu.cpp
+    src/shell_menu.h
     src/shell_location.cpp
     src/shell_location.h
+    src/ntfs_attributes.cpp
+    src/ntfs_attributes.h
     src/shell_new.cpp
     src/shell_new.h
     src/shell_preview.cpp

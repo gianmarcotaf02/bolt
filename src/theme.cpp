@@ -15,6 +15,12 @@
 #include "theme.h"
 
 #include <windows.h>
+#include <dwmapi.h>
+
+// `ApplyTheme` lavora su `AppState`: e' l'unica cosa di questo modulo che conosce
+// lo stato dell'applicazione, e la dichiarazione in `theme.h` si accontenta di una
+// dichiarazione anticipata (e' `app_state.h` che include `theme.h`, non il contrario).
+#include "app_state.h"
 
 namespace Bolt
 {
@@ -86,6 +92,58 @@ bool SystemPrefersLightScheme()
     if (read != ERROR_SUCCESS || type != REG_DWORD || size != sizeof(value))
         return false;
     return value != 0;
+}
+
+namespace
+{
+// --- il tema ----------------------------------------------------------------
+//
+// Il nome di uno schema come si legge. Le due coppie stanno qui e non sparse perche'
+// la **stessa** stringa serve al pannello delle opzioni, alla palette e alla scelta:
+// la scelta si rilegge confrontando questa, invece di scrivere due volte una parola e
+// sperare che restino uguali.
+const char* SchemeNameIt(ColorScheme scheme)
+{
+    return (scheme == ColorScheme::Light) ? "Chiaro" : "Scuro";
+}
+
+const char* SchemeName(ColorScheme scheme)
+{
+    return (scheme == ColorScheme::Light) ? "Light" : "Dark";
+}
+
+} // namespace
+
+const char* SchemeLabel(ColorScheme scheme)
+{
+    return Tr(SchemeNameIt(scheme), SchemeName(scheme));
+}
+
+// Quale tavolozza si sta usando. "Segui il sistema" **non** e' una tavolozza: e' una
+// risposta che si chiede al sistema, e la si chiede ogni volta che serve invece di
+// copiarla in una variabile. Cosi' vale anche quando la preferenza cambia mentre
+// l'applicazione e' aperta, che e' tutto il senso di quella scelta.
+ColorScheme SchemeInUse(const AppState& app)
+{
+    if (!app.systemColorScheme)
+        return app.colorScheme;
+    return SystemPrefersLightScheme() ? ColorScheme::Light : ColorScheme::Dark;
+}
+
+// Applica la tavolozza e allinea il riquadro di DWM. Le due cose stanno insieme
+// perche' sono la stessa decisione vista da due lati: il colore **dentro** la finestra
+// e quello che il sistema disegna **attorno**. Cambiarne una sola da' una finestra
+// chiara con il bordo scuro, che e' peggio di due difetti separati.
+void ApplyTheme(AppState& app)
+{
+    const ColorScheme scheme = SchemeInUse(app);
+    app.theme = MakeTheme(scheme);
+
+    if (app.window == nullptr)
+        return;   // all'avvio, prima che la finestra esista: c'e' solo la tavolozza
+
+    const BOOL darkFrame = (scheme == ColorScheme::Dark) ? TRUE : FALSE;
+    DwmSetWindowAttribute(app.window, DWMWA_USE_IMMERSIVE_DARK_MODE, &darkFrame, sizeof(darkFrame));
 }
 
 } // namespace Bolt

@@ -85,10 +85,28 @@ switch ($Action) {
         if ($Action -match '^ctrl\+([a-z])$') {
             [BoltKeys]::Chord(0x11, 0, [byte][char]$Matches[1].ToUpper())
         }
+        elseif ($Action -match '^ctrl\+([0-9])$') {
+            # Le cifre sono codici `VK_*` come le lettere: `Ctrl+1..4` sceglie la
+            # vista, e senza questa riga la prova non premeva niente (e sembrava che
+            # la scorciatoia non funzionasse).
+            [BoltKeys]::Chord(0x11, 0, [byte][char]$Matches[1])
+        }
         elseif ($Action -eq 'ctrl+comma') {
             # La virgola e' VK_OEM_COMMA: non e' una lettera, quindi non entra
             # nella regola generale. E' la scorciatoia delle opzioni.
             [BoltKeys]::Chord(0x11, 0, 0xBC)
+        }
+        elseif ($Action -eq 'ctrl+oem1') {
+            # VK_OEM_1, il punto e virgola. E' il tasto che serve a provare che anche
+            # la punteggiatura si puo' assegnare in una mappa dei tasti: non e' una
+            # lettera, quindi non entra nella regola generale come non ci entra la
+            # virgola.
+            [BoltKeys]::Chord(0x11, 0, 0xBA)
+        }
+        elseif ($Action -eq 'oem1') {
+            # Lo stesso tasto **senza** modificatori: e' il caso che deve essere
+            # rifiutato, perche' sciolto lo legge la casella di testo.
+            [BoltKeys]::Key(0xBA)
         }
         elseif ($Action -match '^ctrl\+shift\+([a-z])$') {
             [BoltKeys]::Chord(0x11, 0x10, [byte][char]$Matches[1].ToUpper())

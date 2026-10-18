@@ -73,5 +73,9 @@ std::string ShellTypeName(const std::string& extension, bool isDirectory);
 // la shell se e' una cartella dello spazio dei nomi — "Cestino", non
 // "::{645FF040-...}".
 std::wstring LocationLabel(const AppState& app, const std::wstring& location);
+
+// L'atlante dei glifi si rifa' solo quando una delle tre misure del carattere cambia
+// davvero: rasterizzarlo a ogni fotogramma sarebbe un lavoro che nessuno vede.
+void ApplyFonts(AppState& app);
 } // namespace Bolt
 
