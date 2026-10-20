@@ -363,8 +363,9 @@ Le release si pubblicano con **`gh`** (installato in `C:\Program Files\GitHub CL
 autenticato come `gianmarcotaf02`): `gh release create v<versione> --repo
 gianmarcotaf02/bolt <setup> <zip> SHA256SUMS`. La release **deve** avere il setup e
 `SHA256SUMS`: e' quello che legge `Controlla aggiornamenti` (`src/update.*`, `docs/04`
-M13). Le release **v0.1.0** e **v0.1.1** sono pubblicate; la 0.1.1 e' la stessa base
-della 0.1.0 e serve alla prova dell'aggiornamento.
+M13). Le release **v0.1.0**, **v0.1.1** e **v0.1.2** sono pubblicate; la 0.1.1 e' la
+stessa base della 0.1.0 e serve alla prova dell'aggiornamento, la 0.1.2 porta la
+correzione di `docs/02` §7.64.
 
 `tools/verify-installer.ps1` installa il pacchetto **davvero**, con `/VERYSILENT`, in
 `analysis/tmp/install-prova`: controlla file, collegamento, voce di registro, avvia il Bolt

@@ -4,7 +4,7 @@ Documento di lavoro, non di progetto: serve a riprendere senza rileggere la
 conversazione. Aggiornarlo è l'ultima cosa da fare prima di una pausa lunga o di
 una compattazione del contesto.
 
-Ultimo aggiornamento: **2026-10-20**, dopo **la Home** (M12, `docs/04`): la pagina di
+Ultimo aggiornamento: **2026-10-21**, dopo **la Home** (M12, `docs/04`): la pagina di
 avvio e' una **posizione** (`bolt:home`) con tre bande — Fissaggi, Recenti, Cartelle note —
 e una riga `Home` in cima alla barra laterale; `startupFolder` vuota apre **lei**, e le
 operazioni su file si rifiutano con un messaggio. Prima, nello stesso giorno: il ritaglio
@@ -568,13 +568,19 @@ aggiornato (0.1.1)". Visti anche i tre rifiuti (nessuna release, impronta sbagli
 file cancellato, release senza impronte) e il messaggio di versione uguale. La 0.1.1 e'
 la stessa base della 0.1.0, e lo dicono le sue note: esiste per questa prova.
 
-**Stato della macchina, da sapere prima di lanciare le prove.** Bolt **0.1.1 e' installato**
+Il 2026-10-21 la stessa strada ha portato la **0.1.2** (la correzione di `docs/02` §7.64)
+sull'installazione: dalla 0.1.1, `Controlla aggiornamenti` → download, impronta, setup in
+silenzioso → «App e funzionalita'» dice **0.1.2**, e l'applicazione aggiornata risponde
+"Bolt e' aggiornato (0.1.2)". Quindi il caso riuscito e' stato visto **due volte**, con
+due release diverse.
+
+**Stato della macchina, da sapere prima di lanciare le prove.** Bolt **0.1.2 e' installato**
 davvero (`%LOCALAPPDATA%\Programs\Bolt`, collegamento nel menu Start, voce in «App e
 funzionalita'»), e ci e' arrivato **aggiornandosi da solo** dalla 0.1.0 durante la prova di
 M13. `tools/verify-installer.ps1` **si rifiuta di partire** se trova un'installazione:
 prima si disinstalla (App e funzionalita' -> Bolt), poi si prova. Se il codice cambia, il
 setup va ricostruito (`tools/make-installer.ps1`) e reinstallato: l'installato resta la
-0.1.1 finche' non lo si sostituisce. `gh` e' installato (`C:\Program Files\GitHub CLI`),
+0.1.2 finche' non lo si sostituisce. `gh` e' installato (`C:\Program Files\GitHub CLI`),
 autenticato come `gianmarcotaf02`.
 
 ### La decisione presa il 2026-10-20: il ritaglio per-quad

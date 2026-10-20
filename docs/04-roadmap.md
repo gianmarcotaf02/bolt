@@ -2174,7 +2174,10 @@ zip portatile e `SHA256SUMS`:
 - rilanciata la **0.1.1** installata, lo stesso comando dice `Bolt e' aggiornato
   (0.1.1)` — il feed vero, non il foglio di prova;
 - la 0.1.1 e' **la stessa base della 0.1.0** (nessuna correzione funzionale): esiste per
-  provare l'aggiornamento fino in fondo, ed e' scritto nelle sue note.
+  provare l'aggiornamento fino in fondo, ed e' scritto nelle sue note;
+- il 2026-10-21 la stessa strada ha portato la **0.1.2** (la correzione di §7.64)
+  sull'installazione: dalla 0.1.1, download, impronta, setup in silenzioso, e «App e
+  funzionalita'» dice **0.1.2**. Due aggiornamenti veri, con due release diverse.
 
 **Limiti dichiarati.** Il setup scaricato resta in `%TEMP%\Bolt-update\` dopo
 l'installazione (lo sta leggendo il setup). Non c'e' un controllo periodico ne' una
