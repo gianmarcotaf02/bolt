@@ -11,7 +11,10 @@ operazioni su file si rifiutano con un messaggio. Prima, nello stesso giorno: il
 per-quad, i comandi di File Pilot fuori dal menu contestuale, le date europee, le icone del
 menu, il pacchetto con Inno Setup e la pagina di avvio. Subito dopo la Home, **gli
 aggiornamenti in app** (M13, forma B): comando esplicito, `releases/latest`, SHA-256,
-rifiuto se non torna, setup in silenzioso.
+rifiuto se non torna, setup in silenzioso — pubblicate `v0.1.0`, `v0.1.1` e `v0.1.2`.
+**Il 2026-10-21 e' chiuso §7.64**: una cartella aperta da `ACCESSO RAPIDO` non e' piu' una
+posizione codificata, l'ispettore torna alle nostre righe, e il cestino si comporta come
+prima.
 
 Prima, in ordine: **`Animations`**, l'ultima riga di M9: i pannelli compaiono in
 dissolvenza (160 ms) invece di apparire di colpo. **M9 e' chiusa**; restano M6 (fissaggi di
@@ -90,11 +93,11 @@ vista e corretta mentre si provava: azzerare il cursore quando nessuna riga è v
 faceva perdere anche `Invio` e non tornava togliendo il filtro — adesso il cursore
 resta dov'è.
 
-**Il registro dei difetti ha una voce aperta.** Sessantaquattro voci, sessantatré chiuse
-(§7.64, trovata verificando la Home): le ultime chiuse sono
-§7.61 (il ritaglio per-quad, debito saldato) e §7.62 (il menu contestuale che offriva i
-comandi di File Pilot).
-Restano i **limiti dichiarati**, che sono un'altra cosa e stanno dove vivono.
+**Il registro dei difetti e' a zero.** Sessantaquattro voci, tutte chiuse: le ultime sono
+§7.61 (il ritaglio per-quad, debito saldato), §7.62 (il menu contestuale che offriva i
+comandi di File Pilot) e §7.64 (l'Accesso rapido che apriva le cartelle come posizioni
+codificate, chiusa il 2026-10-21). Restano i **limiti dichiarati**, che sono un'altra cosa
+e stanno dove vivono.
 
 Prima, in ordine: la **chiusura del Direct3D 11** (M10, `docs/02` §7.52). Era il primo
 lavoro dell'ordine deciso il 2026-10-18, ed era l'unico punto in cui il programma
@@ -346,15 +349,6 @@ Ordinato per quanto morde.
    qui)`) perche' il meccanismo non c'era. Il secondo utilizzatore e' arrivato: il
    prossimo menu che ha bisogno di una riga spenta lo paga.
 
-7. **L'Accesso rapido apre le cartelle come posizioni codificate — aperto il 2026-10-20**
-   (`docs/02` §7.64). Una cartella aperta da `ACCESSO RAPIDO` diventa un `shell:pidl:...`,
-   perche' `ILIsEqual` confronta la catena di PIDL (che li' ha per genitore l'Accesso
-   rapido) e non il percorso risolto. Effetto: dentro quelle cartelle incolla, cartella
-   nuova, rinomina ed elimina **si rifiutano**, e le statistiche non partono. Trovato
-   verificando la Home — una riga della Home puo' essere una di quelle cartelle. La
-   correzione tocca l'identita' delle voci dello spazio dei nomi e va fatta con le sue
-   prove (cestino, trascinamento fuori, statistiche): non in coda alla Home.
-
 ---
 
 ## 3. Prossimi passi candidati
@@ -362,8 +356,7 @@ Ordinato per quanto morde.
 **Tre numeri, che sono tre cose diverse e non vanno confusi.**
 
 - **Sessantaquattro** voci nel registro `docs/02` §7, una per una con sintomo, causa e
-  correzione: **sessantatré chiuse, una aperta** (§7.64, l'Accesso rapido codificato).
-  È un cumulativo, non una lista di lavoro.
+  correzione: **tutte chiuse, nessuna aperta**. È un cumulativo, non una lista di lavoro.
 - **Due** caselle aperte in tutto `docs/04`: la resa monocromatica delle icone (scelta
   gia' presa: non si fa) e i modelli `ShellNew` con valore `Command` (limite
   dichiarato). Tutto il resto sono limiti dichiarati, che e' un'altra cosa.
@@ -554,11 +547,11 @@ dalla Home a Questo PC; `Avvio: la cartella aperta` e `Avvio: Questo PC` che ria
 dove dicono, e la preferenza tolta che riporta alla Home; italiano e inglese a finestra
 aperta in tutt'e due i versi.
 
-**Un difetto aperto, trovato li'**: aprire una cartella da `ACCESSO RAPIDO` la trasforma in
-una posizione codificata (`shell:pidl:...`) e dentro i comandi per percorso si rifiutano —
-`docs/02` §7.64. Non e' della Home, ma la Home lo rende visibile: una riga della Home puo'
-essere una di quelle cartelle. E' una correzione che tocca l'identita' delle voci dello
-spazio dei nomi e va fatta con le sue prove.
+**Il difetto trovato li' e' stato chiuso il 2026-10-21**: aprire una cartella da
+`ACCESSO RAPIDO` la trasformava in una posizione codificata (`shell:pidl:...`) e dentro i
+comandi per percorso si rifiutavano. Adesso la voce e' navigabile per percorso, l'ispettore
+torna a mostrare le nostre righe, e il cestino si comporta come prima — `docs/02` §7.64,
+con le catture della verifica (`fix-*.png`).
 
 **Fatto subito dopo la Home, il 2026-10-20: gli aggiornamenti in app (M13)** nella forma B
 — comando `Controlla aggiornamenti` **esplicito** (mai automatico: una richiesta a GitHub

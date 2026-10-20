@@ -448,6 +448,27 @@ std::vector<Column> Columns(const std::vector<BYTE>& pidl)
     return columns;
 }
 
+// La voce sta dentro il **cestino**? Il PIDL del cestino si chiede una volta sola.
+//
+// Serve a una distinzione che il resto non sa fare: una cartella aperta da
+// `ACCESSO RAPIDO` e una voce riciclata hanno tutte e due un PIDL che non e' quello
+// del desktop, eppure la prima **e'** la cartella che il suo nome dice, la seconda
+// no (il suo nome e' il blob dentro `$Recycle.Bin`, un'altra voce). Dentro il
+// cestino resta la regola di prima — il PIDL, e la posizione codificata per le
+// cartelle — perche' li' l'identita' vera e' quella della shell.
+bool InsideRecycleBin(PCUIDLIST_ABSOLUTE item)
+{
+    static PIDLIST_ABSOLUTE bin = []() -> PIDLIST_ABSOLUTE {
+        PIDLIST_ABSOLUTE out = nullptr;
+        if (FAILED(SHGetKnownFolderIDList(FOLDERID_RecycleBinFolder, 0, nullptr, &out)))
+            return nullptr;
+        return out;
+    }();
+    if (bin == nullptr || item == nullptr)
+        return false;
+    return ILIsParent(bin, item, FALSE) != FALSE;
+}
+
 std::vector<Item> Read(const std::wstring& location, std::string* error)
 {
     std::vector<Item> items;
@@ -545,6 +566,29 @@ std::vector<Item> Read(const std::wstring& location, std::string* error)
             {
                 item.navigable = ILIsEqual(absolute, reparsed) != FALSE;
                 CoTaskMemFree(reparsed);
+            }
+
+            // `ILIsEqual` confronta la **catena di PIDL**, non il percorso: una voce
+            // dentro `ACCESSO RAPIDO` (o un'unita' dentro "Questo PC") ha per genitore
+            // il PIDL della sua cartella, mentre il nome assoluto riparte dal desktop.
+            // Sono due catene diverse per la **stessa** cartella, e il confronto diceva
+            // di no: la voce diventava una posizione codificata, e li' i comandi per
+            // percorso si rifiutavano (`docs/02` §7.64).
+            //
+            // Fuori dal cestino c'e' una domanda migliore, che non guarda le catene:
+            // il percorso che la shell da' per questa voce **e'** il nome con cui la
+            // si e' trovata? Se si', aprire quel nome apre questa voce. Dentro il
+            // cestino no: li' il nome e' il blob, e la regola resta quella di prima.
+            if (!item.navigable && !item.location.empty() && !InsideRecycleBin(absolute))
+            {
+                PWSTR fileSystemPath = nullptr;
+                if (SUCCEEDED(SHGetNameFromIDList(absolute, SIGDN_FILESYSPATH, &fileSystemPath)) &&
+                    fileSystemPath != nullptr)
+                {
+                    if (_wcsicmp(fileSystemPath, item.location.c_str()) == 0)
+                        item.navigable = true;
+                    CoTaskMemFree(fileSystemPath);
+                }
             }
 
             // Una **cartella** che per nome non si ritrova — dentro il cestino il

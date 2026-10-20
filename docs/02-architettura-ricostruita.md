@@ -339,15 +339,14 @@ Questi punti sono il perimetro di lavoro del reverse mirato descritto in
 
 Documentati perché il metodo conta quanto il risultato: quasi tutti sono stati
 trovati **guardando uno screenshot della propria applicazione**, non leggendo il
-codice. Il ciclo usato è in `tools/capture-window.ps1`. **Una voce è aperta**: delle
-sessantaquattro del registro, sessantatré sono chiuse. Le ultime tre chiuse: §7.61 — il
-ritaglio per-quad, che non è un difetto visto a schermo ma un **debito** saldato, con
-accanto lo strumento difettoso che lo nascondeva (un contatore che ripartiva a ogni
-lotto); §7.62, il menu contestuale che offriva i comandi di File Pilot; e §7.63, il
-percorso degli shader della macchina di compilazione finito dentro il pacchetto — il
-primo difetto trovato **impacchettando** invece che guardando. La voce aperta è §7.64:
-l'Accesso rapido apre le cartelle come posizioni codificate, e lì i comandi per percorso
-si rifiutano.
+codice. Il ciclo usato è in `tools/capture-window.ps1`. **Nessuna voce è aperta**: le
+sessantaquattro del registro sono chiuse. Le ultime quattro: §7.61 — il ritaglio
+per-quad, che non è un difetto visto a schermo ma un **debito** saldato, con accanto lo
+strumento difettoso che lo nascondeva (un contatore che ripartiva a ogni lotto); §7.62,
+il menu contestuale che offriva i comandi di File Pilot; §7.63, il percorso degli shader
+della macchina di compilazione finito dentro il pacchetto — il primo difetto trovato
+**impacchettando** invece che guardando; e §7.64, l'Accesso rapido che apriva le cartelle
+come posizioni codificate, con i comandi per percorso rifiutati.
 
 ### 7.1 `gl_VertexID` in una draw call indicizzata — *il bug che nascondeva tutto*
 
@@ -2592,7 +2591,7 @@ sull'eseguibile e' il comando piu' rapido, ed e' quello che ha trasformato "funz
 "funziona qui". Da qui in avanti il pacchetto si prova **da una cartella in cui la
 sorgente non c'e'**, che e' l'unico modo di far parlare questo genere di difetto.
 
-### 7.64 L'Accesso rapido apre le cartelle come posizioni codificate, e li' i comandi si rifiutano — *aperta*
+### 7.64 L'Accesso rapido apre le cartelle come posizioni codificate, e li' i comandi si rifiutano — *chiusa il 2026-10-21*
 
 **Trovato il 2026-10-20**, verificando la Home: una riga della Home puo' essere una
 cartella aperta prima, e aprendola si finisce in una posizione che il programma tratta
@@ -2619,8 +2618,32 @@ il cestino — `EncodePidl`, perche' li' il nome assoluto punta davvero a un'alt
 e la posizione diventa `shell:pidl:...`. Da li' in poi `IsNamespace` e' vero, e
 `RefuseInNamespace` rifiuta, giustamente, ogni comando per percorso.
 
-**Perche' non e' stato corretto subito.** La correzione tocca l'**identita'** di una voce
-dello spazio dei nomi: va decisa confrontando i percorsi risolti e non le catene di PIDL,
-e il cestino deve continuare a comportarsi come prima (li' il nome *non* e' la voce). E'
-un lavoro con le sue prove — ripristino dal cestino, trascinamento fuori, statistiche —
-che va aperto con spazio per riverificare tutto, non aggiunto in coda alla Home.
+Perche' non era stato corretto subito: tocca l'**identita'** di una voce dello spazio
+dei nomi, e il cestino deve continuare a comportarsi come prima (li' il nome *non* e' la
+voce). Servivano le sue prove, non un'aggiunta in coda alla Home.
+
+**Correzione.** Fuori dal cestino c'e' una domanda migliore di `ILIsEqual`, che non
+guarda le catene: `SHGetNameFromIDList(absolute, SIGDN_FILESYSPATH)` da' il percorso che
+la shell associa a **quella voce**; se coincide col nome con cui la si e' trovata, aprire
+quel nome apre questa voce. Dentro il cestino la domanda non vale — li' il nome e' il blob
+dentro `$Recycle.Bin` e il PIDL e' l'identita' vera — quindi li' resta la regola di prima,
+con `InsideRecycleBin` che chiede una volta sola il PIDL di `FOLDERID_RecycleBinFolder` e
+lo confronta con `ILIsParent`. L'ispettore, di conseguenza, mostra le colonne della shell
+solo dove la shell e' l'unica che sa (voci e cartelle riciclate): per una cartella normale
+tornano le nostre righe — date nel nostro formato, dimensione allocata, attributi NTFS —
+e la riga `Percorso` mostra un percorso invece di esadecimale. Le colonne della shell con
+valore vuoto non si stampano piu'.
+
+**Verificato il 2026-10-21** (`analysis/tmp/fix-*.png`):
+
+- una cartella aperta da `ACCESSO RAPIDO`: titolo col percorso vero, ispettore con le
+  **nostre** righe (`Tipo, Dimensione 36 B, Su disco 48 B, Cartelle 0, File 2, ...,
+  Percorso ...analysis	mp\sandbox\documenti`), e il menu del fondo con `Incolla`,
+  `Nuova cartella` e `Nuovo file` **accesi** (`fix-01`, `fix-02`);
+- un'unita' aperta da "Questo PC" si apre col percorso (`C:\`), e `Questo PC` elenca le
+  sue due voci come prima (`fix-10`);
+- **cestino**, con un file della sandbox messo apposta (`zz-bolt-prova-cestino.txt`,
+  filtro sul nome prima di guardare): l'ispettore mostra ancora le colonne della shell —
+  `Percorso originale`, `Data di eliminazione`, `Attributi`, `Proprietario` — e il menu
+  contestuale offre `Ripristina`; il ripristino ha rimesso il file nella sandbox
+  (`fix-14`, `fix-15`). Il comportamento del cestino, insomma, non e' cambiato.

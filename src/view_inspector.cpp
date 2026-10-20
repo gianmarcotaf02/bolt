@@ -718,13 +718,25 @@ void BuildInspectorRows(AppState& app, const Entry& entry, std::vector<Inspector
     // darebbero le righe qui sotto, piu' quelle che solo il cestino sa. Mostrarle
     // tutte e due riempirebbe il pannello di righe ripetute, quindi per queste voci
     // si usa la vista della shell e basta.
-    const bool shellColumns = !entry.pidl.empty();
+    // Le colonne della shell solo dove la shell e' l'unica che sa: una voce riciclata
+    // (il cui nome **non** e' la voce) o una cartella riciclata, che si apre col PIDL.
+    // Una cartella normale che si e' aperta da `ACCESSO RAPIDO` porta il suo percorso
+    // vero, e li' le nostre righe — date nel nostro formato, dimensione allocata,
+    // attributi NTFS — sono piu' utili delle colonne generiche della shell
+    // (`docs/02` §7.64).
+    const bool shellColumns =
+        !entry.pidl.empty() &&
+        (!entry.navigable || ShellLocation::IsNamespace(entry.location));
     if (shellColumns)
     {
         for (const ShellLocation::Column& column : ShellLocation::Columns(entry.pidl))
         {
             if (rows.size() >= 11)
                 break;   // oltre, le righe uscirebbero dal pannello
+            // Una riga il cui valore e' vuoto non e' un'informazione: e' lo spazio
+            // di un'etichetta con niente accanto.
+            if (column.value.empty())
+                continue;
             rows.push_back({ToUtf8(column.title), ToUtf8(column.value), false});
         }
     }

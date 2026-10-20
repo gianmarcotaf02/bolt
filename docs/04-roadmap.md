@@ -2114,9 +2114,9 @@ posizione e' nostro (`bolt:home`).
 - **Recenti e fissaggi sono di sessione** (`docs/06`): riaprendo il programma la Home ha solo
   le cartelle note, finche' non si visita qualcosa
 - **La Home non e' una cartella da cui si opera**: e' la scelta, non un limite da correggere
-- **Scoperto mentre si verificava**: aprire una cartella da `ACCESSO RAPIDO` la fa diventare
-  una posizione codificata, e li' i comandi per percorso si rifiutano — `docs/02` §7.64,
-  **aperta**, con la direzione della correzione
+- **Scoperto mentre si verificava, e chiuso il 2026-10-21**: aprire una cartella da
+  `ACCESSO RAPIDO` la faceva diventare una posizione codificata, e li' i comandi per
+  percorso si rifiutavano — `docs/02` §7.64, con la correzione e le catture della verifica
 
 ## M13 — Aggiornamenti in app, forma B ✅
 
