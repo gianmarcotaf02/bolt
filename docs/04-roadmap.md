@@ -2069,7 +2069,12 @@ posizione e' nostro (`bolt:home`).
       raggruppa per banda invece di seguire `groupMode`. L'ordinamento resta quello delle
       colonne, ma **dentro** la banda; il filtro vale come in una cartella qualsiasi
 - [x] **una riga `Home` in cima alla barra laterale**, fuori dalle sezioni: non e' un
-      fissaggio ne' una cartella nota, e non deve sparire chiudendo `ACCESSO RAPIDO`
+      fissaggio ne' una cartella nota, e non deve sparire chiudendo `ACCESSO RAPIDO`.
+      Ha la **casa** di Esplora risorse (il CLSID della cartella Home di Windows 11,
+      `docs/02` §7.65)
+- [x] **i nomi come li dice Windows**: le destinazioni della Home, le righe della barra
+      laterale e il titolo del tab usano il nome tradotto dalla shell — `Documenti`, non
+      `Documents` (`FriendlyName`, `docs/02` §7.65)
 - [x] **niente operazioni su file**: copia, taglia, incolla, rinomina, elimina, cartella
       nuova, nuovo file, proprieta' e proprieta' di Windows si **rifiutano** con un
       messaggio (`RefuseInNamespace` esteso), e il menu contestuale spegne quelle voci. Le
@@ -2175,9 +2180,10 @@ zip portatile e `SHA256SUMS`:
   (0.1.1)` — il feed vero, non il foglio di prova;
 - la 0.1.1 e' **la stessa base della 0.1.0** (nessuna correzione funzionale): esiste per
   provare l'aggiornamento fino in fondo, ed e' scritto nelle sue note;
-- il 2026-10-21 la stessa strada ha portato la **0.1.2** (la correzione di §7.64)
-  sull'installazione: dalla 0.1.1, download, impronta, setup in silenzioso, e «App e
-  funzionalita'» dice **0.1.2**. Due aggiornamenti veri, con due release diverse.
+- il 2026-10-21 la stessa strada ha portato la **0.1.2** (la correzione di §7.64) e poi
+  la **0.1.3** (§7.65) sull'installazione: ogni volta download, impronta, setup in
+  silenzioso, e «App e funzionalita'» dice la versione nuova. Tre aggiornamenti veri, con
+  tre release diverse.
 
 **Limiti dichiarati.** Il setup scaricato resta in `%TEMP%\Bolt-update\` dopo
 l'installazione (lo sta leggendo il setup). Non c'e' un controllo periodico ne' una

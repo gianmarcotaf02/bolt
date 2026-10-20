@@ -40,8 +40,10 @@ void BuildSidebarRows(const AppState& app, std::vector<SidebarRow>* rows)
         SidebarRow home;
         home.label = Tr("Home", "Home");
         home.path  = kHomeLocation;
-        // Nessuna icona di oggetto: la Home non e' un oggetto della shell. Il
-        // disegno ripiega sulla cartella, che e' la forma giusta per una posizione.
+        // La **casa** di Esplora risorse, non una cartella: e' l'unica icona che dice
+        // "questa e' la pagina di avvio" e non "questa e' un'altra cartella". Il CLSID
+        // e' quello di Windows, e `kHomeIcon` spiega come e' stato verificato.
+        home.icon  = kHomeIcon;
         rows->push_back(std::move(home));
     }
 
@@ -61,10 +63,10 @@ void BuildSidebarRows(const AppState& app, std::vector<SidebarRow>* rows)
             // Il nome di una cartella e' la coda del percorso; una cartella di spazio
             // dei nomi — il cestino, "Questo PC" — una coda non ce l'ha, e il nome lo
             // da' la shell.
-            const std::wstring label = ShellLocation::IsNamespace(path) ? LocationLabel(app, path)
-                                                                      : LeafName(path);
+            // Il nome come lo chiama Windows: "Documenti" per un percorso che sul
+            // disco si chiama "Documents". E' lo stesso nome che la Home mostra.
             Place place;
-            place.label = ToUtf8(label);
+            place.label = ToUtf8(FriendlyName(path));
             place.path  = path;
             place.icon  = path;
             place.ours  = true;
@@ -87,13 +89,11 @@ void BuildSidebarRows(const AppState& app, std::vector<SidebarRow>* rows)
             if (path.empty() || path == app.directory || !entry.isDirectory)
                 continue;   // dove si e' gia' non e' un "recente" da riproporre; e un
                             // file aperto non e' una destinazione della barra laterale
-            // Il nome di una cartella, non il percorso: di un percorso la parte che
-            // identifica e' la coda. Per una cartella di spazio dei nomi non c'e' una
-            // coda da tagliare, e il nome lo da' la shell.
-            const std::wstring label = ShellLocation::IsNamespace(path) ? LocationLabel(app, path)
-                                                                       : LeafName(path);
+            // Il nome con cui Windows chiama questo posto: la coda del percorso per
+            // una cartella normale, il nome tradotto dalla shell per una cartella
+            // nota ("Documenti", non "Documents").
             Place place;
-            place.label = ToUtf8(label);
+            place.label = ToUtf8(FriendlyName(path));
             place.path  = path;
             place.icon  = path;
             recents.push_back(std::move(place));

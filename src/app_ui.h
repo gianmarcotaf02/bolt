@@ -92,6 +92,13 @@ std::string ShellTypeName(const std::string& extension, bool isDirectory);
 // "::{645FF040-...}".
 std::wstring LocationLabel(const AppState& app, const std::wstring& location);
 
+// Il nome **corto** di un percorso, come lo chiama Windows: "Documenti", non
+// "Documents". Per una cartella normale e' la coda del percorso; per una cartella
+// nota e' il nome tradotto dalla shell. Si ricorda, perche' la barra laterale lo
+// chiede a ogni fotogramma e una domanda alla shell per riga sarebbe un costo che
+// non si vede ma si paga.
+std::wstring FriendlyName(const std::wstring& path);
+
 // L'atlante dei glifi si rifa' solo quando una delle tre misure del carattere cambia
 // davvero: rasterizzarlo a ogni fotogramma sarebbe un lavoro che nessuno vede.
 void ApplyFonts(AppState& app);

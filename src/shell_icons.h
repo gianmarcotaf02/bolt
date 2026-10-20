@@ -62,7 +62,17 @@ public:
     // a drive root ("D:\\"), a known folder, "This PC", the recycle bin — either a
     // real path or a namespace name (`::{...}`). Null when the shell has no icon
     // for it, so the caller keeps its own fallback.
-    const IconUV* GetForObject(const std::wstring& location);
+    //
+    // |linkOverlay| chiede la freccetta del collegamento: serve per i `.lnk`, dove
+    // l'icona e' quella della destinazione **piu'** il segno che e' un collegamento.
+    const IconUV* GetForObject(const std::wstring& location, bool linkOverlay = false);
+
+    // L'icona giusta per una voce che ha un percorso: per quasi tutto e' quella
+    // dell'estensione, senza toccare il disco; per un `.lnk` (o un `.url`) e' quella
+    // del file vero, con la freccetta. E' la stessa domanda che fanno la lista e
+    // l'anteprima del contenuto, e la risposta deve essere una sola.
+    const IconUV* GetForPath(const std::wstring& path, const std::string& extension,
+                             bool isDirectory);
 
     // L'icona di una voce di menu contestuale. Due forme perche' sono due fonti
     // diverse, e nessuna delle due e' un'ipotesi:
@@ -98,7 +108,8 @@ private:
     // path, or a synthetic name, or a PIDL — never a string that was built from a
     // PIDL, because a PIDL has NULs inside it. Returns null when the atlas is
     // full or the shell has no icon for the key.
-    const IconUV* Rasterize(const std::string& key, LPCWSTR name, DWORD attributes, Source source);
+    const IconUV* Rasterize(const std::string& key, LPCWSTR name, DWORD attributes, Source source,
+                            bool linkOverlay = false);
 
     // L'icona gia' in mano, ovunque sia stata presa: la converte in RGBA e la
     // carica nella prima celletta libera. Non distrugge |icon|.

@@ -1136,7 +1136,9 @@ const ShellIconAtlas::IconUV* IconFor(AppState& app, const Entry& entry)
         if (const ShellIconAtlas::IconUV* uv = app.icons.GetForObject(entry.location))
             return uv;
     }
-    return app.icons.GetFor(entry.extension, entry.isDirectory);
+    // `GetForPath` sa una cosa che l'estensione da sola non sa: un `.lnk` si disegna
+    // con l'icona della sua destinazione e la freccetta, non col documento generico.
+    return app.icons.GetForPath(EntryLocation(app, entry), entry.extension, entry.isDirectory);
 }
 
 int FindEntryByName(const AppState& app, const std::wstring& name)

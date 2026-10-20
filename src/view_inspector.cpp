@@ -674,7 +674,7 @@ void DrawFolderPeek(AppState& app, const Layout& layout, const Rect& area)
                                  preview.v0, preview.u1, preview.v1));
         }
         else if (const ShellIconAtlas::IconUV* uv =
-                     app.icons.GetFor(item.extension, item.isDirectory))
+                     app.icons.GetForPath(item.path, item.extension, item.isDirectory))
         {
             r.Draw(UIDraw::Image(icon, Color{1.0f, 1.0f, 1.0f, 1.0f}, kIconLayer, uv->u0,
                                  uv->v0, uv->u1, uv->v1));

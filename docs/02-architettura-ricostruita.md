@@ -340,13 +340,14 @@ Questi punti sono il perimetro di lavoro del reverse mirato descritto in
 Documentati perché il metodo conta quanto il risultato: quasi tutti sono stati
 trovati **guardando uno screenshot della propria applicazione**, non leggendo il
 codice. Il ciclo usato è in `tools/capture-window.ps1`. **Nessuna voce è aperta**: le
-sessantaquattro del registro sono chiuse. Le ultime quattro: §7.61 — il ritaglio
+sessantacinque del registro sono chiuse. Le ultime cinque: §7.61 — il ritaglio
 per-quad, che non è un difetto visto a schermo ma un **debito** saldato, con accanto lo
 strumento difettoso che lo nascondeva (un contatore che ripartiva a ogni lotto); §7.62,
 il menu contestuale che offriva i comandi di File Pilot; §7.63, il percorso degli shader
 della macchina di compilazione finito dentro il pacchetto — il primo difetto trovato
-**impacchettando** invece che guardando; e §7.64, l'Accesso rapido che apriva le cartelle
-come posizioni codificate, con i comandi per percorso rifiutati.
+**impacchettando** invece che guardando; §7.64, l'Accesso rapido che apriva le cartelle
+come posizioni codificate, con i comandi per percorso rifiutati; e §7.65, le icone dei
+`.lnk`, i nomi della Home e la casa che era una cartella.
 
 ### 7.1 `gl_VertexID` in una draw call indicizzata — *il bug che nascondeva tutto*
 
@@ -2647,3 +2648,46 @@ valore vuoto non si stampano piu'.
   `Percorso originale`, `Data di eliminazione`, `Attributi`, `Proprietario` — e il menu
   contestuale offre `Ripristina`; il ripristino ha rimesso il file nella sandbox
   (`fix-14`, `fix-15`). Il comportamento del cestino, insomma, non e' cambiato.
+
+### 7.65 Le icone dei collegamenti, i nomi della Home e la casa che era una cartella
+
+**Trovato e corretto il 2026-10-21**, guardando due catture mandate dall'autore: la Home
+e un elenco di cartella con dentro dei `.lnk`.
+
+**Tre sintomi, una sola famiglia di cause: chiedere alla shell la cosa sbagliata.**
+
+1. **I `.lnk` avevano il documento generico**, non l'icona della destinazione con la
+   freccetta. `IconFor` chiedeva l'icona per **estensione**: `GetFor(".lnk")` costruisce
+   un nome finto (`x.lnk`) e lo passa con `SHGFI_USEFILEATTRIBUTES`, che non tocca il
+   disco e quindi non puo' sapere ne' qual e' la destinazione ne' che e' un collegamento.
+   La stessa icona sbagliata compariva anche nell'elenco `CONTENUTO` dell'ispettore.
+2. **Nella Home le cartelle note si chiamavano in inglese** — `Documents`, `Music`,
+   `Pictures`, `Videos` — mentre la barra laterale diceva `Documenti`, `Musica`... La
+   Home costruiva il nome con `LeafName(path)`, cioe' il nome **sul disco**; la barra
+   laterale usava il nome che da' la shell. Due nomi per la stessa cosa, e quello sbagliato
+   era nella lista.
+3. **La Home nella barra laterale e nel tab aveva l'icona di una cartella**, non la casa
+   di Esplora risorse: la riga non dichiarava nessuna icona e il disegno ripiegava sulla
+   cartella.
+
+**Correzione.**
+
+- `ShellIconAtlas::GetForPath` e' la domanda giusta: per un `.lnk` (o un `.url`) chiede
+  l'icona del **file vero** con `SHGFI_LINKOVERLAY`, per tutto il resto resta l'icona
+  dell'estensione, che non tocca il disco. La usano la lista, l'ispettore e — con la
+  stessa risposta — il contenuto della cartella. La chiave della cache distingue le due
+  domande (`lnk:` contro `obj:`), o la stessa cella si riuserebbe per due icone diverse.
+- `FriendlyName(path)` in `app_ui.*` e' il nome con cui **Windows** chiama un percorso
+  (`SHGetNameFromIDList`, `SIGDN_NORMALDISPLAY`), con una memoria per non interrogare la
+  shell a ogni fotogramma. La usano la Home, le righe della barra laterale e il titolo
+  del tab: `Documenti` dappertutto.
+- `kHomeIcon` in `home.h` e' il CLSID della cartella **Home** di Windows 11
+  (`{F874310E-B6B7-47DC-BC84-B9E6B38F5903}`), verificato chiedendo alla shell il nome di
+  quella posizione (`Self.Name` = "Home"). La casa compare nella barra laterale e nel tab.
+
+**Verificato a schermo** (`analysis/tmp/icone-*.png`): `zz-prova-link.lnk` nella sandbox
+disegnato come **cartella con la freccetta blu** (ingrandito 10x: `icone-02-lnk-zoom.png`);
+la Home con `Documenti`, `Immagini`, `Musica`, `Video` e `Gianmarco Tafuro` nella lista,
+e la **casa** nel tab e nella barra laterale (`icone-03-home.png`); la stessa icona del
+collegamento anche nell'elenco `CONTENUTO` dell'ispettore. Il collegamento di prova e'
+stato cancellato dopo la verifica.

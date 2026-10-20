@@ -11,10 +11,12 @@ operazioni su file si rifiutano con un messaggio. Prima, nello stesso giorno: il
 per-quad, i comandi di File Pilot fuori dal menu contestuale, le date europee, le icone del
 menu, il pacchetto con Inno Setup e la pagina di avvio. Subito dopo la Home, **gli
 aggiornamenti in app** (M13, forma B): comando esplicito, `releases/latest`, SHA-256,
-rifiuto se non torna, setup in silenzioso — pubblicate `v0.1.0`, `v0.1.1` e `v0.1.2`.
-**Il 2026-10-21 e' chiuso §7.64**: una cartella aperta da `ACCESSO RAPIDO` non e' piu' una
-posizione codificata, l'ispettore torna alle nostre righe, e il cestino si comporta come
-prima.
+rifiuto se non torna, setup in silenzioso — pubblicate `v0.1.0`, `v0.1.1`, `v0.1.2` e
+`v0.1.3`.
+**Il 2026-10-21 sono chiusi §7.64 e §7.65**: una cartella aperta da `ACCESSO RAPIDO` non
+e' piu' una posizione codificata, l'ispettore torna alle nostre righe, il cestino si
+comporta come prima, i `.lnk` hanno l'icona della destinazione con la freccetta, e la Home
+ha la casa di Esplora risorse e i nomi tradotti (`Documenti`, non `Documents`).
 
 Prima, in ordine: **`Animations`**, l'ultima riga di M9: i pannelli compaiono in
 dissolvenza (160 ms) invece di apparire di colpo. **M9 e' chiusa**; restano M6 (fissaggi di
@@ -93,10 +95,11 @@ vista e corretta mentre si provava: azzerare il cursore quando nessuna riga è v
 faceva perdere anche `Invio` e non tornava togliendo il filtro — adesso il cursore
 resta dov'è.
 
-**Il registro dei difetti e' a zero.** Sessantaquattro voci, tutte chiuse: le ultime sono
+**Il registro dei difetti e' a zero.** Sessantacinque voci, tutte chiuse: le ultime sono
 §7.61 (il ritaglio per-quad, debito saldato), §7.62 (il menu contestuale che offriva i
 comandi di File Pilot) e §7.64 (l'Accesso rapido che apriva le cartelle come posizioni
-codificate, chiusa il 2026-10-21). Restano i **limiti dichiarati**, che sono un'altra cosa
+codificate) e §7.65 (icone dei `.lnk`, nomi della Home, icona della Home). Restano i
+**limiti dichiarati**, che sono un'altra cosa
 e stanno dove vivono.
 
 Prima, in ordine: la **chiusura del Direct3D 11** (M10, `docs/02` §7.52). Era il primo
@@ -355,7 +358,7 @@ Ordinato per quanto morde.
 
 **Tre numeri, che sono tre cose diverse e non vanno confusi.**
 
-- **Sessantaquattro** voci nel registro `docs/02` §7, una per una con sintomo, causa e
+- **Sessantacinque** voci nel registro `docs/02` §7, una per una con sintomo, causa e
   correzione: **tutte chiuse, nessuna aperta**. È un cumulativo, non una lista di lavoro.
 - **Due** caselle aperte in tutto `docs/04`: la resa monocromatica delle icone (scelta
   gia' presa: non si fa) e i modelli `ShellNew` con valore `Command` (limite
@@ -569,18 +572,18 @@ file cancellato, release senza impronte) e il messaggio di versione uguale. La 0
 la stessa base della 0.1.0, e lo dicono le sue note: esiste per questa prova.
 
 Il 2026-10-21 la stessa strada ha portato la **0.1.2** (la correzione di `docs/02` §7.64)
-sull'installazione: dalla 0.1.1, `Controlla aggiornamenti` → download, impronta, setup in
-silenzioso → «App e funzionalita'» dice **0.1.2**, e l'applicazione aggiornata risponde
-"Bolt e' aggiornato (0.1.2)". Quindi il caso riuscito e' stato visto **due volte**, con
-due release diverse.
+e poi la **0.1.3** (§7.65: icone dei `.lnk`, nomi della Home, casa di Esplora risorse)
+sull'installazione: ogni volta `Controlla aggiornamenti` → download, impronta, setup in
+silenzioso → «App e funzionalita'» dice la versione nuova. Il caso riuscito e' stato visto
+**tre volte**, con tre release diverse.
 
-**Stato della macchina, da sapere prima di lanciare le prove.** Bolt **0.1.2 e' installato**
+**Stato della macchina, da sapere prima di lanciare le prove.** Bolt **0.1.3 e' installato**
 davvero (`%LOCALAPPDATA%\Programs\Bolt`, collegamento nel menu Start, voce in «App e
 funzionalita'»), e ci e' arrivato **aggiornandosi da solo** dalla 0.1.0 durante la prova di
 M13. `tools/verify-installer.ps1` **si rifiuta di partire** se trova un'installazione:
 prima si disinstalla (App e funzionalita' -> Bolt), poi si prova. Se il codice cambia, il
 setup va ricostruito (`tools/make-installer.ps1`) e reinstallato: l'installato resta la
-0.1.2 finche' non lo si sostituisce. `gh` e' installato (`C:\Program Files\GitHub CLI`),
+0.1.3 finche' non lo si sostituisce. `gh` e' installato (`C:\Program Files\GitHub CLI`),
 autenticato come `gianmarcotaf02`.
 
 ### La decisione presa il 2026-10-20: il ritaglio per-quad

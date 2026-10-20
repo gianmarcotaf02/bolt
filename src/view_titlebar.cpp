@@ -53,7 +53,9 @@ void DrawTitleBar(AppState& app, const Layout& layout)
         // percorso lungo non ci sta e diventa illeggibile proprio nella parte che
         // identifica. Il pezzo che viene prima si mostra in piccolo e spento, e solo
         // se avanza spazio.
-        const std::wstring leafW = named ? LocationLabel(app, source) : LeafName(source);
+        // Anche per una cartella normale il nome e' quello che Windows mostra:
+        // "Documenti" per `...\Documents`, come nella barra laterale e nella Home.
+        const std::wstring leafW = named ? LocationLabel(app, source) : FriendlyName(source);
         std::wstring parentW;
         if (!named)
         {
@@ -101,8 +103,10 @@ void DrawTitleBar(AppState& app, const Layout& layout)
         // L'icona e' quella dell'oggetto che il tab mostra: un disco per `C:`, un
         // cestino per il cestino, una cartella per una cartella. Non si tinge: e' la
         // sua, come nel riquadro di navigazione.
+        // La Home ha la **casa** di Esplora risorse; le altre posizioni l'icona
+        // dell'oggetto (un disco, un cestino); una cartella quella generica.
         const ShellIconAtlas::IconUV* tabIcon =
-            IsHome(source) ? nullptr : app.icons.GetForObject(source);
+            IsHome(source) ? app.icons.GetForObject(kHomeIcon) : app.icons.GetForObject(source);
         if (tabIcon == nullptr)
             tabIcon = app.icons.GetFor("", true);
         if (tabIcon != nullptr)

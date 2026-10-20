@@ -31,6 +31,11 @@ namespace Bolt
 // viene scambiato per un nome dello spazio dei nomi della shell: e' nostro.
 inline constexpr const wchar_t* kHomeLocation = L"bolt:home";
 
+// La **casa** di Esplora risorse: il CLSID della cartella "Home" di Windows 11
+// (verificato con la shell: `Namespace('::{F874310E-...}').Self.Name` risponde
+// "Home"). Serve solo a farsi dare l'icona: la Home di Bolt non e' quella cartella.
+inline constexpr const wchar_t* kHomeIcon = L"::{F874310E-B6B7-47DC-BC84-B9E6B38F5903}";
+
 bool IsHome(const std::wstring& location);
 
 // Le voci delle tre bande, gia' nell'ordine in cui si mostrano. Ogni voce ha

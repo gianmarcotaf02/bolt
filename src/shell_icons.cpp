@@ -338,7 +338,8 @@ bool ShellIconAtlas::Initialize(IRenderer& renderer, int layer, int atlasSize, s
 }
 
 const ShellIconAtlas::IconUV* ShellIconAtlas::Rasterize(const std::string& key, LPCWSTR name,
-                                                        DWORD attributes, Source source)
+                                                        DWORD attributes, Source source,
+                                                        bool linkOverlay)
 {
     SHFILEINFOW info{};
     DWORD flags = SHGFI_ICON | SHGFI_LARGEICON;
@@ -348,6 +349,8 @@ const ShellIconAtlas::IconUV* ShellIconAtlas::Rasterize(const std::string& key, 
         case Source::Pidl:          flags |= SHGFI_PIDL;             break;
         case Source::RealPath:                                       break;
     }
+    if (linkOverlay)
+        flags |= SHGFI_LINKOVERLAY;
 
     if (SHGetFileInfoW(name, attributes, &info, sizeof(info), flags) == 0)
         return nullptr;
@@ -576,12 +579,13 @@ const ShellIconAtlas::IconUV* ShellIconAtlas::GetFor(const std::string& extensio
     return Rasterize("<file>", L"file", FILE_ATTRIBUTE_NORMAL, Source::SyntheticName);
 }
 
-const ShellIconAtlas::IconUV* ShellIconAtlas::GetForObject(const std::wstring& location)
+const ShellIconAtlas::IconUV* ShellIconAtlas::GetForObject(const std::wstring& location,
+                                                          bool linkOverlay)
 {
     if (renderer_ == nullptr || location.empty())
         return nullptr;
 
-    const std::string key = "obj:" + Utf8(location);
+    const std::string key = (linkOverlay ? "lnk:" : "obj:") + Utf8(location);
     const auto it = cache_.find(key);
     if (it != cache_.end())
         return &it->second;
@@ -608,5 +612,20 @@ const ShellIconAtlas::IconUV* ShellIconAtlas::GetForObject(const std::wstring& l
 
     // Un percorso vero, guardato davvero: e' cosi' che si ottiene l'icona di
     // un'unita', che non dipende dall'estensione ma dal tipo di disco.
-    return Rasterize(key, location.c_str(), 0, Source::RealPath);
+    return Rasterize(key, location.c_str(), 0, Source::RealPath, linkOverlay);
+}
+
+const ShellIconAtlas::IconUV* ShellIconAtlas::GetForPath(const std::wstring& path,
+                                                        const std::string& extension,
+                                                        bool isDirectory)
+{
+    // Un `.lnk` non e' il suo nome: chiedere l'icona di "x.lnk" senza guardare il
+    // file da' il documento generico, ed e' quello che si vedeva nella lista. Il
+    // file vero, guardato, da' l'icona della destinazione con la freccetta.
+    if (!isDirectory && (extension == "lnk" || extension == "url"))
+    {
+        if (const IconUV* uv = GetForObject(path, /*linkOverlay=*/true))
+            return uv;
+    }
+    return GetFor(extension, isDirectory);
 }

@@ -22,21 +22,16 @@ std::wstring KeyOf(const std::wstring& path)
     return FoldCase(key);
 }
 
-// Il nome da mostrare: la coda del percorso, o il nome che da' la shell per una
-// cartella di spazio dei nomi (una coda non ce l'ha).
-std::wstring NameOf(const AppState& app, const std::wstring& path)
-{
-    return ShellLocation::IsNamespace(path) ? LocationLabel(app, path) : LeafName(path);
-}
-
-Entry MakeEntry(const AppState& app, const std::wstring& path, int band)
+Entry MakeEntry(const std::wstring& path, int band)
 {
     Entry entry;
     // `wideName` e' l'**identita'** della riga: cursore e selezione si ricordano
     // questo, quindi deve essere unico. Il percorso lo e', la coda no — due
     // cartelle possono chiamarsi "documenti" in posti diversi.
     entry.wideName    = path;
-    entry.name        = ToUtf8(NameOf(app, path));
+    // Il nome come lo chiama Windows: una cartella nota si chiama "Documenti" anche
+    // se sul disco e' "Documents", ed e' il nome che la barra laterale mostra gia'.
+    entry.name        = ToUtf8(FriendlyName(path));
     entry.isDirectory = true;
     entry.navigable   = true;
     entry.location    = path;
@@ -60,7 +55,7 @@ std::vector<Entry> BuildHomeEntries(const AppState& app)
     // banda piu' importante non torna in una meno importante.
     std::unordered_set<std::wstring> seen;
 
-    const auto add = [&entries, &seen](const AppState& state, const std::wstring& path, int band)
+    const auto add = [&entries, &seen](const std::wstring& path, int band)
     {
         if (path.empty())
             return;
@@ -70,12 +65,12 @@ std::vector<Entry> BuildHomeEntries(const AppState& app)
             return;
         if (!seen.insert(KeyOf(path)).second)
             return;
-        entries.push_back(MakeEntry(state, path, band));
+        entries.push_back(MakeEntry(path, band));
     };
 
     // 0 — i fissaggi, nell'ordine in cui l'utente li ha messi.
     for (const std::wstring& path : app.pins)
-        add(app, path, 0);
+        add(path, 0);
 
     // 1 — i recenti, per punteggio (`Recents::Ranked`). Solo cartelle: un file
     // aperto non e' una destinazione dove andare. Anche dove si sta gia' non e' un
@@ -85,12 +80,12 @@ std::vector<Entry> BuildHomeEntries(const AppState& app)
     {
         if (!recent.isDirectory)
             continue;
-        add(app, recent.path, 1);
+        add(recent.path, 1);
     }
 
     // 2 — le cartelle note: "Questo PC", la cartella personale, il cestino.
     for (const Place& place : app.places)
-        add(app, place.path, 2);
+        add(place.path, 2);
 
     return entries;
 }

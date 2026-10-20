@@ -292,6 +292,27 @@ std::wstring ParentOf(const std::wstring& path)
     return parent;
 }
 
+std::wstring FriendlyName(const std::wstring& path)
+{
+    if (path.empty())
+        return path;
+
+    // La barra laterale ridisegna a ogni fotogramma, e `DisplayName` parla con la
+    // shell: senza questa memoria si pagherebbe una chiamata per riga per fotogramma.
+    static std::unordered_map<std::wstring, std::wstring> cache;
+    const auto found = cache.find(path);
+    if (found != cache.end())
+        return found->second;
+
+    std::wstring name = ShellLocation::DisplayName(path);
+    if (name.empty())
+        name = LeafName(path);
+
+    if (cache.size() < 2048)
+        cache.emplace(path, name);
+    return name;
+}
+
 std::wstring LocationLabel(const AppState& app, const std::wstring& location)
 {
     if (location.empty())
