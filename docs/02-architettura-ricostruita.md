@@ -2691,3 +2691,9 @@ la Home con `Documenti`, `Immagini`, `Musica`, `Video` e `Gianmarco Tafuro` nell
 e la **casa** nel tab e nella barra laterale (`icone-03-home.png`); la stessa icona del
 collegamento anche nell'elenco `CONTENUTO` dell'ispettore. Il collegamento di prova e'
 stato cancellato dopo la verifica.
+
+**Limite dichiarato.** L'atlante delle icone non ha sfratto, e un `.lnk` costa una cella
+per collegamento (l'icona dipende dal file, non dall'estensione). Una cartella con
+centinaia di collegamenti puo' riempirlo; oltre il pieno l'atlante restituisce l'ultima
+icona risolta, che e' il ripiego gia' previsto. Con i pochi collegamenti delle prove non
+si e' visto, e non si dichiara risolto.
