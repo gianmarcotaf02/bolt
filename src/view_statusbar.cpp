@@ -56,13 +56,27 @@ void DrawStatusBar(AppState& app, const Layout& layout)
                   app.entries.size());
     app.smallFont.Draw(r, 12.0f * scale, layout.statusBar.y + 4.0f * scale, counts, t.textDim, scale);
 
-    if (!app.selection.empty())
+    // Il conto delle scelte e' quello delle voci che si **vedono**. Il filtro non
+    // toglie niente dalla selezione — le operazioni scartano gia' le voci nascoste,
+    // `docs/02` §7.55 — ma «3 selezionati» davanti a una riga sola e' un numero che
+    // sullo schermo non si trova: la barra di stato dice quante cose si vedono
+    // scelte, come il conto della posizione a destra conta le righe visibili.
+    std::size_t chosenCount = 0;
+    for (const Row& row : app.rows)
+    {
+        if (row.header)
+            continue;
+        if (app.selection.count(app.entries[static_cast<size_t>(row.entry)].wideName) != 0)
+            ++chosenCount;
+    }
+
+    if (chosenCount != 0)
     {
         char chosen[96];
         std::snprintf(chosen, sizeof(chosen),
-                      app.selection.size() == 1 ? Tr("%zu selezionato", "%zu selected")
-                                                : Tr("%zu selezionati", "%zu selected"),
-                      app.selection.size());
+                      chosenCount == 1 ? Tr("%zu selezionato", "%zu selected")
+                                       : Tr("%zu selezionati", "%zu selected"),
+                      chosenCount);
         const float x = 12.0f * scale + app.smallFont.Measure(counts, scale) + 16.0f * scale;
         app.smallFont.Draw(r, x, layout.statusBar.y + 4.0f * scale, chosen, t.text, scale);
     }
@@ -70,8 +84,8 @@ void DrawStatusBar(AppState& app, const Layout& layout)
     if (DevHudEnabled())
     {
         char dev[192];
-        std::snprintf(dev, sizeof(dev), "%.0f fps | %.0f quads | %d icons, %d previews | %d jobs",
-                      static_cast<double>(app.framesPerSecond),
+        std::snprintf(dev, sizeof(dev), "%.0f fps | %zu draws, %.0f quads | %d icons, %d previews | %d jobs",
+                      static_cast<double>(app.framesPerSecond), app.renderer->DrawCalls(),
                       static_cast<double>(app.renderer->QuadCount()), app.icons.IconCount(),
                       app.previews.ReadyCount(), app.stats.ActiveJobs());
         const float x = 12.0f * scale + app.font.Measure("0000 items", scale) +

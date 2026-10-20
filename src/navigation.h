@@ -25,7 +25,10 @@ void ReloadKeeping(AppState& app, const std::unordered_set<std::wstring>& keep,
 
 // Le voci di una cartella, cosi' come le legge la lista. Sono qui perche' chi naviga le
 // usa, e chi le prova le chiama da qui.
-std::vector<Entry> ReadDirectory(AppState& app, const std::wstring& directory);
+// `longPaths`: il prefisso Win32 davanti al percorso, che serve a `FindFirstFile`
+// quando la cartella sta oltre i 260 caratteri (`LongPathsSupport`).
+std::vector<Entry> ReadDirectory(const std::wstring& directory, std::string* error,
+                                 bool longPaths);
 std::vector<Entry> ReadNamespaceDirectory(AppState& app, const std::wstring& location);
 
 // La scheda nel titolo della finestra.

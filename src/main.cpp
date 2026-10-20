@@ -28,6 +28,7 @@ constexpr UINT kDirectoryChanged = WM_APP + 1;
 #include "drag_drop.h"
 #include "file_ops.h"
 #include "font_atlas.h"
+#include "home.h"
 #include "input_targets.h"
 #include "language.h"
 #include "navigation.h"
@@ -46,6 +47,7 @@ constexpr UINT kDirectoryChanged = WM_APP + 1;
 #include <dwmapi.h>
 #include <shellapi.h>
 #include <shlobj.h>
+#include <shlwapi.h>   // PathIsDirectoryW: una voce del GoTo puo' essere un file
 // CMINVOKECOMMANDINFOEX sta in shobjidl.h, non in shlobj.h: serve per eseguire
 // una voce del menu della shell.
 #include <shobjidl.h>
@@ -83,6 +85,7 @@ constexpr UINT kDirectoryChanged = WM_APP + 1;
 #include "shell_menu.h"
 #include "view_context_menu.h"
 #include "app_actions.h"
+#include "commands.h"
 
 using namespace Bolt;
 
@@ -103,19 +106,6 @@ using WglCreateContextAttribsArbFn = HGLRC(WINAPI*)(HDC, HGLRC, const int*);
 using Bolt::NowSeconds;
 
 
-
-// Scegliere una tavolozza dalla palette o dalle opzioni: si applica subito e si
-// ricorda. Sceglierne una vuol dire **smettere** di seguire il sistema: e' quello che
-// uno si aspetta premendo "Tema: chiaro", e l'alternativa sarebbe un comando che
-// sembra non fare niente. L'esito lo dice chi chiama, perche' dalla palette il
-// pannello si chiude e senza una riga di stato non si saprebbe cosa e' cambiato.
-void SetColorScheme(AppState& app, ColorScheme scheme)
-{
-    app.colorScheme       = scheme;
-    app.systemColorScheme = false;
-    ApplyTheme(app);
-    RememberSettings(app);
-}
 
 // --- l'albero dei tab -------------------------------------------------------
 //
@@ -298,7 +288,13 @@ void DrawToolbar(AppState& app, const Layout& layout, const std::wstring& displa
     // I pulsanti di navigazione, a sinistra del percorso: indietro, avanti, su,
     // aggiorna, e la stella dei segnalibri. Sono i più usati dopo il percorso, e in
     // File Pilot stanno li'.
-    const char* const kNavGlyphs[5] = {"←", "→", "↑", "↻", "★"};
+    //
+    // Erano i caratteri `←` `→` `↑` `↻` `★`. Quattro famiglie di segni diverse in
+    // una fila di cinque non si somigliano: spessori diversi, altezze ottiche
+    // diverse, e il disegno che cambia col carattere scelto. Adesso sono forme
+    // disegnate dallo shader, con **una misura e uno spessore soli** per tutte e
+    // cinque — la stessa ragione per cui la linguetta dei gruppi e i pulsanti della
+    // finestra non sono piu' caratteri (`docs/02` §7.49, §7.50, §7.58).
     const bool navEnabled[5] = {
         app.historyIndex > 0,
         app.historyIndex + 1 < static_cast<int>(app.history.size()),
@@ -307,10 +303,23 @@ void DrawToolbar(AppState& app, const Layout& layout, const std::wstring& displa
         !app.directory.empty(),
     };
     constexpr float kNavSize = 26.0f;
+    constexpr float kNavIcon = 12.0f;   // misura ottica: la stessa dei tre pulsanti
+                                        // della finestra (12 su 46), non il 63% del
+                                        // pulsante: accanto a testo di 14 px un'icona
+                                        // da 15 era la cosa piu' forte della barra
+    const float navStroke = 1.2f * scale;
+
+    // I pulsanti e l'indirizzo stanno sulla **stessa riga**, e la riga la decide il
+    // testo del percorso: la base e' l'unico numero, e le icone si centrano su
+    // quella. Prima avevano un `+5` scritto a mano e finivano 5 pixel piu' in alto
+    // dell'indirizzo, che a occhio si vede benissimo anche in una barra sola.
+    const float baseline = layout.toolbar.y + 11.0f * scale;
+    const float pathRow  = baseline + 2.0f * scale + app.font.LineHeight() * scale * 0.5f;
+
     float navX = layout.toolbar.x + 8.0f * scale;
     for (int i = 0; i < 5; ++i)
     {
-        const Rect button{navX, layout.toolbar.y + 5.0f * scale, kNavSize * scale,
+        const Rect button{navX, pathRow - kNavSize * scale * 0.5f, kNavSize * scale,
                           kNavSize * scale};
         const bool bookmarked =
             (i == 4) && std::find(app.bookmarks.begin(), app.bookmarks.end(), app.directory) !=
@@ -320,15 +329,28 @@ void DrawToolbar(AppState& app, const Layout& layout, const std::wstring& displa
         else if (bookmarked)
             r.FillRect(button, t.accent.WithAlpha(0.18f), 5.0f * scale);
 
-        // La stella e' piena quando la cartella e' nei segnalibri: e' l'unico segno
-        // che dice se il comando aggiunge o toglie.
-        const char* glyph = (i == 4 && !bookmarked) ? "☆" : kNavGlyphs[i];
         const Color color = !navEnabled[i] ? t.textDim.WithAlpha(0.4f)
                           : bookmarked      ? t.accent
                                             : t.textDim;
-        const float glyphWidth = app.font.Measure(glyph, scale);
-        app.font.Draw(r, button.x + (button.w - glyphWidth) * 0.5f,
-                      TextY(layout, button, app.font), glyph, color, scale);
+
+        // Tutte e cinque nella stessa scatola, centrata nel pulsante: e' quella
+        // scatola che le tiene sulla stessa linea, non il disegno di ognuna.
+        const float icon = kNavIcon * scale;
+        const Rect shape{button.x + (button.w - icon) * 0.5f,
+                         button.y + (button.h - icon) * 0.5f, icon, icon};
+        switch (i)
+        {
+            case 0: r.Draw(UIDraw::Arrow(shape, color, navStroke, ArrowDirection::Left)); break;
+            case 1: r.Draw(UIDraw::Arrow(shape, color, navStroke, ArrowDirection::Right)); break;
+            case 2: r.Draw(UIDraw::Arrow(shape, color, navStroke, ArrowDirection::Up)); break;
+            case 3: r.Draw(UIDraw::Refresh(shape, color, navStroke)); break;
+            default:
+                // La stella e' piena quando la cartella e' nei segnalibri: e' l'unico
+                // segno che dice se il comando aggiunge o toglie. Vuota e' la
+                // **stessa** forma disegnata come bordo, non una seconda formula.
+                r.Draw(UIDraw::Star(shape, color, 1.0f * scale, bookmarked));
+                break;
+        }
 
         ClickTarget target;
         target.rect  = button;
@@ -340,46 +362,109 @@ void DrawToolbar(AppState& app, const Layout& layout, const std::wstring& displa
     }
 
     float penX = navX + 8.0f * scale;
-    const float baseline = layout.toolbar.y + 11.0f * scale;
 
-    std::wstring accumulated;
-    size_t start = 0;
-    while (start <= displayPath.size())
+    // Le briciole si misurano **prima** di disegnarle, perche' `DisplayCompactPaths`
+    // deve sapere se entrano: un percorso che esce dal riquadro si legge a meta', e
+    // la meta' che si perde e' proprio quella che dice dove si e'.
+    struct Crumb
     {
-        size_t slash = displayPath.find(L'\\', start);
-        if (slash == std::wstring::npos)
-            slash = displayPath.size();
+        std::string  label;
+        std::wstring path;      // il percorso fino a questa briciola, per il clic
+        float        width;
+    };
+    std::vector<Crumb> crumbs;
+    {
+        std::wstring accumulated;
+        size_t start = 0;
+        while (start <= displayPath.size())
+        {
+            size_t slash = displayPath.find(L'\\', start);
+            if (slash == std::wstring::npos)
+                slash = displayPath.size();
 
-        std::wstring segment = displayPath.substr(start, slash - start);
-        if (accumulated.empty())
-            accumulated = segment;
-        else if (!segment.empty())
-            accumulated += L"\\" + segment;
+            const std::wstring segment = displayPath.substr(start, slash - start);
+            if (accumulated.empty())
+                accumulated = segment;
+            else if (!segment.empty())
+                accumulated += L"\\" + segment;
 
-        const std::string label = ToUtf8(segment);
-        const float width = app.font.Measure(label, scale) + 14.0f * scale;
+            const std::string label = ToUtf8(segment);
+            crumbs.push_back(Crumb{label,
+                                   ShellLocation::IsNamespace(app.directory) ||
+                                           IsHome(app.directory)
+                                       ? app.directory
+                                       : accumulated,
+                                   app.font.Measure(label, scale) + 14.0f * scale});
+            if (slash == displayPath.size())
+                break;
+            start = slash + 1;
+        }
+    }
 
-        const Rect chip{penX, baseline - 4.0f * scale, width, 22.0f * scale};
+    // Quanto spazio c'e': fino al conto delle voci, che sta a destra sulla stessa
+    // riga. `...` costa la sua larghezza, e quando si stringe va contata.
+    const char* kEllipsis = "...";
+    const float ellipsisWidth = app.font.Measure(kEllipsis, scale) + 10.0f * scale;
+    const float roomRight = static_cast<float>(app.viewportWidth) - 120.0f * scale;
+    float total = 0.0f;
+    for (const Crumb& crumb : crumbs)
+        total += crumb.width;
+
+    size_t firstVisible = 0;
+    if (app.compactPaths && penX + total > roomRight && crumbs.size() > 2)
+    {
+        // Si tagliano le briciole **in testa**, tenendo la radice (`C:`) e la coda:
+        // la coda e' quella che si sta guardando, la radice dice di che volume si
+        // parla. Le briciole tolte si contano in un `...`, che non e' cliccabile:
+        // promettere un clic che non porta da nessuna parte sarebbe peggio.
+        float budget = roomRight - penX - ellipsisWidth;
+        float used = 0.0f;
+        size_t keep = 0;
+        for (size_t i = crumbs.size(); i-- > 0;)
+        {
+            if (used + crumbs[i].width > budget)
+                break;
+            used += crumbs[i].width;
+            ++keep;
+        }
+        if (keep + 2 <= crumbs.size())
+            firstVisible = crumbs.size() - keep;
+        else
+            firstVisible = 0;
+    }
+
+    if (firstVisible > 0)
+    {
+        // Il `...` al posto delle briciole tolte: nessun bersaglio, perche' non c'e'
+        // una destinazione che corrisponda a "quelle in mezzo".
+        app.font.Draw(r, penX + 5.0f * scale, baseline + 2.0f * scale, kEllipsis, t.textDim,
+                      scale);
+        penX += ellipsisWidth;
+        if (firstVisible < crumbs.size())
+            app.font.Draw(r, penX - 3.0f * scale, baseline + 2.0f * scale, ">", t.textDim, scale);
+    }
+
+    for (size_t i = firstVisible; i < crumbs.size(); ++i)
+    {
+        const Crumb& crumb = crumbs[i];
+        const Rect chip{penX, baseline - 4.0f * scale, crumb.width, 22.0f * scale};
         ClickTarget target;
         target.rect  = chip;
         target.kind  = ClickTarget::Kind::Breadcrumb;
-        // In una cartella dello spazio dei nomi la briciola e' il nome che la
-        // shell le da', che non e' una posizione: cliccarla deve riportare li', non
-        // cercare una cartella chiamata "Cestino".
-        target.path  = ShellLocation::IsNamespace(app.directory) ? app.directory : accumulated;
+        target.path  = crumb.path;
         app.clickTargets.push_back(target);
 
-        if (!segment.empty())
+        if (!crumb.label.empty())
         {
-            app.font.Draw(r, penX + 7.0f * scale, baseline + 2.0f * scale, label,
-                          slash == displayPath.size() ? t.text : t.textDim, scale);
+            app.font.Draw(r, penX + 7.0f * scale, baseline + 2.0f * scale, crumb.label,
+                          (i + 1 == crumbs.size()) ? t.text : t.textDim, scale);
         }
-        penX += width;
+        penX += crumb.width;
 
-        if (slash == displayPath.size())
-            break;
-        app.font.Draw(r, penX - 4.0f * scale, baseline + 2.0f * scale, ">", t.textDim, scale);
-        start = slash + 1;
+        if (i + 1 < crumbs.size())
+        {
+            app.font.Draw(r, penX - 4.0f * scale, baseline + 2.0f * scale, ">", t.textDim, scale);
+        }
     }
 
     // Il conto delle voci, a destra: le stesse parole della barra di stato, cosi'
@@ -450,6 +535,8 @@ const char* CommandLabelIt(CommandId id)
         case CmdToggleHoverToSelect:    return "Il passaggio seleziona";
         case CmdToggleUnderlineOnHover: return "Sottolinea al passaggio";
         case CmdToggleTooltips:         return "Mostra i suggerimenti";
+        case CmdToggleShowRecents:      return "Evidenzia i recenti";
+        case CmdToggleSortRecents:      return "Recenti in cima";
         case CmdSingleClick:            return "Un clic apre";
         case CmdSingleClickFoldersOnly: return "Un clic: solo le cartelle";
         case CmdActOnPress:             return "Agisci premendo";
@@ -471,7 +558,10 @@ const char* CommandLabelIt(CommandId id)
         case CmdToggleDetails:          return "Palette: mostra i dettagli";
         case CmdSortName:               return "Ordina per nome";
         case CmdSortType:               return "Ordina per tipo";
-        case CmdSortModified:           return "Ordina per data";
+        case CmdSortModified:           return "Ordina per data di modifica";
+        case CmdSortCreated:            return "Ordina per data di creazione";
+        case CmdSortAccessed:           return "Ordina per data di accesso";
+        case CmdSortTotal:              return "Ordina per numero di elementi";
         case CmdSortFolders:            return "Ordina per sottocartelle";
         case CmdSortFiles:              return "Ordina per file";
         case CmdSortSize:               return "Ordina per dimensione";
@@ -492,15 +582,20 @@ const char* CommandLabelIt(CommandId id)
         case CmdLanguageItalian:        return "Lingua: italiano";
         case CmdLanguageEnglish:        return "Lingua: inglese";
         case CmdShowSettingsPath:       return "Dove sta il file delle impostazioni";
+        case CmdStartupCurrentFolder:  return "Avvio: la cartella aperta";
+        case CmdStartupThisPc:         return "Avvio: Questo PC";
         case CmdColorSchemeLight:       return "Tema: chiaro";
         case CmdColorSchemeDark:        return "Tema: scuro";
         case CmdSystemColorScheme:      return "Tema: segui il sistema";
         case CmdOpenOptions:            return "Apri le opzioni";
         case CmdEditKeyMap:             return "Modifica i tasti";
         case CmdPinTo:                  return "Fissa questa cartella in...";
+        case CmdSaveFolderLayout:      return "Salva il layout di questa cartella";
+        case CmdForgetFolderLayout:    return "Dimentica il layout di questa cartella";
         case CmdUnpin:                  return "Togli questa cartella da...";
         case CmdProperties:             return "Proprietà";
         case CmdPropertiesWindows:      return "Proprietà di Windows";
+        case CmdCheckUpdates:           return "Controlla aggiornamenti";
         // L'ultima che mancava. Era l'unica su ottanta, e si vedeva per quello: la
         // palette dei comandi si apriva con una riga in inglese in mezzo alle altre.
         case CmdPalette:                return "Palette dei comandi";
@@ -595,10 +690,30 @@ void RefreshColumnMenuChecks(AppState& app)
 // Compare **dopo una pausa**, come i suggerimenti del sistema: il conto riparte
 // quando il puntatore si muove, quindi chi sta scorrendo l'elenco non se li vede
 // passare davanti. Non e' un menu: non prende clic, e non si puo' navigare.
+//
+// La regola per farlo tacere e' **una sola**: se qualcosa e' aperto sopra la lista,
+// il suggerimento non si disegna. Prima era una fila di condizioni sciolte dentro
+// `DrawTooltip`, e mancavano i **pannelli**: sul pannello delle proprieta' il nome
+// del file finiva disegnato sopra le righe dei metadati, che li' sembra un difetto
+// del pannello.
+bool TooltipsAllowed(AppState& app)
+{
+    if (!app.showTooltips)
+        return false;
+    if (OpenMenu(app) != nullptr || app.contextMenu.open)
+        return false;
+    if (app.propertiesOpen)
+        return false;
+    // L'operazione in corso e' modale appena parte, non quando il suo pannello
+    // compare: la soglia di 0,35 s e' una cortesia per le operazioni brevi.
+    if (app.operation != nullptr)
+        return false;
+    return app.columnDrag < 0;
+}
+
 void DrawTooltip(AppState& app, const Layout& layout)
 {
-    if (!app.showTooltips || app.hovered < 0 || app.columnDrag >= 0 || OpenMenu(app) != nullptr ||
-        app.contextMenu.open)
+    if (app.hovered < 0 || !TooltipsAllowed(app))
         return;
     if (NowSeconds() - app.hoverStart < 0.55)
         return;
@@ -610,6 +725,23 @@ void DrawTooltip(AppState& app, const Layout& layout)
         app.hovered = -1;
         return;
     }
+
+    // Il suggerimento parla della riga che si **vede**. Il filtro, i filtri di
+    // colonna e un gruppo chiuso possono togliere la riga da sotto il puntatore
+    // senza che il puntatore si muova, e allora resta li' il nome di prima: e' la
+    // stessa bugia di `docs/02` §7.55, vista sul suggerimento invece che
+    // sull'ispettore.
+    bool onVisibleRow = false;
+    for (const Row& row : app.rows)
+    {
+        if (!row.header && row.entry == app.hovered)
+        {
+            onVisibleRow = true;
+            break;
+        }
+    }
+    if (!onVisibleRow)
+        return;
 
     const Entry& entry = app.entries[static_cast<size_t>(app.hovered)];
     const float scale = layout.scale;
@@ -627,7 +759,8 @@ void DrawTooltip(AppState& app, const Layout& layout)
     if (entry.isDirectory)
     {
         DirStats stats;
-        if (app.stats.TryGet(JoinPath(app.directory, entry.wideName), &stats) && !stats.partial)
+        if (entry.location.empty() &&
+            app.stats.TryGet(JoinPath(app.directory, entry.wideName), &stats) && !stats.partial)
             lines.push_back(HumanCount(stats.folders) +
                             (stats.folders == 1 ? Tr(" cartella   ", " folder   ")
                                                 : Tr(" cartelle   ", " folders   ")) +
@@ -807,6 +940,13 @@ const CommandDef kCommandTable[] = {
     {"Language", "Language: Italian",           CmdLanguageItalian},
     {"Language", "Language: English",           CmdLanguageEnglish},
     {"Language", "Where the settings file is",  CmdShowSettingsPath},
+    // Gli aggiornamenti: **esplicito**, e senza tasto di partenza. Una richiesta a
+    // GitHub e' telemetria di fatto, e non deve partire ne' da sola ne' per sbaglio.
+    {"Updates", "Check for updates",            CmdCheckUpdates},
+    // La pagina di avvio: due voci, perche' "quale cartella all'avvio" e' una
+    // domanda e le risposte sensate sono due.
+    {"Startup",  "Startup: the open folder",    CmdStartupCurrentFolder},
+    {"Startup",  "Startup: This PC",            CmdStartupThisPc},
     // L'aspetto: due tavolozze e "segui il sistema", le tre chiavi dello spec.
     {"Appearance", "Color scheme: dark",          CmdColorSchemeDark},
     {"Appearance", "Color scheme: light",         CmdColorSchemeLight},
@@ -841,6 +981,8 @@ const CommandDef kCommandTable[] = {
     {"View",    "Hover to select",              CmdToggleHoverToSelect},
     {"View",    "Underline on hover",           CmdToggleUnderlineOnHover},
     {"View",    "Show tooltips",                CmdToggleTooltips},
+    {"View",    "Highlight recents",            CmdToggleShowRecents},
+    {"View",    "Recents on top",                CmdToggleSortRecents},
     // "Interaction" e' il nome del gruppo nella tabella delle chiavi. Sono cinque
     // chiavi, non cinque funzioni: nessuna fa niente da sola, cambiano *come* si
     // apre e si sceglie.
@@ -870,6 +1012,9 @@ const CommandDef kCommandTable[] = {
     {"Sort",    "Sort by name",                CmdSortName},
     {"Sort",    "Sort by type",                CmdSortType},
     {"Sort",    "Sort by date modified",       CmdSortModified},
+    {"Sort",    "Sort by date created",        CmdSortCreated},
+    {"Sort",    "Sort by date accessed",       CmdSortAccessed},
+    {"Sort",    "Sort by total items",         CmdSortTotal},
     {"Sort",    "Sort by folder count",        CmdSortFolders},
     {"Sort",    "Sort by file count",          CmdSortFiles},
     {"Sort",    "Sort by size",                CmdSortSize},
@@ -892,6 +1037,8 @@ const CommandDef kCommandTable[] = {
     // Le due domande del fissaggio stanno con i **posti**, che e' cio' di cui
     // parlano: nella palette cadono nella stessa banda delle cartelle note.
     {"Places",  "Pin this folder to...",          CmdPinTo},
+    {"View",    "Save this folder's layout",     CmdSaveFolderLayout},
+    {"View",    "Forget this folder's layout",   CmdForgetFolderLayout},
     {"Places",  "Unpin this folder from...",      CmdUnpin},
     {"File",    "Properties",                   CmdProperties},
     {"File",    "Windows properties",           CmdPropertiesWindows},
@@ -1107,16 +1254,6 @@ bool IsBookmarked(const AppState& app)
     return std::find(app.bookmarks.begin(), app.bookmarks.end(), app.directory) != app.bookmarks.end();
 }
 
-void ToggleBookmark(AppState& app)
-{
-    if (app.directory.empty())
-        return;
-    const auto found = std::find(app.bookmarks.begin(), app.bookmarks.end(), app.directory);
-    if (found != app.bookmarks.end())
-        app.bookmarks.erase(found);
-    else
-        app.bookmarks.push_back(app.directory);
-}
 
 // --- il fissaggio: dove si puo' mettere una cartella -------------------------
 //
@@ -1170,67 +1307,6 @@ bool PinnedIn(const AppState& app, PinTarget target, const std::wstring& path)
     return std::find(list.begin(), list.end(), path) != list.end();
 }
 
-// Il pannello delle destinazioni: due righe, e la riga che **vale** porta la ragione
-// accanto al nome invece di essere disegnata spenta. Il componente dei menu non sa
-// disegnare una riga spenta — lo sa solo il pannello delle opzioni — e per due righe
-// non vale la pena darglielo: la riga si puo' scegliere lo stesso, e sceglierla **lo
-// dice**. Un elenco di due righe non ha bisogno di un meccanismo in piu' per dire
-// "questa non si tocca".
-void BuildPinMenu(AppState& app, bool removing)
-{
-    const std::wstring& path = app.directory;
-    // Applicabile vuol dire: "questa destinazione **cambierebbe**". Fissare vuol dire
-    // "se non c'e' gia'", togliere vuol dire "se c'e'": la stessa domanda, e il verso
-    // lo dice `removing`.
-    const auto applicable = [&](PinTarget target) { return PinnedIn(app, target, path) == removing; };
-
-    // Un pannello su cui non si puo' agire non si apre: quando non c'e' niente da
-    // fare — la cartella e' gia' dappertutto, o non e' fissata da nessuna parte —
-    // l'esito si legge nella barra di stato, che e' dove finisce ogni azione.
-    if (path.empty())
-        return;
-    if (!applicable(PinTarget::QuickAccess) && !applicable(PinTarget::Bookmarks))
-    {
-        ReportStatus(app, removing
-                              ? TrW(L"Questa cartella non e' fissata da nessuna parte",
-                                    L"This folder is not pinned anywhere")
-                              : TrW(L"Questa cartella e' gia' fissata in tutte le sezioni",
-                                    L"This folder is already pinned in every section"));
-        return;
-    }
-
-    const char* note = removing ? Tr(" (non e' fissata qui)", " (not pinned here)")
-                                : Tr(" (e' gia' fissata qui)", " (already pinned here)");
-
-    std::vector<GroupMenuItem> items;
-    items.reserve(kPinTargetCount);
-    for (int i = 0; i < kPinTargetCount; ++i)
-    {
-        const PinTarget target = PinTargetAt(i);
-        GroupMenuItem item;
-        item.label = std::string(PinTargetLabel(target)) + (applicable(target) ? "" : note);
-        item.id    = i;
-        items.push_back(std::move(item));
-    }
-
-    app.pinMenuRemoving = removing;
-    CloseKeyMap(app);
-    ClosePinMenu(app);
-    app.palette.open       = false;
-    app.goTo.open          = false;
-    app.options.open       = false;
-    app.optionsChoice.open = false;
-    app.columnMenu.open    = false;
-    // Il menu contestuale e' modale lui pure, e nell'ordine dell'input viene **prima**
-    // dei menu: se restasse aperto sotto, il pannello non riceverebbe ne' clic ne'
-    // tasti. Si chiude, e le due voci si scelgono qui.
-    ContextMenuClose(app);
-
-    GroupMenuOpen(app.pinMenu, removing ? Tr("TOGLI DA", "UNPIN FROM") : Tr("FISSA IN", "PIN TO"),
-                  Tr("Dove?", "Where?"), std::move(items));
-    app.pinMenu.hint = removing ? Tr("Invio toglie   Esc chiude", "Enter unpins   Esc closes")
-                                : Tr("Invio fissa   Esc chiude", "Enter pins   Esc closes");
-}
 
 
 // Cosa fa la riga scelta: la stessa funzione per le due domande, perche' sono la
@@ -1243,7 +1319,7 @@ void RunPinMenuSelection(AppState& app)
         return;
 
     const PinTarget target = PinTargetAt(id);
-    const std::wstring path = app.directory;
+    const std::wstring path = app.pinMenuTarget;
     std::vector<std::wstring>& list = PinList(app, target);
     const bool already = PinnedIn(app, target, path);
 
@@ -1275,118 +1351,15 @@ void RunPinMenuSelection(AppState& app)
     }
 
     ReportStatus(app, message);
+
+    // La Home elenca i fissaggi in una banda: se e' aperta, la banda adesso e'
+    // cambiata. Rifarla subito, invece di aspettare che l'utente prema F5.
+    if (IsHome(app.directory))
+        LoadDirectory(app, app.directory, /*recordHistory=*/false);
 }
 
-// --- building the two menus -------------------------------------------------
-void BuildPaletteMenu(AppState& app)
-{
-    std::vector<GroupMenuItem> items;
-    for (const CommandDef& command : kCommandTable)
-    {
-        // L'etichetta della tabella e' quella inglese, che e' anche il nome della
-        // chiave; in italiano la da' `CommandLabelIt`, e se non c'e' resta quella.
-        // In inglese vale l'etichetta della tabella; in italiano la traduzione, se
-        // c'e'. Il ripiego e' sempre la tabella: una traduzione mancante lascia la
-        // parola in inglese invece di lasciare il vuoto.
-        std::string label = CommandLabel(command);
-        // The one command whose wording depends on state. The table stays data.
-        if (command.id == CmdToggleBookmark && IsBookmarked(app))
-            label = Tr("Togli questo posto dai segnalibri", "Remove bookmark from this folder");
-        items.push_back(GroupMenuItem{command.group, label, "", command.id});
-    }
 
-    // Locations are data, not code: one entry per known folder, so the palette
-    // covers the sidebar without a command being declared for each.
-    for (int i = 0; i < static_cast<int>(app.places.size()); ++i)
-    {
-        items.push_back(GroupMenuItem{"Places", app.places[static_cast<size_t>(i)].label, "",
-                                      kPalettePlaceBase + i});
-    }
 
-    CloseKeyMap(app);
-    ClosePinMenu(app);
-    app.goTo.open = false;   // one menu at a time
-    app.options.open = false;
-    GroupMenuOpen(app.palette, Tr("PALETTE DEI COMANDI", "COMMAND PALETTE"),
-                  Tr("Scrivi per filtrare i comandi...", "Type to filter commands..."),
-                  std::move(items));
-    // La riga in fondo dice i tasti **della mappa**, non due stringhe scritte a
-    // mano: se il tasto cambia, cambia quello che si legge. Prima erano lettere
-    // dentro una frase, ed erano l'ultimo posto in cui una scorciatoia viveva per
-    // conto suo.
-    // Col dettaglio acceso il gruppo fa da dettaglio, che e' quello che la palette
-    // mostra da sempre: il flag dice a chi disegna che li' il ripiego e' voluto.
-    app.palette.detailFallsBackToGroup = true;
-    app.palette.hint = std::string(Tr("Invio esegue   Esc chiude   ", "Enter runs   Esc closes   ")) +
-                       app.keys.LabelFor(CmdPalette) + std::string(Tr(" apre e chiude   ", " toggles   ")) +
-                       app.keys.LabelFor(CmdOpenOptions) + std::string(Tr(" opzioni", " options"));
-}
-
-void BuildGoToMenu(AppState& app)
-{
-    std::vector<GroupMenuItem> items;
-    app.goToTargets.clear();
-
-    const auto add = [&items, &app](const char* group, const std::wstring& path, const std::string& label)
-    {
-        const int id = static_cast<int>(app.goToTargets.size());
-        items.push_back(GroupMenuItem{group, label, ToUtf8(path), id});
-        app.goToTargets.push_back(path);
-    };
-
-    // The path itself, deepest last: the breadcrumb, reachable from the keyboard.
-    if (!app.directory.empty())
-    {
-        std::vector<std::wstring> ancestors;
-        std::wstring current = app.directory;
-        for (;;)
-        {
-            ancestors.push_back(current);
-            const std::wstring parent = ParentOf(current);
-            if (parent == current)
-                break;
-            current = parent;
-        }
-        for (auto it = ancestors.rbegin(); it != ancestors.rend(); ++it)
-            add("Path", *it, ToUtf8(LeafName(*it)));
-    }
-
-    for (const Place& place : app.places)
-        add("Places", place.path, place.label);
-
-    for (const std::wstring& path : app.bookmarks)
-        add("Bookmarks", path, ToUtf8(LeafName(path)));
-
-    for (const std::wstring& path : app.recents)
-        add("Recents", path, ToUtf8(LeafName(path)));
-
-    CloseKeyMap(app);
-    ClosePinMenu(app);
-    app.palette.open = false;
-    app.options.open = false;
-    GroupMenuOpen(app.goTo, Tr("VAI A", "GO TO"),
-                  Tr("Scrivi per filtrare le cartelle...", "Type to filter locations..."),
-                  std::move(items));
-    app.goTo.detailed = true;   // a location without its path is not much use
-    app.goTo.hint = std::string(Tr("Invio va   Esc chiude   ", "Enter goes   Esc closes   ")) +
-                    app.keys.LabelFor(CmdGoTo) + std::string(Tr(" apre e chiude", " toggles"));
-}
-
-// I comandi che agiscono su un **percorso** non valgono dove un percorso non c'e':
-// nel cestino le voci si spostano, si cancellano e si ripristinano coi verbi della
-// shell, che quegli oggetti li conoscono. Qui si dice, invece di far finta che sia
-// un guasto e lasciare l'utente a chiedersi perche' non succede niente.
-bool RefuseInNamespace(AppState& app, const wchar_t* action)
-{
-    if (!ShellLocation::IsNamespace(app.directory))
-        return false;
-    ReportStatus(app, std::wstring(action) +
-                          TrW(L": qui non si puo', questa cartella non e' un percorso. "
-                              L"Le voci si gestiscono coi comandi del menu contestuale.",
-                              L": not here, this folder is not a path. "
-                              L"Use the context menu commands for these items."));
-    return true;
-}
 
 // --- il pannello dell'operazione in corso ------------------------------------
 //
@@ -1407,24 +1380,6 @@ bool OperationPanelVisible(const AppState& app)
     return app.operation != nullptr && NowSeconds() - app.operationStart >= kOperationPanelDelay;
 }
 
-// Un'operazione lunga si avvia sempre da qui: cosi' la sorgente e l'ora non si
-// possono dimenticare in uno dei tre posti che la chiamano. Restituisce falso se
-// un'operazione e' gia' in corso: la seconda sostituirebbe la prima, e sostituirla
-// vuol dire annullarla **senza dirlo**.
-bool BeginOperation(AppState& app, std::unique_ptr<FileOps::Job> job, OperationSource source)
-{
-    if (app.operation != nullptr)
-    {
-        ReportStatus(app, TrW(L"C'e' gia' un'operazione in corso.",
-                              L"An operation is already running."));
-        return false;
-    }
-
-    app.operation       = std::move(job);
-    app.operationSource = source;
-    app.operationStart  = NowSeconds();
-    return true;
-}
 
 Rect OperationPanelRect(const AppState& app, const Layout& layout)
 {
@@ -1724,6 +1679,107 @@ void FinishOperation(AppState& app)
                                 action == FileOps::Action::Move ? L"Moved " : L"Pasted "));
 }
 
+// --- gli aggiornamenti -------------------------------------------------------
+//
+// L'unica cosa che questa applicazione manda in rete, e parte **solo** dal comando
+// esplicito `Controlla aggiornamenti` (`docs/06`): nessun timer, nessun controllo
+// all'avvio. Mentre lavora, la barra di stato dice a che punto e' — e' l'unico posto
+// che si guarda mentre si aspetta — e quando ha finito l'esito si legge una volta
+// sola, qui.
+std::wstring UpdateProgressText(const Update::Snapshot& snapshot)
+{
+    switch (snapshot.phase)
+    {
+        case Update::Phase::Checking:
+            return TrW(L"Controllo gli aggiornamenti...", L"Checking for updates...");
+        case Update::Phase::Checksums:
+            return TrW(L"Scarico le impronte SHA-256...", L"Downloading SHA-256 checksums...");
+        case Update::Phase::Verifying:
+            return TrW(L"Verifico l'impronta SHA-256...", L"Verifying the SHA-256 checksum...");
+        case Update::Phase::Downloading:
+        default:
+        {
+            std::wstring text = TrW(L"Scarico l'aggiornamento: ", L"Downloading update: ");
+            if (snapshot.total > 0)
+            {
+                const uint64_t percent = (std::min)(
+                    static_cast<uint64_t>(100), snapshot.received * 100 / snapshot.total);
+                text += std::to_wstring(percent) + L"%";
+            }
+            else
+            {
+                // La risposta non dichiara la lunghezza: si dice quanto e' arrivato,
+                // che e' l'unica cosa vera che si sa.
+                text += std::to_wstring(snapshot.received / (1024u * 1024u)) + L" MB";
+            }
+            return text;
+        }
+    }
+}
+
+void FinishUpdate(AppState& app)
+{
+    std::unique_ptr<Update::Job> job = std::move(app.updateJob);
+    if (job == nullptr)
+        return;
+
+    Update::ReleaseInfo release;
+    std::wstring error;
+    const Update::Result result = job->Finish(&release, &error);
+    job.reset();
+
+    switch (result)
+    {
+        case Update::Result::UpToDate:
+            ReportStatus(app, TrW(L"Bolt e' aggiornato (", L"Bolt is up to date (") +
+                                   Update::CurrentVersion() + L").");
+            break;
+
+        case Update::Result::Cancelled:
+            ReportStatus(app, TrW(L"Controllo degli aggiornamenti annullato.",
+                                  L"Update check cancelled."));
+            break;
+
+        case Update::Result::Failed:
+            ReportStatus(app, TrW(L"Aggiornamento non riuscito: ", L"Update failed: ") + error);
+            DiagLog("--- aggiornamenti: " + ToUtf8(error));
+            break;
+
+        case Update::Result::Ready:
+        {
+            // Il setup e' stato scaricato **e** verificato: solo adesso si esegue.
+            // Inno riconosce l'installazione dall'`AppId` e con `CloseApplications=yes`
+            // chiude questa finestra da solo; il `WM_CLOSE` e' la stessa cosa detta una
+            // volta di piu', per non lasciare il setup fermo ad aspettare.
+            SHELLEXECUTEINFOW info{};
+            info.cbSize       = sizeof(info);
+            info.fMask        = SEE_MASK_NOCLOSEPROCESS;
+            info.lpVerb       = L"open";
+            info.lpFile       = release.setupPath.c_str();
+            info.lpParameters = L"/VERYSILENT /SUPPRESSMSGBOXES /NORESTART";
+            info.nShow        = SW_SHOWNORMAL;
+            if (ShellExecuteExW(&info))
+            {
+                if (info.hProcess != nullptr)
+                    CloseHandle(info.hProcess);
+                ReportStatus(app, TrW(L"Aggiornamento ", L"Update ") + release.version +
+                                       TrW(L" verificato: avvio il setup",
+                                           L" verified: starting the setup"));
+                DiagLog("--- aggiornamenti: setup verificato e avviato");
+                if (app.window != nullptr)
+                    PostMessageW(app.window, WM_CLOSE, 0, 0);
+            }
+            else
+            {
+                ReportStatus(app, TrW(L"Il setup verificato non si avvia (errore ",
+                                      L"The verified setup cannot be started (error ") +
+                                   std::to_wstring(GetLastError()) + L").");
+            }
+            break;
+        }
+    }
+}
+
 // Un cambiamento visto da fuori: la cartella aperta toccata da un altro programma.
 //
 // Il numero che si vede di una cartella e' **ricorsivo**, quindi un file cambiato
@@ -1754,214 +1810,14 @@ void ApplyExternalChange(AppState& app)
         ReloadKeeping(app, app.selection, app.cursor, app.scroll);
 }
 
-// Nome predefinito di una cartella nuova, come quello di Esplora risorse.
-// Il nome di partenza di una cartella nuova: e' l'unico nome di file che scriviamo
-// noi, quindi segue la lingua dell'interfaccia, come fa Esplora risorse.
-std::wstring NewFolderName() { return TrW(L"Nuova cartella", L"New folder"); }
 
-void BeginRename(AppState& app)
-{
-    const int index = CursorIndex(app);
-    if (index < 0)
-        return;
 
-    const Entry& entry = app.entries[static_cast<size_t>(index)];
-    app.renameActive   = true;
-    app.renamePath     = JoinPath(app.directory, entry.wideName);
-    app.renameOriginal = entry.wideName;
-    app.renameText     = entry.name;
 
-    // La tastiera adesso scrive nel nome, non nel filtro: senza questo, rinominare
-    // in "foto" filtrerebbe la lista a ogni lettera.
-    app.filterActive = false;
-}
 
-void CancelRename(AppState& app)
-{
-    app.renameActive = false;
-    app.renameText.clear();
-    app.renamePath.clear();
-    app.renameOriginal.clear();
-}
 
-void CommitRename(AppState& app)
-{
-    if (!app.renameActive)
-        return;
 
-    const std::wstring newName  = Widen(app.renameText);
-    const std::wstring path     = app.renamePath;
-    const std::wstring original = app.renameOriginal;
-    const float        scroll   = app.scroll;
-    CancelRename(app);
 
-    if (newName.empty() || newName == original)
-        return;
 
-    std::wstring error;
-    std::vector<std::wstring> created;
-    const FileOps::Result result = FileOps::Rename(app.window, path, newName, &created, &error);
-    if (result == FileOps::Result::Ok)
-    {
-        std::unordered_set<std::wstring> keep;
-        const std::wstring landed = created.empty() ? newName : LeafName(created.front());
-        keep.insert(landed);
-        ReloadKeeping(app, keep, landed, scroll);
-        ReportStatus(app, TrW(L"Rinominato in ", L"Renamed to ") + landed);
-    }
-    else if (result == FileOps::Result::Failed)
-    {
-        ReportStatus(app, TrW(L"Rinomina non riuscita: ", L"Rename failed: ") + error);
-    }
-}
-
-void DoCopyToClipboard(AppState& app, bool cut)
-{
-    const std::vector<std::wstring> paths = SelectedPaths(app);
-    if (paths.empty())
-        return;
-
-    if (!FileOps::SetClipboardFiles(app.window, paths, cut))
-    {
-        ReportStatus(app, TrW(L"Clipboard non disponibile.", L"Clipboard unavailable."));
-        return;
-    }
-
-    app.clipboardCut = cut;
-    ReportStatus(app, VerbItems(paths.size(),
-                                cut ? L"Tagliato " : L"Copiato ",
-                                cut ? L"Tagliati " : L"Copiati ",
-                                cut ? L"Cut " : L"Copied "));
-}
-
-void DoPaste(AppState& app)
-{
-    std::vector<std::wstring> paths;
-    bool cut = false;
-    if (!FileOps::ReadClipboardFiles(&paths, &cut))
-    {
-        ReportStatus(app, TrW(L"Niente da incollare.", L"Nothing to paste."));
-        return;
-    }
-
-    // Nel registro, perche' una volta un incolla e' partito senza che si riuscisse a
-    // capire da quale gesto: senza una riga, l'unica traccia era un messaggio di
-    // stato che dura quattro secondi.
-    DiagLog("  incolla: " + std::to_string(paths.size()) + " percorsi, " +
-            (cut ? "tagliati" : "copiati") + ", in " + ToUtf8(LeafName(app.directory)));
-
-    // L'operazione adesso e' lunga: si avvia sul suo thread e l'esito si raccoglie
-    // quando finisce, in `FinishOperation`. Qui si dice solo che e' partita.
-    BeginOperation(app,
-                   FileOps::Job::StartTransfer(app.window, paths, app.directory, cut),
-                   OperationSource::Command);
-}
-
-void DoDelete(AppState& app, bool permanently)
-{
-    const std::vector<std::wstring> paths = SelectedPaths(app);
-    if (paths.empty())
-        return;
-
-    // Anche l'eliminazione e' lunga — un albero di cartelle intero — e passa dallo
-    // stesso pannello della copia.
-    BeginOperation(app, FileOps::Job::StartDelete(app.window, paths, permanently),
-                   OperationSource::Command);
-}
-
-void DoNewFolder(AppState& app)
-{
-    const float scroll = app.scroll;
-    std::vector<std::wstring> created;
-    std::wstring error;
-    const std::wstring wanted = NewFolderName();
-    const FileOps::Result result = FileOps::CreateFolder(
-        app.window, app.directory, wanted.c_str(), &created, &error);
-
-    if (result == FileOps::Result::Ok)
-    {
-        const std::wstring name = created.empty() ? wanted : LeafName(created.front());
-        std::unordered_set<std::wstring> keep;
-        keep.insert(name);
-        ReloadKeeping(app, keep, name, scroll);
-
-        // Creare e rinominare sono un'azione sola: chi preme Ctrl+Shift+N vuole
-        // dare un nome, non guardare un'altra "Nuova cartella".
-        BeginRename(app);
-    }
-    else if (result == FileOps::Result::Failed)
-    {
-        ReportStatus(app, TrW(L"Cartella non creata: ", L"Folder not created: ") + error);
-    }
-}
-
-// Il contenuto della voce nuova. La shell crea il file e sceglie il nome — e' il
-// solo modo di avere il "(2)" dei conflitti senza indovinarlo — ma senza un
-// modello crea un file di **zero byte**: e uno zip di zero byte non e' uno zip,
-// un .docx di zero byte non si apre. Il contenuto lo dice il registro, e lo
-// scriviamo qui.
-//
-// I modelli di Office, per esempio, sono registrati con un **guscio vuoto** nella
-// loro cartella VFS (`WORD.DOCX` e' un file di zero byte su disco): il contenuto
-// vero lo produce il provider di Office, che da fuori non si raggiunge. Il file
-// nuovo nasce vuoto anche a noi, e allora lo si dice — un .docx che Word rifiuta
-// di aprire, senza una parola, e' peggio di un .docx che non c'e'.
-void FillNewItemContent(AppState& app, const ShellNew::Template& model,
-                        const std::wstring& path)
-{
-    if (model.source == ShellNew::Template::Source::Empty)
-        return;
-
-    if (model.source == ShellNew::Template::Source::TemplateFile)
-    {
-        // Copia, invece di leggere e riscrivere: il modello puo' essere grande
-        // (un .pub sono sessanta kilobyte), e questa e' una copia di file sola.
-        if (!CopyFileW(model.templatePath.c_str(), path.c_str(), FALSE))
-        {
-            ReportStatus(app, TrW(L"Il modello di questo tipo non si e' potuto copiare: "
-                                  L"il file e' stato creato vuoto.",
-                                  L"The template for this type could not be copied: "
-                                  L"the file was created empty."));
-            return;
-        }
-    }
-    else
-    {
-        HANDLE file = CreateFileW(path.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS,
-                                  FILE_ATTRIBUTE_NORMAL, nullptr);
-        if (file == INVALID_HANDLE_VALUE)
-        {
-            ReportStatus(app, TrW(L"Il file e' stato creato, ma il contenuto del modello no.",
-                                  L"The file was created, but not the template content."));
-            return;
-        }
-
-        DWORD written = 0;
-        const bool wrote =
-            WriteFile(file, model.data.data(), static_cast<DWORD>(model.data.size()), &written,
-                      nullptr) != FALSE &&
-            written == model.data.size();
-        CloseHandle(file);
-        if (!wrote)
-        {
-            ReportStatus(app, TrW(L"Il file e' stato creato, ma il contenuto del modello no.",
-                                  L"The file was created, but not the template content."));
-            return;
-        }
-    }
-
-    // Il modello c'era ma era vuoto: il file e' nato vuoto, e chi lo apre lo deve
-    // sapere adesso e non quando l'applicazione gli dira' che e' danneggiato.
-    WIN32_FILE_ATTRIBUTE_DATA info{};
-    if (GetFileAttributesExW(path.c_str(), GetFileExInfoStandard, &info) &&
-        info.nFileSizeHigh == 0 && info.nFileSizeLow == 0)
-    {
-        ReportStatus(app, TrW(L"Il modello di questo tipo e' vuoto: ",
-                              L"The template for this type is empty: ") +
-                              LeafName(path) + TrW(L" e' stato creato vuoto.",
-                                                   L" was created empty."));
-    }
-}
 
 // --- menu execution ---------------------------------------------------------
 // `RunCommand` e `ShowProperties` arrivano dagli header (`app_actions.h`,
@@ -1992,8 +1848,27 @@ void RunGoToSelection(AppState& app)
     const int id = GroupMenuSelectedId(app.goTo);
     if (id < 0 || id >= static_cast<int>(app.goToTargets.size()))
         return;
-    LoadDirectory(app, app.goToTargets[static_cast<size_t>(id)]);
+
+    // Una voce del gruppo dei recenti puo' essere un **comando** invece di un
+    // percorso: e' cosi' che «Cancella i recenti» sta li' senza essere un percorso
+    // che non esiste.
+    const int command = (id < static_cast<int>(app.goToCommands.size()))
+                            ? app.goToCommands[static_cast<size_t>(id)]
+                            : -1;
     app.goTo.open = false;
+    if (command >= 0)
+    {
+        RunCommand(app, command);
+        return;
+    }
+
+    const std::wstring& target = app.goToTargets[static_cast<size_t>(id)];
+    // Un **file** aperto di recente si apre, non si naviga: `LoadDirectory` su un
+    // file non avrebbe niente da leggere.
+    if (!PathIsDirectoryW(target.c_str()))
+        ShellExecuteW(nullptr, L"open", target.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+    else
+        LoadDirectory(app, target);
 }
 
 
@@ -2031,30 +1906,40 @@ void DrawFrame(AppState& app, const Layout& layout)
     app.renderer->FillRect(Rect{0.0f, 0.0f, static_cast<float>(app.viewportWidth),
                                static_cast<float>(app.viewportHeight)}, app.theme.windowBg);
 
+    // `RoundCorners`: uno stato di disegno per tutto il fotogramma. Le forme che
+    // usano il raggio come spessore non vengono toccate (vedi `AppendQuad`).
+    app.renderer->SetCornerScale(app.roundCorners ? 1.0f : 0.0f);
+
+    // `InactivePanelContentOpacity`: il pannello senza fuoco si attenua. A 1 non
+    // cambia niente, ed e' il valore di partenza.
+    const auto panelOpacity = [&app](AppState::FocusArea area)
+    {
+        return (app.inactiveOpacity >= 0.999f || app.focusArea == area) ? 1.0f
+                                                                      : app.inactiveOpacity;
+    };
+
     DrawTitleBar(app, layout);
     DrawToolbar(app, layout, LocationLabel(app, app.directory));
+    app.renderer->SetOpacity(panelOpacity(AppState::FocusArea::Sidebar));
     DrawSidebar(app, layout);
+    app.renderer->SetOpacity(1.0f);
     DrawHeader(app, layout, columnX);
 
-    // La lista disegna **solo dentro il suo rettangolo**, e il ritaglio lo fa il
-    // scissor. Il controllo che salta le righe fuori dal riquadro non basta: salta
-    // quelle che stanno fuori tutte intere, non taglia quelle a meta' — e una cella
-    // di griglia e' alta quanto una miniatura, quindi il pezzo che esce dal bordo
-    // finisce **sopra la barra del titolo**. Si vedeva: quattro icone disegnate
-    // sopra le schede, con la riga di nomi piu' in basso.
+    // La lista disegna **solo dentro il suo rettangolo**: il ritaglio lo porta il
+    // vertice di ogni cella, e a tagliare e' il pixel shader. Il controllo che salta
+    // le righe fuori dal riquadro non basta: salta quelle che stanno fuori tutte
+    // intere, non taglia quelle a meta' — e una cella di griglia e' alta quanto una
+    // miniatura, quindi il pezzo che esce dal bordo finisce **sopra la barra del
+    // titolo**. Si vedeva: quattro icone disegnate sopra le schede.
     //
-    // I quadrilateri si accumulano in un batch solo, quindi il batch va chiuso e
-    // riaperto attorno al ritaglio: tre disegni per fotogramma invece di uno. E' il
-    // prezzo del ritaglio, e si paga.
-    app.renderer->End();
-    app.renderer->SetScissor(layout.list);
-    app.renderer->Begin(app.viewportWidth, app.viewportHeight);
-
+    // Non serve piu' chiudere e riaprire il lotto attorno al ritaglio: era il prezzo
+    // dichiarato in `AGENTS.md` §8 (tre disegni per fotogramma invece di uno, cinque
+    // con il visualizzatore di testo), ed era il debito che questo lavoro salda.
+    app.renderer->SetClip(layout.list);
+    app.renderer->SetOpacity(panelOpacity(AppState::FocusArea::List));
     DrawList(app, layout, columnX);
-
-    app.renderer->End();
-    app.renderer->ClearScissor();
-    app.renderer->Begin(app.viewportWidth, app.viewportHeight);
+    app.renderer->SetOpacity(1.0f);
+    app.renderer->ClearClip();
 
     // The rubber band is drawn over the rows it is about to select, and only over
     // the list: it is clamped to that region so dragging past the edge does not
@@ -2069,7 +1954,9 @@ void DrawFrame(AppState& app, const Layout& layout)
     }
 
     DrawFilterBar(app, layout);
+    app.renderer->SetOpacity(panelOpacity(AppState::FocusArea::Inspector));
     DrawInspector(app, layout);
+    app.renderer->SetOpacity(1.0f);
     DrawStatusBar(app, layout);
 
     // Last, so they cover everything and their click targets are the first ones
@@ -2116,6 +2003,20 @@ void RenderFrame(AppState& app)
     if (app.renderer == nullptr || app.viewportWidth <= 0 || app.viewportHeight <= 0)
         return;
 
+    // Le righe si ricostruiscono **qui**, un attimo prima di disegnarle, e non nel
+    // ciclo dei messaggi: fra il punto in cui si faceva e questo c'e'
+    // `FinishOperation`, che quando un'operazione finisce ricarica la cartella e
+    // sostituisce `entries` (`ReloadKeeping` → `ReadDirectory`). Disegnare righe
+    // costruite sull'elenco di prima vuol dire leggere il nuovo con gli indici del
+    // vecchio — indici oltre la fine del vettore, quindi memoria che sembra valida e
+    // non lo e' — ed e' esattamente la caduta sul `Canc` di `docs/02` §7.59,
+    // trovata con AddressSanitizer (`container-overflow` su `entry.wideName`).
+    //
+    // Sta qui e non nel ciclo anche perche' `RenderFrame` ha un secondo chiamante:
+    // l'evidenziazione della destinazione durante un trascinamento OLE.
+    if (app.viewDirty)
+        RebuildView(app);
+
     app.renderer->BeginFrame(app.viewportWidth, app.viewportHeight);
 
     // Le anteprime pronte si caricano prima del fotogramma che le disegna: e' il
@@ -2129,6 +2030,22 @@ void RenderFrame(AppState& app)
     app.renderer->End();
 
     app.renderer->Present();
+
+    // `Animations`: finche' un pannello sta comparendo, il fotogramma dopo va
+    // chiesto. Senza, l'animazione si fermerebbe al primo disegno — il pannello
+    // resterebbe fermo a meta' dissolvenza, che e' peggio di nessuna animazione.
+    if (app.animations)
+    {
+        const GroupMenu* menus[] = {&app.palette, &app.goTo,   &app.options,
+                                    &app.optionsChoice, &app.columnMenu, &app.pinMenu,
+                                    &app.keyMap};
+        bool appearing = app.contextMenu.open &&
+                         PanelAppear(app.contextMenu.openedAt, true) < 1.0f;
+        for (const GroupMenu* menu : menus)
+            appearing = appearing || (menu->open && PanelAppear(menu->openedAt, true) < 1.0f);
+        if (appearing)
+            InvalidateRect(app.window, nullptr, FALSE);
+    }
 }
 
 
@@ -2562,6 +2479,16 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
             const float x = static_cast<float>(GET_X_LPARAM(lparam));
             const float y = static_cast<float>(GET_Y_LPARAM(lparam));
 
+            // Sulla **barra laterale** il menu e' quello della riga: le voci che
+            // agiscono su un percorso — fissare, togliere, togliere dai recenti —
+            // prendono quella riga, non la cartella aperta. E' il gesto che prima
+            // mancava: per fissare un recente bisognava aprirlo.
+            if (const ClickTarget* place = HitTest(*app, x, y, ClickTarget::Kind::Place))
+            {
+                BuildSidebarContextMenu(*app, x, y, *place);
+                return 0;
+            }
+
             // Aprire il menu su una riga non selezionata sposta prima la
             // selezione li': il menu descrive cio' su cui si e' cliccato, non
             // quello che era selezionato prima.
@@ -2817,6 +2744,19 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
                 const float x = static_cast<float>(GET_X_LPARAM(lparam));
                 const float y = static_cast<float>(GET_Y_LPARAM(lparam));
 
+                // Il pannello su cui si e' cliccato prende il fuoco: e' l'unica cosa
+                // che `InactivePanelContentOpacity` deve sapere, e la si aggiorna qui
+                // perche' qui si sa **dove** si e' cliccato.
+                {
+                    const Layout probe = ComputeLayout(*app);
+                    if (probe.sidebar.Contains(x, y))
+                        app->focusArea = AppState::FocusArea::Sidebar;
+                    else if (probe.inspector.Contains(x, y))
+                        app->focusArea = AppState::FocusArea::Inspector;
+                    else if (probe.list.Contains(x, y))
+                        app->focusArea = AppState::FocusArea::List;
+                }
+
                 // L'operazione in corso e' modale come un menu: prende il puntatore
                 // prima di tutto il resto. Un clic fuori dal pannello non fa niente:
                 // chiudere con un clic sarebbe un annullamento per sbaglio, ed e'
@@ -3069,8 +3009,18 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
                 }
                 else if (HitTest(*app, x, y, ClickTarget::Kind::GroupMode) != nullptr)
                 {
-                    app->groupMode = static_cast<GroupMode>((static_cast<int>(app->groupMode) + 1) % 6);
-                    app->viewDirty = true;
+                    // La Home ha tre bande e non si raggruppa: il controllo lo
+                    // dice, invece di ciclare un valore che la lista non legge.
+                    if (IsHome(app->directory))
+                    {
+                        ReportStatus(*app, TrW(L"La Home raggruppa per banda",
+                                               L"Home groups by band"));
+                    }
+                    else
+                    {
+                        app->groupMode = static_cast<GroupMode>((static_cast<int>(app->groupMode) + 1) % 6);
+                        app->viewDirty = true;
+                    }
                 }
                 else if (const ClickTarget* header = HitTest(*app, x, y, ClickTarget::Kind::Column))
                 {
@@ -3366,8 +3316,27 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
                         case VK_RETURN: CommitRename(*app); break;
                         case VK_ESCAPE: CancelRename(*app); break;
                         case VK_BACK:
-                            if (!app->renameText.empty())
-                                app->renameText.pop_back();
+                            // Con una selezione, `Backspace` la cancella tutta: e' il
+                            // gesto che ci si aspetta da un campo di testo, e qui la
+                            // selezione e' l'unica cosa che si puo' cancellare in blocco.
+                            if (app->renameSelectEnd > 0)
+                            {
+                                app->renameText.erase(0, app->renameSelectEnd);
+                                app->renameSelectEnd = 0;
+                                app->renameCaret     = 0;
+                            }
+                            else if (app->renameCaret > 0)
+                            {
+                                // Indietro di **un carattere**, non di un byte: un
+                                // nome con un accento occupa due byte, e cancellarne
+                                // uno solo lascerebbe un mezzo carattere nel nome.
+                                size_t from = app->renameCaret - 1;
+                                while (from > 0 &&
+                                       (static_cast<unsigned char>(app->renameText[from]) & 0xC0) == 0x80)
+                                    --from;
+                                app->renameText.erase(from, app->renameCaret - from);
+                                app->renameCaret = from;
+                            }
                             break;
                         default:
                             break;
@@ -3402,6 +3371,15 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
                         // Escape unwinds the filter and stops there. Closing the
                         // window is the ✕ button or Alt+F4: an application that
                         // exits on a bare Escape is a trap, and this one did.
+                        //
+                        // Prima del filtro c'e' l'aggiornamento: se e' in corso, Esc
+                        // e' l'unica cosa che lo puo' fermare.
+                        if (app->updateJob != nullptr && app->updateJob->Running())
+                        {
+                            app->updateJob->Cancel();
+                            ReportStatus(*app, TrW(L"Annullamento...", L"Cancelling..."));
+                            break;
+                        }
                         if (!app->filter.empty() || app->filterActive)
                         {
                             app->filter.clear();
@@ -3498,8 +3476,16 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
                         if ((GetKeyState(VK_CONTROL) & 0x8000) != 0 &&
                             (GetKeyState(VK_SHIFT) & 0x8000) != 0)
                         {
-                            app->groupMode = static_cast<GroupMode>((static_cast<int>(app->groupMode) + 1) % 6);
-                            app->viewDirty = true;
+                            if (IsHome(app->directory))
+                            {
+                                ReportStatus(*app, TrW(L"La Home raggruppa per banda",
+                                                       L"Home groups by band"));
+                            }
+                            else
+                            {
+                                app->groupMode = static_cast<GroupMode>((static_cast<int>(app->groupMode) + 1) % 6);
+                                app->viewDirty = true;
+                            }
                         }
                         break;
                     default:
@@ -3538,11 +3524,26 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
                 {
                     if (app->renameActive)
                     {
-                        // I caratteri non validi in un nome di file li rifiuta
-                        // IFileOperation con un messaggio: meglio non anticiparli,
-                        // cosi' l'errore lo spiega il sistema.
+                        // Il primo carattere **sostituisce** la selezione (il nome
+                        // senza estensione): e' quello che rende `F2` + scrivere una
+                        // rinomina e non un'aggiunta. I caratteri non validi in un nome
+                        // di file li rifiuta `IFileOperation` con un messaggio: meglio
+                        // non anticiparli, cosi' l'errore lo spiega il sistema.
                         const std::wstring wide(1, character);
-                        app->renameText += ToUtf8(wide);
+                        const std::string  utf8 = ToUtf8(wide);
+                        if (app->renameSelectEnd > 0)
+                        {
+                            // La selezione e' un **prefisso**: si sostituisce lei, e
+                            // quello che segue (l'estensione) resta dov'e'.
+                            app->renameText = utf8 + app->renameText.substr(app->renameSelectEnd);
+                            app->renameSelectEnd = 0;
+                            app->renameCaret     = utf8.size();
+                        }
+                        else
+                        {
+                            app->renameText.insert(app->renameCaret, utf8);
+                            app->renameCaret += utf8.size();
+                        }
                     }
                     else if (app->optionEditActive)
                     {
@@ -3805,6 +3806,23 @@ void CloseKeyMap(AppState& app)
     app.keyCaptureCommand = -1;
 }
 
+// L'aggiornamento e' un comando esplicito: qui si fa partire e non si aspetta. Il
+// lavoro sta su un thread (`update.*`) e la barra di stato lo racconta; l'esito lo
+// legge `FinishUpdate`, quando il ciclo principale vede che ha finito.
+void CheckForUpdates(AppState& app)
+{
+    if (app.updateJob != nullptr)
+    {
+        ReportStatus(app, TrW(L"C'e' gia' un controllo degli aggiornamenti in corso.",
+                              L"An update check is already running."));
+        return;
+    }
+
+    app.updateJob = Update::Job::Start();
+    DiagLog("--- aggiornamenti: controllo chiesto dall'utente");
+    ReportStatus(app, TrW(L"Controllo gli aggiornamenti...", L"Checking for updates..."));
+}
+
 void BuildKeyMapMenu(AppState& app, int selectCommand)
 {
     std::vector<GroupMenuItem> items;
@@ -3901,41 +3919,6 @@ Layout ComputeLayout(const AppState& app)
     return layout;
 }
 
-void ActivateSelection(AppState& app)
-{
-    const int cursorIndex = CursorIndex(app);
-    if (cursorIndex < 0)
-        return;
-
-    const Entry& entry = app.entries[static_cast<size_t>(cursorIndex)];
-    const std::wstring full = EntryLocation(app, entry);
-    if (entry.isDirectory && entry.navigable)
-    {
-        LoadDirectory(app, full);
-    }
-    else if (entry.isDirectory)
-    {
-        // Dentro il cestino il nome di una cartella e' il percorso del file
-        // riciclato: aprirlo mostrerebbe il blob, non quello che si vede. Li' una
-        // cartella si ripristina.
-        ReportStatus(app, L"\"" + entry.wideName +
-                              TrW(L"\" non si apre da qui: si ripristina.",
-                                  L"\" does not open from here: restore it."));
-    }
-    else if (!entry.location.empty())
-    {
-        // Un file dentro il cestino non si apre: si ripristina o si elimina, e
-        // quei comandi sono del menu contestuale della shell. Dirlo e' meglio che
-        // far finta di averlo aperto.
-        ReportStatus(app, L"\"" + entry.wideName +
-                              TrW(L"\" non si apre da qui: usa il menu contestuale.",
-                                  L"\" does not open from here: use the context menu."));
-    }
-    else
-    {
-        ShellExecuteW(nullptr, L"open", full.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
-    }
-}
 
 // --- l'anteprima di quello che c'e' dentro una cartella ----------------------
 
@@ -3975,7 +3958,8 @@ void OpenPropertiesPanel(AppState& app)
             {
                 ++folders;
                 DirStats stats;
-                if (app.stats.TryGet(JoinPath(app.directory, item.wideName), &stats))
+                if (item.location.empty() &&
+                    app.stats.TryGet(JoinPath(app.directory, item.wideName), &stats))
                     totalBytes += stats.logicalBytes;
             }
             else
@@ -4022,288 +4006,233 @@ void OpenPropertiesPanel(AppState& app)
     app.propertiesOpen = true;
 }
 
-// Crea una voce nuova dal modello |index| del registro, col meccanismo del
-// sistema: il nome definitivo lo sceglie la shell ("Nuovo documento di testo.txt",
-// e "(2)" se esiste gia'), il contenuto lo mette `FillNewItemContent`.
-void CreateNewItem(AppState& app, size_t index)
+
+// --- le superfici che un comando apre ---------------------------------------
+//
+// Sono **superfici**, non comandi: costruiscono un menu (o il pannello
+// dell'operazione) e lo consegnano all'input. Vivono qui perche' il modulo
+// che dovrebbe averle (`view_palette.*`, `view_goto.*`, `view_pins.*`,
+// `view_operation.*`) non c'e' ancora, e un comando deve poterle chiamare:
+// interno e irraggiungibile sarebbe stato peggio.
+
+void ToggleBookmark(AppState& app)
 {
-    const std::vector<ShellNew::Template>& templates = ShellNew::Templates();
-    if (index >= templates.size())
+    if (app.directory.empty())
         return;
-
-    const std::wstring wanted = templates[index].suggestedName;
-    const float scroll = app.scroll;
-    std::vector<std::wstring> created;
-    std::wstring error;
-    const FileOps::Result result =
-        FileOps::NewItem(app.window, app.directory, wanted, &created, &error);
-
-    if (result != FileOps::Result::Ok)
-    {
-        if (result == FileOps::Result::Failed)
-            ReportStatus(app, TrW(L"File non creato: ", L"File not created: ") + error);
-        return;
-    }
-
-    const std::wstring path = created.empty() ? JoinPath(app.directory, wanted)
-                                              : created.front();
-    FillNewItemContent(app, templates[index], path);
-
-    const std::wstring name = LeafName(path);
-    std::unordered_set<std::wstring> keep;
-    keep.insert(name);
-    ReloadKeeping(app, keep, name, scroll);
-
-    // Creare e rinominare sono un'azione sola, come per la cartella: chi crea
-    // vuole dare un nome, non guardare un altro "Nuovo documento di testo".
-    BeginRename(app);
+    const auto found = std::find(app.bookmarks.begin(), app.bookmarks.end(), app.directory);
+    if (found != app.bookmarks.end())
+        app.bookmarks.erase(found);
+    else
+        app.bookmarks.push_back(app.directory);
 }
-
-void RunCommand(AppState& app, int command)
+// Il pannello delle destinazioni: due righe, e la riga che **vale** porta la ragione
+// accanto al nome invece di essere disegnata spenta. Il componente dei menu non sa
+// disegnare una riga spenta — lo sa solo il pannello delle opzioni — e per due righe
+// non vale la pena darglielo: la riga si puo' scegliere lo stesso, e sceglierla **lo
+// dice**. Un elenco di due righe non ha bisogno di un meccanismo in piu' per dire
+// "questa non si tocca".
+void BuildPinMenu(AppState& app, bool removing)
 {
-    const int cursorIndex = CursorIndex(app);
+    // Su quale percorso si sta lavorando: quello del menu contestuale se c'e' (una
+    // riga della barra laterale), altrimenti la cartella aperta. Il pannello lo
+    // ricorda perche' la scelta arriva dopo, quando il menu e' gia' chiuso.
+    const std::wstring& path =
+        app.contextTargetPath.empty() ? app.directory : app.contextTargetPath;
+    app.pinMenuTarget = path;
+    // Applicabile vuol dire: "questa destinazione **cambierebbe**". Fissare vuol dire
+    // "se non c'e' gia'", togliere vuol dire "se c'e'": la stessa domanda, e il verso
+    // lo dice `removing`.
+    const auto applicable = [&](PinTarget target) { return PinnedIn(app, target, path) == removing; };
 
-    switch (static_cast<CommandId>(command))
+    // Un pannello su cui non si puo' agire non si apre: quando non c'e' niente da
+    // fare — la cartella e' gia' dappertutto, o non e' fissata da nessuna parte —
+    // l'esito si legge nella barra di stato, che e' dove finisce ogni azione.
+    if (path.empty())
+        return;
+    if (!applicable(PinTarget::QuickAccess) && !applicable(PinTarget::Bookmarks))
     {
-        case CmdNewTab:  NewTab(app, app.directory.empty() ? L"C:\\" : app.directory); break;
-        case CmdCloseTab: CloseTab(app, app.activeTab); break;
-        case CmdNextTab:
-            if (app.tabs.size() > 1) ActivateTab(app, (app.activeTab + 1) % static_cast<int>(app.tabs.size()));
-            break;
-        case CmdPrevTab:
-            if (app.tabs.size() > 1)
-            {
-                const int count = static_cast<int>(app.tabs.size());
-                ActivateTab(app, (app.activeTab + count - 1) % count);
-            }
-            break;
-
-        // In una cartella dello spazio dei nomi il genitore lo sa la shell: sopra
-        // il cestino c'e' il desktop, e `ParentOf` su "::{...}" non troverebbe
-        // niente da tagliare.
-        //
-        // Da una **radice di volume** invece `ParentOf` non sale: `C:\` e' padre di
-        // se stesso, e salire da li' non faceva niente. Sopra un disco c'e' "This
-        // PC", che e' una cartella di spazio dei nomi: la stessa lista di unita'
-        // della barra laterale, raggiungibile col gesto che ci si aspetta.
-        case CmdGoUp:
-            if (ShellLocation::IsNamespace(app.directory))
-            {
-                const std::wstring up = ShellLocation::ParentOf(app.directory);
-                if (!up.empty())
-                    LoadDirectory(app, up);
-            }
-            else
-            {
-                const std::wstring up = ParentOf(app.directory);
-                if (up != app.directory)
-                    LoadDirectory(app, up);
-                else if (!app.thisPcPath.empty() && app.directory != app.thisPcPath)
-                    LoadDirectory(app, app.thisPcPath);
-            }
-            break;
-        case CmdBack:      NavigateBack(app); break;
-        case CmdForward:   NavigateForward(app); break;
-        case CmdGoTo:      BuildGoToMenu(app); break;
-        case CmdPalette:   BuildPaletteMenu(app); break;
-        case CmdRefresh:   app.stats.ClearAll(); LoadDirectory(app, app.directory); break;
-        case CmdRecalcStats: app.stats.ClearAll(); break;
-
-        case CmdCopy:      DoCopyToClipboard(app, /*cut=*/false); break;
-        case CmdCut:       DoCopyToClipboard(app, /*cut=*/true); break;
-        case CmdPaste:     DoPaste(app); break;
-        case CmdRename:    BeginRename(app); break;
-        case CmdNewFolder: DoNewFolder(app); break;
-        case CmdDelete:          DoDelete(app, /*permanently=*/false); break;
-        case CmdDeletePermanent: DoDelete(app, /*permanently=*/true); break;
-
-        case CmdOpenExplorer:
-            // Dentro una cartella dello spazio dei nomi `/select` non vale, e non
-            // serve: si apre la cartella stessa, che e' quello che si vede.
-            if (ShellLocation::IsNamespace(app.directory))
-            {
-                ShellExecuteW(nullptr, L"open", L"explorer.exe", app.directory.c_str(), nullptr,
-                              SW_SHOWNORMAL);
-            }
-            else if (cursorIndex >= 0)
-            {
-                const std::wstring full = JoinPath(app.directory, app.entries[static_cast<size_t>(cursorIndex)].wideName);
-                const std::wstring arguments = L"/select,\"" + full + L"\"";
-                ShellExecuteW(nullptr, L"open", L"explorer.exe", arguments.c_str(), nullptr, SW_SHOWNORMAL);
-            }
-            else
-            {
-                ShellExecuteW(nullptr, L"open", L"explorer.exe", app.directory.c_str(), nullptr, SW_SHOWNORMAL);
-            }
-            break;
-
-        case CmdOpenConsole:
-            ShellExecuteW(nullptr, L"open", L"cmd.exe", nullptr, app.directory.c_str(), SW_SHOWNORMAL);
-            break;
-
-        case CmdToggleSidebar:
-            app.sidebarVisible = !app.sidebarVisible;
-            RememberSettings(app);
-            break;
-        // Una preferenza si cambia e si **ricorda**: e' quello che l'autore ha
-        // chiesto per la lingua, e vale per tutte quelle che si scelgono qui.
-        case CmdToggleHoverToSelect:    app.hoverToSelect    = !app.hoverToSelect;    RememberSettings(app); break;
-        case CmdToggleUnderlineOnHover: app.underlineOnHover = !app.underlineOnHover; RememberSettings(app); break;
-        case CmdToggleTooltips:         app.showTooltips     = !app.showTooltips;     RememberSettings(app); break;
-        case CmdSingleClick:            app.singleClick            = !app.singleClick;            RememberSettings(app); break;
-        case CmdSingleClickFoldersOnly: app.singleClickFoldersOnly = !app.singleClickFoldersOnly; RememberSettings(app); break;
-        case CmdActOnPress:             app.actOnPress             = !app.actOnPress;             RememberSettings(app); break;
-        case CmdDoubleClickToParent:    app.doubleClickToParent    = !app.doubleClickToParent;    RememberSettings(app); break;
-        case CmdShowCheckboxes:         app.showCheckboxes         = !app.showCheckboxes;         RememberSettings(app); break;
-        case CmdLanguageItalian:
-            gLanguage = Language::Italian;
-            RememberSettings(app);
-            ReportStatus(app, TrW(L"Impostazioni salvate in ", L"Settings saved to ") + SettingsPath());
-            break;
-        case CmdLanguageEnglish:
-            gLanguage = Language::English;
-            RememberSettings(app);
-            ReportStatus(app, TrW(L"Impostazioni salvate in ", L"Settings saved to ") + SettingsPath());
-            break;
-        case CmdShowSettingsPath:
-            ReportStatus(app, SettingsPath().empty()
-                                 ? TrW(L"Impostazioni non disponibili", L"Settings unavailable")
-                                 : TrW(L"Impostazioni in ", L"Settings in ") + SettingsPath());
-            break;
-        // Le tre dell'aspetto, che sono anche le tre chiavi dello spec. Sono la via
-        // rapida per cambiare tavolozza: dal pannello delle opzioni servono tre passaggi
-        // — aprire, cercare, scegliere — e qui uno.
-        case CmdColorSchemeLight:
-            SetColorScheme(app, ColorScheme::Light);
-            ReportStatus(app, TrW(L"Tema: chiaro", L"Theme: light"));
-            break;
-        case CmdColorSchemeDark:
-            SetColorScheme(app, ColorScheme::Dark);
-            ReportStatus(app, TrW(L"Tema: scuro", L"Theme: dark"));
-            break;
-        case CmdSystemColorScheme:
-            app.systemColorScheme = !app.systemColorScheme;
-            ApplyTheme(app);
-            RememberSettings(app);
-            ReportStatus(app, app.systemColorScheme
-                                 ? TrW(L"Tema: segue il sistema", L"Theme: follows the system")
-                                 : TrW(L"Tema: scelto a mano", L"Theme: chosen by hand"));
-            break;
-        case CmdOpenOptions:
-            BuildOptionsMenu(app);
-            break;
-        case CmdEditKeyMap:
-            BuildKeyMapMenu(app);
-            break;
-        case CmdPinTo:   BuildPinMenu(app, /*removing=*/false); break;
-        case CmdUnpin:   BuildPinMenu(app, /*removing=*/true);  break;
-        case CmdProperties:
-            OpenPropertiesPanel(app);
-            break;
-        case CmdPropertiesWindows:
-        {
-            const std::vector<std::wstring> paths = SelectedPaths(app);
-            if (paths.empty() || ShowProperties(app.window, paths) == 0)
-                ReportStatus(app, TrW(L"Proprietà non disponibili per la selezione.",
-                                      L"Properties unavailable for the selection."));
-            break;
-        }
-        case CmdCloseInTree:
-            CloseTabTree(app, app.tabs[static_cast<size_t>(app.activeTab)].id, /*wholeTree=*/false);
-            break;
-        case CmdCloseAllInTree:
-            CloseTabTree(app, app.tabs[static_cast<size_t>(app.activeTab)].id, /*wholeTree=*/true);
-            break;
-        case CmdDetachTab:
-        {
-            // "Stacca" riporta il tab alla radice: e' l'unico modo di disfare un
-            // annidamento senza cercarne un altro con il mouse.
-            Tab& tab = app.tabs[static_cast<size_t>(app.activeTab)];
-            tab.parentId = -1;
-            break;
-        }
-        case CmdZoomIn:    app.zoom = (std::min)(2.0f, app.zoom + 0.1f); break;
-
-        // Le quattro opzioni del visualizzatore. Cambiano il disegno del testo, non
-        // la lista: la riga da rifare e' quella delle righe visibili, e si rifa' da
-        // sola perche' il calcolo si accorge che l'andare a capo e' cambiato.
-        case CmdTextWhitespace:  app.textShowWhitespace = !app.textShowWhitespace; break;
-        case CmdTextLineNumbers: app.textLineNumbers = !app.textLineNumbers; break;
-        case CmdTextMinimap:     app.textMinimap = !app.textMinimap; break;
-        case CmdTextWrap:
-            app.textWrap = !app.textWrap;
-            app.textRowsDirty = true;
-            break;
-        case CmdTextZoomIn:
-            app.textZoom = (std::min)(2.4f, app.textZoom + 0.15f);
-            app.textRowsDirty = true;
-            break;
-        case CmdTextZoomOut:
-            app.textZoom = (std::max)(0.6f, app.textZoom - 0.15f);
-            app.textRowsDirty = true;
-            break;
-
-        // L'ingrandimento dell'anteprima e' **relativo all'adattamento**: il
-        // decoder la ridimensiona a 1024 px al massimo, quindi "1:1 rispetto
-        // all'originale" non e' una cosa che si possa promettere.
-        case CmdImageZoomIn:  app.imageZoom = (std::min)(4.0f, app.imageZoom + 0.25f); break;
-        case CmdImageZoomOut: app.imageZoom = (std::max)(0.25f, app.imageZoom - 0.25f); break;
-        case CmdImageZoomFit: app.imageZoom = 1.0f; break;
-        // La griglia dietro l'anteprima dell'immagine: si vede dove finisce lo sfondo
-        // dell'immagine e comincia quello del pannello. Si ricorda, come le altre
-        // preferenze.
-        case CmdToggleImageGrid:
-            app.inspectorHideGrid = !app.inspectorHideGrid;
-            RememberSettings(app);
-            break;
-        case CmdZoomOut:   app.zoom = (std::max)(0.6f, app.zoom - 0.1f); break;
-        case CmdZoomReset: app.zoom = app.dpiScale; break;
-        case CmdToggleDetails: app.palette.detailed = !app.palette.detailed; break;
-        // Cambiando vista le celle si spostano, e l'indice della riga sotto il
-        // puntatore non vuol piu' dire niente: il sovrappasso si azzera e lo
-        // ricalcola il prossimo movimento. Senza, il suggerimento resta appeso a
-        // una voce che non e' piu' quella sotto il mouse.
-        case CmdViewDetails: SetViewMode(app, ViewMode::Details); break;
-        case CmdViewList:    SetViewMode(app, ViewMode::List);    break;
-        case CmdViewTiles:   SetViewMode(app, ViewMode::Tiles);   break;
-        case CmdViewIcons:   SetViewMode(app, ViewMode::Icons);   break;
-        case CmdToggleBookmark: ToggleBookmark(app); break;
-        case CmdClearBookmarks: app.bookmarks.clear(); break;
-        case CmdClearRecents:   app.recents.clear(); break;
-
-        case CmdSortName:     app.sortColumn = SortColumn::Name;     SortEntries(app); app.viewDirty = true; break;
-        case CmdSortType:     app.sortColumn = SortColumn::Type;     SortEntries(app); app.viewDirty = true; break;
-        case CmdSortModified: app.sortColumn = SortColumn::Modified; SortEntries(app); app.viewDirty = true; break;
-        case CmdSortFolders:  app.sortColumn = SortColumn::Folders;  SortEntries(app); app.viewDirty = true; break;
-        case CmdSortFiles:    app.sortColumn = SortColumn::Files;    SortEntries(app); app.viewDirty = true; break;
-        case CmdSortSize:     app.sortColumn = SortColumn::Size;     SortEntries(app); app.viewDirty = true; break;
-        case CmdSortDirection: app.sortAscending = !app.sortAscending; SortEntries(app); app.viewDirty = true; break;
-
-        case CmdGroupNone:   app.groupMode = GroupMode::None;   app.viewDirty = true; break;
-        case CmdGroupName:   app.groupMode = GroupMode::Name;   app.viewDirty = true; break;
-        case CmdGroupDate:   app.groupMode = GroupMode::Date;   app.viewDirty = true; break;
-        case CmdGroupSize:   app.groupMode = GroupMode::Size;   app.viewDirty = true; break;
-        case CmdGroupCount:  app.groupMode = GroupMode::Count;  app.viewDirty = true; break;
-        case CmdGroupVolume: app.groupMode = GroupMode::Volume; app.viewDirty = true; break;
-
-        case CmdFocusFilter: app.filterActive = true; break;
-        case CmdClearFilter:
-            app.filter.clear();
-            app.filterActive = false;
-            app.viewDirty = true;
-            break;
-
-        case CmdScrollTop:
-            app.scroll = 0.0f;
-            break;
-        case CmdScrollBottom:
-        {
-            const Layout layout = ComputeLayout(app);
-            const float content = static_cast<float>(app.rows.size()) * layout.rowHeight;
-            app.scroll = (std::max)(0.0f, content - layout.list.h);
-            break;
-        }
+        ReportStatus(app, removing
+                              ? TrW(L"Questa cartella non e' fissata da nessuna parte",
+                                    L"This folder is not pinned anywhere")
+                              : TrW(L"Questa cartella e' gia' fissata in tutte le sezioni",
+                                    L"This folder is already pinned in every section"));
+        return;
     }
+
+    const char* note = removing ? Tr(" (non e' fissata qui)", " (not pinned here)")
+                                : Tr(" (e' gia' fissata qui)", " (already pinned here)");
+
+    std::vector<GroupMenuItem> items;
+    items.reserve(kPinTargetCount);
+    for (int i = 0; i < kPinTargetCount; ++i)
+    {
+        const PinTarget target = PinTargetAt(i);
+        GroupMenuItem item;
+        item.label = std::string(PinTargetLabel(target)) + (applicable(target) ? "" : note);
+        item.id    = i;
+        items.push_back(std::move(item));
+    }
+
+    app.pinMenuRemoving = removing;
+    CloseKeyMap(app);
+    ClosePinMenu(app);
+    app.palette.open       = false;
+    app.goTo.open          = false;
+    app.options.open       = false;
+    app.optionsChoice.open = false;
+    app.columnMenu.open    = false;
+    // Il menu contestuale e' modale lui pure, e nell'ordine dell'input viene **prima**
+    // dei menu: se restasse aperto sotto, il pannello non riceverebbe ne' clic ne'
+    // tasti. Si chiude, e le due voci si scelgono qui.
+    ContextMenuClose(app);
+
+    GroupMenuOpen(app.pinMenu, removing ? Tr("TOGLI DA", "UNPIN FROM") : Tr("FISSA IN", "PIN TO"),
+                  Tr("Dove?", "Where?"), std::move(items));
+    app.pinMenu.hint = removing ? Tr("Invio toglie   Esc chiude", "Enter unpins   Esc closes")
+                                : Tr("Invio fissa   Esc chiude", "Enter pins   Esc closes");
+}
+// --- building the two menus -------------------------------------------------
+void BuildPaletteMenu(AppState& app)
+{
+    // Un comando scelto dalla palette non ha una riga sotto il puntatore: agisce
+    // sulla cartella aperta, e il bersaglio del menu contestuale di prima non vale
+    // piu'.
+    app.contextTargetPath.clear();
+    app.contextTargetLabel.clear();
+    std::vector<GroupMenuItem> items;
+    for (const CommandDef& command : kCommandTable)
+    {
+        // L'etichetta della tabella e' quella inglese, che e' anche il nome della
+        // chiave; in italiano la da' `CommandLabelIt`, e se non c'e' resta quella.
+        // In inglese vale l'etichetta della tabella; in italiano la traduzione, se
+        // c'e'. Il ripiego e' sempre la tabella: una traduzione mancante lascia la
+        // parola in inglese invece di lasciare il vuoto.
+        std::string label = CommandLabel(command);
+        // The one command whose wording depends on state. The table stays data.
+        if (command.id == CmdToggleBookmark && IsBookmarked(app))
+            label = Tr("Togli questo posto dai segnalibri", "Remove bookmark from this folder");
+        items.push_back(GroupMenuItem{command.group, label, "", command.id});
+    }
+
+    // Locations are data, not code: one entry per known folder, so the palette
+    // covers the sidebar without a command being declared for each.
+    for (int i = 0; i < static_cast<int>(app.places.size()); ++i)
+    {
+        items.push_back(GroupMenuItem{"Places", app.places[static_cast<size_t>(i)].label, "",
+                                      kPalettePlaceBase + i});
+    }
+
+    CloseKeyMap(app);
+    ClosePinMenu(app);
+    app.goTo.open = false;   // one menu at a time
+    app.options.open = false;
+    GroupMenuOpen(app.palette, Tr("PALETTE DEI COMANDI", "COMMAND PALETTE"),
+                  Tr("Scrivi per filtrare i comandi...", "Type to filter commands..."),
+                  std::move(items));
+    // La riga in fondo dice i tasti **della mappa**, non due stringhe scritte a
+    // mano: se il tasto cambia, cambia quello che si legge. Prima erano lettere
+    // dentro una frase, ed erano l'ultimo posto in cui una scorciatoia viveva per
+    // conto suo.
+    // Col dettaglio acceso il gruppo fa da dettaglio, che e' quello che la palette
+    // mostra da sempre: il flag dice a chi disegna che li' il ripiego e' voluto.
+    app.palette.detailFallsBackToGroup = true;
+    app.palette.hint = std::string(Tr("Invio esegue   Esc chiude   ", "Enter runs   Esc closes   ")) +
+                       app.keys.LabelFor(CmdPalette) + std::string(Tr(" apre e chiude   ", " toggles   ")) +
+                       app.keys.LabelFor(CmdOpenOptions) + std::string(Tr(" opzioni", " options"));
+}
+void BuildGoToMenu(AppState& app)
+{
+    std::vector<GroupMenuItem> items;
+    app.goToTargets.clear();
+    app.goToCommands.clear();
+
+    const auto add = [&items, &app](const char* group, const std::wstring& path, const std::string& label)
+    {
+        const int id = static_cast<int>(app.goToTargets.size());
+        items.push_back(GroupMenuItem{group, label, ToUtf8(path), id});
+        app.goToTargets.push_back(path);
+        app.goToCommands.push_back(-1);   // -1: la voce porta a un percorso
+    };
+
+    // The path itself, deepest last: the breadcrumb, reachable from the keyboard.
+    if (!app.directory.empty())
+    {
+        std::vector<std::wstring> ancestors;
+        std::wstring current = app.directory;
+        for (;;)
+        {
+            ancestors.push_back(current);
+            const std::wstring parent = ParentOf(current);
+            if (parent == current)
+                break;
+            current = parent;
+        }
+        for (auto it = ancestors.rbegin(); it != ancestors.rend(); ++it)
+            add("Path", *it, ToUtf8(LeafName(*it)));
+    }
+
+    // I **fissaggi nostri** (`Fissa in...`), che nella barra laterale stanno in cima
+    // all'accesso rapido: senza questa banda una cartella fissata non si raggiunge
+    // dal GoTo, che e' il posto dove si va a cercare una destinazione per nome.
+    // Le voci della **shell** (Desktop, Download...) non si ripetono qui: sono un
+    // elenco fisso che si legge gia' nella barra laterale, e ripeterlo raddoppia il
+    // gruppo senza aggiungere niente da cercare.
+    for (const std::wstring& path : app.pins)
+        add("QuickAccess", path, ToUtf8(LeafName(path)));
+
+    for (const Place& place : app.places)
+        add("Places", place.path, place.label);
+
+    for (const std::wstring& path : app.bookmarks)
+        add("Bookmarks", path, ToUtf8(LeafName(path)));
+
+    for (const RecentEntry& entry : app.recents.Ranked())
+        add("Recents", entry.path, ToUtf8(LeafName(entry.path)));
+
+    // Le due voci che il riferimento ha in fondo al gruppo dei recenti
+    // (`GotoGroupOption_ShowAllRecents`, `GotoGroupOption_RecentsClear`).
+    //
+    // «Mostra tutti i recenti» **non c'e'**, e non per dimenticanza: nel riferimento
+    // serve perche' il gruppo ne mostra solo una parte. Qui ci sono gia' tutti, e un
+    // comando che non cambia niente e' peggio di un comando assente (`AGENTS.md` §6).
+    // «Cancella i recenti» invece fa esattamente quel che dice.
+    if (!app.recents.Ranked().empty())
+    {
+        const int id = static_cast<int>(app.goToTargets.size());
+        items.push_back(GroupMenuItem{"Recents", std::string(Tr("Cancella i recenti", "Clear recents")),
+                                      std::string(), id});
+        app.goToTargets.push_back(std::wstring());
+        app.goToCommands.push_back(CmdClearRecents);
+    }
+
+    CloseKeyMap(app);
+    ClosePinMenu(app);
+    app.palette.open = false;
+    app.options.open = false;
+    GroupMenuOpen(app.goTo, Tr("VAI A", "GO TO"),
+                  Tr("Scrivi per filtrare le cartelle...", "Type to filter locations..."),
+                  std::move(items));
+    app.goTo.detailed = true;   // a location without its path is not much use
+    app.goTo.hint = std::string(Tr("Invio va   Esc chiude   ", "Enter goes   Esc closes   ")) +
+                    app.keys.LabelFor(CmdGoTo) + std::string(Tr(" apre e chiude", " toggles"));
+}
+// Un'operazione lunga si avvia sempre da qui: cosi' la sorgente e l'ora non si
+// possono dimenticare in uno dei tre posti che la chiamano. Restituisce falso se
+// un'operazione e' gia' in corso: la seconda sostituirebbe la prima, e sostituirla
+// vuol dire annullarla **senza dirlo**.
+bool BeginOperation(AppState& app, std::unique_ptr<FileOps::Job> job, OperationSource source)
+{
+    if (app.operation != nullptr)
+    {
+        ReportStatus(app, TrW(L"C'e' gia' un'operazione in corso.",
+                              L"An operation is already running."));
+        return false;
+    }
+
+    app.operation       = std::move(job);
+    app.operationSource = source;
+    app.operationStart  = NowSeconds();
+    return true;
 }
 } // namespace Bolt
 
@@ -4342,34 +4271,42 @@ DragDrop::Target TargetAt(HWND window, POINT client)
         target.sidebarRow = place->index;
         if (!app->recycleBinPath.empty() && place->path == app->recycleBinPath)
             target.verb = DragDrop::DropVerb::Discard;
-        else if (!ShellLocation::IsNamespace(place->path))
+        else if (!ShellLocation::IsNamespace(place->path) && !IsHome(place->path))
             target.verb = DragDrop::DropVerb::DropInto;
-        // "Questo PC", o un'altra cartella di spazio dei nomi: non si sa dove
-        // mettere i file. Rifiutare e' meglio che promettere e non fare.
+        // "Questo PC", la Home, o un'altra cartella di spazio dei nomi: non si sa
+        // dove mettere i file. Rifiutare e' meglio che promettere e non fare.
         return target;
     }
 
     if (const ClickTarget* row = HitTest(*app, x, y, ClickTarget::Kind::Row))
     {
         const Entry& entry = app->entries[static_cast<size_t>(row->index)];
-        if (!entry.isDirectory)
+        // Il percorso di una riga lo sa `EntryLocation`: sulla Home il nome della
+        // riga e' un'identita', non una coda da attaccare alla cartella aperta.
+        const std::wstring full = EntryLocation(*app, entry);
+        if (entry.isDirectory)
         {
-            // Sopra un file la destinazione e' la cartella che lo contiene, come
-            // in Esplora risorse: li' un file non riceve niente, ma la lista si'.
-            target.path = app->directory;
-            target.verb = DragDrop::DropVerb::DropInto;
+            // Una cartella va aperta per lasciarci qualcosa dentro: la riga mostra
+            // il nome, la destinazione e' il percorso.
+            target.path    = full;
+            target.verb    = DragDrop::DropVerb::DropInto;
+            target.ontoRow = true;
             return target;
         }
-        // Una cartella va aperta per lasciarci qualcosa dentro: la riga mostra il
-        // nome, la destinazione e' il percorso.
-        target.path    = JoinPath(app->directory, entry.wideName);
-        target.verb    = DragDrop::DropVerb::DropInto;
-        target.ontoRow = true;
+        // Sopra un file la destinazione e' la cartella che lo contiene, come in
+        // Esplora risorse: li' un file non riceve niente, ma la lista si'. Sulla
+        // Home non ci sono file, e se ci fossero la cartella aperta non e' un
+        // percorso: si rifiuta.
+        if (!IsHome(app->directory))
+        {
+            target.path = app->directory;
+            target.verb = DragDrop::DropVerb::DropInto;
+        }
         return target;
     }
 
     const Layout layout = ComputeLayout(*app);
-    if (layout.list.Contains(x, y))
+    if (layout.list.Contains(x, y) && !IsHome(app->directory))
     {
         target.path = app->directory;
         target.verb = DragDrop::DropVerb::DropInto;
@@ -4437,22 +4374,18 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, LPWSTR, int)
 
     // Optional starting directory, the same convenience `explorer` offers:
     //   Bolt.exe D:\some\folder
-    std::wstring startDirectory;
+    // L'argomento si **ricorda** e basta: se e' una cartella lo si chiede dopo
+    // `LoadSettings`, perche' la risposta dipende da `LongPathsSupport` — e
+    // `GetFileAttributesW` su un percorso oltre i 260 caratteri fallisce finche' il
+    // prefisso non c'e', quindi chiederlo qui vorrebbe dire rifiutare l'argomento
+    // prima di sapere se l'opzione e' accesa.
+    std::wstring startArgument;
     {
         int argumentCount = 0;
         if (LPWSTR* arguments = CommandLineToArgvW(GetCommandLineW(), &argumentCount))
         {
             if (argumentCount > 1)
-            {
-                const DWORD attributes = GetFileAttributesW(arguments[1]);
-                if (attributes != INVALID_FILE_ATTRIBUTES && (attributes & FILE_ATTRIBUTE_DIRECTORY) != 0)
-                    startDirectory = arguments[1];
-                // Un nome di spazio dei nomi non ha attributi da leggere: si
-                // riconosce da come e' scritto, ed e' l'unico modo di aprire Bolt
-                // direttamente sul cestino.
-                else if (ShellLocation::IsNamespace(arguments[1]))
-                    startDirectory = arguments[1];
-            }
+                startArgument = arguments[1];
             LocalFree(arguments);
         }
     }
@@ -4576,7 +4509,12 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, LPWSTR, int)
         }
 
         glRenderer.Attach(window, dc, context);
-        if (!glRenderer.Initialize(REA_SHADER_DIR, &error))
+        // Gli shader si cercano **accanto all'eseguibile** (`ShaderDirectory` in
+        // `ui_renderer.cpp`), e solo se li' non ci sono nel percorso di compilazione:
+        // un programma installato non puo' leggere dal disco di chi l'ha costruito.
+        // Qui si passa dalla versione dell'interfaccia, che quella scelta la fa; il
+        // percorso di compilazione non si nomina piu' da fuori.
+        if (!glRenderer.Initialize(&error))
         {
             ShowError(error);
             return 1;
@@ -4672,9 +4610,55 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, LPWSTR, int)
     // DWM. Prima non si poteva, perche' `ApplyTheme` passa dalla finestra per il bordo.
     ApplyTheme(app);
 
+    std::wstring startDirectory;
+    if (!startArgument.empty())
+    {
+        // `IOPath` mette il prefisso solo se l'opzione e' accesa, ed e' l'unico modo
+        // perche' l'argomento di una cartella molto profonda venga accettato.
+        const std::wstring probe = IOPath(startArgument, app.longPaths);
+        const DWORD attributes  = GetFileAttributesW(probe.c_str());
+        if (attributes != INVALID_FILE_ATTRIBUTES && (attributes & FILE_ATTRIBUTE_DIRECTORY) != 0)
+            startDirectory = startArgument;   // si tiene il nome **com'e' stato scritto**
+        // Un nome di spazio dei nomi non ha attributi da leggere: si riconosce da
+        // come e' scritto, ed e' l'unico modo di aprire Bolt sul cestino.
+        else if (ShellLocation::IsNamespace(startArgument))
+            startDirectory = startArgument;
+    }
+
+    // La **pagina di avvio** (`settings.ini`, `startupFolder`): vale solo quando dalla
+    // riga di comando non e' arrivato niente — un percorso chiesto esplicitamente
+    // vince sempre sulla preferenza.
+    if (startDirectory.empty() && !app.startupFolder.empty())
+    {
+        // "Questo PC" si salva come nome di spazio dei nomi: non ha attributi da
+        // leggere, e senza questo caso la preferenza verrebbe scartata come una
+        // cartella sparita.
+        if (ShellLocation::IsNamespace(app.startupFolder))
+        {
+            startDirectory = app.startupFolder;
+        }
+        else
+        {
+            const std::wstring probe = IOPath(app.startupFolder, app.longPaths);
+            const DWORD attributes  = GetFileAttributesW(probe.c_str());
+            if (attributes != INVALID_FILE_ATTRIBUTES && (attributes & FILE_ATTRIBUTE_DIRECTORY) != 0)
+            {
+                startDirectory = app.startupFolder;
+            }
+            else
+            {
+                // Una cartella che non c'e' piu' non si apre, e non si apre in
+                // silenzio: chi l'aveva scelta deve sapere perche' si ritrova
+                // altrove.
+                ReportStatus(app, TrW(L"La cartella di avvio non esiste piu': apro la Home",
+                                      L"The startup folder no longer exists: opening Home"));
+            }
+        }
+    }
+
     const std::wstring initialDirectory = startDirectory.empty()
-        ? (app.places.empty() ? L"C:\\" : app.places[0].path)
-        : startDirectory;
+                                              ? std::wstring(kHomeLocation)
+                                              : startDirectory;
 
     app.tabs.push_back(Tab{});
     app.activeTab = 0;
@@ -4688,7 +4672,8 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, LPWSTR, int)
     // non lo e'.
     if (!app.watcher.Start(window, kDirectoryChanged))
         DiagLog("--- sorveglianza delle cartelle non disponibile");
-    app.watcher.Watch(app.directory);
+    if (!IsHome(app.directory))
+        app.watcher.Watch(app.directory);
 
     // Da qui in poi la finestra accetta file trascinati da fuori. Se il sistema
     // non vuole registrarla lo si dice: un trascinamento che non arriva sembra un
@@ -4749,13 +4734,28 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, LPWSTR, int)
         }
 
         const uint64_t statsRevision = app.stats.Revision();
-        if (app.viewDirty ||
-            (app.groupMode != GroupMode::None && statsRevision != app.viewStatsRevision &&
-             now - app.lastViewRebuild > 0.25))
+        // Solo il caso delle **statistiche**, che e' l'unico che ha bisogno di un
+        // tetto: un gruppo che dipende dai numeri va rifatto mentre i numeri
+        // arrivano, ma non una volta per fotogramma. Tutto il resto — filtro,
+        // ordinamento, raggruppamento, cartella — si rifa' in `RenderFrame`, subito
+        // prima di disegnare, perche' fra questo punto e il disegno c'e'
+        // `FinishOperation` che **cambia l'elenco** (`docs/02` §7.59).
+        if (app.groupMode != GroupMode::None && statsRevision != app.viewStatsRevision &&
+            now - app.lastViewRebuild > 0.25)
         {
             RebuildView(app);
             app.viewStatsRevision = statsRevision;
             app.lastViewRebuild   = now;
+        }
+
+        // Il controllo degli aggiornamenti: mentre gira la barra di stato dice a che
+        // punto e', e quando ha finito l'esito si legge qui, una volta sola.
+        if (app.updateJob != nullptr)
+        {
+            if (app.updateJob->Running())
+                ReportStatus(app, UpdateProgressText(app.updateJob->Progress()));
+            else
+                FinishUpdate(app);
         }
 
         // `HoverToSelect`: fermandosi su una riga la si seleziona, dopo una pausa
@@ -4785,6 +4785,11 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, LPWSTR, int)
     }
 
     SetWindowLongPtrW(window, GWLP_USERDATA, 0);
+
+    // Anche un controllo degli aggiornamenti a meta' si ferma: e' rete, e il thread
+    // che la sta usando non deve sopravvivere alla finestra che lo ha chiesto.
+    if (app.updateJob != nullptr)
+        app.updateJob->Cancel();
 
     // Un'operazione a meta' non si abbandona: il thread tiene lo stato che il pannello
     // sta leggendo, e quello stato non puo' sopravvivere all'applicazione. Si chiede di

@@ -28,6 +28,7 @@ flat in float vSoftness;
 flat in float vDashOn;
 flat in float vDashOff;
 flat in float vFlags;
+flat in vec4  vClip;
 
 smooth in vec2  vUV;
 smooth in float vLayer;
@@ -42,6 +43,16 @@ const float FLAG_TRIANGLE = 4.0;
 const float FLAG_TRIANGLE_DOWN = 8.0;
 const float FLAG_PLUS  = 16.0;
 const float FLAG_CROSS = 32.0;
+
+// I cinque pulsanti di navigazione: erano i caratteri `←` `→` `↑` `↻` `★`, e
+// quattro pesi diversi in una fila di cinque non sono una fila di pulsanti. Adesso
+// sono forme, con lo spessore, la misura e il colore che decidiamo noi, e che non
+// cambiano col carattere scelto (`docs/02` §7.49, §7.50, e il §7.58 per questi).
+const float FLAG_ARROW       = 64.0;
+const float FLAG_ARROW_UP    = 128.0;   // con LEFT forma le quattro direzioni
+const float FLAG_ARROW_LEFT  = 256.0;
+const float FLAG_REFRESH     = 512.0;
+const float FLAG_STAR        = 1024.0;
 
 // Distanza da un segmento con le punte tonde: e' la forma di una barra.
 float segmentDistance(vec2 point, vec2 a, vec2 b, float radius)
@@ -132,6 +143,130 @@ float crossDistance(vec2 point, vec2 halfSize, float thickness)
     return min(backslash, slash);
 }
 
+// Un triangolo pieno, vertici in senso antiorario: la parte (dentro o fuori) e' il
+// massimo delle tre distanze dai lati. Serve **alla punta** dell'aggiorna, che a
+// dodici pixel deve restare una punta e non un grumo: due segmenti li' non si
+// leggono, un triangolo si'.
+float filledTriangle(vec2 point, vec2 a, vec2 b, vec2 c, float rounding)
+{
+    vec2 ab = normalize(vec2(b.y - a.y, -(b.x - a.x)));
+    vec2 bc = normalize(vec2(c.y - b.y, -(c.x - b.x)));
+    vec2 ca = normalize(vec2(a.y - c.y, -(a.x - c.x)));
+
+    float planes = max(max(dot(point - a, ab), dot(point - b, bc)), dot(point - c, ca));
+    if (rounding <= 0.0)
+        return planes;
+
+    float edge = min(min(segmentDistance(point, a, b, 0.0), segmentDistance(point, b, c, 0.0)),
+                     segmentDistance(point, c, a, 0.0));
+    return (planes < 0.0 ? -edge : edge) - rounding;
+}
+
+// Un quadrilatero convesso, vertici in senso antiorario: stessa idea del
+// triangolo, un lato in piu'. Serve alla stella, che e' fatta di cinque aquiloni.
+float quadDistance(vec2 point, vec2 a, vec2 b, vec2 c, vec2 d)
+{
+    vec2 n = normalize(vec2(b.y - a.y, -(b.x - a.x)));
+    float m = dot(point - a, n);
+    n = normalize(vec2(c.y - b.y, -(c.x - b.x)));
+    m = max(m, dot(point - b, n));
+    n = normalize(vec2(d.y - c.y, -(d.x - c.x)));
+    m = max(m, dot(point - c, n));
+    n = normalize(vec2(a.y - d.y, -(a.x - d.x)));
+    return max(m, dot(point - d, n));
+}
+
+// La freccia: **una linea**, non un segnale stradale. Un'asta e una punta a 45°
+// (due segmenti, non un triangolo pieno), tutte allo stesso spessore, con le punte
+// tonde come il resto delle forme. Punta a destra; le altre direzioni si ottengono
+// ruotando il punto, non scrivendo altre tre formule.
+float arrowDistance(vec2 point, vec2 halfSize, float thickness)
+{
+    float r = min(halfSize.x, halfSize.y);
+    float t = max(thickness, 1.0) * 0.5;      // raggio delle punte: meta' spessore
+
+    vec2 tail = vec2(-r + t, 0.0);
+    vec2 tip  = vec2(r - t, 0.0);
+    float shaft = segmentDistance(point, tail, tip, t);
+
+    // La punta e' larga quanto alta: 45°, la forma piu' sobria che resta leggibile
+    // a dodici pixel.
+    float arm = r * 0.66;
+    float head = min(segmentDistance(point, tip, tip + vec2(-arm,  arm), t),
+                     segmentDistance(point, tip, tip + vec2(-arm, -arm), t));
+
+    return min(shaft, head);
+}
+
+// L'aggiorna: un anello aperto con una punta tangente dentro il taglio. Il taglio
+// sta sull'asse +X, cioe' a destra, e la punta gira in senso orario: e' il verso
+// che ha `↻`, e non si legge al contrario.
+float refreshDistance(vec2 point, vec2 halfSize, float thickness)
+{
+    float r = min(halfSize.x, halfSize.y);
+    float t = max(thickness, 1.0);
+    float band = t * 0.5;
+    float radius = r - band;
+    float reach = length(point);
+
+    float ring = abs(reach - radius) - band;
+
+    // Il taglio: una distanza angolare, riportata in pixel moltiplicando per il
+    // raggio, cosi' il ``max`` con l'anello misura la stessa cosa.
+    float gapHalf = 0.70;
+    float gap = (gapHalf - abs(atan(point.y, point.x))) * max(reach, 0.001);
+
+    // La punta: un triangolo pieno, la base **radiale** e il vertice nel verso del
+    // moto. Due segmenti a questa misura non si distinguono da un anello aperto.
+    vec2 radial = vec2(cos(gapHalf), sin(gapHalf));
+    vec2 tangent = vec2(sin(gapHalf), -cos(gapHalf));
+    vec2 p = radial * radius;
+    float head = filledTriangle(point, p + radial * t * 1.9, p - radial * t * 1.9,
+                                p + tangent * t * 3.4, t * 0.1);
+
+    return min(max(ring, gap), head);
+}
+
+// La stella: cinque punte. Piena, perche' il "non e' nei segnalibri" lo dice il
+// **bordo** — la stessa forma disegnata con `strokeWidth`.
+//
+// Due misure diverse per due domande diverse, e non e' un lusso: **dentro o fuori**
+// lo dice il segno degli aquiloni (il massimo dei semipiani e' esatto dentro un
+// poligono convesso, quindi il segno e' esatto), mentre **quanto dista dal bordo**
+// lo dicono i dieci lati presi come segmenti. Con il solo minimo degli aquiloni il
+// contorno della stella vuota disegnava una ragnatela sopra le punte: visto.
+float starDistance(vec2 point, vec2 halfSize)
+{
+    float r = min(halfSize.x, halfSize.y);
+    float inner = r * 0.32;
+    float side = 0.6283185;          // 36 gradi: meta' dell'angolo fra due punte
+    float first = 1.5707963;        // la punta in alto
+
+    float edge = 1e6;
+    bool  inside = false;
+
+    // Un giro delle dieci punte: intermedia, punta, intermedia, punta...
+    vec2 vertex = vec2(cos(first - side), sin(first - side)) * inner;
+    for (int i = 0; i < 5; ++i)
+    {
+        float tipAngle = first + float(i) * 1.2566371;
+        vec2 tip   = vec2(cos(tipAngle), sin(tipAngle)) * r;
+        vec2 after = vec2(cos(tipAngle + side), sin(tipAngle + side)) * inner;
+
+        edge = min(edge, segmentDistance(point, vertex, tip, 0.0));
+        edge = min(edge, segmentDistance(point, tip, after, 0.0));
+
+        // Il segno: la punta e' un aquilone (centro, prima, punta, dopo).
+        vec2 before = vertex;
+        if (quadDistance(point, vec2(0.0), after, tip, before) < 0.0)
+            inside = true;
+
+        vertex = after;
+    }
+
+    return inside ? -edge : edge;
+}
+
 // Walks the rectangle outline clockwise from the bottom-left corner and reports
 // whether the given fragment lands on an "on" segment of the dash pattern.
 bool isOnDash(vec2 frag)
@@ -158,6 +293,15 @@ void main()
     // gl_FragCoord originates at the bottom-left with +Y up; UI space is
     // top-left with +Y down, so flip vertically.
     vec2 frag = vec2(gl_FragCoord.x, uViewportHeight - gl_FragCoord.y);
+
+    // Il ritaglio arriva dal vertice, non dallo stato del disegno: fuori dal
+    // rettangolo questo frammento non esiste, esattamente come faceva `glScissor`
+    // attorno a un lotto. La differenza e' che qui non costa una draw call, e il
+    // rettangolo e' un numero del quadrilatero, confrontabile a meta' pixel invece
+    // che troncato all'intero.
+    if (frag.x < vClip.x || frag.x >= vClip.z ||
+        frag.y < vClip.y || frag.y >= vClip.w)
+        discard;
 
     vec2 halfSize = vShapeSize * 0.5;
     vec2 centre   = vShapeMin + halfSize;
@@ -213,6 +357,29 @@ void main()
     else if (mod(vFlags, 2.0 * FLAG_CROSS) >= FLAG_CROSS)
     {
         distance = crossDistance(point, innerHalf, max(vRadius.x, 1.0));
+    }
+    else if (mod(vFlags, 2.0 * FLAG_ARROW) >= FLAG_ARROW)
+    {
+        // Come per la linguetta: `point` ha tutt'e due gli assi girati, e una
+        // freccia se ne accorge. Qui torna in uno spazio leggibile — +X a destra,
+        // +Y in su' — e le tre direzioni si fanno ruotando il punto.
+        vec2 upright = vec2(-point.x, point.y);
+        bool up   = mod(vFlags, 2.0 * FLAG_ARROW_UP) >= FLAG_ARROW_UP;
+        bool left = mod(vFlags, 2.0 * FLAG_ARROW_LEFT) >= FLAG_ARROW_LEFT;
+        if (up)
+            upright = vec2(upright.y, -upright.x);
+        if (left)
+            upright = -upright;
+        distance = arrowDistance(upright, innerHalf, max(vRadius.x, 1.0));
+    }
+    else if (mod(vFlags, 2.0 * FLAG_REFRESH) >= FLAG_REFRESH)
+    {
+        vec2 upright = vec2(-point.x, point.y);
+        distance = refreshDistance(upright, innerHalf, max(vRadius.x, 1.0));
+    }
+    else if (mod(vFlags, 2.0 * FLAG_STAR) >= FLAG_STAR)
+    {
+        distance = starDistance(point, innerHalf);
     }
     else
     {

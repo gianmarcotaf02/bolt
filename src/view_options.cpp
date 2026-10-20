@@ -27,10 +27,12 @@
 #include <vector>
 
 #include "app_actions.h"
+#include "commands.h"
 #include "app_ui.h"
 #include "language.h"
 #include "settings.h"
 #include "theme.h"
+#include "view_list.h"   // `SortEntries`: cambiando `SortRecents` la lista si riordina subito
 #include "view_statusbar.h"
 
 namespace Bolt
@@ -55,9 +57,18 @@ enum OptionId
     OptSpacing, OptZoom, OptAnimations, OptRoundCorners, OptSystemScheme,
     OptColorScheme, OptAlternatingRows, OptInactiveOpacity, OptFileExtension,
     OptLongPaths, OptCompactPaths,
+    // La pagina di avvio: un percorso, vuoto per "Questo PC".
+    OptStartup,
     OptTooltips, OptHoverToSelect, OptUnderlineOnHover, OptSingleClick,
     OptSingleClickFoldersOnly, OptActOnPress, OptDoubleClickToParent,
     OptShowCheckboxes, OptSidebar, OptGridIconSize, OptLanguage,
+    // `ShowRecents` e `SortRecents`: le due opzioni dei recenti che si vedono
+    // nella lista — una li spegne, l'altra li porta in cima.
+    OptShowRecents, OptSortRecents,
+    // Cosa si registra nei recenti (`StoreRecents`). Non e' una preferenza come
+    // le altre: il modo decide quali cartelle la sezione `RECENTS` puo' mostrare,
+    // e nessuno dei tre scrive su disco (`docs/06`).
+    OptStoreRecents,
     // La riga che apre l'editor della mappa dei tasti: e' un'**azione**, non una
     // preferenza — non c'e' un valore da leggere, e il posto in cui si legge il
     // tasto di un comando e' l'elenco, non questa riga.
@@ -93,6 +104,28 @@ bool FontInstalled(const std::wstring& face)
     }
     DeleteDC(dc);
     return installed;
+}
+
+// Le tre parole di `StoreRecents`, in una funzione sola: la riga del pannello e le
+// sue scelte devono dire la stessa cosa, o il controllo mostrerebbe un valore che
+// non e' quello fra le voci.
+const char* StoreModeLabel(StoreRecents mode)
+{
+    switch (mode)
+    {
+        case StoreRecents::Persistent: return Tr("Persistente", "Persistent");
+        case StoreRecents::LocalDisk:  return Tr("Disco locale", "Local Disk");
+        default:                       return Tr("Sessione", "Session");
+    }
+}
+
+StoreRecents StoreModeFromLabel(const std::string& label)
+{
+    if (label == StoreModeLabel(StoreRecents::Persistent))
+        return StoreRecents::Persistent;
+    if (label == StoreModeLabel(StoreRecents::LocalDisk))
+        return StoreRecents::LocalDisk;
+    return StoreRecents::Session;
 }
 
 void RefreshOptionItem(const AppState& app, GroupMenuItem& item)
@@ -134,6 +167,16 @@ void RefreshOptionItem(const AppState& app, GroupMenuItem& item)
         case OptTooltips:
             item.control = OptionControl::Toggle;
             item.toggleOn = app.showTooltips;
+            break;
+        // `ShowRecents`. La riga mostra lo stato; **quanto** e' spenta una voce lo
+        // decide il suo punteggio, non questa casella.
+        case OptShowRecents:
+            item.control = OptionControl::Toggle;
+            item.toggleOn = app.showRecents;
+            break;
+        case OptSortRecents:
+            item.control = OptionControl::Toggle;
+            item.toggleOn = app.sortRecentsOnTop;
             break;
         case OptHoverToSelect:
             item.control = OptionControl::Toggle;
@@ -178,6 +221,12 @@ void RefreshOptionItem(const AppState& app, GroupMenuItem& item)
             item.control   = OptionControl::Choice;
             item.valueText = (gLanguage == Language::English) ? "English" : "Italiano";
             break;
+        // Il modo dei recenti si legge come lo mostra la riga: la stessa parola che
+        // sta fra le scelte, o il controllo direbbe una cosa e ne farebbe un'altra.
+        case OptStoreRecents:
+            item.control   = OptionControl::Choice;
+            item.valueText = StoreModeLabel(app.recents.StoreMode());
+            break;
         // Non e' una preferenza con un valore: e' un pulsante che apre l'editor. Il
         // testo del pulsante dice **cosa fa**, non com'e' messa: non c'e' niente da
         // leggere in una riga che non ha uno stato.
@@ -188,12 +237,29 @@ void RefreshOptionItem(const AppState& app, GroupMenuItem& item)
         // Le opzioni che il riferimento ha e che qui non ci sono. Si mostrano
         // **spente**: un'opzione che non si puo' applicare sta in vista e dice
         // che non si tocca, invece di sparire e far credere che non esista.
+        // `Animations`: i pannelli compaiono in dissolvenza. E' l'unica animazione
+        // che c'e' — lo scorrimento e il cursore di testo non lo sono.
         case OptAnimations:
-        case OptRoundCorners:
+            item.control  = OptionControl::Toggle;
+            item.toggleOn = app.animations;
+            break;
+        // `LongPathsSupport` adesso si applica: `IOPath` mette il prefisso nei punti
+        // di I/O quando serve, e da spenta il comportamento e' quello di prima.
         case OptLongPaths:
             item.control  = OptionControl::Toggle;
-            item.toggleOn = true;
-            item.enabled  = false;
+            item.toggleOn = app.longPaths;
+            break;
+        // La pagina di avvio: la riga **mostra** la preferenza, e si modifica
+        // scrivendoci un percorso. Vuota vuol dire **Home**, ed e' il valore di
+        // partenza: nessuna cartella scelta, nessun file che se la ricorda.
+        case OptStartup:
+            item.control   = OptionControl::Text;
+            item.valueText = ToUtf8(app.startupFolder);
+            break;
+        // `RoundCorners` adesso si applica: e' uno stato di disegno del fotogramma.
+        case OptRoundCorners:
+            item.control  = OptionControl::Toggle;
+            item.toggleOn = app.roundCorners;
             break;
         // Le due dell'aspetto invece **si applicano**. L'interruttore dice se la
         // tavolozza la decide il sistema; la scelta mostra quale tavolozza si sta
@@ -212,20 +278,23 @@ void RefreshOptionItem(const AppState& app, GroupMenuItem& item)
             item.enabled   = !app.systemColorScheme;
             break;
         case OptInactiveOpacity:
-            item.control  = OptionControl::Slider;
-            item.fraction = 0.45f;
-            item.valueText = "45%";
-            item.enabled  = false;
+            // Il pannello senza fuoco si attenua; `AppState::focusArea` dice quale
+            // ha il fuoco, e si aggiorna dove si clicca. Lo slider va da 0,2 a 1,0:
+            // sotto un quinto un pannello non si legge piu', e non e' una scelta.
+            item.control   = OptionControl::Slider;
+            item.fraction  = (app.inactiveOpacity - 0.2f) / 0.8f;
+            item.valueText = std::to_string(static_cast<int>(app.inactiveOpacity * 100.0f + 0.5f)) + "%";
             break;
+        // Due opzioni che adesso **si applicano**. Il nome mostrato senza estensione
+        // e il percorso che si stringe invece di uscire dal riquadro: sono
+        // comportamento, non decorazione, e si vedono subito.
         case OptFileExtension:
             item.control  = OptionControl::Toggle;
-            item.toggleOn = true;
-            item.enabled  = false;
+            item.toggleOn = app.showFileExtension;
             break;
         case OptCompactPaths:
             item.control  = OptionControl::Toggle;
-            item.toggleOn = false;
-            item.enabled  = false;
+            item.toggleOn = app.compactPaths;
             break;
         default:
             break;
@@ -347,6 +416,9 @@ void ApplyOptionFromItem(AppState& app, GroupMenuItem& item)
             app.rowSpacing = std::round(value);
             break;
         }
+        case OptInactiveOpacity:
+            app.inactiveOpacity = 0.2f + item.fraction * 0.8f;
+            break;
         case OptZoom:
             // A passi di 5%: uno zoom che cambia di un millesimo non si vede,
             // e riempirebbe il file di impostazioni di cifre inutili.
@@ -358,7 +430,53 @@ void ApplyOptionFromItem(AppState& app, GroupMenuItem& item)
                                           2.0f) * 2.0f;
             break;
         case OptAlternatingRows: app.alternatingRows = item.toggleOn; break;
+        case OptRoundCorners:    app.roundCorners    = item.toggleOn; break;
+        case OptAnimations:      app.animations      = item.toggleOn; break;
+        case OptLongPaths:       app.longPaths       = item.toggleOn; break;
+        case OptStartup:
+        {
+            const std::wstring voleva = Widen(item.valueText);
+            if (voleva.empty())
+            {
+                app.startupFolder.clear();   // vuota = Home
+                break;
+            }
+            // "Questo PC" non e' una cartella e non ha attributi: si riconosce da
+            // come e' scritto, ed e' una scelta di avvio legittima quanto un
+            // percorso.
+            if (ShellLocation::IsNamespace(voleva))
+            {
+                app.startupFolder = voleva;
+                break;
+            }
+            const std::wstring probe = IOPath(voleva, app.longPaths);
+            const DWORD attributes  = GetFileAttributesW(probe.c_str());
+            if (attributes == INVALID_FILE_ATTRIBUTES || (attributes & FILE_ATTRIBUTE_DIRECTORY) == 0)
+            {
+                // Un percorso che non e' una cartella non diventa l'avvio di nessuno:
+                // la riga resta com'era e la barra di stato dice perche'.
+                ReportStatus(app, TrW(L"Cartella inesistente: l'avvio non cambia",
+                                      L"No such folder: the startup folder is unchanged"));
+                saved = false;
+                break;
+            }
+            app.startupFolder = voleva;
+            break;
+        }
+        case OptCompactPaths:    app.compactPaths      = item.toggleOn; break;
+        // Il nome mostrato e' una cosa che si ridisegna: senza `viewDirty` la lista
+        // resterebbe com'era fino al prossimo evento, e sembrerebbe che l'opzione
+        // non faccia niente.
+        case OptFileExtension:
+            app.showFileExtension = item.toggleOn;
+            app.viewDirty         = true;
+            break;
         case OptTooltips:        app.showTooltips     = item.toggleOn; break;
+        case OptShowRecents:     app.showRecents      = item.toggleOn; break;
+        case OptSortRecents:
+            app.sortRecentsOnTop = item.toggleOn;
+            SortEntries(app);   // l'ordine si vede subito, appena chiuso il pannello
+            break;
         case OptHoverToSelect:   app.hoverToSelect    = item.toggleOn; break;
         case OptUnderlineOnHover: app.underlineOnHover = item.toggleOn; break;
         case OptSingleClick:     app.singleClick      = item.toggleOn; break;
@@ -381,6 +499,13 @@ void ApplyOptionFromItem(AppState& app, GroupMenuItem& item)
             // Le due lingue sono due voci, non un interruttore: la scelta mostra
             // sempre quale delle due e' accesa.
             gLanguage = (item.valueText == "English") ? Language::English : Language::Italian;
+            break;
+        case OptStoreRecents:
+            // Il valore non si salva: il modo vale per la sessione, e la riga lo
+            // dice. Scriverlo in `settings.ini` sarebbe una preferenza presa di
+            // nascosto su quali cartelle il programma ricorda (`docs/06`).
+            app.recents.SetStoreMode(StoreModeFromLabel(item.valueText));
+            saved = false;
             break;
         default:
             saved = false;   // una riga spenta non ha niente da applicare
@@ -462,10 +587,10 @@ void BuildOptionsMenu(AppState& app)
          "Scales the whole interface up or down.", OptZoom, false},
         {"Animations", "Animazioni",
          "Animazioni delle aperture, dello scorrimento e del cursore di testo.",
-         "Applies animations to new popups, view scrolling, text cursor, etc.", OptAnimations, true},
+         "Applies animations to new popups, view scrolling, text cursor, etc.", OptAnimations, false},
         {"Round Corners", "Angoli arrotondati",
          "Arrotonda gli angoli di pannelli, pulsanti e selezioni.",
-         "Applies rounding to the corners of UI elements such as popups, buttons, and selections.", OptRoundCorners, true},
+         "Applies rounding to the corners of UI elements such as popups, buttons, and selections.", OptRoundCorners, false},
         {"System Light / Dark Scheme", "Tema chiaro o scuro secondo il sistema",
          "La tavolozza la decide il tema chiaro o scuro di Windows.",
          "Automatically adapt between light and dark color schemes based on system settings.", OptSystemScheme, false},
@@ -477,18 +602,28 @@ void BuildOptionsMenu(AppState& app)
          "Applies alternating row colors to improve readability and distinguish adjacent rows.", OptAlternatingRows, false},
         {"Inactive Panel Content Opacity", "Opacità del pannello inattivo",
          "Attenua il contenuto del pannello che non ha il fuoco.",
-         "Applies dimming to inactive panel contents to make the active panel stand out.", OptInactiveOpacity, true},
+         "Applies dimming to inactive panel contents to make the active panel stand out.", OptInactiveOpacity, false},
         {"Show File Extension", "Mostra l'estensione nei nomi",
          "Mostra o nasconde l'estensione nei nomi dei file.",
-         "Toggle the visibility of file extensions.", OptFileExtension, true},
+         "Toggle the visibility of file extensions.", OptFileExtension, false},
         {"Long Paths Support", "Percorsi lunghi", "Percorsi oltre 260 caratteri.",
-         "Enable support for paths longer than 260 characters.", OptLongPaths, true},
+         "Enable support for paths longer than 260 characters.", OptLongPaths, false},
+        {"Startup", "Avvio",
+         "La cartella che si apre all'avvio. Vuota: Questo PC.",
+         "The folder opened at startup. Empty means This PC.", OptStartup, false},
         {"Display Compact Paths", "Percorsi compatti",
          "Accorcia i percorsi lunghi nella barra del percorso.",
-         "Displays compact paths in the toolbar.", OptCompactPaths, true},
+         "Displays compact paths in the toolbar.", OptCompactPaths, false},
         {"Show Tooltips", "Mostra i suggerimenti",
          "Mostra un suggerimento quando il puntatore si ferma su una riga.",
          "Shows a hint when the pointer rests on a row.", OptTooltips, false},
+        {"Highlight Recents", "Evidenzia i recenti",
+         "Le cartelle gia' visitate si vedono in tono piu' spento, tanto piu' quanto meno valgono.",
+         "Folders already visited are drawn faded, fainter for a lower score.", OptShowRecents, false},
+        {"Sort Recents On Top", "Recenti in cima",
+         "Le cartelle e i file gia' aperti stanno in cima alla lista, prima di tutto il resto.",
+         "Folders and files already opened go on top of the list, before everything else.",
+         OptSortRecents, false},
         {"Hover To Select", "Il passaggio seleziona",
          "Seleziona la riga sotto il puntatore dopo una pausa.",
          "Selects the row under the pointer after a short pause.", OptHoverToSelect, false},
@@ -517,6 +652,10 @@ void BuildOptionsMenu(AppState& app)
          "The size of a cell in the icon and tile views.", OptGridIconSize, false},
         {"Language", "Lingua", "La lingua dell'interfaccia.",
          "The language of the interface. Applied immediately.", OptLanguage, false},
+        {"Store Recents", "Salva i recenti",
+         "Cosa entra nella sezione dei recenti: vale per questa sessione e non si scrive su disco.",
+         "What goes into the recents section: lasts for this session and is not written to disk.",
+         OptStoreRecents, false},
         {"Key Map", "Mappa dei tasti",
          "Il tasto di ogni comando. Vale per questa sessione: la mappa non si scrive su disco.",
          "The key of every command. Lasts for this session: the map is not written to disk.",
@@ -550,6 +689,12 @@ void BuildOptionsMenu(AppState& app)
             // rilegge da `SchemeLabel`, che e' la stessa stringa che mostra la riga.
             item.choices.push_back({SchemeLabel(ColorScheme::Dark), 0});
             item.choices.push_back({SchemeLabel(ColorScheme::Light), 1});
+        }
+        else if (row.id == OptStoreRecents)
+        {
+            item.choices.push_back({StoreModeLabel(StoreRecents::Session), 0});
+            item.choices.push_back({StoreModeLabel(StoreRecents::Persistent), 1});
+            item.choices.push_back({StoreModeLabel(StoreRecents::LocalDisk), 2});
         }
         RefreshOptionItem(app, item);
         items.push_back(std::move(item));

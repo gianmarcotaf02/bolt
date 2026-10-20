@@ -37,12 +37,14 @@
 #include "keymap.h"
 #include "language.h"
 #include "ntfs_attributes.h"
+#include "recents.h"
 #include "shell_icons.h"
 #include "shell_preview.h"
 #include "shell_location.h"
 #include "text_view.h"
 #include "theme.h"
 #include "ui_renderer.h"
+#include "update.h"
 
 namespace Bolt
 {
@@ -73,7 +75,10 @@ constexpr int kTextureLayerSize = 1024;
 // cambiare a finestra aperta. Qui c'e' quale delle due si sta usando.
 
 // --- model -----------------------------------------------------------------
-enum class SortColumn { Name, Type, Modified, Folders, Files, Size };
+// Le colonne che si possono ordinare. Non e' l'ordine in cui si vedono: e' l'elenco
+// dei valori su cui `SortEntries` sa confrontare (`TotalItems` e' un derivato:
+// cartelle + file + se stessa).
+enum class SortColumn { Name, Type, Modified, Created, Accessed, Folders, Files, TotalItems, Size };
 
 struct Entry
 {
@@ -113,6 +118,12 @@ struct Entry
     // un'unita' puo' far girare un lettore ottico, e una lista si ridisegna
     // sessanta volte al secondo.
     bool volumeRoot = false;
+
+    // La banda della Home: 0 fissaggi, 1 recenti, 2 cartelle note. `-1` per ogni
+    // voce che non viene dalla Home. Non e' un raggruppamento scelto dall'utente:
+    // e' l'ordine con cui le destinazioni si presentano, e vale anche quando le
+    // colonne ordinano dentro la banda.
+    int band = -1;
 };
 
 // Una voce dell'anteprima di una cartella: il minimo per disegnarne una cella. Non
@@ -195,6 +206,7 @@ enum class GroupMode { None, Name, Date, Size, Count, Volume };
 // those are the same layout at a different size.
 enum class ViewMode { Details, List, Tiles, Icons };
 
+
 // Geometry of the current view. |columns| is only meaningful in a grid.
 struct ViewMetrics
 {
@@ -242,14 +254,18 @@ enum CommandId
     CmdTextZoomOut, CmdImageZoomIn, CmdImageZoomOut, CmdImageZoomFit, CmdToggleImageGrid,
     CmdViewDetails, CmdViewList, CmdViewTiles, CmdViewIcons,
     CmdSortName, CmdSortType, CmdSortModified, CmdSortFolders, CmdSortFiles,
-    CmdSortSize, CmdSortDirection,
+    CmdSortCreated, CmdSortAccessed, CmdSortTotal, CmdSortSize, CmdSortDirection,
     CmdGroupNone, CmdGroupName, CmdGroupDate, CmdGroupSize, CmdGroupCount, CmdGroupVolume,
     CmdFocusFilter, CmdClearFilter, CmdScrollTop, CmdScrollBottom,
-    CmdToggleHoverToSelect, CmdToggleUnderlineOnHover, CmdToggleTooltips,
+    CmdToggleHoverToSelect, CmdToggleUnderlineOnHover, CmdToggleTooltips, CmdToggleShowRecents,
+    CmdToggleSortRecents,
     CmdSingleClick, CmdSingleClickFoldersOnly, CmdActOnPress, CmdDoubleClickToParent,
     CmdShowCheckboxes,
     CmdCloseInTree, CmdCloseAllInTree, CmdDetachTab,
     CmdLanguageItalian, CmdLanguageEnglish, CmdShowSettingsPath,
+    // La pagina di avvio: due comandi espliciti, perche' la cartella si sceglie e
+    // non si indovina. Il primo la prende dalla cartella aperta in quel momento.
+    CmdStartupCurrentFolder, CmdStartupThisPc,
     // L'aspetto: le due tavolozze e "segui il sistema". Sono le chiavi
     // `ColorSchemeLight`, `ColorSchemeDark` e `SystemColorScheme` dello spec.
     CmdColorSchemeLight, CmdColorSchemeDark, CmdSystemColorScheme,
@@ -265,9 +281,12 @@ enum CommandId
     // Il fissaggio: due domande — dove, e da dove togliere — sulla stessa lista di
     // destinazioni. Sono due comandi e non uno con un verso, perche' chi cerca
     // "togli" non deve leggere "fissa" e capire da solo che fa il contrario.
-    CmdPinTo, CmdUnpin,
+    CmdPinTo, CmdUnpin, CmdForgetRecent, CmdSaveFolderLayout, CmdForgetFolderLayout,
     // Le proprieta': quella in-app e quella di Windows, due voci distinte.
     CmdProperties, CmdPropertiesWindows,
+    // Gli aggiornamenti: un comando **esplicito** e basta. Non ha un tasto di
+    // partenza, e non parte all'avvio.
+    CmdCheckUpdates,
     // La tavolozza dei comandi. Era l'unica cosa che si apriva da un tasto
     // **senza essere un comando**: adesso lo e', e il tasto sta nella mappa come
     // tutti gli altri.
@@ -354,6 +373,11 @@ struct GroupMenu
     std::string  placeholder;
     std::string  hint;   // the footer line, which differs per caller
 
+    // Quando si e' aperto, in secondi monotoni: e' l'unica cosa che serve a
+    // `Animations` per far comparire il pannello invece di farlo lampeggiare. 0
+    // vuol dire "non aperto per un'animazione" (e il pannello si disegna pieno).
+    double       openedAt   = 0.0;
+
     std::vector<GroupMenuItem>      items;
     std::vector<GroupMenuRow>       rows;
     std::vector<std::string>        groups;
@@ -435,6 +459,18 @@ struct ContextMenuItem
     // E cosi' "Invia a": le destinazioni stanno in una cartella dell'utente, e
     // leggerle a ogni tasto destro e' lavoro che si fa quando il menu si apre.
     bool  lazySendTo    = false;
+
+    // L'icona della voce, quando chi ha messo la voce ne ha data una. Sono due
+    // campi perche' sono due fonti diverse, e una voce ne ha al massimo una: la
+    // **bitmap** che la shell porta nel `hbmpItem` (di proprieta' dell'HMENU: vale
+    // finche' il menu vive, e la si carica nell'atlante alla prima apertura) e la
+    // **specifica** `percorso,indice` che l'applicazione scrive sotto la propria
+    // chiave di verbo nel registro. `iconKey` e' la chiave della cache per la
+    // bitmap, ed e' il verbo: stabile fra un'apertura e l'altra, a differenza
+    // dell'etichetta, che si traduce.
+    HBITMAP      shellBitmap = nullptr;
+    std::string  iconKey;
+    std::wstring iconSpec;
 };
 
 // Scelta e finestra di un livello del menu. Ce n'e' una per livello aperto.
@@ -447,6 +483,8 @@ struct ContextMenuLevel
 struct ContextMenu
 {
     bool open = false;
+    // Come per `GroupMenu::openedAt`: da quando esiste, per l'animazione di apertura.
+    double openedAt = 0.0;
     float x = 0.0f, y = 0.0f;       // dove e' stato aperto, in coordinate cliente
     // I sottomenu aperti, un indice per livello: openPath[i] e' la voce aperta
     // nel livello i. `levels` ne ha sempre uno in piu' di openPath, e non e' mai
@@ -511,8 +549,17 @@ const ColumnDef kColumns[] = {
     // valori — ogni nome e' diverso. La sua linguetta accende la casella di
     // **testo** in fondo, che e' il filtro del nome che serve davvero.
     {"Name",     "Nome",           SortColumn::Name,     0.00f, true},
-    {"Type",     "Tipo",           SortColumn::Type,     0.28f, true},
-    {"Modified", "Data modifica",  SortColumn::Modified, 0.42f, true},
+    // I valori delle colonne si leggono nel carattere dei dettagli, piu' piccolo del
+    // corpo (vedi `DrawEntryCell`), e con quello la colonna del tipo deve entrare
+    // **il tipo piu' lungo che Windows scrive davvero**, «Documento di testo».
+    {"Type",     "Tipo",           SortColumn::Type,     0.245f, true},
+    {"Modified", "Data modifica",  SortColumn::Modified, 0.375f, true},
+    // Le due date che `FindFirstFile` da' insieme alla modifica: creazione e ultimo
+    // accesso. Il valore si formatta **quando si disegna** (`ColumnValueOf`), non
+    // una volta per voce letta: formattare diecimila date per mostrarne trenta
+    // sarebbe lavoro buttato a ogni apertura di cartella.
+    {"Created",  "Data creazione", SortColumn::Created,  0.483f, true},
+    {"Accessed", "Data accesso",   SortColumn::Accessed, 0.591f, true},
     // `Folders` e `Files` avevano il titolo appena piu' largo della colonna, e
     // l'imbuto del filtro si mangiava la coda: con il carattere di partenza si
     // sovrapponevano di pochi pixel, con un carattere piu' largo si leggeva
@@ -521,14 +568,33 @@ const ColumnDef kColumns[] = {
     // `DrawHeader`) invece di finire sopra quello vicino.
     //
     // La frazione e' il **bordo sinistro** della colonna, quindi la larghezza e' la
-    // differenza fra questa e la prossima: e i titoli italiani sono piu' lunghi di
-    // quelli inglesi ("Dimensione" contro "Size"), per cui le misure sono quelle
-    // che fanno entrare il titolo **piu' lungo delle due lingue**, non quello corto.
-    {"Folders",  "Cartelle",       SortColumn::Folders,  0.60f, true},
-    {"Files",    "File",           SortColumn::Files,    0.735f, true},
-    {"Size",     "Dimensione",     SortColumn::Size,     0.825f, true},
+    // differenza fra questa e la prossima. Con **nove** colonne i titoli non ci
+    // stanno tutti: quello che deve entrare e' il **valore** — dieci caratteri per
+    // una data, pochi per un numero — e i titoli si accorciano da soli
+    // (`DrawHeader`), invece di finire l'uno sopra l'altro.
+    {"Folders",  "Cartelle",       SortColumn::Folders,  0.70f, true},
+    {"Files",    "File",           SortColumn::Files,    0.78f, true},
+    // `TotalItems` e' un derivato, e il numero e' quello che si vede: cartelle, file
+    // e la voce stessa. Un totale che non torna con le due colonne accanto sarebbe
+    // peggio di un totale che non c'e'.
+    {"TotalItems", "Totale",       SortColumn::TotalItems, 0.848f, true},
+    {"Size",     "Dimensione",     SortColumn::Size,     0.922f, true},
 };
 constexpr int kColumnCount = static_cast<int>(sizeof(kColumns) / sizeof(kColumns[0]));
+
+// Quello che una cartella puo' ricordarsi di come la si guardava (`DirHostLayout*`
+// dello spec, M9). E' un **valore**, non uno stato: si prende da `AppState` quando
+// si salva, si rimette quando si entra. La larghezza e' una frazione per colonna,
+// perche' una finestra piu' stretta deve stringere tutte le colonne insieme.
+struct FolderLayout
+{
+    ViewMode   mode         = ViewMode::Details;
+    float      gridIconSize = 64.0f;
+    SortColumn sort         = SortColumn::Name;
+    bool       ascending    = true;
+    GroupMode  group        = GroupMode::None;
+    float      widths[kColumnCount] = {};
+};
 
 // Il titolo di una colonna si legge in due lingue, e la chiave inglese resta
 // quella dello spec: e' con quella che la tabella delle 23 colonne e' scritta, e
@@ -811,6 +877,17 @@ struct AppState
     std::wstring renamePath;        // percorso completo di cio' che si rinomina
     std::wstring renameOriginal;    // nome di partenza, per annullare con Esc
     std::string  renameText;        // il nome in scrittura
+    // Quanti byte, in testa a `renameText`, sono **selezionati**: e' la parte che si
+    // riscrive. Come Esplora risorse: il nome senza estensione per un file, tutto il
+    // nome per una cartella. Il campo non ha un cursore che si muove, quindi la
+    // selezione esiste solo qui — ma e' quella che rende vero «scrivi sopra senza
+    // cancellare il `.txt`».
+    size_t       renameSelectEnd = 0;
+    // Dove finisce il testo **scritto** e comincia quello che resta: la selezione e'
+    // un prefisso, quindi il cursore sta alla sua fine e li' si inserisce. Senza
+    // questo, scrivere sopra `nota` in `nota.txt` produrrebbe `.txtpromemoria` —
+    // cioe' il nome nuovo dopo l'estensione.
+    size_t       renameCaret = 0;
 
     // Vero se l'ultima scrittura in clipboard era un taglio: decide se incollare
     // copia o sposta, ed e' lo stesso bit che Esplora risorse legge.
@@ -840,6 +917,61 @@ struct AppState
     bool hoverToSelect    = false;
     bool underlineOnHover = false;
     bool showTooltips     = true;
+    // `ShowRecents`: evidenzia nella lista le cartelle che sono nei recenti,
+    // opache secondo il punteggio (`RecentOpacity`). Acceso di partenza perche' e'
+    // cosi' che il punteggio si vede: senza, i tre campi si calcolano e non
+    // servono a niente. Una preferenza, quindi si ricorda come le altre.
+    bool showRecents      = true;
+    // `LongPathsSupport`: i percorsi oltre 260 caratteri. Si applica **nei punti di
+    // I/O** (`IOPath`), non a ogni stringa: la shell il prefisso non lo vuole.
+    bool longPaths = false;
+
+    // `Animations`: i pannelli compaiono in dissolvenza invece di lampeggiare. E'
+    // l'unica animazione che c'e': lo **scorrimento** e il **cursore di testo** dello
+    // spec non sono animati, e il limite e' dichiarato in `docs/04` M9.
+    bool animations = true;
+
+    // `RoundCorners`: gli angoli arrotondati si accendono e si spengono come
+    // opzione, non come decorazione fissa. Il raggio di ogni primitiva viene
+    // moltiplicato per questo (`IRenderer::SetCornerScale`).
+    bool roundCorners = true;
+
+    // `InactivePanelContentOpacity`: quanto si attenua il contenuto del pannello
+    // che **non** ha il fuoco. 1 = niente attenuazione, che e' il valore di
+    // partenza: un pannello spento senza che nessuno l'abbia chiesto e' un difetto,
+    // non una preferenza.
+    float inactiveOpacity = 1.0f;
+
+    // Quale dei tre pannelli ha il fuoco. In Bolt non c'e' un "pannello attivo" nel
+    // senso di un documento: c'e' **dove si e' cliccato l'ultima volta** fra barra
+    // laterale, lista e ispettore. Serve solo a `InactivePanelContentOpacity`, ed e'
+    // il minimo concetto che rende vera quella riga del pannello.
+    enum class FocusArea { Sidebar, List, Inspector };
+    FocusArea focusArea = FocusArea::List;
+
+    // `ShowFileExtension`: il nome si legge **con** o **senza** l'estensione. Il
+    // nome vero resta quello, in `Entry::name` e `Entry::wideName`: senza
+    // estensione cambia solo quello che si **scrive**, non quello che si apre, si
+    // rinomina o si filtra — un nome che il filtro non trova piu' sarebbe peggio
+    // di un nome lungo.
+    bool showFileExtension = true;
+    // `DisplayCompactPaths`: quando il percorso nella barra non entra tutto, le
+    // briciole in testa si stringono in un `...` invece di uscire dal riquadro.
+    // Acceso di partenza: un percorso che esce dalla finestra si legge a meta'.
+    bool compactPaths = true;
+
+    // I **layout** per cartella (`DirHostLayoutSave`/`DirHostLayoutDel` dello spec,
+    // M9): vista, misura delle celle, ordinamento, raggruppamento e larghezza delle
+    // colonne. Vivono in memoria e muoiono col processo — `docs/06` vieta di
+    // scriverli su disco, e nominano una cartella uno per uno. Il salvataggio e'
+    // **esplicito** (due comandi), come nel riferimento: un layout che si salva da
+    // solo e' una preferenza presa al posto di chi usa il programma.
+    std::unordered_map<std::wstring, FolderLayout> folderLayouts;
+
+    // `SortRecents`: i recenti in cima alla lista, prima delle altre cartelle e di
+    // tutto il resto. Spento di partenza: riordinare una cartella mentre la si
+    // guarda e' una cosa che si chiede, non che si trova gia' fatta.
+    bool sortRecentsOnTop = false;
 
     // --- comportamento del clic (M5d) ----------------------------------------
     //
@@ -877,6 +1009,16 @@ struct AppState
     // Sono valori veri, non decorazione: ognuno di questi lo legge un pezzo di
     // vista o di disegno. Un controllo che dichiara qualcosa che la vista non sta
     // facendo e' peggio di un controllo assente.
+    // La **pagina di avvio**: la cartella che si apre all'avvio quando dalla riga
+    // di comando non arriva niente. Vuota = "Questo PC", che e' il comportamento
+    // di sempre.
+    //
+    // E' una scelta **esplicita** di chi usa il programma, ed e' per questo che puo'
+    // stare in `settings.ini`: `docs/06` vieta le tracce di cosa si e' guardato, non
+    // le preferenze. Non e' "l'ultima cartella aperta" — quella sarebbe una traccia,
+    // e non c'e'.
+    std::wstring startupFolder;
+
     std::wstring fontFace    = L"Segoe UI";   // Font
     int          uiFontSize  = 15;             // Font Size (il corpo secondario sta due punti sotto)
     std::wstring monoFace    = L"Consolas";   // Inspector Font
@@ -935,6 +1077,15 @@ struct AppState
     // Two menus, one component.
     GroupMenu palette;                       // Ctrl+Shift+P, item id = CommandId
     GroupMenu goTo;                          // Ctrl+P / F4, item id = index in goToTargets
+    // Il percorso su cui agiscono le voci del menu contestuale: la selezione della
+    // lista quando si apre li', la riga della barra laterale quando si apre su una
+    // riga. Vuoto = la cartella aperta. Lo riempie chi apre il menu, e cosi'
+    // «Fissa in...» non deve indovinare su cosa sta agendo.
+    std::wstring contextTargetPath;
+    std::string  contextTargetLabel;
+    // Il percorso sul quale il pannello delle destinazioni sta lavorando: lo scrive
+    // `BuildPinMenu` e lo legge `RunPinMenuSelection`, che sono due momenti.
+    std::wstring pinMenuTarget;
     // Il pannello delle opzioni (Ctrl+,) e il sottoelenco che un controllo
     // `Choice` apre: due `GroupMenu` distinti perche' il secondo si chiude da solo
     // lasciando aperto il primo.
@@ -977,12 +1128,19 @@ struct AppState
     OperationSource               operationSource = OperationSource::None;
     double                        operationStart  = 0.0;
 
+    // Il controllo degli aggiornamenti in corso. E' **esplicito**: parte solo dal
+    // comando `Controlla aggiornamenti` e non da un timer, perche' una richiesta a
+    // GitHub e' telemetria di fatto (`docs/06`). La barra di stato mostra a che punto
+    // e'; l'esito si legge una volta sola, quando `Running()` diventa falso.
+    std::unique_ptr<Update::Job> updateJob;
+
     // La mappa dei tasti: quale tasto fa quale comando. E' **stato della sessione** —
     // `docs/04` dice cosi' per M9 — quindi vive qui e non in un file: si rimappa, si
     // usa, e uscendo si torna ai tasti di partenza.
     KeyMap keys;
     std::vector<std::wstring> goToTargets;
-    std::vector<std::wstring> recents;       // visited this run: StoreRecents = Session
+    std::vector<int>          goToCommands;   // -1: la voce e' un percorso; >=0: un comando
+    Recents recents;                         // ranking dei recenti: StoreRecents = Session
     std::vector<std::wstring> bookmarks;     // this run; persistence is milestone 9
     std::unordered_set<std::string> collapsedGroups;
     GroupMode    groupMode  = GroupMode::None;

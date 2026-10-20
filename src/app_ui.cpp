@@ -1,6 +1,7 @@
 #include "app_ui.h"
 
 #include <algorithm>
+#include <unordered_map>
 
 #include <shellapi.h>
 #include <shlobj.h>
@@ -9,6 +10,7 @@
 #include <cwchar>
 
 #include "shell_location.h"
+#include "home.h"
 
 namespace Bolt
 {
@@ -25,6 +27,43 @@ std::string ToUtf8(const std::wstring& text)
     return out;
 }
 
+
+float PanelAppear(double openedAt, bool animations)
+{
+    // 160 ms: abbastanza per vedersi, poco da aspettare. Oltre, un pannello che si
+    // apre comincia a sembrare lento invece che animato.
+    constexpr double kDuration = 0.16;
+    if (!animations || openedAt <= 0.0)
+        return 1.0f;
+
+    const double elapsed = NowSeconds() - openedAt;
+    if (elapsed <= 0.0)
+        return 0.0f;
+    if (elapsed >= kDuration)
+        return 1.0f;
+
+    // Uscita rapida, non lineare: la dissolvenza si sente finita prima di esserlo.
+    const double t = elapsed / kDuration;
+    return static_cast<float>(1.0 - (1.0 - t) * (1.0 - t));
+}
+
+std::wstring IOPath(const std::wstring& path, bool longPaths)
+{
+    if (!longPaths || path.empty())
+        return path;
+
+    const std::wstring prefixed = L"\\\\?\\";
+    if (path.rfind(prefixed, 0) == 0)   // gia' prefissato: non si raddoppia
+        return path;
+
+    if (path.size() >= 2 && path[0] == L'\\' && path[1] == L'\\')
+        return L"\\\\?\\UNC" + path.substr(1);   // \\server\share -> \\?\UNC\server\share
+
+    if (path.size() >= 3 && path[1] == L':' && (path[2] == L'\\' || path[2] == L'/'))
+        return prefixed + path;
+
+    return path;   // relativo, o spazio dei nomi: il prefisso non si applica
+}
 
 std::wstring JoinPath(const std::wstring& directory, const std::wstring& name)
 {
@@ -80,6 +119,17 @@ std::string HumanCount(uint64_t value)
 }
 
 
+// Le date si scrivono **europee**, sempre: `gg/mm/aaaa`, e con l'ora
+// `gg/mm/aaaa hh:mm`.
+//
+// Non e' una stringa da tradurre. La lingua cambia le parole, non il modo di
+// leggere un numero: un formato che seguisse la lingua cambierebbe anche la
+// larghezza delle colonne a ogni cambio, e due catture non sarebbero piu'
+// confrontabili al pixel — che e' il modo in cui questo progetto verifica le
+// cose. Prima era `aaaa-mm-gg`, che ordina bene e si legge male: `2026-10-20` va
+// guardato due volte per non scambiarlo per il ventesimo giorno del decimo mese.
+// La stessa forma vale in tutte e due le lingue, e la lunghezza (dieci caratteri,
+// sedici con l'ora) e' quella di prima, quindi niente si stringe.
 std::string FormatFileTime(const FILETIME& fileTime, bool withTime)
 {
     FILETIME local{};
@@ -90,11 +140,11 @@ std::string FormatFileTime(const FILETIME& fileTime, bool withTime)
 
     char buffer[64];
     if (withTime)
-        std::snprintf(buffer, sizeof(buffer), "%04u-%02u-%02u %02u:%02u",
-                      system.wYear, system.wMonth, system.wDay, system.wHour, system.wMinute);
+        std::snprintf(buffer, sizeof(buffer), "%02u/%02u/%04u %02u:%02u",
+                      system.wDay, system.wMonth, system.wYear, system.wHour, system.wMinute);
     else
-        std::snprintf(buffer, sizeof(buffer), "%04u-%02u-%02u",
-                      system.wYear, system.wMonth, system.wDay);
+        std::snprintf(buffer, sizeof(buffer), "%02u/%02u/%04u",
+                      system.wDay, system.wMonth, system.wYear);
     return buffer;
 }
 
@@ -106,7 +156,10 @@ uint64_t FileTimeToUint64(const FILETIME& fileTime)
 
 
 // Truncates |text| with a trailing ellipsis so it cannot spill into the next
-// column. The renderer has no scissor rectangle, so fitting has to happen here.
+// column. Un ritaglio vero adesso c'e' (`IRenderer::SetClip`), ma i caratteri non
+// si tagliano a meta': un glifo spezzato dal bordo e' illeggibile, mentre il
+// puntino di sospensione dice che c'e' dell'altro. Quindi il testo si accorcia qui
+// e il ritaglio resta per le forme.
 std::string FitText(const FontAtlas& font, const std::string& text, float scale, float maxWidth)
 {
     if (maxWidth <= 0.0f || text.empty())
@@ -165,28 +218,34 @@ std::string FitTextTail(const FontAtlas& font, const std::string& text, float sc
 
 
 // Shell type name for an extension, cached: "PNG image" reads better than "PNG file".
+//
+// Per una **cartella** la risposta non si chiede alla shell: quella di una cartella e'
+// sempre la stessa, e la shell la scrive nella lingua di **Windows**, non in quella
+// scelta nel programma. Su un Windows italiano con l'interfaccia in inglese la colonna
+// Tipo diceva "Cartella di file" in mezzo a intestazioni inglesi. Per i file la
+// domanda resta alla shell, che e' l'unica a sapere che un `.png` e' un'immagine.
 std::string ShellTypeName(const std::string& extension, bool isDirectory)
 {
+    if (isDirectory)
+        return Tr("Cartella di file", "File folder");
+
     static std::unordered_map<std::string, std::string> cache;
-    const std::string key = isDirectory ? std::string("<dir>") : extension;
+    const std::string key = extension;
 
     const auto cached = cache.find(key);
     if (cached != cache.end())
         return cached->second;
 
-    const std::wstring synthetic = isDirectory ? L"folder" : (L"x." + Widen(extension));
-    const DWORD attributes = isDirectory ? FILE_ATTRIBUTE_DIRECTORY : FILE_ATTRIBUTE_NORMAL;
+    const std::wstring synthetic = L"x." + Widen(extension);
 
     SHFILEINFOW info{};
     std::string result;
-    if (SHGetFileInfoW(synthetic.c_str(), attributes, &info, sizeof(info),
+    if (SHGetFileInfoW(synthetic.c_str(), FILE_ATTRIBUTE_NORMAL, &info, sizeof(info),
                        SHGFI_TYPENAME | SHGFI_USEFILEATTRIBUTES) != 0)
         result = ToUtf8(info.szTypeName);
 
     if (result.empty())
-        result = isDirectory ? Tr("Cartella di file", "File folder")
-                             : (extension.empty() ? Tr("File", "File")
-                                                  : extension + Tr(" file", " file"));
+        result = extension.empty() ? Tr("File", "File") : extension + Tr(" file", " file");
 
     cache.emplace(key, result);
     return result;
@@ -237,6 +296,10 @@ std::wstring LocationLabel(const AppState& app, const std::wstring& location)
 {
     if (location.empty())
         return L"";
+    // La Home ha un nome suo e non viene dalla shell: chiederglielo vorrebbe dire
+    // passarle una posizione che non conosce.
+    if (IsHome(location))
+        return L"Home";
     // Il nome lo da' la shell, e lo traduce **lei**: "Questo PC" in italiano,
     // "This PC" in inglese. Prima qui si teneva l'inglese perche' e' il nome del
     // riferimento; ma il riferimento e' un prodotto in inglese, e chi usa questo

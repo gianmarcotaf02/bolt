@@ -437,10 +437,9 @@ void DrawTextViewer(AppState& app, const Layout& layout, const Rect& area)
     // `UTF-8 ... righe`. Si vedeva scorrendo.
     // Il ritaglio parte dal bordo del pannello, non da quello del testo: i numeri di
     // riga stanno nella gutter, a sinistra, e ritagliando sul solo testo sparivano —
-    // un ritaglio stretto e' un difetto quanto uno largo.
-    app.renderer->End();
-    app.renderer->SetScissor(Rect{body.x, text.y, text.right() - body.x, text.h});
-    app.renderer->Begin(app.viewportWidth, app.viewportHeight);
+    // un ritaglio stretto e' un difetto quanto uno largo. Il rettangolo va nel vertice
+    // di ogni riga (`SetClip`), quindi il lotto non si spezza.
+    app.renderer->SetClip(Rect{body.x, text.y, text.right() - body.x, text.h});
 
     for (int row = first; row < last; ++row)
     {
@@ -460,9 +459,7 @@ void DrawTextViewer(AppState& app, const Layout& layout, const Rect& area)
                     app.textShowWhitespace, t.text, t.whitespaceInk, text.w);
     }
 
-    app.renderer->End();
-    app.renderer->ClearScissor();
-    app.renderer->Begin(app.viewportWidth, app.viewportHeight);
+    app.renderer->ClearClip();
 
     // La minimap: una barra per riga di schermo, lunga quanto la riga piu' lunga che
     // ci sta dentro, e la parte che si sta guardando evidenziata. Serve a orientarsi in
@@ -894,7 +891,21 @@ void DrawInspector(AppState& app, const Layout& layout)
     // qui e non a ogni fotogramma, perche' cambia solo quando cambia la voce scelta.
     EnsureTextDocument(app);
 
-    const int selectedCount = static_cast<int>(app.selection.size());
+    // Il pannello parla di quello che la lista **mostra**. La selezione sopravvive al
+    // filtro — le operazioni scartano gia' le voci nascoste — ma un'aggregazione che
+    // contasse anche quelle nascoste sarebbe un numero che sullo schermo non si
+    // trova: la stessa regola di `docs/02` §7.55, applicata al pannello invece che
+    // al cursore.
+    std::vector<int> chosen;
+    for (const Row& row : app.rows)
+    {
+        if (row.header)
+            continue;
+        if (app.selection.count(app.entries[static_cast<size_t>(row.entry)].wideName) != 0)
+            chosen.push_back(row.entry);
+    }
+
+    const int selectedCount = static_cast<int>(chosen.size());
     const int cursorIndex = CursorIndex(app);
 
     if (selectedCount == 0 || cursorIndex < 0)
@@ -912,17 +923,18 @@ void DrawInspector(AppState& app, const Layout& layout)
         uint64_t totalBytes = 0;
         int files = 0;
         int folders = 0;
-        for (const std::wstring& name : app.selection)
+        for (const int index : chosen)
         {
-            const int index = FindEntryByName(app, name);
-            if (index < 0)
-                continue;
             const Entry& item = app.entries[static_cast<size_t>(index)];
             if (item.isDirectory)
             {
                 ++folders;
                 DirStats stats;
-                if (app.stats.TryGet(JoinPath(app.directory, item.wideName), &stats))
+                // Una voce della Home porta il suo percorso in `location`: il nome
+                // da solo non basta e `JoinPath` produrrebbe una strada che non
+                // esiste.
+                if (item.location.empty() &&
+                    app.stats.TryGet(JoinPath(app.directory, item.wideName), &stats))
                     totalBytes += stats.logicalBytes;
             }
             else
@@ -947,12 +959,8 @@ void DrawInspector(AppState& app, const Layout& layout)
         // per tipo e' quello che dice cosa si sta per spostare o cancellare, e
         // l'inspector e' l'unico posto dove c'e' spazio per dirlo.
         std::unordered_map<std::string, int> byType;
-        for (const std::wstring& name : app.selection)
-        {
-            const int index = FindEntryByName(app, name);
-            if (index >= 0)
-                ++byType[app.entries[static_cast<size_t>(index)].typeText];
-        }
+        for (const int index : chosen)
+            ++byType[app.entries[static_cast<size_t>(index)].typeText];
         std::vector<std::pair<std::string, int>> types(byType.begin(), byType.end());
         std::sort(types.begin(), types.end(),
                   [](const std::pair<std::string, int>& a, const std::pair<std::string, int>& b) {

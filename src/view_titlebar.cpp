@@ -1,6 +1,7 @@
 #include "view_titlebar.h"
 
 #include "app_ui.h"
+#include "home.h"
 #include "tabs.h"
 
 
@@ -47,15 +48,14 @@ void DrawTitleBar(AppState& app, const Layout& layout)
         // moved out and only the live fields are current, so the title has to come
         // from there.
         const std::wstring& source = (i == app.activeTab) ? app.directory : tab.directory;
+        const bool named = ShellLocation::IsNamespace(source) || IsHome(source);
         // Il tab mostra il **nome della cartella**, non tutto il percorso: un
         // percorso lungo non ci sta e diventa illeggibile proprio nella parte che
         // identifica. Il pezzo che viene prima si mostra in piccolo e spento, e solo
         // se avanza spazio.
-        const std::wstring leafW = ShellLocation::IsNamespace(source)
-                                       ? LocationLabel(app, source)
-                                       : LeafName(source);
+        const std::wstring leafW = named ? LocationLabel(app, source) : LeafName(source);
         std::wstring parentW;
-        if (!ShellLocation::IsNamespace(source))
+        if (!named)
         {
             const size_t slash = source.find_last_of(L'\\');
             if (slash != std::wstring::npos && slash + 1 < source.size())
@@ -101,7 +101,8 @@ void DrawTitleBar(AppState& app, const Layout& layout)
         // L'icona e' quella dell'oggetto che il tab mostra: un disco per `C:`, un
         // cestino per il cestino, una cartella per una cartella. Non si tinge: e' la
         // sua, come nel riquadro di navigazione.
-        const ShellIconAtlas::IconUV* tabIcon = app.icons.GetForObject(source);
+        const ShellIconAtlas::IconUV* tabIcon =
+            IsHome(source) ? nullptr : app.icons.GetForObject(source);
         if (tabIcon == nullptr)
             tabIcon = app.icons.GetFor("", true);
         if (tabIcon != nullptr)

@@ -71,8 +71,8 @@ bool MenuMatch(const std::string& text, const std::wstring& filter)
 // stessa delle sezioni della barra laterale e delle etichette dei comandi.
 //
 // Sta qui e non in `main.cpp` perche' il gruppo lo disegna **questo** file, e perche'
-// i gruppi non sono solo quelli della palette: `Path`, `Places`, `Bookmarks` e
-// `Recents` sono le bande del GoTo, e la mappa dei tasti usa le stesse della palette.
+// i gruppi non sono solo quelli della palette: `Path`, `Places`, `QuickAccess`,
+// `Bookmarks` e `Recents` sono le bande del GoTo, e la mappa dei tasti usa le stesse della palette.
 //
 // Le bande della **lista** (`Oggi`, `Gigantesco`) hanno la loro tabella, in
 // `view_list.cpp`: sono parole diverse, e le scrive chi disegna quelle.
@@ -91,6 +91,7 @@ const char* MenuGroupLabelIt(const std::string& key)
     if (key == "Text")        return "Testo";
     if (key == "Scroll")      return "Scorrimento";
     if (key == "Bookmarks")   return "Segnalibri";
+    if (key == "QuickAccess") return "Accesso rapido";
     if (key == "Recents")     return "Recenti";
     if (key == "Options")     return "Opzioni";
     if (key == "Places")      return "Posti";
@@ -121,6 +122,7 @@ void GroupMenuOpen(GroupMenu& menu, std::string title, std::string placeholder,
     menu.selected = 0;
     menu.dirty    = true;
     menu.open     = true;
+    menu.openedAt = NowSeconds();   // da qui parte l'animazione di apertura
     GroupMenuRebuild(menu);   // so the selection is valid before the first frame
 }
 
@@ -451,6 +453,12 @@ void GroupMenuDraw(AppState& app, const Layout& layout, GroupMenu& menu)
     if (!menu.open)
         return;
 
+    // `Animations`: il pannello compare in dissolvenza. Il fattore si applica a
+    // **tutto** quello che il pannello disegna — velo, ombra, fondo, testo — perche'
+    // e' uno stato del renderer e non un colore da correggere in cinquanta punti.
+    const float appear = PanelAppear(menu.openedAt, app.animations);
+    app.renderer->SetOpacity(appear);
+
     IRenderer& r = *app.renderer;
     const Theme& t = app.theme;
     const float scale = layout.scale;
@@ -608,5 +616,9 @@ void GroupMenuDraw(AppState& app, const Layout& layout, GroupMenu& menu)
     const std::string footer = std::string(footerText) + "   " + menu.hint;
     app.smallFont.Draw(r, panel.x + 16.0f * scale, panel.bottom() - 20.0f * scale,
                   footer, t.textDim, scale);
+
+    // L'animazione vale per questo pannello e per nient'altro: quello che si disegna
+    // dopo (il menu contestuale, il pannello dell'operazione) torna pieno.
+    app.renderer->SetOpacity(1.0f);
 }
 } // namespace Bolt

@@ -23,6 +23,11 @@
 // Quello che NON si fa, e va detto: sui nomi di spazio dei nomi le operazioni per
 // percorso (copia, taglia, elimina, rinomina) non valgono. Li' si usano i verbi
 // della shell, che quegli oggetti li conoscono.
+//
+// Una **cartella** dentro il cestino si apre. Per farlo la sua posizione e' il PIDL
+// codificato in una stringa (`EncodePidl`): dentro il cestino il nome assoluto di
+// una cartella riciclata punta al file riciclato, che e' un'altra voce, quindi per
+// nome non si torna su quella cartella. Il PIDL si'.
 // ---------------------------------------------------------------------------
 #pragma once
 
@@ -37,6 +42,21 @@ namespace ShellLocation
 // Vero se |location| non e' un percorso di file. Il prefisso `::` e' come la shell
 // scrive i nomi dello spazio dei nomi.
 bool IsNamespace(const std::wstring& location);
+
+// Un PIDL in una stringa, per le posizioni che **una stringa non le sa nominare**.
+// Dentro il cestino una cartella ha un nome assoluto (`SIGDN_DESKTOPABSOLUTEPARSING`)
+// che punta al file riciclato — un'altra cosa — quindi non si puo' navigare per
+// nome. Il PIDL invece la identifica, e `shell:pidl:<esadecimale>` e' il modo di
+// portarlo dentro una `std::wstring` senza cambiare il tipo di `app.directory`.
+//
+// Esiste solo per questo: le posizioni che hanno un nome continuano ad averlo.
+std::wstring EncodePidl(const std::vector<BYTE>& pidl);
+
+// Il PIDL di una posizione: decodificato se e' un `shell:pidl:`, altrimenti chiesto
+// a `SHParseDisplayName`. Va liberato con `CoTaskMemFree`. Nullo se la shell non la
+// conosce. **Tutti** i punti che leggono una posizione passano di qui: due modi di
+// interpretare la stessa stringa sono due comportamenti diversi.
+PIDLIST_ABSOLUTE Parse(const std::wstring& location);
 
 // Il nome da mostrare — "Cestino" dove un percorso mostrerebbe se stesso. Vuoto
 // se la shell non riconosce la posizione.

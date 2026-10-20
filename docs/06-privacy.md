@@ -53,18 +53,55 @@ Al momento della stesura:
 
 | verifica | esito |
 |---|---|
-| Scritture di file nel codice | una sola: `startup-error.log`, solo su errore |
+| Scritture di file nel codice | `startup-error.log` (solo su errore) e il setup scaricato dall'aggiornamento (§3-bis) |
 | Riferimenti a `%APPDATA%` / `%LOCALAPPDATA%` | **uno**: `\Bolt\settings.ini`, le preferenze (§4-bis) |
 | Accessi al registro | **nessuno** |
 | Cache su disco | **nessuna** |
+| Richieste di rete | **una sola**, e solo dal comando esplicito `Controlla aggiornamenti` (§3-bis) |
 
-L'unico `CreateFileW` che non è una lettura è il registro di errori. La cache
+L'unico `CreateFileW` che non è una lettura, oltre al setup dell'aggiornamento, è il registro di errori. La cache
 delle anteprime, delle icone e delle statistiche vive **solo in memoria** ed è
 legata alla sessione: è già così, e va mantenuto così.
 
 I recenti e i segnalibri esistono, sono usati e **non vengono scritti**: la tabella
 dello spec li chiama `StoreRecents: Session`, e quella modalità non è una casella
 mancante — è la scelta.
+
+`StoreRecents` ha però tre valori nel riferimento, e da M4 ci sono tutti e tre
+(`src/recents.*`): `Session`, `Persistent`, `LocalDisk`. Nessuno dei tre scrive su
+disco — il modo dice **cosa si registra** (tutte le cartelle, o solo quelle dei
+volumi locali fissi), non dove finisce. `Persistent` nel riferimento sopravvive
+alla sessione nel blocco `"Recents": [` del file di sessione; qui resta in memoria,
+e il limite e' dichiarato in `docs/04` M4. La scelta del modo **non si salva**: sta
+nel pannello delle opzioni (`Ctrl+,`), la riga dice «vale per questa sessione», e il
+file `settings.ini` non ne contiene la chiave — verificato il 2026-10-18.
+
+## 3-bis. L'unica rete: gli aggiornamenti
+
+Il programma manda una richiesta di rete in **un solo caso**, e solo quando l'utente
+lo chiede: il comando `Controlla aggiornamenti` nella palette (`src/update.*`). Non c'è
+un timer, non c'è un controllo all'avvio, e il comando **non ha un tasto di partenza**
+— non si può premere per sbaglio. Una richiesta a GitHub è telemetria di fatto: se
+partisse da sola, questo documento non sarebbe vero.
+
+Cosa parte nella richiesta: l'indirizzo `api.github.com/repos/gianmarcotaf02/bolt/releases/latest`,
+l'intestazione `User-Agent: Bolt/<versione>` (obbligatoria per l'API di GitHub), e
+nient'altro. Nessun identificatore, nessun percorso, nessun elenco di quello che si è
+guardato, nessuna statistica.
+
+Cosa si scrive su disco: il setup scaricato, in `%TEMP%\Bolt-update\`. Se lo
+**SHA-256** non corrisponde a quello pubblicato nella release, il file viene
+**cancellato** e non si installa; se corrisponde, parte il setup in silenzioso, che
+legge quel file e lo lascia lì (la cartella temporanea di Windows non è nostra, e
+ripulirla mentre il setup la usa non si può). Un controllo successivo sovrascrive il
+file con lo stesso nome.
+
+`BOLT_UPDATE_API` è un **attrezzo da banco**, non una funzione del prodotto: sposta
+l'indirizzo del foglio delle release su un server locale per provare download, impronta
+e rifiuto senza pubblicare una release vera. Il setup passa comunque dal confronto
+dell'impronta, quindi non aggira il controllo.
+
+---
 
 ## 4. La conseguenza scomoda
 
@@ -94,7 +131,15 @@ Testo semplice, una riga per preferenza (`language=italian`, `showTooltips=1`, �
 scritto a ogni cambio e riletto a ogni avvio. Contiene **solo come si vuole che il
 programma si comporti**: nessun nome di file, nessuna cartella visitata, nessun
 elenco di cosa si e' guardato. Si cancella a mano, e cancellarlo riporta tutto ai
-valori di partenza. Il percorso lo dice l'applicazione, con un comando della palette
+valori di partenza.
+
+**L'unica cosa che sa di cartelle** e' la *pagina di avvio*, se la scegli tu: una riga
+`startupFolder=` con la cartella che hai chiesto di aprire all'avvio. Non e' una traccia
+di dove sei stato — e' una preferenza, come il tema, e il programma non la cambia da
+solo: la si imposta con due comandi (`Avvio: la cartella aperta`, `Avvio: Questo PC`) o
+dalla riga `Avvio` fra le opzioni, e senza quella riga il file non contiene nessun
+percorso. **"Riapri l'ultima cartella" non c'e' e non ci sara'**: quella sarebbe
+cronologia, per quanto comoda. Il percorso lo dice l'applicazione, con un comando della palette
 (`Dove sta il file delle impostazioni`): non e' una cartella creata di nascosto.
 
 ## 5. Cosa fare se il requisito sembra in conflitto con una richiesta

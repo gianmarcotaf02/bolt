@@ -73,6 +73,67 @@ bool SameWord(const wchar_t* a, const wchar_t* b)
     return *a == *b;
 }
 
+// "file pilot" dentro un testo, senza badare alle maiuscole. Non usa `towlower`
+// sulle stringhe UTF-8 delle etichette: li' serve il solo ASCII, e le etichette
+// arrivano gia' ridotte ad ASCII da `ShellLabelToAscii`.
+bool ContainsFold(const wchar_t* haystack, const wchar_t* needle)
+{
+    for (const wchar_t* start = haystack; *start != L'\0'; ++start)
+    {
+        const wchar_t* a = start;
+        const wchar_t* b = needle;
+        while (*a != L'\0' && *b != L'\0' && towlower(*a) == towlower(*b))
+        {
+            ++a;
+            ++b;
+        }
+        if (*b == L'\0')
+            return true;
+    }
+    return false;
+}
+
+bool ContainsFoldAscii(const std::string& haystack, const char* needle)
+{
+    const size_t n = std::char_traits<char>::length(needle);
+    if (n == 0 || haystack.size() < n)
+        return false;
+    for (size_t i = 0; i + n <= haystack.size(); ++i)
+    {
+        size_t j = 0;
+        while (j < n &&
+               static_cast<char>(std::tolower(static_cast<unsigned char>(haystack[i + j]))) ==
+                   needle[j])
+            ++j;
+        if (j == n)
+            return true;
+    }
+    return false;
+}
+
+// Le voci dell'applicazione **originale**. Bolt e' un clone di File Pilot, e chi ha
+// File Pilot installato se lo ritrova anche dentro il nostro menu contestuale: "Open
+// in File Pilot" su una selezione, "File Pilot here" sullo sfondo della cartella. Sono
+// comandi di un **altro programma** che aprono la stessa cartella, e dentro un clone si
+// leggono come una nostra funzione — che non e'. Non li offriamo: chi vuole File Pilot
+// lo apre da File Pilot, e il nostro menu resta il nostro.
+//
+// Il confronto e' sul **verbo canonico**, che e' il nome stabile: le varianti che
+// l'estensione registra portano tutte il nome dell'applicazione dentro
+// (`OpenInFilePilot`, `FilePilotHere`), mentre l'etichetta e' tradotta e cambia con la
+// lingua di Windows. L'etichetta si guarda lo stesso, come ripiego, per le voci
+// ownerdraw che arrivano senza verbo: costa un confronto e copre l'unico caso in cui il
+// verbo non c'e'.
+bool IsOriginalAppVerb(const wchar_t* verb)
+{
+    return ContainsFold(verb, L"filepilot") || ContainsFold(verb, L"file pilot");
+}
+
+bool LabelMentionsOriginalApp(const std::string& label)
+{
+    return ContainsFoldAscii(label, "file pilot") || ContainsFoldAscii(label, "filepilot");
+}
+
 // I verbi che il nostro menu gia' offre: ripeterli accanto ai nostri comandi
 // darebbe due "Taglia" e due "Proprieta'" nella stessa lista. Il confronto e' per
 // verbo canonico e non per etichetta, perche' l'etichetta e' tradotta e il verbo
@@ -335,6 +396,51 @@ void ShellMenuDetach(ContextMenu& menu)
     menu.shellMenu = nullptr;
 }
 
+// L'icona che un'applicazione **dichiara** per il proprio verbo: e' un valore `Icon`
+// (`"C:\...pp.exe"` o `"C:\...pp.exe",-105`) sotto la chiave del verbo, in uno
+// dei posti dove Windows cerca i verbi. Non e' un'ipotesi sul nome dell'applicazione:
+// e' quello che l'applicazione ha scritto per farsi disegnare.
+//
+// Si guardano tutti i posti e si prende il primo che risponde: il verbo che abbiamo
+// letto dice *quale* comando e', non da quale radice viene — e la stessa voce puo'
+// essere registrata per i file, per le cartelle o per lo sfondo. Sei aperture di
+// chiave per voce, e solo all'apertura del menu (`ReadShellMenu` gira una volta per
+// livello, e la shell menu cache la tiene per la selezione).
+std::wstring VerbIconSpec(const std::wstring& verb)
+{
+    // `Software\Classes\<radice>\<verbo>`, con un separatore costruito una volta:
+    // incollare le barre a mano in sei stringhe letterali e' il modo di sbagliarne
+    // una e di non accorgersene, perche' `\s` e `\D` non sono errori per il
+    // compilatore.
+    const std::wstring classes = L"Software\\Classes\\";
+    const wchar_t sep = L'\\';
+
+    static const wchar_t* const kRoots[] = {
+        L"*\\shell",
+        L"AllFilesystemObjects\\shell",
+        L"Directory\\shell",
+        L"Directory\\Background\\shell",
+        L"Folder\\shell",
+        L"Drive\\shell",
+    };
+
+    for (const wchar_t* root : kRoots)
+    {
+        const std::wstring key = classes + root + std::wstring(1, sep) + verb;
+
+        wchar_t value[512]{};
+        DWORD bytes = sizeof(value);
+        if (RegGetValueW(HKEY_CURRENT_USER, key.c_str(), L"Icon", RRF_RT_REG_SZ, nullptr,
+                         value, &bytes) == ERROR_SUCCESS && value[0] != 0)
+            return value;
+        bytes = sizeof(value);
+        if (RegGetValueW(HKEY_LOCAL_MACHINE, key.c_str(), L"Icon", RRF_RT_REG_SZ, nullptr,
+                         value, &bytes) == ERROR_SUCCESS && value[0] != 0)
+            return value;
+    }
+    return {};
+}
+
 // Legge le voci di un menu della shell — separatori compresi — e le traduce nel
 // nostro elenco. Vale per il menu della selezione, per quello del fondo della
 // cartella, e un livello alla volta per un sottomenu.
@@ -370,10 +476,13 @@ void ReadShellMenu(IContextMenu* shell, HMENU handle, bool folderBackground,
             if (haveVerb && IsOwnShellVerb(verb, folderBackground))
                 continue;
 
+            // `MIIM_BITMAP` costa niente da chiedere e dice una cosa che serve: se la
+            // shell (o l'estensione) ha gia' un'icona per questa voce. Le voci che
+            // disegnano da sole mettono `HBMMENU_CALLBACK`, che non e' una bitmap.
             wchar_t text[256]{};
             MENUITEMINFOW detailed{};
             detailed.cbSize     = sizeof(detailed);
-            detailed.fMask      = MIIM_STRING;
+            detailed.fMask      = MIIM_STRING | MIIM_BITMAP;
             detailed.dwTypeData = text;
             detailed.cch        = 255;
             GetMenuItemInfoW(handle, static_cast<UINT>(i), TRUE, &detailed);
@@ -382,6 +491,17 @@ void ReadShellMenu(IContextMenu* shell, HMENU handle, bool folderBackground,
             item.label    = ShellLabelToAscii(text);
             item.command  = static_cast<int>(basic.wID);
             item.disabled = (basic.fState & (MFS_DISABLED | MFS_GRAYED)) != 0;
+
+            // Le voci che portano dentro il nome dell'applicazione di cui questo e'
+            // il clone non si offrono: sono comandi di un altro programma.
+            if ((haveVerb && IsOriginalAppVerb(verb)) || LabelMentionsOriginalApp(item.label))
+            {
+                DiagLog("  saltata (comando dell'applicazione originale): '" + item.label +
+                        "'" + (haveVerb ? " verbo '" : " verbo '?") +
+                        ShellLabelToAscii(verb) + "'");
+                ++(*outSkipped);
+                continue;
+            }
 
             // Un sottomenu si legge **quando si apre**, non adesso: il suo
             // contenuto non esiste prima di WM_INITMENUPOPUP, e chiederlo per
@@ -422,8 +542,26 @@ void ReadShellMenu(IContextMenu* shell, HMENU handle, bool folderBackground,
                 continue;
             }
 
+            const bool shellBitmap = detailed.hbmpItem != nullptr &&
+                                     detailed.hbmpItem != HBMMENU_CALLBACK &&
+                                     reinterpret_cast<ULONG_PTR>(detailed.hbmpItem) > 0xFFFF;
+
+            // L'icona: prima quella che la voce porta con se', poi quella che il
+            // verbo dichiara nel registro. Se non c'e' nessuna delle due la voce
+            // resta senza icona — non si ripiega su un'ipotesi.
+            if (shellBitmap)
+            {
+                item.shellBitmap = detailed.hbmpItem;
+                item.iconKey     = ShellLabelToAscii(verb);
+            }
+            else if (haveVerb)
+            {
+                item.iconSpec = VerbIconSpec(verb);
+            }
+
             DiagLog("  voce: '" + item.label + "'" + (haveVerb ? " verbo '" : " verbo '?") +
-                    ShellLabelToAscii(verb) + "'" + (item.disabled ? " (spenta)" : ""));
+                    ShellLabelToAscii(verb) + "'" + (item.disabled ? " (spenta)" : "") +
+                    (shellBitmap ? " [icona della shell]" : ""));
             out->push_back(std::move(item));
         }
 

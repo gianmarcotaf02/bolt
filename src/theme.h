@@ -106,6 +106,12 @@ ColorScheme SchemeInUse(const AppState& app);
 // Va chiamata quando la finestra esiste; prima allinea solo la tavolozza.
 void ApplyTheme(AppState& app);
 
+// Scegliere una tavolozza dalla palette o dalle opzioni: si applica subito, si
+// **smette** di seguire il sistema e si ricorda. L'esito lo dice chi chiama, perche'
+// dalla palette il pannello si chiude e senza una riga di stato non si saprebbe cosa
+// e' cambiato.
+void SetColorScheme(AppState& app, ColorScheme scheme);
+
 // Il sistema preferisce il chiaro? E' `AppsUseLightTheme`, in
 // `HKCU\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize`.
 //

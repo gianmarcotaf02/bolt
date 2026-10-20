@@ -59,6 +59,16 @@ struct Corners
     static Corners All(float radius) { return Corners{radius, radius, radius, radius}; }
 };
 
+// Le quattro direzioni di una freccia. Non sono "alto/basso": una freccia punta
+// dove porta, e chi la disegna lo dice con questa parola invece che con un numero.
+enum class ArrowDirection
+{
+    Right,
+    Left,
+    Up,
+    Down,
+};
+
 // ---------------------------------------------------------------------------
 // One drawable primitive
 // ---------------------------------------------------------------------------
@@ -99,6 +109,17 @@ struct UIDraw
     bool  plus  = false;
     bool  cross = false;
 
+    // I pulsanti di navigazione, che erano i caratteri `←` `→` `↑` `↻` `★`: le
+    // stesse ragioni, e in piu' il fatto che quattro caratteri di famiglie diverse
+    // — frecce lineari, un cerchio con la punta, una stella — non si somigliano per
+    // spessore ne' per altezza ottica, e cambiano disegno col carattere scelto.
+    // Lo spessore viaggia in |radius|, come per il piu'.
+    bool  arrow     = false;
+    bool  arrowUp   = false;
+    bool  arrowLeft = false;
+    bool  refresh   = false;
+    bool  star      = false;
+
     static UIDraw Fill(Rect rect, Color color, float radius = 0.0f);
     static UIDraw Fill(Rect rect, Color color, Corners radius);
     static UIDraw Border(Rect rect, Color color, float width, float radius = 0.0f, Corners corners = {});
@@ -108,6 +129,9 @@ struct UIDraw
     static UIDraw Triangle(Rect rect, Color color, bool pointsDown = false);
     static UIDraw Plus(Rect rect, Color color, float thickness);
     static UIDraw Cross(Rect rect, Color color, float thickness);
+    static UIDraw Arrow(Rect rect, Color color, float thickness, ArrowDirection direction);
+    static UIDraw Refresh(Rect rect, Color color, float thickness);
+    static UIDraw Star(Rect rect, Color color, float thickness, bool filled);
 };
 
 // ---------------------------------------------------------------------------
@@ -150,11 +174,38 @@ public:
     virtual size_t QuadCount() const = 0;
     virtual void ReserveQuads(size_t quads) = 0;
 
-    // Il ritaglio e' stato di disegno, non del singolo quadrilatero: si accende
-    // attorno a un lotto e si spegne subito dopo. Un rettangolo con larghezza o
-    // altezza non positiva significa "nessun ritaglio".
-    virtual void SetScissor(Rect rect) = 0;
-    virtual void ClearScissor() = 0;
+    // Quante chiamate di disegno ha fatto questo fotogramma. `QuadCount` da' i
+    // quadrilateri, questo il loro prezzo in chiamate: sono due numeri diversi e
+    // il secondo e' quello che un ritaglio di stato moltiplicava. Si azzera in
+    // `BeginFrame`, non in `Begin`: `Begin` apre un lotto e ce ne possono essere
+    // piu' d'uno per fotogramma.
+    virtual size_t DrawCalls() const = 0;
+
+    // Il ritaglio e' **del quadrilatero**, non dello stato del disegno: il
+    // rettangolo si scrive nel vertice di ogni primitiva accodata da qui alla
+    // prossima chiamata, e a tagliare e' il pixel shader. Quindi `End` non va
+    // chiamato attorno a un ritaglio: i quadrilateri di tutta l'interfaccia
+    // restano in un lotto solo. Era il debito dichiarato in `AGENTS.md` §8 — cinque
+    // disegni per fotogramma, quattro dei quali erano il prezzo di due ritagli.
+    // Un rettangolo con larghezza o altezza non positiva vale "nessun ritaglio",
+    // cioe' il fotogramma intero.
+    virtual void SetClip(Rect rect) = 0;
+    virtual void ClearClip() = 0;
+
+    // Due moltiplicatori che valgono per tutto cio' che si disegna da qui alla
+    // prossima chiamata. Sono lo stato che rende possibili due opzioni senza
+    // toccare cento chiamate di disegno:
+    //
+    //   `SetCornerScale` — `RoundCorners`. Moltiplica i **raggi degli angoli**
+    //   (0 = spigoli vivi). Le forme che usano quel numero come spessore — `+`,
+    //   `x`, frecce, stella — non si toccano: li' il raggio non e' un angolo, e
+    //   azzerarlo farebbe sparire il segno.
+    //
+    //   `SetOpacity` — `InactivePanelContentOpacity`. Moltiplica l'alpha di ogni
+    //   primitiva, testo compreso (il glifo arriva come maschera, quindi l'alpha
+    //   del colore e' la sua copertura). 1 = pieno.
+    virtual void SetCornerScale(float scale) = 0;
+    virtual void SetOpacity(float opacity) = 0;
 };
 
 // ---------------------------------------------------------------------------
@@ -213,8 +264,19 @@ public:
     // Ensures the vertex buffer can hold |quads| more quads without reallocating.
     void ReserveQuads(size_t quads) override;
 
-    void SetScissor(Rect rect) override;
-    void ClearScissor() override;
+    void SetClip(Rect rect) override;
+    void ClearClip() override;
+    void SetCornerScale(float scale) override;
+    void SetOpacity(float opacity) override;
+
+    size_t DrawCalls() const override
+    {
+        // Il lotto in corso non e' ancora stato disegnato, e il conto deve dire
+        // quanti disegni **fa** il fotogramma: si conta anche lui. Senza, il numero
+        // letto dalla barra di stato — che si disegna dentro l'ultimo lotto —
+        // sarebbe sempre uno di meno.
+        return drawCalls_ + (vertices_.empty() ? 0 : 1);
+    }
 
     // La finestra e il suo contesto: il backend OpenGL disegna su un `HDC` e
     // presenta con `SwapBuffers`, quindi li riceve da chi ha creato la finestra.
@@ -245,6 +307,16 @@ private:
     int viewportWidth_  = 0;
     int viewportHeight_ = 0;
     bool mipmapsDirty_  = false;
+
+    // Stato di disegno per blocco: vedi `IRenderer::SetCornerScale`/`SetOpacity`.
+    float cornerScale_ = 1.0f;
+    float opacity_     = 1.0f;
+
+    // Il ritaglio attivo: finisce nel vertice di ogni quadrilatero accodato.
+    Rect clip_{};
+
+    // Disegni emessi nel fotogramma corrente: vedi `IRenderer::DrawCalls`.
+    size_t drawCalls_ = 0;
 
     // 4 vertices per quad, laid out to match the attribute locations declared in
     // the vertex shader.

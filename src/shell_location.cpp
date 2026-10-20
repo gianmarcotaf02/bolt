@@ -1,5 +1,7 @@
 #include "shell_location.h"
 
+#include <cstring>
+
 #include "app_ui.h"
 #include "language.h"
 
@@ -143,20 +145,86 @@ Volume VolumeOf(const std::wstring& location)
     }
     return info;
 }
+namespace
+{
+// Il prefisso di una posizione codificata da un PIDL: `shell:pidl:` + esadecimale.
+constexpr const wchar_t* kPidlPrefix = L"shell:pidl:";
+}   // namespace
+
 bool IsNamespace(const std::wstring& location)
 {
-    // Due forme, e sono due cose diverse: `::{CLSID}` cerca una cartella dentro lo
+    // Tre forme, e sono tre cose diverse: `::{CLSID}` cerca una cartella dentro lo
     // spazio dei nomi del desktop, `shell:::{CLSID}` la chiede alla shell per
-    // identificatore — l'unica che risponde per "Accesso rapido".
+    // identificatore — l'unica che risponde per "Accesso rapido" — e `shell:pidl:`
+    // e' un PIDL codificato (vedi `EncodePidl`), cioe' una posizione che per nome
+    // non si puo' nominare.
     if (location.size() >= 2 && location[0] == L':' && location[1] == L':')
+        return true;
+    if (location.rfind(kPidlPrefix, 0) == 0)
         return true;
     return location.rfind(L"shell::", 0) == 0;
 }
 
+std::wstring EncodePidl(const std::vector<BYTE>& pidl)
+{
+    static const wchar_t* digits = L"0123456789abcdef";
+    std::wstring encoded = kPidlPrefix;
+    encoded.reserve(encoded.size() + pidl.size() * 2);
+    for (BYTE byte : pidl)
+    {
+        encoded.push_back(digits[byte >> 4]);
+        encoded.push_back(digits[byte & 0x0F]);
+    }
+    return encoded;
+}
+
+PIDLIST_ABSOLUTE Parse(const std::wstring& location)
+{
+    if (location.rfind(kPidlPrefix, 0) == 0)
+    {
+        const size_t start = std::wstring(kPidlPrefix).size();
+        const std::wstring hex = location.substr(start);
+        if (hex.empty() || (hex.size() % 2) != 0)
+            return nullptr;
+
+        const auto digit = [](wchar_t c) -> int
+        {
+            if (c >= L'0' && c <= L'9') return c - L'0';
+            if (c >= L'a' && c <= L'f') return c - L'a' + 10;
+            if (c >= L'A' && c <= L'F') return c - L'A' + 10;
+            return -1;
+        };
+
+        std::vector<BYTE> bytes;
+        bytes.reserve(hex.size() / 2);
+        for (size_t i = 0; i < hex.size(); i += 2)
+        {
+            const int hi = digit(hex[i]);
+            const int lo = digit(hex[i + 1]);
+            if (hi < 0 || lo < 0)
+                return nullptr;
+            bytes.push_back(static_cast<BYTE>((hi << 4) | lo));
+        }
+        bytes.push_back(0);
+        bytes.push_back(0);   // il PIDL finisce con due byte a zero
+
+        auto* pidl = static_cast<PIDLIST_ABSOLUTE>(CoTaskMemAlloc(bytes.size()));
+        if (pidl == nullptr)
+            return nullptr;
+        std::memcpy(pidl, bytes.data(), bytes.size());
+        return pidl;
+    }
+
+    PIDLIST_ABSOLUTE pidl = nullptr;
+    if (FAILED(SHParseDisplayName(location.c_str(), nullptr, &pidl, 0, nullptr)))
+        return nullptr;
+    return pidl;
+}
+
 std::wstring DisplayName(const std::wstring& location)
 {
-    PIDLIST_ABSOLUTE pidl = nullptr;
-    if (FAILED(SHParseDisplayName(location.c_str(), nullptr, &pidl, 0, nullptr)) || pidl == nullptr)
+    PIDLIST_ABSOLUTE pidl = Parse(location);
+    if (pidl == nullptr)
         return std::wstring();
 
     // Il nome di una cartella di spazio dei nomi **non** si chiede all'oggetto:
@@ -280,8 +348,8 @@ std::wstring QuickAccessName()
     // Si verifica che la shell lo riconosca. Un nome di spazio dei nomi sbagliato
     // non da' errore: da' una cartella **vuota**, che e' la forma di guasto peggiore
     // — sembra che non ci sia niente da mostrare, invece di sembrare un guasto.
-    PIDLIST_ABSOLUTE pidl = nullptr;
-    if (FAILED(SHParseDisplayName(location.c_str(), nullptr, &pidl, 0, nullptr)) || pidl == nullptr)
+    PIDLIST_ABSOLUTE pidl = Parse(location);
+    if (pidl == nullptr)
         return std::wstring();
 
     CoTaskMemFree(pidl);
@@ -290,19 +358,32 @@ std::wstring QuickAccessName()
 
 std::wstring ParentOf(const std::wstring& location)
 {
-    PIDLIST_ABSOLUTE pidl = nullptr;
-    if (FAILED(SHParseDisplayName(location.c_str(), nullptr, &pidl, 0, nullptr)) || pidl == nullptr)
+    PIDLIST_ABSOLUTE pidl = Parse(location);
+    if (pidl == nullptr)
         return std::wstring();
 
+    // Per una posizione codificata il genitore si ricodifica: il suo *nome* e' il
+    // percorso del file riciclato, che riporterebbe fuori dallo spazio dei nomi.
+    const bool encoded = location.rfind(kPidlPrefix, 0) == 0;
     std::wstring parent;
     PIDLIST_ABSOLUTE up = ILClone(pidl);
     if (up != nullptr && ILRemoveLastID(up))
     {
-        PWSTR name = nullptr;
-        if (SUCCEEDED(SHGetNameFromIDList(up, SIGDN_DESKTOPABSOLUTEPARSING, &name)) && name != nullptr)
+        if (encoded)
         {
-            parent = name;
-            CoTaskMemFree(name);
+            const size_t size = ILGetSize(up);
+            parent = EncodePidl(std::vector<BYTE>(reinterpret_cast<const BYTE*>(up),
+                                                  reinterpret_cast<const BYTE*>(up) + size));
+        }
+        else
+        {
+            PWSTR name = nullptr;
+            if (SUCCEEDED(SHGetNameFromIDList(up, SIGDN_DESKTOPABSOLUTEPARSING, &name)) &&
+                name != nullptr)
+            {
+                parent = name;
+                CoTaskMemFree(name);
+            }
         }
     }
     if (up != nullptr)
@@ -372,8 +453,8 @@ std::vector<Item> Read(const std::wstring& location, std::string* error)
     std::vector<Item> items;
     error->clear();
 
-    PIDLIST_ABSOLUTE root = nullptr;
-    if (FAILED(SHParseDisplayName(location.c_str(), nullptr, &root, 0, nullptr)) || root == nullptr)
+    PIDLIST_ABSOLUTE root = Parse(location);
+    if (root == nullptr)
     {
         *error = Tr("Questa posizione non si apre.", "This location cannot be opened.");
         return items;
@@ -459,13 +540,23 @@ std::vector<Item> Read(const std::wstring& location, std::string* error)
                              reinterpret_cast<const BYTE*>(absolute) + size);
 
             // E il nome torna su questa voce, o su un'altra?
-            PIDLIST_ABSOLUTE reparsed = nullptr;
-            if (!item.location.empty() &&
-                SUCCEEDED(SHParseDisplayName(item.location.c_str(), nullptr, &reparsed, 0, nullptr)) &&
-                reparsed != nullptr)
+            PIDLIST_ABSOLUTE reparsed = Parse(item.location);
+            if (reparsed != nullptr)
             {
                 item.navigable = ILIsEqual(absolute, reparsed) != FALSE;
                 CoTaskMemFree(reparsed);
+            }
+
+            // Una **cartella** che per nome non si ritrova — dentro il cestino il
+            // nome assoluto di una cartella riciclata e' il file riciclato, che e'
+            // un'altra cosa — si apre lo stesso, col PIDL: la posizione diventa
+            // `shell:pidl:<esadecimale>` e da li' in poi e' una posizione come le
+            // altre (`Parse` la sa leggere). Era il pezzo che mancava per aprire una
+            // cartella dal cestino invece di doverla solo ripristinare.
+            if (!item.navigable && item.isDirectory)
+            {
+                item.location  = EncodePidl(item.pidl);
+                item.navigable = true;
             }
             CoTaskMemFree(absolute);
         }

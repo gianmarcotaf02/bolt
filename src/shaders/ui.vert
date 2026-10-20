@@ -7,7 +7,7 @@
 // is submitted as one axis-aligned quad forming a 4-vertex triangle strip. The
 // four corner positions are written identically into all four vertices and
 // gl_VertexID selects which corner a given vertex is. The CPU side therefore
-// only ever appends one 30-float record four times, which keeps the batching
+// only ever appends one 34-float record four times, which keeps the batching
 // code trivially simple and completely stateless.
 //
 // Design note: the signed-distance-field approach used for antialiased
@@ -35,6 +35,7 @@ layout(location = 11) in float aSoftness;  // blur width in pixels; > 0 turns a 
 layout(location = 12) in float aDashOn;
 layout(location = 13) in float aDashOff;
 layout(location = 14) in float aFlags;     // bit 0 textured, bit 1 monochrome
+layout(location = 15) in vec4  aClip;      // rettangolo di ritaglio: x0, y0, x1, y1
 
 out vec2 vShapeMin;
 out vec2 vShapeSize;
@@ -44,6 +45,7 @@ flat out float vSoftness;
 flat out float vDashOn;
 flat out float vDashOff;
 flat out float vFlags;
+flat out vec4  vClip;
 
 smooth out vec2  vUV;
 smooth out float vLayer;
@@ -85,6 +87,7 @@ void main()
     vDashOn      = aDashOn;
     vDashOff     = aDashOff;
     vFlags       = aFlags;
+    vClip        = aClip;
 
     vUV       = uv;
     vLayer    = aLayer;

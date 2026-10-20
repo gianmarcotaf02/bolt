@@ -2,7 +2,7 @@
 // Backend Direct3D 11.
 //
 // E' la seconda implementazione di `IRenderer`: stesso batcher di quadrilateri,
-// stesso formato di vertice (30 float), stessi shader — riscritti in HLSL perche'
+// stesso formato di vertice (34 float), stessi shader — riscritti in HLSL perche'
 // D3D non legge il GLSL. Chi disegna non cambia una riga.
 //
 // Differenze dai due lati che contano:
@@ -10,6 +10,9 @@
 //   * `SV_Position` nel pixel shader e' gia' in pixel con l'origine in **alto a
 //     sinistra**, +Y in giu', come lo spazio dell'interfaccia: il ribaltamento che
 //     serve in OpenGL qui non serve.
+//   * il ritaglio e' un campo del vertice, quindi anche qui non c'e' uno stato da
+//     accendere e spegnere, e non c'e' `D3D11_RASTERIZER_DESC::ScissorEnable` da
+//     tenere acceso.
 //   * `SV_VertexID`, con una draw call indicizzata, e' l'indice letto dal buffer,
 //     esattamente come `gl_VertexID`: i bit bassi selezionano l'angolo.
 //   * il ritaglio e' top-left come il nostro `Rect`, quindi niente conversione.
@@ -56,8 +59,16 @@ public:
     size_t QuadCount() const override;
     void ReserveQuads(size_t quads) override;
 
-    void SetScissor(Rect rect) override;
-    void ClearScissor() override;
+    void SetClip(Rect rect) override;
+    void ClearClip() override;
+    void SetCornerScale(float scale) override;
+    void SetOpacity(float opacity) override;
+
+    size_t DrawCalls() const override
+    {
+        // Vedi `UIRenderer::DrawCalls`: si conta anche il lotto in corso.
+        return drawCalls_ + (vertices_.empty() ? 0 : 1);
+    }
 
 private:
     void AppendQuad(const UIDraw& primitive);
@@ -95,7 +106,15 @@ private:
     int  viewportHeight_ = 0;
     bool mipsDirty_      = false;
 
+    // Disegni emessi nel fotogramma corrente: vedi `IRenderer::DrawCalls`.
+    size_t drawCalls_ = 0;
+
+    // Stato di disegno per blocco: vedi `IRenderer::SetCornerScale`/`SetOpacity`.
+    float cornerScale_ = 1.0f;
+    float opacity_     = 1.0f;
+
     D3D11_VIEWPORT viewport_{};
-    D3D11_RECT     scissor_{};
-    bool           scissorSet_ = false;
+
+    // Il ritaglio attivo: finisce nel vertice di ogni quadrilatero accodato.
+    Rect clip_{};
 };

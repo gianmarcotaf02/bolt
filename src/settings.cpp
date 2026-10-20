@@ -20,6 +20,9 @@
 #include <windows.h>
 #include <shlobj.h>
 
+#include <algorithm>
+#include <cstdio>
+#include <cstdlib>
 #include <string>
 #include <vector>
 
@@ -98,6 +101,11 @@ void LoadSettings(AppState& app)
     // I nomi dei caratteri sono testo: si leggono cosi' come si scrivono.
     if (ReadSetting(text, "fontFace", &value) && !value.empty())
         app.fontFace = Widen(value);
+    // La pagina di avvio. **Una cartella**, e solo quella: e' la preferenza che chi
+    // usa il programma ha scelto, non un elenco di dove e' stato (`docs/06`).
+    if (ReadSetting(text, "startupFolder", &value))
+        app.startupFolder = Widen(value);
+
     if (ReadSetting(text, "monoFace", &value) && !value.empty())
         app.monoFace = Widen(value);
 
@@ -107,6 +115,20 @@ void LoadSettings(AppState& app)
             *target = (v == "1");
     };
     readFlag("showTooltips", &app.showTooltips);
+    readFlag("showRecents", &app.showRecents);
+    readFlag("showFileExtension", &app.showFileExtension);
+    readFlag("compactPaths", &app.compactPaths);
+    readFlag("roundCorners", &app.roundCorners);
+    readFlag("animations", &app.animations);
+    readFlag("longPaths", &app.longPaths);
+    {
+        // L'opacita' dei pannelli inattivi e' un numero, non un interruttore: sta
+        // con `rowSpacing` e `zoom`, che sono float e si leggono allo stesso modo.
+        std::string v;
+        if (ReadSetting(text, "inactiveOpacity", &v))
+            app.inactiveOpacity = std::clamp(static_cast<float>(atof(v.c_str())), 0.2f, 1.0f);
+    }
+    readFlag("sortRecents", &app.sortRecentsOnTop);
     readFlag("hoverToSelect", &app.hoverToSelect);
     readFlag("underlineOnHover", &app.underlineOnHover);
     readFlag("singleClick", &app.singleClick);
@@ -173,12 +195,27 @@ bool SaveSettings(const AppState& app)
     text += std::string("language=") +
             (gLanguage == Language::English ? "english" : "italian") + "\n";
     text += "fontFace=" + ToUtf8(app.fontFace) + "\n";
+    // Vuota non si scrive: nel file, la chiave assente vuol dire "Questo PC", e cosi'
+    // il file resta corto quando la preferenza e' quella di partenza.
+    if (!app.startupFolder.empty())
+        text += "startupFolder=" + ToUtf8(app.startupFolder) + "\n";
+
     text += "monoFace=" + ToUtf8(app.monoFace) + "\n";
 
     const auto writeFlag = [&](const char* key, bool value) {
         text += std::string(key) + "=" + (value ? "1" : "0") + "\n";
     };
     writeFlag("showTooltips", app.showTooltips);
+    writeFlag("showRecents", app.showRecents);
+    writeFlag("showFileExtension", app.showFileExtension);
+    writeFlag("compactPaths", app.compactPaths);
+    writeFlag("roundCorners", app.roundCorners);
+    writeFlag("animations", app.animations);
+    writeFlag("longPaths", app.longPaths);
+    char opacity[32];
+    std::snprintf(opacity, sizeof(opacity), "inactiveOpacity=%.2f\n", app.inactiveOpacity);
+    text += opacity;
+    writeFlag("sortRecents", app.sortRecentsOnTop);
     writeFlag("hoverToSelect", app.hoverToSelect);
     writeFlag("underlineOnHover", app.underlineOnHover);
     writeFlag("singleClick", app.singleClick);

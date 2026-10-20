@@ -15,12 +15,15 @@
 #include "view_list.h"
 
 #include "app_ui.h"
+#include "home.h"
+#include "shell_location.h"
 
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -86,7 +89,13 @@ bool TermMatches(const Entry& entry, const std::wstring& term)
         return ToLowerWide(Widen(entry.extension)) == term.substr(1);
     }
 
-    const std::wstring name = ToLowerWide(entry.wideName);
+    // Il nome **mostrato**, non `wideName`: una voce della Home porta il percorso in
+    // `wideName` (e' la sua identita'), e filtrare per un percorso invece che per il
+    // nome che si legge e' una casella che non trova quello che c'e' scritto sopra.
+    // Solo per la Home: per una cartella normale i due coincidono, e allocare una
+    // stringa per ogni voce a ogni tasto premuto su diecimila file si sentirebbe.
+    const std::wstring name =
+        ToLowerWide(entry.band >= 0 ? Widen(entry.name) : entry.wideName);
     if (term.find(L'*') != std::wstring::npos || term.find(L'?') != std::wstring::npos)
         return GlobMatch(term, name);
     return name.find(term) != std::wstring::npos;
@@ -538,7 +547,7 @@ void DrawEntryCell(AppState& app, const Layout& layout, const ViewMetrics& metri
     // La destinazione di una caduta: tratteggio, cosi' si distingue sia dal
     // riempimento della selezione sia dalla linea continua del cursore.
     if (!app.dropTarget.empty() && app.dropTargetIsRow &&
-        entry.wideName == LeafName(app.dropTarget))
+        EntryLocation(app, entry) == app.dropTarget)
         r.Draw(UIDraw::DashedBorder(card, t.accent, 2.0f * scale, 6.0f * scale, 4.0f * scale,
                                     6.0f * scale));
 
@@ -597,7 +606,7 @@ void DrawEntryCell(AppState& app, const Layout& layout, const ViewMetrics& metri
     }
 
     const std::vector<std::string> lines =
-        WrapName(app.font, entry.name, scale, card.w - 8.0f * scale, 2);
+        WrapName(app.font, DisplayName(app, entry), scale, card.w - 8.0f * scale, 2);
     float textY = labelTop;
     float lastX = card.x;
     float lastWidth = 0.0f;
@@ -621,16 +630,42 @@ void DrawEntryCell(AppState& app, const Layout& layout, const ViewMetrics& metri
 } // namespace
 
 // --- modello: dall'elenco delle voci alle righe che si vedono ---------------
+// Il nome di una voce **come si scrive**. Con `ShowFileExtension` spento
+// l'estensione non si mostra — ma il nome vero resta quello: aprire, rinominare e
+// filtrare continuano a usare `Entry::name` e `Entry::wideName`, perche' un nome
+// che il filtro non trova piu' sarebbe peggio di un nome lungo.
+std::string DisplayName(const AppState& app, const Entry& entry)
+{
+    if (app.showFileExtension || entry.isDirectory || entry.extension.empty())
+        return entry.name;
+
+    const size_t dot = entry.name.rfind('.');
+    if (dot == std::string::npos || dot == 0)
+        return entry.name;
+    return entry.name.substr(0, dot);
+}
+
 bool SortEntries(AppState& app)
 {
     const bool ascending = app.sortAscending;
     const SortColumn column = app.sortColumn;
 
+    // `SortRecents`: i nomi dei recenti che stanno in questa cartella, raccolti
+    // **una volta** prima dell'ordinamento. Chiederlo dentro il confronto
+    // costerebbe venti scansioni per ogni paragone, su cartelle da migliaia di voci.
+    std::unordered_set<std::wstring> recentNames;
+    if (app.sortRecentsOnTop)
+        for (std::wstring& name : app.recents.NamesIn(app.directory))
+            recentNames.insert(std::move(name));
+
     // A statistics column needs the service, which costs a lock per comparison.
     // That is acceptable here because sorting happens on demand, not per frame.
+    // Una voce che porta il suo percorso (`location` pieno) viene da una cartella
+    // che non e' un percorso: non c'e' niente da contare, e `JoinPath` col nome
+    // della Home produrrebbe un percorso che non esiste.
     auto statsFor = [&app](const Entry& entry, DirStats* out) -> bool
     {
-        if (!entry.isDirectory)
+        if (!entry.isDirectory || !entry.location.empty())
             return false;
         return app.stats.TryGet(JoinPath(app.directory, entry.wideName), out);
     };
@@ -652,8 +687,25 @@ bool SortEntries(AppState& app)
     };
 
     std::stable_sort(app.entries.begin(), app.entries.end(),
-                     [column, ascending, &statValue](const Entry& left, const Entry& right)
+                     [column, ascending, &statValue, &recentNames](const Entry& left, const Entry& right)
                      {
+                         // Le bande della Home vengono prima di tutto: un pin resta
+                         // un pin anche ordinando per dimensione. `band` e' -1 per
+                         // le voci normali, quindi li' questo confronto non fa niente.
+                         if (left.band != right.band)
+                             return left.band < right.band;
+
+                         // `SortRecents`: le cartelle e i file gia' aperti stanno in
+                         // cima, prima di tutto il resto — e' il senso di "recenti in
+                         // cima", quindi viene prima anche di `FoldersFirst`.
+                         if (!recentNames.empty())
+                         {
+                             const bool leftRecent  = recentNames.count(FoldCase(left.wideName)) != 0;
+                             const bool rightRecent = recentNames.count(FoldCase(right.wideName)) != 0;
+                             if (leftRecent != rightRecent)
+                                 return leftRecent;
+                         }
+
                          // Folders always lead, matching the FoldersFirst default.
                          if (left.isDirectory != right.isDirectory)
                              return left.isDirectory;
@@ -677,12 +729,44 @@ bool SortEntries(AppState& app)
                                  order = (a < b) ? -1 : (a > b) ? 1 : 0;
                                  break;
                              }
+                             case SortColumn::Created:
+                             {
+                                 const uint64_t a = FileTimeToUint64(left.created);
+                                 const uint64_t b = FileTimeToUint64(right.created);
+                                 order = (a < b) ? -1 : (a > b) ? 1 : 0;
+                                 break;
+                             }
+                             case SortColumn::Accessed:
+                             {
+                                 const uint64_t a = FileTimeToUint64(left.accessed);
+                                 const uint64_t b = FileTimeToUint64(right.accessed);
+                                 order = (a < b) ? -1 : (a > b) ? 1 : 0;
+                                 break;
+                             }
+                             // Il totale non e' una statistica a se': e' la somma
+                             // delle due che stanno nella riga, piu' la voce stessa.
+                             case SortColumn::TotalItems:
+                             {
+                                 const uint64_t a = statValue(left, SortColumn::Folders) +
+                                                    statValue(left, SortColumn::Files);
+                                 const uint64_t b = statValue(right, SortColumn::Folders) +
+                                                    statValue(right, SortColumn::Files);
+                                 order = (a < b) ? -1 : (a > b) ? 1 : 0;
+                                 break;
+                             }
                              case SortColumn::Type:
                                  order = left.typeText.compare(right.typeText);
                                  break;
                              case SortColumn::Name:
                              default:
-                                 order = _wcsicmp(left.wideName.c_str(), right.wideName.c_str());
+                                 // Le righe della Home si ordinano per **nome mostrato**:
+                                 // il loro `wideName` e' il percorso, cioe' l'identita',
+                                 // e ordinare per quello metterebbe le righe di una
+                                 // banda nell'ordine delle cartelle sul disco.
+                                 if (left.band >= 0)
+                                     order = left.name.compare(right.name);
+                                 else
+                                     order = _wcsicmp(left.wideName.c_str(), right.wideName.c_str());
                                  break;
                          }
 
@@ -702,23 +786,49 @@ bool SortEntries(AppState& app)
 // La dimensione fa eccezione ed e' dichiarata: un valore per file non filtra
 // niente, quindi li' il valore e' una **fascia** ("< 1 KB"), che e' quello che
 // chiede chi cerca "i file piccoli".
+// Un tempo a zero non e' il 1601: e' "non lo so". La stessa regola che usa
+// `ReadDirectory` per la data di modifica, qui per creazione e accesso.
+static bool HasTime(const FILETIME& time)
+{
+    return time.dwLowDateTime != 0 || time.dwHighDateTime != 0;
+}
+
 std::string ColumnValueOf(const AppState& app, const Entry& entry, int column)
 {
     switch (column)
     {
         case 1: return entry.typeText;
         case 2: return entry.modifiedText.empty() ? std::string("--") : entry.modifiedText;
+        // Creazione e ultimo accesso: formattate qui, cioe' **quando servono**, non
+        // una volta per voce letta. `FindFirstFile` le da' gia' tutte e tre.
         case 3:
+            return HasTime(entry.created) ? FormatFileTime(entry.created, /*withTime=*/false)
+                                           : std::string("--");
         case 4:
+            return HasTime(entry.accessed) ? FormatFileTime(entry.accessed, /*withTime=*/false)
+                                            : std::string("--");
+        case 5:
+        case 6:
         {
             if (!entry.isDirectory || !entry.location.empty())
                 return "--";
             DirStats stats;
             if (!app.stats.TryGet(JoinPath(app.directory, entry.wideName), &stats))
                 return "--";
-            return HumanCount(column == 3 ? stats.folders : stats.files);
+            return HumanCount(column == 5 ? stats.folders : stats.files);
         }
-        case 5:
+        // `TotalItems`: cartelle + file + la voce stessa. E' la definizione che si
+        // legge dal nome, e le due colonne accanto la rendono verificabile.
+        case 7:
+        {
+            if (!entry.isDirectory || !entry.location.empty())
+                return "--";
+            DirStats stats;
+            if (!app.stats.TryGet(JoinPath(app.directory, entry.wideName), &stats))
+                return "--";
+            return HumanCount(stats.folders + stats.files + 1);
+        }
+        case 8:
         {
             uint64_t bytes = entry.bytes;
             if (entry.isDirectory)
@@ -749,6 +859,41 @@ std::string ColumnValueOf(const AppState& app, const Entry& entry, int column)
     }
 }
 
+// Il cursore sta su una riga che **c'e'**. Il filtro, i filtri di colonna e un
+// gruppo chiuso possono nascondere la voce su cui sta il cursore, e l'ispettore
+// legge il cursore: senza questa regola il pannello di destra descriverebbe un file
+// che la lista non mostra (`docs/02` §7.55). Il cursore si sposta sulla prima riga
+// visibile, la **selezione** no — le voci nascoste restano selezionate, e
+// `SelectedPaths` le scarta gia' prima di proporre un'operazione, che e' il motivo
+// per cui nessun comando agisce su qualcosa che non si vede.
+void EnsureCursorOnVisibleRow(AppState& app)
+{
+    // Nessun cursore: non c'e' niente da correggere, e l'ispettore gia' tace.
+    if (app.cursor.empty())
+        return;
+
+    for (const Row& row : app.rows)
+    {
+        if (!row.header && app.entries[static_cast<size_t>(row.entry)].wideName == app.cursor)
+            return;
+    }
+
+    for (const Row& row : app.rows)
+    {
+        if (row.header)
+            continue;
+        app.cursor          = app.entries[static_cast<size_t>(row.entry)].wideName;
+        app.selectionAnchor = app.cursor;
+        return;
+    }
+
+    // Nessuna riga visibile: il cursore **resta dov'e'**. Non e' un dettaglio: se lo
+    // si azzerasse, togliendo il filtro non tornerebbe, e Enter non farebbe piu'
+    // niente su una riga che si vede. Chi parla di quel cursore (l'ispettore) tace
+    // per conto suo, perche' non c'e' nessuna riga da mostrare: vedi
+    // `DrawInspector`, che conta le voci **visibili**.
+}
+
 void RebuildView(AppState& app)
 {
     app.rows.clear();
@@ -758,6 +903,50 @@ void RebuildView(AppState& app)
 
     // Le bande di gruppo adesso stanno anche nella griglia: la geometria e' un
     // impaginatore a flusso che sa spezzarsi, e la usano tutti — vedi `GridRects`.
+    //
+    // La Home non segue `groupMode`: le sue tre bande sono la ragione per cui
+    // quella lista esiste, e raggrupparle per data o dimensione mescolerebbe
+    // fissaggi e cartelle note in un ordine che non vuol dire niente. Il filtro
+    // continua a valere — una banda senza righe visibili non si disegna.
+    if (IsHome(app.directory))
+    {
+        struct HomeBucket
+        {
+            int              band = 0;
+            std::vector<int> entries;
+        };
+        std::vector<HomeBucket> buckets;
+
+        for (int i = 0; i < static_cast<int>(app.entries.size()); ++i)
+        {
+            const Entry& entry = app.entries[static_cast<size_t>(i)];
+            if (!EntryVisible(app, entry))
+                continue;
+
+            // Le bande arrivano gia' in ordine di `band` (0, 1, 2) perche' e'
+            // `BuildHomeEntries` a costruirle cosi' e l'ordinamento le tiene
+            // ferme: qui basta aprire una banda quando il numero cambia.
+            if (buckets.empty() || buckets.back().band != entry.band)
+                buckets.push_back(HomeBucket{entry.band, {}});
+            buckets.back().entries.push_back(i);
+            ++app.matchCount;
+        }
+
+        for (const HomeBucket& bucket : buckets)
+        {
+            const char* label = HomeBandLabel(bucket.band);
+            app.groups.push_back(Group{label, static_cast<int>(bucket.entries.size())});
+            app.rows.push_back(Row{true, -1, static_cast<int>(app.groups.size()) - 1});
+
+            if (app.collapsedGroups.count(label) != 0)
+                continue;
+            for (const int entryIndex : bucket.entries)
+                app.rows.push_back(Row{false, entryIndex, -1});
+        }
+        EnsureCursorOnVisibleRow(app);
+        return;
+    }
+
     if (app.groupMode == GroupMode::None)
     {
         for (int i = 0; i < static_cast<int>(app.entries.size()); ++i)
@@ -766,6 +955,7 @@ void RebuildView(AppState& app)
                 app.rows.push_back(Row{false, i, -1});
         }
         app.matchCount = static_cast<int>(app.rows.size());
+        EnsureCursorOnVisibleRow(app);
         return;
     }
 
@@ -845,6 +1035,8 @@ void RebuildView(AppState& app)
         for (const int entryIndex : bucket.entries)
             app.rows.push_back(Row{false, entryIndex, -1});
     }
+
+    EnsureCursorOnVisibleRow(app);
 }
 
 // La larghezza di partenza e' quella di `kColumns`. Si chiama una volta, quando
@@ -853,6 +1045,45 @@ void InitColumns(AppState& app)
 {
     for (int i = 0; i < kColumnCount; ++i)
         app.columns[i].fraction = kColumns[i].fraction;
+}
+
+void SaveFolderLayout(AppState& app)
+{
+    if (app.directory.empty())
+        return;
+    FolderLayout layout;
+    layout.mode         = app.viewMode;
+    layout.gridIconSize = app.gridIconSize;
+    layout.sort         = app.sortColumn;
+    layout.ascending    = app.sortAscending;
+    layout.group        = app.groupMode;
+    for (int i = 0; i < kColumnCount; ++i)
+        layout.widths[i] = app.columns[static_cast<size_t>(i)].fraction;
+    app.folderLayouts[app.directory] = layout;
+}
+
+void ForgetFolderLayout(AppState& app)
+{
+    app.folderLayouts.erase(app.directory);
+}
+
+bool ApplyFolderLayout(AppState& app)
+{
+    const auto saved = app.folderLayouts.find(app.directory);
+    if (saved == app.folderLayouts.end())
+        return false;
+
+    const FolderLayout& layout = saved->second;
+    app.viewMode     = layout.mode;
+    app.gridIconSize = layout.gridIconSize;
+    app.sortColumn   = layout.sort;
+    app.sortAscending = layout.ascending;
+    app.groupMode    = layout.group;
+    for (int i = 0; i < kColumnCount; ++i)
+        if (layout.widths[i] > 0.0f)
+            app.columns[static_cast<size_t>(i)].fraction = layout.widths[i];
+    app.viewDirty = true;
+    return true;
 }
 
 void SetViewMode(AppState& app, ViewMode mode)
@@ -891,6 +1122,16 @@ std::wstring EntryLocation(const AppState& app, const Entry& entry)
 const ShellIconAtlas::IconUV* IconFor(AppState& app, const Entry& entry)
 {
     if (entry.volumeRoot)
+    {
+        if (const ShellIconAtlas::IconUV* uv = app.icons.GetForObject(entry.location))
+            return uv;
+    }
+    // Una voce che porta il suo percorso e viene dallo spazio dei nomi — "Questo PC"
+    // in una banda della Home — ha l'icona dell'oggetto, non quella di una cartella:
+    // un computer per "Questo PC", un cestino per il cestino. Per le voci riciclate
+    // no: il loro `location` e' il blob dentro `$Recycle.Bin`, e l'icona la da'
+    // l'estensione.
+    if (!entry.location.empty() && ShellLocation::IsNamespace(entry.location))
     {
         if (const ShellIconAtlas::IconUV* uv = app.icons.GetForObject(entry.location))
             return uv;
@@ -1117,8 +1358,10 @@ void DrawFilterBar(AppState& app, const Layout& layout)
 
     const std::string text =
         app.filter.empty()
+            // "voci", non "file": una cartella piena di sottocartelle, e la Home,
+            // non contengono file. E' lo stesso nome che usa la barra di stato.
             ? (std::string(Tr("Filtra ", "Filter ")) + std::to_string(app.entries.size()) +
-               Tr(" file...", " files..."))
+               Tr(" voci...", " items..."))
             : ToUtf8(app.filter);
 
     const float textX = bar.x + 10.0f * scale;
@@ -1136,7 +1379,13 @@ void DrawFilterBar(AppState& app, const Layout& layout)
     const std::string matchText = std::to_string(app.matchCount) + " / " +
                                   std::to_string(app.entries.size());
 
-    std::string groupText = std::string(Tr("Raggruppa: ", "Group: ")) + GroupModeName(app.groupMode);
+    // Sulla Home il raggruppamento non e' una scelta: le tre bande sono la lista.
+    // Scrivere "Raggruppa: nome" li' sarebbe un controllo che dichiara qualcosa
+    // che la vista non sta facendo.
+    std::string groupText =
+        IsHome(app.directory)
+            ? std::string(Tr("Gruppi: ", "Groups: ")) + Tr("per banda", "by band")
+            : std::string(Tr("Raggruppa: ", "Group: ")) + GroupModeName(app.groupMode);
     const float matchWidth = app.smallFont.Measure(matchText, scale);
     const float groupWidth = app.smallFont.Measure(groupText, scale);
     const float rightEdge  = bar.right() - 10.0f * scale;
@@ -1269,7 +1518,7 @@ void DrawList(AppState& app, const Layout& layout, const float* columnX)
 
         // La destinazione di una caduta in corso.
         if (!app.dropTarget.empty() && app.dropTargetIsRow &&
-            entry.wideName == LeafName(app.dropTarget))
+            EntryLocation(app, entry) == app.dropTarget)
             r.Draw(UIDraw::DashedBorder(row.Inset(1.0f, 1.0f), t.accent, 2.0f * scale,
                                         6.0f * scale, 4.0f * scale, 6.0f * scale));
 
@@ -1311,6 +1560,12 @@ void DrawList(AppState& app, const Layout& layout, const float* columnX)
         }
 
         const float textY = TextY(layout, row, app.font);
+        // Le colonne dei valori — tipo, data, conteggi, dimensione — stanno nel
+        // carattere dei **dettagli**, non in quello del corpo: sono la stessa specie
+        // delle intestazioni e delle etichette che hanno sopra, e con il corpo il
+        // testo non ci sta nella colonna (`Cartella di fi...`). Il nome resta nel
+        // corpo, perché e' quello che si legge per primo.
+        const float valueY = TextY(layout, row, app.smallFont);
         const std::wstring fullPath = EntryLocation(app, entry);
 
         // Numeric columns are right aligned so the digits line up down the
@@ -1324,8 +1579,8 @@ void DrawList(AppState& app, const Layout& layout, const float* columnX)
         const auto drawRight = [&](int column, const std::string& text, Color color, bool growing)
         {
             const float right = columnRight(column);
-            const float width = app.font.Measure(text, scale);
-            app.font.Draw(r, right - width, textY, text, color, scale);
+            const float width = app.smallFont.Measure(text, scale);
+            app.smallFont.Draw(r, right - width, valueY, text, color, scale);
             if (growing)
                 r.FillRect(Rect{right - width, row.bottom() - 5.0f * scale, width, 1.0f},
                            color.WithAlpha(0.6f));
@@ -1349,21 +1604,57 @@ void DrawList(AppState& app, const Layout& layout, const float* columnX)
 
             const std::string shown =
                 FitText(app.font, app.renameText, scale, field.w - 8.0f * scale);
+
+            // La parte **selezionata** si vede: e' quella che il prossimo carattere
+            // sostituira'. Si misura la selezione **visibile**, non quella intera —
+            // se il nome e' troncato, il rettangolo non esce dal campo.
+            if (app.renameSelectEnd > 0)
+            {
+                const std::string selected = FitText(
+                    app.font, app.renameText.substr(0, app.renameSelectEnd), scale,
+                    field.w - 8.0f * scale);
+                const float selectedWidth = app.font.Measure(selected, scale);
+                r.FillRect(Rect{nameX, row.y + 3.0f * scale, selectedWidth + 1.0f * scale,
+                                row.h - 6.0f * scale},
+                           t.accent.WithAlpha(0.35f), 2.0f * scale);
+            }
+
             app.font.Draw(r, nameX + 1.0f * scale, textY, shown, t.text, scale);
 
             // Il cursore va dopo il testo VISIBILE, non dopo quello completo: se
             // il nome e' piu' lungo del campo, un cursore sul fondo del campo
-            // sembrerebbe fermo mentre si scrive.
-            const float caretX =
-                nameX + 1.0f * scale + app.font.Measure(shown, scale) + 1.0f * scale;
-            r.FillRect(Rect{caretX, row.y + 3.0f * scale, 1.0f * scale,
-                            row.h - 6.0f * scale},
-                       t.text);
+            // sembrerebbe fermo mentre si scrive. Con una selezione il cursore non
+            // c'e': il prossimo carattere la sostituisce tutta.
+            if (app.renameSelectEnd == 0)
+            {
+                // Il cursore sta al punto di inserimento, che ora puo' essere in
+                // mezzo: dopo una selezione sostituita, o dopo un `Backspace`.
+                const std::string before = FitText(
+                    app.font, app.renameText.substr(0, app.renameCaret), scale,
+                    field.w - 8.0f * scale);
+                const float caretX =
+                    nameX + 1.0f * scale + app.font.Measure(before, scale) + 1.0f * scale;
+                r.FillRect(Rect{caretX, row.y + 3.0f * scale, 1.0f * scale,
+                                row.h - 6.0f * scale},
+                           t.text);
+            }
         }
         else
         {
-            const std::string shown = FitText(app.font, entry.name, scale, nameMax);
-            app.font.Draw(r, nameX, textY, shown, t.text, scale);
+            const std::string shown =
+                FitText(app.font, DisplayName(app, entry), scale, nameMax);
+            // `ShowRecents`: una cartella gia' visitata si disegna col tono del suo
+            // punteggio — piu' spenta se vale poco, piena se vale 10. E' l'unico
+            // posto in cui i tre campi si **vedono**; senza questa riga si
+            // calcolerebbero per l'ordine della barra laterale e basta.
+            Color ink = t.text;
+            if (app.showRecents && entry.isDirectory)
+            {
+                const int score = app.recents.ScoreFor(EntryLocation(app, entry));
+                if (score >= 0)
+                    ink = ink.WithAlpha(RecentOpacity(score));
+            }
+            app.font.Draw(r, nameX, textY, shown, ink, scale);
 
             // `UnderlineOnHover`: la sottolineatura sta **sotto il nome**, e sotto
             // quello visibile quando il nome e' troncato — una riga lunga quanto
@@ -1396,8 +1687,20 @@ void DrawList(AppState& app, const Layout& layout, const float* columnX)
         }
 
         const float typeMax = columnX[2] - columnX[1] - 12.0f * scale;
-        app.font.Draw(r, columnX[1], textY, FitText(app.font, entry.typeText, scale, typeMax), t.textDim, scale);
-        app.font.Draw(r, columnX[2], textY, entry.modifiedText, t.textDim, scale);
+        app.smallFont.Draw(r, columnX[1], valueY,
+                           FitText(app.smallFont, entry.typeText, scale, typeMax), t.textDim, scale);
+        app.smallFont.Draw(r, columnX[2], valueY,
+                           FitText(app.smallFont, entry.modifiedText, scale,
+                                   columnX[3] - columnX[2] - 12.0f * scale),
+                           t.textDim, scale);
+        app.smallFont.Draw(r, columnX[3], valueY,
+                           FitText(app.smallFont, ColumnValueOf(app, entry, 3), scale,
+                                   columnX[4] - columnX[3] - 12.0f * scale),
+                           t.textDim, scale);
+        app.smallFont.Draw(r, columnX[4], valueY,
+                           FitText(app.smallFont, ColumnValueOf(app, entry, 4), scale,
+                                   columnX[5] - columnX[4] - 12.0f * scale),
+                           t.textDim, scale);
 
         // Files answer immediately; folders are answered by the statistics
         // service, which fills them in progressively. Requesting here means only
@@ -1413,15 +1716,18 @@ void DrawList(AppState& app, const Layout& layout, const float* columnX)
             const Color numberColor = known ? t.text : t.textDim;
             const bool growing = known && stats.partial;
 
-            drawRight(3, known ? HumanCount(stats.folders) : "--", numberColor, growing);
-            drawRight(4, known ? HumanCount(stats.files) : "--", numberColor, growing);
-            drawRight(5, known ? HumanBytes(stats.logicalBytes) : "--", numberColor, growing);
+            drawRight(5, known ? HumanCount(stats.folders) : "--", numberColor, growing);
+            drawRight(6, known ? HumanCount(stats.files) : "--", numberColor, growing);
+            drawRight(7, known ? HumanCount(stats.folders + stats.files + 1) : "--",
+                      numberColor, growing);
+            drawRight(8, known ? HumanBytes(stats.logicalBytes) : "--", numberColor, growing);
         }
         else
         {
-            drawRight(3, "--", t.textDim, false);
-            drawRight(4, "--", t.textDim, false);
-            drawRight(5, entry.sizeText, t.textDim, false);
+            drawRight(5, "--", t.textDim, false);
+            drawRight(6, "--", t.textDim, false);
+            drawRight(7, "--", t.textDim, false);
+            drawRight(8, entry.sizeText, t.textDim, false);
         }
     }
 

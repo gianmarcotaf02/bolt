@@ -27,6 +27,10 @@ int ActiveDepth(const ContextMenu& menu);
 // voci della shell. Chiude quello che era aperto.
 void BuildContextMenu(AppState& app, float x, float y);
 
+// Il menu di una riga della barra laterale: le voci che agiscono su **quel**
+// percorso (fissarlo, toglierlo, toglierlo dai recenti), non sulla cartella aperta.
+void BuildSidebarContextMenu(AppState& app, float x, float y, const ClickTarget& row);
+
 // Chiude tutto il menu (e i sottomenu), staccando gli oggetti COM senza liberarli:
 // restano nella cache per la prossima apertura.
 void ContextMenuClose(AppState& app);

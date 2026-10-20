@@ -117,7 +117,7 @@ documentata qui perché è una scelta, non una svista.
 
 ```
 1. beginFrame: svuota il buffer dei vertici, imposta il viewport
-2. per ogni elemento della UI: appendi 4 vertici da 30 float
+2. per ogni elemento della UI: appendi 4 vertici da 34 float
 3. endFrame:  carica i vertici, disegna con un indice condiviso
               glDrawElements(GL_TRIANGLES, quad * 6, GL_UNSIGNED_INT)
 ```
@@ -339,9 +339,15 @@ Questi punti sono il perimetro di lavoro del reverse mirato descritto in
 
 Documentati perché il metodo conta quanto il risultato: quasi tutti sono stati
 trovati **guardando uno screenshot della propria applicazione**, non leggendo il
-codice. Il ciclo usato è in `tools/capture-window.ps1`. Alcune voci sono **aperte** e
-lo dicono nel titolo: §7.52 (Direct3D spento apposta, per una decisione) e §7.55
-(l'ispettore e il filtro, per una decisione).
+codice. Il ciclo usato è in `tools/capture-window.ps1`. **Una voce è aperta**: delle
+sessantaquattro del registro, sessantatré sono chiuse. Le ultime tre chiuse: §7.61 — il
+ritaglio per-quad, che non è un difetto visto a schermo ma un **debito** saldato, con
+accanto lo strumento difettoso che lo nascondeva (un contatore che ripartiva a ogni
+lotto); §7.62, il menu contestuale che offriva i comandi di File Pilot; e §7.63, il
+percorso degli shader della macchina di compilazione finito dentro il pacchetto — il
+primo difetto trovato **impacchettando** invece che guardando. La voce aperta è §7.64:
+l'Accesso rapido apre le cartelle come posizioni codificate, e lì i comandi per percorso
+si rifiutano.
 
 ### 7.1 `gl_VertexID` in una draw call indicizzata — *il bug che nascondeva tutto*
 
@@ -1249,16 +1255,17 @@ La lista saltava le righe interamente fuori dal riquadro — `row.y < list.y - r
 griglia e' alta quanto una miniatura, quindi "una riga sopra il bordo" sono cento
 sessanta pixel disegnati sopra il titolo. Il controllo non tagliava: **saltava**.
 
-Adesso e' il **scissor** a ritagliare, attorno alla sola chiamata che disegna la
-lista. Una cella a meta' si vede a meta', che e' quello che deve succedere quando si
-scorre. Il difetto c'era anche prima delle bande di gruppo — bastava uno scorrimento
-non multiplo dell'altezza della cella, e le frecce lo producevano — ma le bande lo
-hanno reso la norma invece dell'eccezione.
+Adesso e' il ritaglio a tagliare, e dal 2026-10-20 **non costa piu' niente**: il
+rettangolo viaggia nel vertice (vedi §7.61), quindi la lista si disegna dentro il suo
+riquadro restando nello stesso disegno di tutto il resto. Una cella a meta' si vede a
+meta', che e' quello che deve succedere quando si scorre. Il difetto c'era anche prima
+delle bande di gruppo — bastava uno scorrimento non multiplo dell'altezza della cella,
+e le frecce lo producevano — ma le bande lo hanno reso la norma invece dell'eccezione.
 
-**Il prezzo, dichiarato.** I quadrilateri si accumulano in un batch solo, quindi il
-ritaglio obbliga a chiuderlo e riaprirlo: **tre disegni per fotogramma invece di
-uno**. E' poco, ma non e' piu' quello che c'era scritto, e la riga va corretta dove
-stava scritta.
+**Il prezzo, dichiarato allora e saldato dopo.** I quadrilateri si accumulano in un
+batch solo, e con il `glScissor` il ritaglio obbligava a chiuderlo e riaprirlo: **tre
+disegni per fotogramma invece di uno**, cinque con il visualizzatore di testo. Era
+scritto qui, e adesso la riga dice l'altro numero: **uno**. Vedi §7.61.
 
 **La lezione, e perche' le mie catture non l'avevano visto.** Un difetto di
 *ritaglio* non si vede in una lista allineata: si vede scorrendo, e guardando il
@@ -1291,7 +1298,9 @@ nell'ordine giusto: `max(0, min(scroll, content - h))`.
 visto che le righe si disegnavano **sopra la testata** `UTF-8 ... righe`: la prima
 riga comincia apposta una riga prima di quella visibile (cosi' quella a meta' si
 vede a meta'), e senza ritaglio finiva sopra. Vale anche li': un `continue` non e'
-un ritaglio, e il ritaglio e' un `glScissor` sull'area del testo.
+un ritaglio, e il ritaglio e' un rettangolo di ritaglio sull'area del testo — dal
+2026-10-20 scritto nel vertice di ogni riga (§7.61), prima uno `glScissor` attorno a
+un lotto.
 
 **E il primo tentativo di ritaglio era stretto.** Ritagliando sul solo rettangolo
 del testo i **numeri di riga** sparivano: stanno nella gutter, a sinistra. Un
@@ -1845,8 +1854,9 @@ domanda da farsi prima di toccare il codice.
 
 ### 7.52 Il backend Direct3D 11 che non poteva partire
 
-**Trovato, causa ricostruita, correzione non applicata.** Il rimedio e' una parola;
-accenderlo no, ed e' scritto qui sotto.
+**Risolto il 2026-10-18: era una parola riservata.** Il Direct3D 11 adesso parte,
+disegna e resta il backend di partenza; il giro di verifica a schermo e' in fondo a
+questa voce, e `docs/05` §3 lo racconta nell'ordine dei lavori.
 
 **Sintomo.** Con `BOLT_BACKEND=d3d11` — e anche senza la variabile, che il
 Direct3D lo prova per primo — il registro diceva sempre la stessa cosa:
@@ -1876,15 +1886,46 @@ computer**. Il rimedio e' rinominare il parametro in `p` — quindici occorrenze
 tutte nelle quattro funzioni di distanza — e la compilazione riesce: `--- backend:
 Direct3D 11`.
 
-**Perche' non e' applicato.** Con la correzione, il Direct3D 11 diventa il backend
-**predefinito** — e' il primo che si prova — e quel percorso non e' mai stato
-eseguito davvero in questo codice: sono state guardate la lista con le colonne, il
-tema nelle due tavolozze, l'immagine grande e il visualizzatore di testo, ma non i
-menu contestuali, il trascinamento e le anteprime che arrivano. Cambiare il backend
-di tutti per una verifica parziale e' una decisione da prendere con un giro
-completo, non da lasciare in coda a un'altra modifica. Quindi: **il codice resta
-com'e'**, il rimedio e' scritto qui, e la casella di M10 resta vera solo per
-l'astrazione e per l'OpenGL.
+**La correzione, applicata il 2026-10-18.** Il parametro si chiama `p` in tutte e
+quattro le funzioni di distanza, con il commento accanto che dice perche' (una
+parola riservata, non un gusto di scrittura). Prima di toccare l'applicazione la
+compilazione e' stata provata **senza aprire finestre**: i due shader estratti dalla
+sorgente e passati a `fxc` (lo stesso compilatore che `D3DCompile` usa a runtime),
+che ha ripetuto l'errore identico su `point` e poi ha accettato `p`:
+
+```
+ps.hlsl(32,30-34): error X3000: syntax error: unexpected token 'point'
+ps.hlsl(34,17-21): error X3000: syntax error: unexpected token 'point'
+ps.hlsl(34,17):    error X3004: undeclared identifier 'b'
+... poi, con `p`: `compilation object save succeeded` su vs_5_0 e ps_5_0
+```
+
+**Il giro di verifica**, con `BOLT_BACKEND=d3d11 BOLT_DIAG=1` sulla sandbox del
+progetto (`analysis/tmp/sandbox`), una finestra sola sulla scrivania corrente
+(`AGENTS.md` §0), chiusa quella e nient'altro aperto:
+
+| superficie | cattura | cosa si e' visto |
+|---|---|---|
+| registro | `bolt-diag.log` | `--- backend: Direct3D 11`, e nessun errore HLSL |
+| lista con le colonne, ispettore | `analysis/tmp/d3d-01-lista.png` | colonne, gruppi, icone di sistema, barra di stato |
+| menu contestuale | `d3d-02-menu.png` | i verbi della shell, i separatori, la barra di scorrimento, i sottomenu |
+| opzioni (`Ctrl+,`) | `d3d-03-opzioni.png`, `d3d-05-opzioni-fondo.png` | i controlli tipizzati, le due righe spente, il cursore della misura |
+| mappa dei tasti | `d3d-06-keymap.png` | l'elenco dei comandi (83 di 83) col tasto accanto |
+| tema chiaro | `d3d-07-chiaro.png` | fondo `(255,255,255)` contro `(35,36,40)` dello scuro, letto **da un pixel** |
+| immagine grande e visualizzatore di testo | `d3d-09-anteprima.png`, `d3d-10-testo.png` | lo strato 5 e le righe del testo |
+| viste a icone | `d3d-11-icone.png` | le miniature dallo strato 2, gli angoli arrotondati della cella scelta |
+
+Le forme SDF (le linguette, il `+` e la croce della barra del titolo), il ritaglio
+della lista e il testo si disegnano come nell'OpenGL: e' lo stesso shader, detto due
+volte. `startup-error.log` non esiste, il processo si e' chiuso e non e' rimasta
+nessuna finestra aperta.
+
+**Quello che il giro non ha coperto**, e che va detto: le prove sono una per
+superficie, non ripetute; il trascinamento (dentro, fuori, dal cestino) non e' stato
+rifatto sotto Direct3D, ne' il dialogo di progressione, ne' le altre due viste a
+icone. Restano da guardare quando si tocca quella parte, e adesso il backend che
+gira e' quello: un difetto che comparisse solo li' si vedrebbe subito, non piu'
+solo nel registro.
 
 **Una caduta rara, incontrata mentre si misurava questo.** Provando il backend
 corretto sono comparse cadute all'avvio, prima della riga
@@ -1895,7 +1936,8 @@ AddressSanitizer**, che quindi non la fa riprodurre e non ne da' una pila. Le
 proporzioni non bastano a dire se l'abbia portata il tema o se fosse gia' li' (con
 questi numeri la probabilita' che sia un caso e' intorno al 15%), quindi va cercata
 con un debugger o con un campione molto piu' grande. **Resta dichiarata**, con la
-sua probabilita' misurata: e' la prima cosa da riprendere.
+sua probabilita' misurata: e' la prima cosa da riprendere. — *Chiusa il 2026-10-18
+come §7.54: era §7.53 visto dall'altro lato, un pidl liberato e poi letto.*
 
 ### 7.53 Il pidl liberato e poi usato
 
@@ -2041,9 +2083,14 @@ hanno la firma di questa voce (non passano da `ILGetSize`, e la pila sotto il pr
 frame e' gia' spazzatura). Vanno cercati con lo stesso banco se ricompaiono; qui
 restano scritti perche' e' successo.
 
-### 7.55 L'ispettore che mostra una voce che la lista non ha
+### 7.55 Le superfici che parlano di una voce che la lista non mostra
 
-**Aperto, piccolo.** Nel cestino, col filtro su un nome che corrisponde a **una**
+**Chiusa il 2026-10-18.** La strada scelta è quella che il documento indicava come
+più coerente: **il cursore si sposta** sulla prima riga visibile, come fa Esplora
+risorse. Nel chiuderla sono uscite altre tre superfici con lo stesso difetto, e
+adesso seguono tutte una regola sola.
+
+**Sintomo, il primo.** Nel cestino, col filtro su un nome che corrisponde a **una**
 voce, la lista ne disegnava una e l'ispettore ne mostrava **un'altra**: la voce su
 cui stava il cursore prima di filtrare, che il filtro ha nascosto.
 
@@ -2054,11 +2101,61 @@ l'ispettore legge il cursore e basta, mentre la lista disegna solo le righe che
 passano il filtro: le due viste dicono cose diverse, e quella che resta scritta
 («Tipo, Dimensione, Percorso…») parla di un file che non c'è.
 
-**Due strade, e la scelta è di design.** O l'ispettore tace quando la voce del
-cursore non è visibile (`EntryVisible`, la stessa funzione del filtro), o il filtro
-**sposta il cursore** sulla prima riga visibile — che è quello che fa Esplora
-risorse, e che renderebbe impossibile lo stato "cursore su una riga che non c'è".
-La seconda è più coerente ma tocca la selezione: va decisa, non improvvisata.
+**Correzione.** `EnsureCursorOnVisibleRow` in `view_list.cpp`, chiamata in fondo a
+`RebuildView`: se la voce del cursore non è più una riga della vista, il cursore va
+sulla prima che c'è. Sta **dentro il ricostruire la vista** e non nel gestore del
+filtro per una ragione sola: a nascondere righe non è solo il filtro. Ci arrivano
+anche i **filtri di colonna** e un **gruppo chiuso**, che è l'altra strada per
+lasciare il cursore su una riga che non si vede — e nessuno dei due passa dal
+codice del filtro.
+
+**La selezione non si tocca**, ed è la parte che la voce chiedeva di decidere. Le
+voci nascoste restano selezionate: nessun comando ci agisce sopra (`SelectedPaths`
+le scarta) e togliere la selezione mentre si filtra vorrebbe dire perdere il lavoro
+fatto prima di filtrare. Quindi cursore e selezione possono divergere, ed è lo
+stato giusto.
+
+**Tre superfici sorelle, trovate mentre si verificava, e chiuse con la stessa
+regola** — «una superficie dice solo quello che la lista mostra»:
+
+1. **Il suggerimento** continuava a mostrare la voce di prima quando il filtro ne
+   toglieva la riga da sotto il puntatore: il puntatore non si era mosso, quindi
+   nessuno lo riazzzerava, e sopra un elenco vuoto restava scritto il nome di una
+   cartella. Adesso `DrawTooltip` esce se la voce col puntatore sopra non è una riga
+   della vista.
+2. **Il suggerimento sopra il pannello delle proprietà**: era una fila di
+   condizioni sciolte dentro `DrawTooltip` che non nominava i pannelli, e il nome
+   del file finiva disegnato sopra le righe dei metadati. Adesso la regola è **una
+   sola** — `TooltipsAllowed` — e comprende menu, menu contestuale, pannello delle
+   proprietà, operazione in corso e trascinamento delle colonne.
+3. **La barra di stato** contava `app.selection.size()`, quindi «3 selezionati»
+   davanti a una riga sola, e «1 selezionato» con l'elenco vuoto. Adesso conta le
+   scelte **visibili**, come il conto della posizione a destra conta le righe
+   visibili. L'ispettore fa lo stesso per l'aggregazione di più voci: sommare anche
+   quelle nascoste sarebbe un totale che sullo schermo non si trova.
+
+**Verificato a schermo**, in una finestra sola sulla sandbox (`analysis/tmp/fix-*.png`):
+
+- filtro `re` con il cursore su un'altra voce → la lista mostra `relazione.txt`,
+  **il cursore si sposta lì** e l'ispettore la descrive (`fix-01`, `fix-02`);
+- filtro `zzz` → nessuna riga, ispettore «Niente selezionato», nessun suggerimento
+  rimasto, e **nessun «selezionato»** nella barra (`fix-14`);
+- togliendo il filtro il cursore **torna** dov'era: è la ragione per cui, quando non
+  c'è nessuna riga visibile, il cursore **non** viene azzerato ma lasciato dov'è
+  (`fix-15`) — azzerarlo faceva perdere anche `Invio`, e questo è stato visto e
+  corretto in questa stessa sessione;
+- pannello delle proprietà aperto col puntatore sopra una riga → **nessun**
+  suggerimento sopra il pannello (`fix-05`); chiuso il pannello, lo stesso
+  suggerimento ricompare (`fix-06`), che è il controllo: era il pannello a farlo
+  tacere, non un hover azzerato;
+- gruppo `CZ` chiuso col cursore dentro → il cursore passa alla prima riga visibile, e
+  `Invio` apre **quella** cartella (`fix-17`, `fix-18`).
+
+**Un limite dichiarato.** Con la selezione tutta nascosta e il cursore su una riga
+visibile, l'ispettore dice «Niente selezionato» invece di descrivere la riga del
+cursore: il pannello si apre sulle voci **scelte visibili**, e in quello stato non
+ce ne sono. È una scelta, non una dimenticanza: descrivere una voce che non è scelta
+sarebbe l'altra faccia dello stesso difetto.
 
 ### 7.56 Le tre superfici che restavano in inglese
 
@@ -2148,3 +2245,382 @@ tiene insieme: vale la pena scriverlo qui perché il prossimo menu lo pagherà u
 quando la schermata dice «non succede niente», **una riga di registro** distingue in
 trenta secondi «il comando non arriva» da «arriva e esce subito», che sono due difetti
 in due file diversi.
+
+### 7.58 I cinque pulsanti di navigazione erano caratteri
+
+**Sintomo, e da dove viene.** L'autore ha guardato la barra del percorso e ha detto:
+«non mi piacciono, non sono belli». Poi, più precisamente: «più *minimal*, non così
+spesse, e devono stare sulla stessa riga dell'indirizzo».
+
+Aveva ragione su tutte e tre le cose, e il perché è uno solo: quei cinque segni erano
+i caratteri `←` `→` `↑` `↻` `★`, disegnati con `app.font`. Quattro famiglie di segni
+diverse in una fila di cinque — frecce lineari sottili, un cerchio con la punta, una
+stella piena — quindi quattro **spessori** e quattro **altezze ottiche** diverse, e il
+disegno che cambia col carattere scelto (uno dei quali, fra l'altro, non ha tutte e
+cinque le forme). È la stessa specie dei §7.49 e §7.50: un carattere non è un
+elemento.
+
+**Correzione.** Tre forme nuove nello shader SDF, in tutt'e due le lingue
+(`src/shaders/ui.frag` e l'HLSL dentro `d3d11_renderer.cpp`):
+
+- **freccia** — un'asta e una punta a 45°, tutte dello stesso spessore; le quattro
+  direzioni si ottengono **ruotando il punto**, come già fa il triangolo, non
+  scrivendo altre tre formule. Erano triangoli pieni nella prima versione, e a dodici
+  pixel sembravano segnali stradali: la linea è più sobria e più leggibile;
+- **aggiorna** — un anello aperto con la punta **piena** dentro il taglio. La punta a
+  segmenti non si distingueva da un anello rotto, quindi lì il triangolo è quello
+  giusto; è l'unica forma che ha una punta piena, e ha una ragione;
+- **stella** — cinque punte, piene o di solo contorno. Lo stato «nei segnalibri» non è
+  una seconda formula: è la stessa forma disegnata come **bordo**, che lo shader sa
+  già fare per ogni forma.
+
+Le bandiere nuove (64…1024) viaggiano negli stessi 34 float per vertice del batcher,
+in tutt'e due i backend; lo spessore viaggia in `radius.x`, come per il `+` e la `x`.
+
+**Le misure, che sono la metà del difetto.** L'icona sta in una scatola di **12 px**
+dentro il pulsante da 26 (era 15, il 63% del pulsante: accanto a testo di 14 era la
+cosa più forte della barra), con uno spessore di **1,2 px** (era 2). È la stessa
+misura dei tre pulsanti della finestra, 12 su 46.
+
+**L'allineamento, misurato e non guardato.** I pulsanti avevano un `+5` scritto a
+mano e finivano **5 pixel più in alto** dell'indirizzo: misurato riga per riga su una
+cattura (`analysis/tmp/nav-align.png`), icone 46–57 e testo 52–65. Adesso la riga la
+decide il testo del percorso — `baseline + 2*scale + LineHeight*scale*0.5` — e i
+pulsanti si centrano su quella: 52–61 contro 52–62.
+
+**Tre trappole pagate qui, che valgono per ogni forma nuova.**
+
+1. **Il verso dei vertici.** `quadDistance` prende le normali come `(dy, -dx)`, che
+   sono quelle **uscenti** solo per un poligono in senso antiorario. L'aquilone della
+   stella era scritto al contrario, quindi «dentro» era il **complemento**: la stella
+   piena disegnava tutto tranne la stella, e il contorno mostrava una ragnatela. Il
+   profilo della forma si controlla **fuori dall'applicazione**, con venti righe di
+   Python che rifanno il campo e lo stampano a caratteri: dieci minuti contro dieci
+   ricompilazioni.
+2. **L'unione non è il minimo.** Per un'unione di forme, `min` è esatto **fuori** e
+   sceglie il bordo più lontano **dentro**: il contorno della stella vuota mostrava
+   righe che non esistono. Il segno lo dà l'unione (`dentro` se almeno un aquilone
+   contiene il punto), la distanza la dà il minimo dei **dieci lati presi come
+   segmenti**.
+3. **Lo spazio di `point` ha gli assi girati.** `point = centro - frag`, quindi `+y`
+   è **in su** e un angolo di −90° punta **in giù**: la stella usciva capovolta, con
+   la punta in basso, e sembrava sbagliata invece che ruotata.
+
+**Verificato a schermo**, sui due backend: `analysis/tmp/nav-11.png` e `nav-gl.png`
+sono la stessa barra disegnata dal Direct3D 11 e dall'OpenGL; `nav-13.png` è la stella
+piena nei segnalibri, con lo sfondo del pulsante tinto; `pin-sidebar-zoom.png` è la
+stella **delle righe fissate nella barra laterale**, che era ancora il carattere `★`
+ed è diventata la stessa forma (11 px, piena). Il contorno di attesa c'è: prima di
+crederci, il profilo delle forme è stato stampato a caratteri.
+
+**Cosa resta un carattere, e perché.** Il `>` fra le briciole del percorso e i
+puntini di sospensione **sono testo**, non elementi: stanno dentro una riga di testo e
+devono seguire il carattere scelto, come le virgolette. La distinzione non è
+estetica: un elemento si allinea con gli altri elementi e ha uno stato, un segno di
+punteggiatura no.
+
+### 7.59 La caduta sul tasto Canc: la vista disegnata su un elenco che non c'era piu'
+
+**Risolto il 2026-10-18** con AddressSanitizer. Trovato mentre si verificava lo
+spezzamento dei comandi, e **non** portato da quello: cadeva anche l'eseguibile di
+prima, 1 volta su 2, quindi il difetto c'era gia'.
+
+**Sintomo.** Il processo moriva con un access violation al tasto `Canc`, in modo
+intermittente. La sequenza che lo fa cadere, sulla sandbox del progetto:
+
+1. doppio clic su una sottocartella;
+2. clic su un file di **testo**, `F2`, rinominarlo, `Invio`;
+3. `Ctrl+Shift+N` (cartella nuova), poi `Esc`;
+4. clic su una riga, `Ctrl+C`, `Ctrl+V`;
+5. `Canc`.
+
+Il registro si fermava dopo l'incolla, senza una riga per l'eliminazione, che pure
+**avveniva**: il file spariva dal disco.
+
+**Causa, letta nella pila.** La build con ASan ha dato il referto esatto:
+
+```
+ERROR: AddressSanitizer: container-overflow ... READ of size 8
+  #0 std::_String_val<...>::_Myptr
+  #2 std::_Hash<std::_Uset_traits<std::wstring,...>>::count
+  #3 Bolt::IsEntrySelected      src/view_list.cpp:956
+  #4 Bolt::DrawList             src/view_list.cpp:1294
+  #5 DrawFrame                  src/main.cpp:1712
+  #6 RenderFrame                src/main.cpp:1787
+  #7 wWinMain                   src/main.cpp:4316
+  ... 0x123... is located 2320 bytes inside of 2952-byte region,
+      allocated by Bolt::ReadDirectory   src/navigation.cpp:138
+      ... from Bolt::ReloadKeeping ← FinishOperation ← wWinMain:4314
+```
+
+Il ciclo faceva, in quest'ordine: **ricostruiva la vista** (se `viewDirty`), poi
+`FinishOperation`, poi `RenderFrame`. `FinishOperation` chiama `ReloadKeeping` →
+`ReadDirectory`, che **sostituisce `entries`** e alza `viewDirty` — ma il disegno
+avveniva lo stesso, con le `rows` costruite sull'elenco di **prima**: gli indici
+dentro `entries` puntavano oltre la fine del vettore nuovo.
+
+E' un `container-overflow`, non un use-after-free: la memoria era ancora allocata,
+quindi in Release si leggeva spazzatura plausibile e la caduta usciva solo quando
+quella spazzatura capitava su una pagina non mappata. Ecco perche' era intermittente —
+e perche' il caso serviva un `Ctrl+C`/`Ctrl+V` prima: e' l'incolla che fa finire
+un'operazione con l'elenco cambiato **mentre** la vista e' ancora quella di prima.
+
+**Correzione.** La vista si ricostruisce in `RenderFrame`, subito prima di disegnare,
+e non piu' nel ciclo dei messaggi: fra i due punti c'e' `FinishOperation`, che cambia
+l'elenco. Resta nel ciclo solo il caso delle **statistiche**, che e' l'unico con un
+tetto di tempo (un gruppo che dipende dai numeri si rifa' mentre i numeri arrivano, non
+una volta per fotogramma). Sta in `RenderFrame` e non nel ciclo anche perche'
+`RenderFrame` ha un secondo chiamante: l'evidenziazione della destinazione durante un
+trascinamento OLE, che avrebbe lo stesso problema.
+
+**I numeri.** Prima: **4 su 4** cadute con il banco che pilota la sequenza. Dopo: **4
+su 4** vive. Con ASan: 3 su 3 referti `container-overflow` prima, 0 su 2 dopo (e le due
+corse sono rimaste vive). L'eseguibile buono e' stato controllato con
+`dumpbin /dependents`: non nomina `clang_rt`, e `build/asan` e' stato cancellato con
+`CMakeLists.txt` rimesso com'era (`docs/05` §4).
+
+**La lezione.** `viewDirty` e' una promessa che qualcuno deve **mantenere prima di
+disegnare**, e il posto in cui la si manteneva era sbagliato di due chiamate. Un
+`container-overflow` intermittente in Release e' quasi invisibile — niente dump, niente
+voce nel registro di Windows nei primi tentativi, e il file che sparisce lo stesso — e
+l'unico modo di vederlo e' lo strumento: ASan ha dato causa, riga e catena in una corsa
+sola, dopo che tre tentativi di ragionamento sul codice non avevano prodotto niente.
+Vale la regola di `AGENTS.md` §2: se il difetto e' visibile e i tuoi strumenti no, lo
+strumento e' sbagliato.
+
+---
+
+### 7.60 L'argomento della riga di comando oltre i 260 caratteri: la cartella chiesta e quella aperta
+
+**Risolto il 2026-10-18**, guardando l'opzione `LongPathsSupport` funzionare a metà.
+
+**Sintomo.** `Bolt.exe "C:\...\una\cartella\molto\profonda"` con un percorso di **271**
+caratteri non apriva quella cartella: l'applicazione partiva su **Questo PC**, senza dire
+niente. Con `LongPathsSupport` accesa la cartella si apriva benissimo, ma solo navigandoci
+dentro — l'argomento restava ignorato.
+
+**Causa.** Due domande sullo stesso percorso, fatte in due momenti diversi e con due
+regole diverse. L'argomento lo si validava **subito**, prima di `LoadSettings`, con
+`GetFileAttributesW(path)` — che e' limitata a `MAX_PATH` e restituisce
+`INVALID_FILE_ATTRIBUTES` oltre i 260 caratteri — e la validazione falliva prima che si
+potesse sapere se l'opzione era accesa. Il prefisso `\?\` lo metteva solo l'enumerazione
+(`ReadDirectory`), che arrivava dopo: due punti di I/O, una regola sola applicata a uno
+dei due.
+
+**Correzione.** L'argomento si **ricorda** e si valida dopo `LoadSettings`, con
+`IOPath(path, app.longPaths)` — la stessa funzione che usa l'enumerazione. Il nome che si
+apre resta quello **com'era scritto**: il prefisso serve a parlare con Win32, non a
+cambiare il percorso che si mostra.
+
+**Verificato a schermo.** Cartella di 271 caratteri creata nella sandbox
+(`sandbox\cartella-lunga-01\…\cartella-lunga-11`, con `dentro.txt` in fondo).
+Con l'opzione **spenta**: `Bolt.exe "<quel percorso>"` → Questo PC (`opt-long-off.png`).
+Con l'opzione **accesa**: la cartella si apre, `dentro.txt` e' nella lista, e la briciola
+del percorso si stringe da sola (`opt-long-on.png`). La cartella e' stata cancellata dopo
+la prova.
+
+**La lezione.** Un'opzione che si chiama «supporto ai percorsi lunghi» e che funziona su
+un punto di I/O su tre e' peggio di un'opzione assente: sembra accesa e non lo e'. Quando
+un comportamento si applica «a tutti i percorsi», i punti che leggono un percorso vanno
+**elencati** — qui erano due, e ne era stato cambiato uno.
+
+---
+
+### 7.61 Il ritaglio era stato del disegno: cinque disegni per fotogramma, e un contatore che non li contava
+
+**Risolto il 2026-10-20.** Non e' un difetto che si vede a schermo: e' un **debito**
+che stava scritto in `AGENTS.md` §8 e in `docs/05` §2, voce 3 — «il posto giusto per un
+ritaglio e' il quad, non la chiamata di disegno» — e che il 2026-10-20 e' stato saldato.
+
+**Sintomo, misurato invece che dedotto.** Con i due ritagli attivi (lista e
+visualizzatore di testo) il fotogramma faceva **cinque** disegni. Il numero non si
+leggeva da nessuna parte: `BOLT_DEV_HUD=1` mostrava quadrilateri e non chiamate. Il
+primo passo e' stato aggiungere il contatore (`IRenderer::DrawCalls`, che conta anche il
+lotto in corso, perche' la barra di stato si disegna **dentro** l'ultimo lotto), e la
+riga e' diventata `5 draws, 379 quads`.
+
+**Causa.** Il ritaglio era uno **stato** — `glScissor` da una parte,
+`D3D11_RASTERIZER_DESC::ScissorEnable` piu' `RSSetScissorRects` dall'altra — e uno stato
+appartiene alla chiamata di disegno, non alla primitiva. Un batcher accumula tutto in un
+lotto: per ritagliare una parte sola bisogna chiudere il lotto prima e riaprirlo dopo.
+Due ritagli, quattro disegni in piu'.
+
+**Correzione.** Il rettangolo e' un **campo del vertice**: 4 float in coda al record (34
+per vertice invece di 30), `layout(location = 15) in vec4 aClip` nel GLSL e
+`flat in vec4 vClip` nel frammento, che scarta i frammenti fuori — e la stessa cosa in
+HLSL, dove il confronto si fa su `SV_Position`, gia' in pixel con l'origine in alto a
+sinistra (e il rettangolo e' dichiarato `nointerpolation`, il `flat` dell'HLSL:
+interpolare un valore identico nei quattro vertici aggiungerebbe un arrotondamento
+proprio sul confronto che decide se un frammento esiste). `SetScissor`/`ClearScissor`
+diventano `SetClip`/`ClearClip`: stesso significato per chi chiama, nessuno stato
+grafico da spegnere. Spariscono il `glScissor`, lo `ScissorEnable` e i due
+`RSSetScissorRects`. Il debito era dichiarato
+come «renderebbe il ritaglio una proprieta' di chi disegna invece che dell'ordine in cui
+si disegna», ed e' esattamente quello che e' successo: `main.cpp` e `view_inspector.cpp`
+non chiamano piu' `End`/`Begin` attorno a un ritaglio.
+
+**Il numero, dopo.** `1 draws, 1.565 quads` — la stessa schermata (visualizzatore di
+testo aperto, filtro `lungo`, zoom 1,3), stesso backend Direct3D 11.
+
+**Effetto collaterale onesto: il contatore dei quadrilateri mentiva.** `QuadCount`
+riparte a ogni `Begin`, e con tre lotti per fotogramma mostrava **l'ultimo lotto**, non
+il fotogramma: 379 su circa quattromila quadrilateri. Adesso che `Begin` e' uno solo il
+numero e' vero (1.565). Era un difetto dello **strumento**, non del disegno, ed e' la
+specie peggiore: il numero c'era, sembrava piccolo, e nessuno aveva motivo di
+sospettarlo.
+
+**Verificato a schermo, con un controllo che serviva davvero.** Due stati: la griglia di
+`molte` scorsa a meta' cella, e il visualizzatore di testo scorso con lo zoom cambiato a
+meta' (le due condizioni di §7.36 e §7.37).
+- **Confronto col prima.** Ripetuta la stessa scena sul codice nuovo, l'area della lista
+  e l'area del testo sono **identiche al pixel** alla cattura fatta col `glScissor`
+  (`clip-before-icons.png` / `clip-after-icons.png`: 0 pixel diversi su 472.310;
+  `clip-before-text.png` / `clip-after-text.png`: 0 su lista, testo e intestazione).
+- **Controllo negativo.** Disattivato il taglio nel pixel shader, il difetto **torna**:
+  `riga 005` disegnata sopra la testata `UTF-8 200 righe CRLF` e `riga 025` sotto il
+  riquadro (`clip-controllo-senza-taglio.png`). E' la prova che a tagliare e' quella riga
+  di shader, e non il caso.
+- **Tutti e due i backend**: OpenGL (`BOLT_BACKEND=opengl`, `--- backend: OpenGL` nel
+  registro) da' `1 draws, 1.565 quads` e le stesse righe tagliate; l'HLSL e' stato
+  compilato prima con `fxc` (vs_5_0 e ps_5_0, senza aprire una finestra).
+
+**La lezione, ed e' sul controllo.** Il primo controllo negativo era **parziale**: la
+modifica che credevo di aver fatto spegneva solo il confronto orizzontale
+(`false && (A) || B`) e lasciava in piedi quello verticale, quindi il difetto non
+tornava e sembrava che il taglio fosse inerte. Un controllo che disattiva **meta'** della
+condizione non e' un controllo: e' una conferma di comodo. Le parentesi, dopo una
+sostituzione meccanica, si leggono — come si legge il diff, e come si legge il numero che
+dice che il difetto **non** e' tornato.
+
+---
+
+### 7.62 Il menu contestuale offriva i comandi di File Pilot
+
+**Trovato e corretto il 2026-10-20**, su richiesta dell'autore: «rimuovi dall'elenco che
+esce dal tasto destro "*File pilot*" e i collegamenti che si riferiscono a file pilot».
+
+**Sintomo.** Col tasto destro dentro Bolt comparivano, in mezzo ai verbi delle estensioni
+installate, due voci che non sono di questa applicazione: **`Open in File Pilot`**
+(`OpenInFilePilot`, su una selezione) e **`File Pilot here`** (`FilePilotHere`, sullo
+sfondo della cartella). Sono i verbi dell'estensione di shell del prodotto originale —
+quello di cui Bolt e' un clone.
+
+**Perche' e' un difetto e non una funzione.** Le due voci non fanno niente che questo
+programma non sappia fare: aprono la stessa cartella **in un altro programma**. In un
+clone si leggono come una funzione nostra, e non lo sono: promettono un comportamento che
+dipende da un'altra applicazione installata sulla macchina. Chi vuole File Pilot lo apre
+da File Pilot, e il nostro menu resta il nostro. E' la stessa regola delle voci che
+offriamo gia': non si offre quello che non si sa eseguire (`IsOwnShellVerb`).
+
+**Correzione.** In `src/shell_menu.cpp`, dentro `ReadShellMenu` — cioe' nel punto in cui
+il menu della shell diventa il nostro elenco, **un livello alla volta**, quindi vale anche
+per i sottomenu che si aprono dopo. `IsOriginalAppVerb` confronta il **verbo canonico**
+(`filepilot` dentro il nome), che e' il dato stabile: l'etichetta e' tradotta e cambia con
+la lingua di Windows, mentre l'estensione porta il nome dell'applicazione in tutte le
+varianti che registra. `LabelMentionsOriginalApp` guarda l'etichetta solo come **ripiego**,
+per le voci ownerdraw che arrivano senza verbo. La voce saltata finisce nel registro
+(`BOLT_DIAG=1`, `saltata (comando dell'applicazione originale)`) e si conta fra le
+saltate, come le altre: un conto che non si vede e' un conto che non esiste.
+
+**Verificato a schermo**, sui tre menu che il tasto destro apre:
+
+| menu | prima | dopo |
+|---|---|---|
+| una cartella | `Open in File Pilot` fra `Open Git Bash here` e `Play with Ace Player` | assente; restano VLC, Ace Player, Visual Studio, Git, 7-Zip, Defender, Acrobat, Revo, `Copia come percorso`, `Crea collegamento` |
+| lo sfondo della cartella | `File Pilot here` fra `Apri con Visual Studio` e `Open Git GUI here` | assente; restano `Apri nel Terminale`, `Apri con Code`, Git, `Proprietà`, e i nostri comandi |
+| un file `.txt` | `Open in File Pilot` | assente |
+
+Nel registro le due righe compaiono come `saltata (comando dell'applicazione originale)`.
+Catture: `analysis/tmp/menu-shell.png` (prima), `menu-dopo.png` e `menu-sfondo-dopo.png`
+(dopo).
+
+**Cosa resta fuori, e perche'.** Due elenchi non si filtrano:
+
+- **`Apri con >`** e' l'elenco dei **programmi installati** che sanno aprire quel file: se
+  un giorno File Pilot ci compare, e' Windows che lo dice, e toglierlo sarebbe nascondere
+  cosa c'e' sulla macchina. Il verbo e' `openas`, non un comando di File Pilot.
+- **`Invia a >`** e' la cartella `SendTo` letta a ogni apertura (`src/shell_sendto.*`): un
+  collegamento li' dentro e' un file di chi usa il programma, e un menu costruito su una
+  cartella non nasconde il contenuto della cartella. Qui, misurato: **0** scorciatoie che
+  nominino File Pilot in quella cartella, quindi oggi la domanda non si pone.
+
+**La lezione.** «Non mostrare le voci di un altro programma» si fa guardando il **verbo**,
+non l'etichetta: l'etichetta e' la cosa che si traduce, e la traduzione e' l'unica parte
+che non si puo' prevedere. E si fa dove la shell diventa elenco — un punto solo — invece
+che dove l'elenco si disegna, o i sottomenu se la scamperebbero.
+
+---
+
+### 7.63 L'eseguibile installato non trovava piu' gli shader: il percorso di compilazione dentro il pacchetto
+
+**Trovato e corretto il 2026-10-20**, impacchettando la prima volta.
+
+**Sintomo, che su questa macchina non c'e'.** L'eseguibile prodotto dal build contiene
+una stringa assoluta — `C:/Users/.../Bolt/src/shaders` — e la usa per leggere `ui.vert`
+e `ui.frag`. Qui funziona, perche' quella cartella esiste. Sul computer di chi installa
+non esiste. Con Direct3D 11 non si nota niente, perche' gli shader HLSL sono scritti nel
+codice; con `BOLT_BACKEND=opengl` il programma non parte e scrive `cannot read .../ui.vert`
+in una finestra d'errore. Cioe': il difetto si sarebbe visto **solo** sul computer di chi
+usa il programma, e solo sul backend di ripiego.
+
+**Causa.** Due scelte giuste che insieme fanno un pacchetto sbagliato. `REA_SHADER_DIR` e'
+una definizione di compilazione col percorso della **sorgente**: serve a modificare gli
+shader a caldo mentre il programma e' aperto, ed e' una comodita' vera (`AGENTS.md` §4).
+Ma il chiamante in `main.cpp` passava **quel** percorso a
+`glRenderer.Initialize(REA_SHADER_DIR, &error)`, scavalcando la funzione dell'interfaccia
+che poteva decidere altro. Il percorso utile a chi compila e' finito dentro l'artefatto
+come se fosse un dato del prodotto.
+
+**Correzione.** `ShaderDirectory()` in `ui_renderer.cpp` cerca **prima accanto
+all'eseguibile** (la cartella dell'exe piu' `shaders`, e devono esserci tutti e due i
+file) e solo se li' non ci sono ripiega su `REA_SHADER_DIR`. `main.cpp` chiama
+`Initialize(&error)` e non nomina piu' nessun percorso. Il ripiego resta apposta: e' la
+comodita' di chi lavora nel repository, e va tenuta — quello che non va tenuto e' il suo
+**primato**. Una riga di registro dice quale cartella si sta leggendo
+(`--- shaders: ...`), perche' un problema di shader su un'altra macchina deve sembrare un
+problema di shader.
+
+**Verificato con il registro, non a impressione.** Eseguibile copiato in una cartella con
+i suoi `shaders/`: `--- shaders: ...\exe-esterno\shaders`. Eseguibile copiato **senza**
+`shaders/`: `--- shaders: .../Bolt/src/shaders` (il ripiego). Pacchetto installato e
+lanciato con l'OpenGL: `--- shaders: ...\install-prova\Bolt installato\shaders`, e la
+finestra disegna (`analysis/tmp/setup-installato.png`).
+
+**La lezione.** Un percorso che serve a chi compila non e' un percorso che serve a chi usa.
+Quando un artefatto esce dal repository, i percorsi che porta dentro vanno guardati: `strings`
+sull'eseguibile e' il comando piu' rapido, ed e' quello che ha trasformato "funziona" in
+"funziona qui". Da qui in avanti il pacchetto si prova **da una cartella in cui la
+sorgente non c'e'**, che e' l'unico modo di far parlare questo genere di difetto.
+
+### 7.64 L'Accesso rapido apre le cartelle come posizioni codificate, e li' i comandi si rifiutano — *aperta*
+
+**Trovato il 2026-10-20**, verificando la Home: una riga della Home puo' essere una
+cartella aperta prima, e aprendola si finisce in una posizione che il programma tratta
+come spazio dei nomi.
+
+**Sintomo, visto a schermo.** Una cartella aperta da `ACCESSO RAPIDO` (per esempio la
+cartella di prova `sandbox`) si apre e mostra il contenuto giusto, ma:
+
+- nell'ispettore la riga `Percorso` di una voce finisce in esadecimale
+  (`...670069006e0069000000018000000`, cioe' la coda di un `shell:pidl:`), non in un
+  percorso;
+- il tasto destro sul fondo mostra `Incolla`, `Nuova cartella` e `Nuovo file`
+  **spenti** (`analysis/tmp/home-39-qa-menu.png`), e `Rinomina`, `Elimina` e `Taglia`
+  sarebbero spenti allo stesso modo su una voce scelta;
+- le statistiche ricorsive non partono, e le colonne Cartelle/File/Dimensione restano
+  `--`.
+
+**Causa.** `ShellLocation::Read` decide se una voce e' apribile per nome con
+`ILIsEqual(absolute, Parse(item.location))`. Per una voce **dentro** `ACCESSO RAPIDO`,
+`absolute` e' un PIDL che ha per genitore il PIDL dell'Accesso rapido, mentre
+`Parse(item.location)` e' un PIDL che parte dal desktop: sono due catene diverse per la
+**stessa cartella**, e `ILIsEqual` risponde di no. Scatta allora il ripiego scritto per
+il cestino — `EncodePidl`, perche' li' il nome assoluto punta davvero a un'altra voce —
+e la posizione diventa `shell:pidl:...`. Da li' in poi `IsNamespace` e' vero, e
+`RefuseInNamespace` rifiuta, giustamente, ogni comando per percorso.
+
+**Perche' non e' stato corretto subito.** La correzione tocca l'**identita'** di una voce
+dello spazio dei nomi: va decisa confrontando i percorsi risolti e non le catene di PIDL,
+e il cestino deve continuare a comportarsi come prima (li' il nome *non* e' la voce). E'
+un lavoro con le sue prove — ripristino dal cestino, trascinamento fuori, statistiche —
+che va aperto con spazio per riverificare tutto, non aggiunto in coda alla Home.

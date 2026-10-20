@@ -25,10 +25,12 @@
 #include <vector>
 
 #include "app_actions.h"
+#include "commands.h"
 #include "app_ui.h"
 #include "diag.h"
 #include "drag_drop.h"
 #include "file_ops.h"
+#include "home.h"
 #include "language.h"
 #include "navigation.h"
 #include "shell_location.h"
@@ -110,6 +112,29 @@ bool HasSubmenu(const ContextMenuItem& item)
            item.lazySendTo;
 }
 
+// Se una voce del livello porta un'icona, tutte le etichette si spostano di una
+// colonna. La decisione e' **per livello** e non per voce: un menu con le icone su
+// otto righe e il testo a due rientri diversi si legge peggio di un menu senza
+// icone, perche' l'occhio segue la colonna e la trova spezzata.
+bool LevelHasIcons(const AppState& app, int depth)
+{
+    const int total = LevelCount(app.contextMenu, depth);
+    for (int i = 0; i < total; ++i)
+    {
+        const ContextMenuItem* item = LevelItem(app.contextMenu, depth, i);
+        if (item != nullptr && (item->shellBitmap != nullptr || !item->iconSpec.empty()))
+            return true;
+    }
+    return false;
+}
+
+// Lo spazio di una colonna d'icona: icona e distanza dal testo. Derivato dalla
+// misura del corpo, non scelto a occhio, cosi' cresce con l'ingrandimento.
+float ContextMenuIconColumn(const Layout& layout)
+{
+    return 20.0f * layout.scale;
+}
+
 float ContextMenuWidth(const AppState& app, const Layout& layout, int depth)
 {
     const float scale = layout.scale;
@@ -123,6 +148,9 @@ float ContextMenuWidth(const AppState& app, const Layout& layout, int depth)
         if (HasSubmenu(*item))
             arrow = 18.0f * scale;   // lo spazio del segno di sottomenu
     }
+
+    if (LevelHasIcons(app, depth))
+        widest += ContextMenuIconColumn(layout);
 
     // La larghezza si DERIVA dal contenuto, con un minimo e un massimo: fissa
     // taglierebbe le voci lunghe come "Apri in Esplora risorse", e larga quanto
@@ -508,6 +536,11 @@ bool OpenSubmenu(AppState& app, const Layout& layout, int depth, int index)
 void ContextMenuDrawLevel(AppState& app, const Layout& layout, int depth)
 {
     ContextMenu& menu = app.contextMenu;
+    // `Animations`: il menu compare in dissolvenza. Il sottomenu no: si apre mentre
+    // il primo e' gia' li', e un secondo fade dentro il primo si vedrebbe come uno
+    // sfarfallio.
+    app.renderer->SetOpacity(depth == 0 ? PanelAppear(menu.openedAt, app.animations) : 1.0f);
+
     IRenderer& r = *app.renderer;
     const Theme& t = app.theme;
     const float scale = layout.scale;
@@ -539,7 +572,33 @@ void ContextMenuDrawLevel(AppState& app, const Layout& layout, int depth)
         if (i == level.selected && !item->disabled)
             r.FillRect(row, t.rowHover, 4.0f * scale);
 
-        app.font.Draw(r, row.x + 10.0f * scale, TextY(layout, row, app.font), item->label,
+        // L'icona, quando la voce ne ha una. Non tutte le voci ne hanno: quelle del
+        // menu moderno di Windows 11 non consegnano la bitmap a chi legge il menu
+        // classico, e il registro non ne dichiara una. Si disegna solo quello che
+        // c'e': un'icona indovinata sarebbe peggio di nessuna icona.
+        const float iconColumn = ContextMenuIconColumn(layout);
+        const bool  icons      = LevelHasIcons(app, depth);
+        if (icons)
+        {
+            const ShellIconAtlas::IconUV* uv = nullptr;
+            if (item->shellBitmap != nullptr)
+                uv = app.icons.GetForMenuBitmap(item->iconKey, item->shellBitmap);
+            else if (!item->iconSpec.empty())
+                uv = app.icons.GetForIconSpec(item->iconSpec);
+
+            if (uv != nullptr)
+            {
+                const float side = 16.0f * scale;
+                r.Draw(UIDraw::Image(Rect{row.x + 8.0f * scale,
+                                               row.y + (row.h - side) * 0.5f, side, side},
+                                     Color{1.0f, 1.0f, 1.0f, 1.0f},
+                                     static_cast<float>(kIconLayer),
+                                     uv->u0, uv->v0, uv->u1, uv->v1));
+            }
+        }
+
+        const float labelX = row.x + 10.0f * scale + (icons ? iconColumn : 0.0f);
+        app.font.Draw(r, labelX, TextY(layout, row, app.font), item->label,
                       item->disabled ? t.textDim : t.text, scale);
 
         // Il segno che la voce ne contiene altre. L'atlante dei glifi e' ASCII,
@@ -648,6 +707,10 @@ void ContextMenuClose(AppState& app)
     menu.levels.assign(1, ContextMenuLevel{});
     menu.items.clear();
     menu.shellIsBackground = false;
+    // Il bersaglio **non** si cancella qui: `ContextMenuActivate` chiude il menu e
+    // poi esegue il comando, quindi il comando lo legge dopo la chiusura. Lo
+    // sostituisce il menu successivo, o la palette (che agisce sulla cartella
+    // aperta e lo azzera).
     ShellMenuDetach(menu);   // gli oggetti restano in memoria, per la stessa selezione
 }
 
@@ -661,6 +724,11 @@ void BuildContextMenu(AppState& app, float x, float y)
     menu.openPath.clear();
     menu.levels.assign(1, ContextMenuLevel{});
     menu.shellIsBackground = false;
+    // Il menu della lista parla della cartella aperta: le voci che agiscono su un
+    // percorso (il fissaggio) prendono questa, non quella della barra laterale.
+    menu.openedAt = NowSeconds();
+    app.contextTargetPath  = app.directory;
+    app.contextTargetLabel = ToUtf8(LeafName(app.directory));
     ClosePinMenu(app);
 
     const size_t count = app.selection.size();
@@ -677,6 +745,11 @@ void BuildContextMenu(AppState& app, float x, float y)
     // niente, e un comando che dice "qui non si puo'" lo dice solo dopo essere
     // stato scelto. Spente, si vede che li' non valgono.
     const bool namespaced = ShellLocation::IsNamespace(app.directory);
+    // La Home si comporta come una cartella di spazio dei nomi per il menu: le
+    // voci che agiscono su un percorso si spengono. Le sue righe nominano cartelle
+    // vere, e un `Elimina` li' cancellerebbe una cartella che non si sta guardando.
+    const bool home = IsHome(app.directory);
+    const bool noFileOps = namespaced || home;
 
     // Li' dentro "Apri" vale per le cartelle (una cartella nel cestino si apre) e
     // non per i file: un file nel cestino non si apre, si ripristina.
@@ -699,8 +772,8 @@ void BuildContextMenu(AppState& app, float x, float y)
         menu.items.push_back({Tr("Apri in Esplora risorse", "Open in Explorer"), CmdOpenExplorer,
                               false, namespaced});
         menu.items.push_back({"", 0, /*separator=*/true});
-        menu.items.push_back({Tr("Taglia", "Cut"), CmdCut, false, namespaced});
-        menu.items.push_back({Tr("Copia", "Copy"), CmdCopy, false, namespaced});
+        menu.items.push_back({Tr("Taglia", "Cut"), CmdCut, false, noFileOps});
+        menu.items.push_back({Tr("Copia", "Copy"), CmdCopy, false, noFileOps});
 
         // "Invia a" qui e non in fondo: e' dove sta in Esplora risorse, subito
         // dopo il blocco Taglia/Copia, e li' la mano lo cerca.
@@ -711,35 +784,41 @@ void BuildContextMenu(AppState& app, float x, float y)
             ContextMenuItem sendTo;
             sendTo.label      = Tr("Invia a", "Send to");
             sendTo.lazySendTo = true;
-            sendTo.disabled   = namespaced;
+            sendTo.disabled   = noFileOps;
             menu.items.push_back(std::move(sendTo));
         }
         menu.items.push_back({"", 0, true});
-        menu.items.push_back({Tr("Rinomina", "Rename"), CmdRename, false, namespaced});
-        menu.items.push_back({Tr("Elimina", "Delete"), CmdDelete, false, namespaced});
+        menu.items.push_back({Tr("Rinomina", "Rename"), CmdRename, false, noFileOps});
+        menu.items.push_back({Tr("Elimina", "Delete"), CmdDelete, false, noFileOps});
         menu.items.push_back({Tr("Elimina definitivamente", "Delete permanently"),
-                              CmdDeletePermanent, false, namespaced});
+                              CmdDeletePermanent, false, noFileOps});
         menu.items.push_back({"", 0, true});
-        menu.items.push_back({Tr("Proprietà", "Properties"), kContextProperties, false, namespaced});
+        menu.items.push_back({Tr("Proprietà", "Properties"), kContextProperties, false, noFileOps});
         menu.items.push_back({Tr("Proprietà di Windows", "Windows properties"),
-                              kContextPropertiesWindows, false, namespaced});
+                              kContextPropertiesWindows, false, noFileOps});
 
         // I verbi della shell stanno dopo i nostri: i nostri sono quelli che si
         // usano davvero, e non devono scendere sotto una lista lunga quanto le
         // estensioni installate su questa macchina.
+        //
+        // Sulla Home non si chiedono: la cartella aperta non e' un percorso, e i
+        // verbi della shell su `bolt:home` non esistono. Le righe sono cartelle
+        // vere, ma i loro verbi sono le stesse operazioni appena spente.
         menu.items.push_back({"", 0, true});
-        AppendShellItems(app, menu);
+        if (!home)
+            AppendShellItems(app, menu);
     }
     else
     {
         // Col tasto destro sul fondo, invece, la shell apre il menu: quello e' il
         // contesto di cio' su cui si e' cliccato.
-        AppendShellItems(app, menu);
+        if (!home)
+            AppendShellItems(app, menu);
     }
 
     menu.items.push_back({count > 0 ? Tr("Incolla qui", "Paste here") : Tr("Incolla", "Paste"),
-                          CmdPaste, false, namespaced});
-    menu.items.push_back({Tr("Nuova cartella", "New folder"), CmdNewFolder, false, namespaced});
+                          CmdPaste, false, noFileOps});
+    menu.items.push_back({Tr("Nuova cartella", "New folder"), CmdNewFolder, false, noFileOps});
 
     // "Nuovo file": i tipi che Windows sa creare, dal registro. Se il registro non
     // ne ha nessuno la voce non si mette, perche' un sottomenu vuoto non si spiega.
@@ -750,28 +829,70 @@ void BuildContextMenu(AppState& app, float x, float y)
         ContextMenuItem newFile;
         newFile.label       = Tr("Nuovo file", "New file");
         newFile.lazyNewFile = true;
-        newFile.disabled    = namespaced;
+        newFile.disabled    = noFileOps;
         menu.items.push_back(std::move(newFile));
     }
 
     menu.items.push_back({"", 0, true});
     menu.items.push_back({Tr("Aggiorna", "Refresh"), CmdRefresh});
     menu.items.push_back({Tr("Apri un terminale qui", "Open a console here"), CmdOpenConsole, false,
-                          namespaced});
+                          noFileOps});
 
     // Il fissaggio, e solo sul **fondo**: agisce sulla cartella aperta, non sulla
     // selezione, e li' sotto non c'e' una selezione con cui confonderlo. Con delle
     // voci scelte, un "fissa in..." vorrebbe dire "fissa la voce scelta" — che non e'
     // quello che questo comando fa.
-    if (count == 0)
+    if (count == 0 && !home)
     {
         menu.items.push_back({"", 0, true});
         menu.items.push_back({Tr("Fissa in...", "Pin to..."), CmdPinTo});
         menu.items.push_back({Tr("Togli da...", "Unpin from..."), CmdUnpin});
+        // Il layout della cartella: sta sul fondo perche' parla della cartella, non
+        // di una voce. `DirHostLayoutSave`/`DirHostLayoutDel` nel riferimento.
+        menu.items.push_back({"", 0, /*separator=*/true});
+        menu.items.push_back({Tr("Salva il layout di questa cartella",
+                                 "Save this folder's layout"), CmdSaveFolderLayout});
+        menu.items.push_back({Tr("Dimentica il layout di questa cartella",
+                                 "Forget this folder's layout"), CmdForgetFolderLayout});
     }
 
     DiagLog("  handle: dopo 'Nuovo file' +" +
             std::to_string(OpenHandleCount() - handlesStart));
+    menu.open = true;
+}
+
+// Il menu di una **riga della barra laterale**. Non e' il menu della lista con
+// altre voci: e' un altro contesto, e le voci sono quelle che hanno senso su una
+// destinazione — fissarla, toglierla da dove sta, toglierla dai recenti.
+//
+// Il percorso non si indovina: lo prende dal bersaglio sotto il puntatore e lo
+// lascia in `app.contextTargetPath`, dove lo trovano i comandi.
+void BuildSidebarContextMenu(AppState& app, float x, float y, const ClickTarget& row)
+{
+    ContextMenu& menu = app.contextMenu;
+    menu.items.clear();
+    menu.x = x;
+    menu.y = y;
+    menu.openPath.clear();
+    menu.levels.assign(1, ContextMenuLevel{});
+    menu.shellIsBackground = false;
+    menu.shell   = nullptr;      // nessun verbo della shell: non e' la lista
+    menu.shellMenu = nullptr;
+
+    menu.openedAt = NowSeconds();
+    app.contextTargetPath  = row.path;
+    app.contextTargetLabel = row.label.empty() ? ToUtf8(LeafName(row.path)) : row.label;
+    menu.subtitle = app.contextTargetLabel;
+
+    ClosePinMenu(app);
+
+    // Le due voci del fissaggio: agiscono sul percorso della riga, quindi non
+    // serve aprirla prima. `BuildPinMenu` dice da solo quando non c'e' niente da
+    // fare, e in quel caso l'esito finisce nella barra di stato.
+    menu.items.push_back({Tr("Fissa in...", "Pin to..."), CmdPinTo});
+    menu.items.push_back({Tr("Togli da...", "Unpin from..."), CmdUnpin});
+    menu.items.push_back({"", 0, /*separator=*/true});
+    menu.items.push_back({Tr("Rimuovi dai recenti", "Remove from recents"), CmdForgetRecent});
     menu.open = true;
 }
 
@@ -987,6 +1108,8 @@ void ContextMenuDraw(AppState& app, const Layout& layout)
     // l'ordine in cui stanno sullo schermo.
     for (int depth = 0; depth <= ActiveDepth(app.contextMenu); ++depth)
         ContextMenuDrawLevel(app, layout, depth);
+
+    app.renderer->SetOpacity(1.0f);   // l'animazione e' di questo menu, non del resto
 }
 
 // Vero se il clic e' stato consumato dal menu.

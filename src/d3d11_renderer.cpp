@@ -7,10 +7,10 @@
 
 namespace {
 
-// Il vertice e' lo stesso dell'OpenGL: 30 float, nello stesso ordine. Cambia solo
+// Il vertice e' lo stesso dell'OpenGL: 34 float, nello stesso ordine. Cambia solo
 // chi lo legge, quindi il conto dei float deve restare in un posto solo — qui, e
 // in `ui_renderer.cpp` per l'altro backend.
-constexpr size_t kFloatsPerVertex = 30;
+constexpr size_t kFloatsPerVertex = 34;
 constexpr size_t kVerticesPerQuad = 4;
 constexpr size_t kIndicesPerQuad  = 6;
 
@@ -37,6 +37,7 @@ struct VSInput
     float  dashOn : TEXCOORD12;
     float  dashOff : TEXCOORD13;
     float  flags : TEXCOORD14;
+    float4 clipRect : TEXCOORD15;
 };
 
 struct VSOutput
@@ -54,6 +55,10 @@ struct VSOutput
     float  layer : TEXCOORD9;
     float4 color : TEXCOORD10;
     float4 gradient : TEXCOORD11;
+    // `nointerpolation`: come `flat` nel GLSL. Il rettangolo e' lo stesso nei
+    // quattro vertici del quad, e interpolarlo sarebbe un arrotondamento in piu'
+    // proprio sul confronto che decide se un frammento esiste.
+    nointerpolation float4 clipRect : TEXCOORD12;
 };
 
 VSOutput main(VSInput input, uint vertexId : SV_VertexID)
@@ -90,6 +95,7 @@ VSOutput main(VSInput input, uint vertexId : SV_VertexID)
     output.layer = input.layer;
     output.color = input.color;
     output.gradient = input.gradient;
+    output.clipRect = input.clipRect;
     return output;
 }
 )";
@@ -113,6 +119,10 @@ struct VSOutput
     float  layer : TEXCOORD9;
     float4 color : TEXCOORD10;
     float4 gradient : TEXCOORD11;
+    // `nointerpolation`: come `flat` nel GLSL. Il rettangolo e' lo stesso nei
+    // quattro vertici del quad, e interpolarlo sarebbe un arrotondamento in piu'
+    // proprio sul confronto che decide se un frammento esiste.
+    nointerpolation float4 clipRect : TEXCOORD12;
 };
 
 static const float FLAG_TEXTURED = 1.0;
@@ -122,18 +132,33 @@ static const float FLAG_TRIANGLE_DOWN = 8.0;
 static const float FLAG_PLUS  = 16.0;
 static const float FLAG_CROSS = 32.0;
 
+// I cinque pulsanti di navigazione: `ui.frag` dice la ragione e queste sono le
+// stesse forme, dette in HLSL. Una formula per forma, non due: se qui e li' 
+// divergono, il backend Direct3D disegna qualcos'altro e nessuno se ne accorge
+// finche' non guarda `BOLT_BACKEND=d3d11`.
+static const float FLAG_ARROW       = 64.0;
+static const float FLAG_ARROW_UP    = 128.0;
+static const float FLAG_ARROW_LEFT  = 256.0;
+static const float FLAG_REFRESH     = 512.0;
+static const float FLAG_STAR        = 1024.0;
+
 // Il triangolo della linguetta: la stessa formula dell'OpenGL, detta in HLSL.
 // Per farlo puntare in giu' si ruota il punto, non si scrive una seconda formula.
 // Distanza da un segmento con le punte tonde: la usano il triangolo e la croce.
-float segmentDistance(float2 point, float2 a, float2 b, float radius)
+//
+// Il punto si chiama `p` e non `point`: `point` e' una **parola riservata** di HLSL
+// (la primitiva dei geometry shader), e con quel nome il compilatore di Direct3D
+// rifiutava l'intero pixel shader — che, non compilando, faceva ripiegare
+// l'applicazione sull'OpenGL in silenzio. Vedi `docs/02` §7.52.
+float segmentDistance(float2 p, float2 a, float2 b, float radius)
 {
-    float2 pa = point - a;
+    float2 pa = p - a;
     float2 ba = b - a;
     float along = clamp(dot(pa, ba) / dot(ba, ba), 0.0, 1.0);
     return length(pa - ba * along) - radius;
 }
 
-float triangleDistance(float2 point, float2 halfSize, float rounding)
+float triangleDistance(float2 p, float2 halfSize, float rounding)
 {
     float width  = halfSize.x;
     float height = halfSize.y;
@@ -142,21 +167,21 @@ float triangleDistance(float2 point, float2 halfSize, float rounding)
     float2 tip    = float2( width,  0.0);
     float2 bottom = float2(-width, -height);
 
-    float left = -width - point.x;
+    float left = -width - p.x;
 
     float2 upperEdge = normalize(float2( height, 2.0 * width));
     float2 lowerEdge = normalize(float2( height, -2.0 * width));
-    float upper = dot(point - top, upperEdge);
-    float lower = dot(point - tip, lowerEdge);
+    float upper = dot(p - top, upperEdge);
+    float lower = dot(p - tip, lowerEdge);
 
     float planes = max(max(left, upper), lower);
     if (rounding <= 0.0)
         return planes;
 
     // Vedi ui.frag: gli spigoli si arrotondano con la distanza dal contorno.
-    float edge = min(min(segmentDistance(point, top, tip, 0.0),
-                         segmentDistance(point, tip, bottom, 0.0)),
-                     segmentDistance(point, bottom, top, 0.0));
+    float edge = min(min(segmentDistance(p, top, tip, 0.0),
+                         segmentDistance(p, tip, bottom, 0.0)),
+                     segmentDistance(p, bottom, top, 0.0));
     return (planes < 0.0 ? -edge : edge) - rounding;
 }
 
@@ -171,22 +196,123 @@ float roundedBoxDistance(float2 local, float2 halfSize, float4 radius)
 }
 
 // Il piu' e la croce: le stesse formule di ui.frag, dette in HLSL.
-float plusDistance(float2 point, float2 halfSize, float thickness)
+float plusDistance(float2 p, float2 halfSize, float thickness)
 {
     float tip = thickness * 0.5;
     float2 horizontal = float2(max(halfSize.x - tip, 0.0), tip);
     float2 vertical   = float2(tip, max(halfSize.y - tip, 0.0));
-    return min(roundedBoxDistance(point, horizontal, float4(tip, tip, tip, tip)),
-               roundedBoxDistance(point, vertical, float4(tip, tip, tip, tip)));
+    return min(roundedBoxDistance(p, horizontal, float4(tip, tip, tip, tip)),
+               roundedBoxDistance(p, vertical, float4(tip, tip, tip, tip)));
 }
 
-float crossDistance(float2 point, float2 halfSize, float thickness)
+float crossDistance(float2 p, float2 halfSize, float thickness)
 {
     float tip = thickness * 0.5;
     float extent = max(min(halfSize.x, halfSize.y) - tip, 0.0);
-    float backslash = segmentDistance(point, float2(-extent, -extent), float2(extent, extent), tip);
-    float slash     = segmentDistance(point, float2(-extent,  extent), float2(extent, -extent), tip);
+    float backslash = segmentDistance(p, float2(-extent, -extent), float2(extent, extent), tip);
+    float slash     = segmentDistance(p, float2(-extent,  extent), float2(extent, -extent), tip);
     return min(backslash, slash);
+}
+
+// Un triangolo pieno, vertici in senso antiorario (vedi `ui.frag`).
+float filledTriangle(float2 p, float2 a, float2 b, float2 c, float rounding)
+{
+    float2 ab = normalize(float2(b.y - a.y, -(b.x - a.x)));
+    float2 bc = normalize(float2(c.y - b.y, -(c.x - b.x)));
+    float2 ca = normalize(float2(a.y - c.y, -(a.x - c.x)));
+
+    float planes = max(max(dot(p - a, ab), dot(p - b, bc)), dot(p - c, ca));
+    if (rounding <= 0.0)
+        return planes;
+
+    float edge = min(min(segmentDistance(p, a, b, 0.0), segmentDistance(p, b, c, 0.0)),
+                     segmentDistance(p, c, a, 0.0));
+    return (planes < 0.0 ? -edge : edge) - rounding;
+}
+
+// Un quadrilatero convesso, vertici in senso antiorario.
+float quadDistance(float2 p, float2 a, float2 b, float2 c, float2 d)
+{
+    float2 n = normalize(float2(b.y - a.y, -(b.x - a.x)));
+    float m = dot(p - a, n);
+    n = normalize(float2(c.y - b.y, -(c.x - b.x)));
+    m = max(m, dot(p - b, n));
+    n = normalize(float2(d.y - c.y, -(d.x - c.x)));
+    m = max(m, dot(p - c, n));
+    n = normalize(float2(a.y - d.y, -(a.x - d.x)));
+    return max(m, dot(p - d, n));
+}
+
+// La freccia: un'asta e una punta a 45°, tutte allo stesso spessore (vedi `ui.frag`).
+float arrowDistance(float2 p, float2 halfSize, float thickness)
+{
+    float r = min(halfSize.x, halfSize.y);
+    float t = max(thickness, 1.0) * 0.5;
+
+    float2 tail = float2(-r + t, 0.0);
+    float2 tip  = float2(r - t, 0.0);
+    float shaft = segmentDistance(p, tail, tip, t);
+
+    float arm = r * 0.66;
+    float head = min(segmentDistance(p, tip, tip + float2(-arm,  arm), t),
+                     segmentDistance(p, tip, tip + float2(-arm, -arm), t));
+
+    return min(shaft, head);
+}
+
+// L'aggiorna: un anello aperto con una punta tangente dentro il taglio.
+float refreshDistance(float2 p, float2 halfSize, float thickness)
+{
+    float r = min(halfSize.x, halfSize.y);
+    float t = max(thickness, 1.0);
+    float band = t * 0.5;
+    float radius = r - band;
+    float reach = length(p);
+
+    float ring = abs(reach - radius) - band;
+
+    float gapHalf = 0.70;
+    float gap = (gapHalf - abs(atan2(p.y, p.x))) * max(reach, 0.001);
+
+    float2 radial = float2(cos(gapHalf), sin(gapHalf));
+    float2 tangent = float2(sin(gapHalf), -cos(gapHalf));
+    float2 anchorHead = radial * radius;
+    float head = filledTriangle(p, anchorHead + radial * t * 1.9, anchorHead - radial * t * 1.9,
+                               anchorHead + tangent * t * 3.4, t * 0.1);
+
+    return min(max(ring, gap), head);
+}
+
+// La stella: cinque punte; il segno dagli aquiloni, la distanza dai dieci lati
+// presi come segmenti (vedi `ui.frag` per la ragione).
+float starDistance(float2 p, float2 halfSize)
+{
+    float r = min(halfSize.x, halfSize.y);
+    float inner = r * 0.32;
+    float side = 0.6283185;
+    float first = 1.5707963;
+
+    float edge = 1e6;
+    bool  inside = false;
+
+    float2 vertex = float2(cos(first - side), sin(first - side)) * inner;
+    for (int i = 0; i < 5; ++i)
+    {
+        float tipAngle = first + i * 1.2566371;
+        float2 tip   = float2(cos(tipAngle), sin(tipAngle)) * r;
+        float2 after = float2(cos(tipAngle + side), sin(tipAngle + side)) * inner;
+
+        edge = min(edge, segmentDistance(p, vertex, tip, 0.0));
+        edge = min(edge, segmentDistance(p, tip, after, 0.0));
+
+        float2 before = vertex;
+        if (quadDistance(p, float2(0.0, 0.0), after, tip, before) < 0.0)
+            inside = true;
+
+        vertex = after;
+    }
+
+    return inside ? -edge : edge;
 }
 
 bool isOnDash(float2 frag, float2 shapeMin, float2 shapeSize, float strokeWidth,
@@ -215,6 +341,13 @@ float4 main(VSOutput input) : SV_Target
     // sinistra e +Y in giu': e' lo spazio dell'interfaccia, quindi niente
     // ribaltamento (che in OpenGL serve).
     float2 frag = input.pos.xy;
+
+    // Il ritaglio arriva dal vertice, come in `src/shaders/ui.frag`: fuori dal
+    // rettangolo il frammento non esiste. Non c'e' nessuno stato di scissor da
+    // accendere, quindi il batch non va spezzato per ritagliare.
+    if (frag.x < input.clipRect.x || frag.x >= input.clipRect.z ||
+        frag.y < input.clipRect.y || frag.y >= input.clipRect.w)
+        discard;
 
     float2 halfSize = input.shapeSize * 0.5;
     float2 centre   = input.shapeMin + halfSize;
@@ -263,6 +396,26 @@ float4 main(VSOutput input) : SV_Target
     else if (fmod(input.flags, 2.0 * FLAG_CROSS) >= FLAG_CROSS)
     {
         distance = crossDistance(local, innerHalf, max(input.radius.x, 1.0));
+    }
+    else if (fmod(input.flags, 2.0 * FLAG_ARROW) >= FLAG_ARROW)
+    {
+        float2 upright = float2(-local.x, local.y);
+        bool up   = fmod(input.flags, 2.0 * FLAG_ARROW_UP) >= FLAG_ARROW_UP;
+        bool left = fmod(input.flags, 2.0 * FLAG_ARROW_LEFT) >= FLAG_ARROW_LEFT;
+        if (up)
+            upright = float2(upright.y, -upright.x);
+        if (left)
+            upright = -upright;
+        distance = arrowDistance(upright, innerHalf, max(input.radius.x, 1.0));
+    }
+    else if (fmod(input.flags, 2.0 * FLAG_REFRESH) >= FLAG_REFRESH)
+    {
+        float2 upright = float2(-local.x, local.y);
+        distance = refreshDistance(upright, innerHalf, max(input.radius.x, 1.0));
+    }
+    else if (fmod(input.flags, 2.0 * FLAG_STAR) >= FLAG_STAR)
+    {
+        distance = starDistance(local, innerHalf);
     }
     else
     {
@@ -406,6 +559,7 @@ bool D3D11Renderer::Initialize(std::string* error)
         {"TEXCOORD", 12, DXGI_FORMAT_R32_FLOAT,          0, 108, D3D11_INPUT_PER_VERTEX_DATA, 0},
         {"TEXCOORD", 13, DXGI_FORMAT_R32_FLOAT,          0, 112, D3D11_INPUT_PER_VERTEX_DATA, 0},
         {"TEXCOORD", 14, DXGI_FORMAT_R32_FLOAT,          0, 116, D3D11_INPUT_PER_VERTEX_DATA, 0},
+        {"TEXCOORD", 15, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 120, D3D11_INPUT_PER_VERTEX_DATA, 0},
     };
     const HRESULT inputResult = device_->CreateInputLayout(
         layout, static_cast<UINT>(sizeof(layout) / sizeof(layout[0])),
@@ -447,12 +601,12 @@ bool D3D11Renderer::Initialize(std::string* error)
         return false;
     }
 
-    // Il ritaglio e' sempre acceso: quando non c'e', si usa il rettangolo intero.
-    // Cosi' `SetScissor` non deve cambiare stato, solo il rettangolo.
+    // Il ritaglio non e' uno stato del rasterizzatore: e' un campo del vertice, e
+    // a tagliare e' il pixel shader. Quindi niente `ScissorEnable` e niente
+    // `RSSetScissorRects` da riportare a ogni disegno.
     D3D11_RASTERIZER_DESC raster{};
     raster.FillMode = D3D11_FILL_SOLID;
     raster.CullMode = D3D11_CULL_NONE;
-    raster.ScissorEnable = TRUE;
     if (FAILED(device_->CreateRasterizerState(&raster, &rasterState_)))
     {
         if (error != nullptr) *error = "Direct3D 11 rasterizer state creation failed";
@@ -630,14 +784,13 @@ void D3D11Renderer::BeginFrame(int width, int height)
 
     viewportWidth_  = width;
     viewportHeight_ = height;
+    drawCalls_      = 0;
     viewport_ = D3D11_VIEWPORT{0.0f, 0.0f, static_cast<float>(width), static_cast<float>(height),
                                0.0f, 1.0f};
     context_->RSSetViewports(1, &viewport_);
 
     // Nessun ritaglio all'inizio del fotogramma: il rettangolo intero.
-    scissor_ = D3D11_RECT{0, 0, width, height};
-    scissorSet_ = false;
-    context_->RSSetScissorRects(1, &scissor_);
+    ClearClip();
 
     ID3D11RenderTargetView* target = renderTarget_;
     context_->OMSetRenderTargets(1, &target, nullptr);
@@ -686,12 +839,31 @@ void D3D11Renderer::BorderRect(Rect rect, Color color, float width, float radius
     Draw(UIDraw::Border(rect, color, width, radius));
 }
 
+void D3D11Renderer::SetCornerScale(float scale)
+{
+    cornerScale_ = scale;
+}
+
+void D3D11Renderer::SetOpacity(float opacity)
+{
+    opacity_ = opacity;
+}
+
 void D3D11Renderer::AppendQuad(const UIDraw& p)
 {
     const Rect  r = p.rect;
+
+    // Vedi `UIRenderer::AppendQuad`: stesse regole, stesso formato di vertice.
+    const bool radiusIsStroke = p.plus || p.cross || p.arrow || p.arrowUp || p.arrowLeft ||
+                                p.refresh || p.star;
+    const float cornerScale = radiusIsStroke ? 1.0f : cornerScale_;
+    const float alpha       = p.color.a * opacity_;
     const float flags = (p.textured ? 1.0f : 0.0f) + (p.mono ? 2.0f : 0.0f) +
                         (p.triangle ? 4.0f : 0.0f) + (p.triangleDown ? 8.0f : 0.0f) +
-                        (p.plus ? 16.0f : 0.0f) + (p.cross ? 32.0f : 0.0f);
+                        (p.plus ? 16.0f : 0.0f) + (p.cross ? 32.0f : 0.0f) +
+                        (p.arrow ? 64.0f : 0.0f) + (p.arrowUp ? 128.0f : 0.0f) +
+                        (p.arrowLeft ? 256.0f : 0.0f) + (p.refresh ? 512.0f : 0.0f) +
+                        (p.star ? 1024.0f : 0.0f);
 
     for (size_t vertex = 0; vertex < kVerticesPerQuad; ++vertex)
     {
@@ -706,11 +878,12 @@ void D3D11Renderer::AppendQuad(const UIDraw& p)
         v[10] = p.u1;  v[11] = p.v1;
         v[12] = p.layer;
 
-        v[13] = p.color.r; v[14] = p.color.g; v[15] = p.color.b; v[16] = p.color.a;
+        v[13] = p.color.r; v[14] = p.color.g; v[15] = p.color.b; v[16] = alpha;
 
         v[17] = p.shadeLeft; v[18] = p.shadeRight; v[19] = p.shadeBottom; v[20] = p.shadeTop;
 
-        v[21] = p.radius.tl; v[22] = p.radius.tr; v[23] = p.radius.br; v[24] = p.radius.bl;
+        v[21] = p.radius.tl * cornerScale; v[22] = p.radius.tr * cornerScale;
+        v[23] = p.radius.br * cornerScale; v[24] = p.radius.bl * cornerScale;
 
         v[25] = p.strokeWidth;
         v[26] = p.softness;
@@ -718,28 +891,27 @@ void D3D11Renderer::AppendQuad(const UIDraw& p)
         v[28] = p.dashOff;
         v[29] = flags;
 
+        v[30] = clip_.x;      v[31] = clip_.y;
+        v[32] = clip_.right(); v[33] = clip_.bottom();
+
         vertices_.insert(vertices_.end(), v, v + kFloatsPerVertex);
     }
 }
 
-void D3D11Renderer::SetScissor(Rect rect)
+void D3D11Renderer::SetClip(Rect rect)
 {
     if (rect.w <= 0.0f || rect.h <= 0.0f)
     {
-        ClearScissor();
+        ClearClip();
         return;
     }
-    scissor_.left   = static_cast<LONG>(rect.x);
-    scissor_.top    = static_cast<LONG>(rect.y);
-    scissor_.right  = static_cast<LONG>(rect.right());
-    scissor_.bottom = static_cast<LONG>(rect.bottom());
-    scissorSet_ = true;
+    clip_ = rect;
 }
 
-void D3D11Renderer::ClearScissor()
+void D3D11Renderer::ClearClip()
 {
-    scissor_ = D3D11_RECT{0, 0, viewportWidth_, viewportHeight_};
-    scissorSet_ = false;
+    clip_ = Rect{0.0f, 0.0f, static_cast<float>(viewportWidth_),
+                 static_cast<float>(viewportHeight_)};
 }
 
 void D3D11Renderer::End()
@@ -834,12 +1006,12 @@ void D3D11Renderer::End()
     const FLOAT blendFactor[4] = {0.0f, 0.0f, 0.0f, 0.0f};
     context_->OMSetBlendState(blendState_, blendFactor, 0xFFFFFFFF);
     context_->RSSetState(rasterState_);
-    context_->RSSetScissorRects(1, &scissor_);
 
     ID3D11RenderTargetView* target = renderTarget_;
     context_->OMSetRenderTargets(1, &target, nullptr);
 
     context_->DrawIndexed(static_cast<UINT>(quadCount * kIndicesPerQuad), 0, 0);
+    ++drawCalls_;
 
     // Un SRV ancora legato impedisce a `GenerateMips` del fotogramma dopo di
     // scriverci sopra.

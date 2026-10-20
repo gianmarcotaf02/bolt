@@ -208,7 +208,7 @@ skill in chat — `/graphify`, o `/graphify --update` per documenti e immagini.
 
 ### Perché
 
-- `src/main.cpp` è **4.816 righe**: scesa da 11.394 a **7.344** con lo spezzamento,
+- `src/main.cpp` è **4.675 righe** (misurate il 2026-10-20, dopo la Home): scesa da 11.394 a **7.344** con lo spezzamento,
   **risalita** a 7.895 con l'editor della mappa dei tasti e il fissaggio, e scese di
   **3.079** con il pannello delle opzioni, i verbi della shell, il menu contestuale, le impostazioni e la navigazione — la curva di un
   file unico che accoglie ogni funzione nuova. Gli ultimi pezzi usciti sono
@@ -261,6 +261,11 @@ skill in chat — `/graphify`, o `/graphify --update` per documenti e immagini.
   quella che si ricorda se una sezione è chiusa o se un gruppo è collassato, così
   cambiare lingua non riapre quello che l'utente aveva chiuso. Le chiavi dello spec
   (`docs/03`) restano quelle e non si rinominano.
+- **Le date si scrivono europee**, `gg/mm/aaaa` e `gg/mm/aaaa hh:mm`, in tutte e due le
+  lingue. Il formato di una data non è una parola da tradurre: uno che cambia con la
+  lingua cambierebbe anche la larghezza delle colonne, e due catture non sarebbero più
+  confrontabili al pixel. Le produce una funzione sola, `FormatFileTime` in
+  `src/app_ui.cpp`; chi formatta una data altrove sta aggiungendo un secondo formato.
 - Il registro è quello di chi spiega a un collega: diretto, concreto, senza
   entusiasmi e senza scuse. I commenti dicono **perché**, non cosa.
 
@@ -347,6 +352,32 @@ finestra non è sulla scrivania corrente. Vedi §5.
 **Log di avvio**: `build/RelWithDebInfo/startup-error.log` (sovrascritto a ogni
 avvio; assente significa nessun errore).
 
+**Il pacchetto di installazione**: `tools/make-installer.ps1` mette in `out/` (esclusa
+dal controllo di versione) l'installer `Bolt-<versione>-win64-setup.exe` (Inno Setup 6,
+`installer/bolt.iss`) e lo `zip` portatile. La versione si legge da `CMakeLists.txt` e si
+passa a Inno con `/DAppVersion`: non e' scritta in due posti. Inno Setup e' una dipendenza
+di **build**, non di runtime (`ISCC.exe`; lo script lo cerca nel registro e nei posti
+soliti, e se manca si ferma dicendo dove prenderlo).
+
+Le release si pubblicano con **`gh`** (installato in `C:\Program Files\GitHub CLI`,
+autenticato come `gianmarcotaf02`): `gh release create v<versione> --repo
+gianmarcotaf02/bolt <setup> <zip> SHA256SUMS`. La release **deve** avere il setup e
+`SHA256SUMS`: e' quello che legge `Controlla aggiornamenti` (`src/update.*`, `docs/04`
+M13). Le release **v0.1.0** e **v0.1.1** sono pubblicate; la 0.1.1 e' la stessa base
+della 0.1.0 e serve alla prova dell'aggiornamento.
+
+`tools/verify-installer.ps1` installa il pacchetto **davvero**, con `/VERYSILENT`, in
+`analysis/tmp/install-prova`: controlla file, collegamento, voce di registro, avvia il Bolt
+installato con `BOLT_BACKEND=opengl` (l'unico backend che legge gli shader da disco, quindi
+l'unico che si accorge se il pacchetto e' sbagliato), cattura la finestra, disinstalla e
+controlla che non resti niente. Due cose da sapere prima di lanciarlo: **crea il
+collegamento nel menu Start vero** (Inno ignora `/GROUP` quando la pagina del gruppo e'
+spenta) e **si rifiuta di partire** se Bolt risulta gia' installato, invece di
+sovrascrivere l'installazione di qualcuno. Tutto il resto lo mette in `analysis/tmp` e lo
+toglie in `finally`, anche quando un controllo fallisce.
+
+Un pacchetto si prova **da una cartella in cui la sorgente non c'e'**: `docs/02` §7.63 e' il
+difetto che si e' visto il primo giorno che non si e' fatto cosi'.
 **Trascinare** (dentro e fuori): `tools/drag-mouse.ps1` preme, muove a passi,
 **fotografa a metà gesto** e rilascia; `tools/window-rect.ps1` dice dove sta la
 finestra adesso (`CW_USEDEFAULT` la sposta a ogni avvio, e le coordinate cliente
@@ -355,12 +386,19 @@ l'ordine delle finestre; `tools/explorer-side.ps1` apre Esplora risorse su una
 cartella **del progetto** e lo mette di fianco.
 
 **Contatori del motore nella barra di stato**: `BOLT_DEV_HUD=1` li rimette
-(fotogrammi, quadrilateri, icone, lavori). Di default la barra mostra quello che
-serve a chi usa il programma.
+(fotogrammi, **disegni per fotogramma**, quadrilateri, icone, lavori). Di default la barra
+mostra quello che serve a chi usa il programma. `draws` e' il numero che dice se il
+ritaglio costa: era 5, e' 1 (`docs/02` §7.61).
 
 **Quale backend disegna**: `BOLT_BACKEND=opengl` o `d3d11` lo forza all'avvio; senza
 la variabile si prova il Direct3D 11 e si ripiega sull'OpenGL se non parte. La riga
 `--- backend:` in `bolt-diag.log` dice quale sta disegnando (`BOLT_DIAG=1`).
+
+**Provare l'aggiornamento senza pubblicare una release**: `BOLT_UPDATE_API` sposta
+l'indirizzo del foglio delle release su un server locale. Serve al banco — download,
+SHA-256, rifiuto — e **non** aggira il confronto dell'impronta. Con un foglio locale si
+prova l'impronta sbagliata (il file deve sparire) e la release senza `SHA256SUMS`; il
+caso riuscito vuole un setup vero, e non si prova con un finto eseguibile.
 
 **Log dei verbi della shell**: `BOLT_DIAG=1` fa scrivere a ogni
 interrogazione di `IContextMenu` le voci trovate, i verbi, quelle saltate e il
@@ -570,6 +608,24 @@ conteggio per funzione (`OpenPropertiesPanel` sparito): due strumenti, non l'occ
   un terzo di secondo — `fsutil file createnew analysis\tmp\sandbox\big.bin
   4294967296` — e si cancella prima di lasciare la sessione. Non serve un file vero:
   quello che si guarda e' il conto, non il contenuto.
+- **Il timeout di REA e' del client, non del server.** Ogni chiamata MCP che
+  interroga il database di Ghidra paga la **prima** volta l'import e l'auto-analisi:
+  misurato sul riferimento da 2,5 MB, **215 secondi**. Le chiamate successive sono
+  istantanee (`xrefs` 0,0 s, `pseudo_code` 0,1 s). Se il client chiude a 60 s — il
+  default dell'SDK MCP — sembra che il server sia rotto, e non lo e'. In pi il
+  timeout va scritto in `~/.pi/agent/mcp-adapter.json` come **`requestTimeoutMs`**
+  (millisecondi): la chiave `timeout` (secondi) vale solo nel formato di Pi
+  (`mcp.json`) e li' viene ignorata in silenzio. Il modo per distinguere i due casi
+  e' parlare col server **senza** il client: `analysis/tmp/rea-probe.mjs` fa
+  `initialize`, `tools/list`, `open_binary`, `list_procedures`, `xrefs` e
+  `pseudo_code` e stampa i secondi di ognuna.
+- **Una compilazione si prova senza aprire una finestra.** Gli shader HLSL
+  incorporati si estraggono dalla sorgente e si passano a `fxc.exe` del Windows SDK
+  (lo stesso compilatore dietro `D3DCompile`), che dice l'errore e la riga; il
+  runtime no. È così che il 2026-10-18 `point` — parola riservata dell'HLSL — è
+  stato visto senza toccare lo schermo: fino ad allora quell'errore esisteva solo in
+  una riga di `bolt-diag.log` con `BOLT_DIAG=1`. Vale per ogni cosa che si compila e
+  non si vede: prima lo strumento, poi la finestra.
 
 ---
 
@@ -624,17 +680,22 @@ Tre regole che ne derivano:
 
 ## 8. Architettura in breve
 
-**Un solo array di texture** (1024 px, **6 strati**), **un quad batcher**, **cinque
-draw call per frame**: quattro in piu' sono il prezzo dei due ritagli (lista e
-visualizzatore di testo), perche' il batch va chiuso e riaperto attorno al
-`glScissor`, o le celle della griglia e le righe di testo escono dal riquadro e
-finiscono sopra le barre (`docs/02` §7.36 e §7.37).
+**Un solo array di texture** (1024 px, **6 strati**), **un quad batcher**, **un
+disegno per frame**. Il ritaglio e' un campo del vertice, non uno stato del
+disegno: "e' un ritaglio **del quadrilatero**, quindi le celle della griglia e le
+righe di testo non escono dal riquadro (`docs/02` §7.36 e §7.37) senza che il
+lotto vada chiuso e riaperto. Il numero si legge con `BOLT_DEV_HUD=1`
+(«1 draws»); con lo scissor erano cinque.
 
-**Debito dichiarato:** il posto giusto per un ritaglio e' il **quad**, non la
-chiamata di disegno — un rettangolo di ritaglio per primitiva, valutato nello
-shader, riporterebbe il fotogramma a un disegno solo e renderebbe il ritaglio una
-proprieta' di chi disegna invece che dell'ordine in cui si disegna. Finche' non
-c'e', ogni area ritagliata costa due disegni.
+**Il debito e' stato saldato il 2026-10-20.** Stava scritto qui: il posto giusto
+per un ritaglio e' il **quad**, non la chiamata di disegno — un rettangolo di
+ritaglio per primitiva, valutato nel pixel shader. Adesso c'e': `IRenderer::SetClip`
+scrive il rettangolo nei 4 float in coda al vertice (34 per vertice), `ui.frag` lo
+confronta con il frammento e scarta, e l'HLSL fa lo stesso con `SV_Position`. Il
+`glScissor` e `D3D11_RASTERIZER_DESC::ScissorEnable` non ci sono piu'. Effetto
+collaterale onesto: `QuadCount` prima ripartiva a ogni `Begin`, quindi il contatore
+del HUD mostrava **l'ultimo lotto** e non il fotogramma (379 quads); adesso mostra
+il fotogramma intero (1.565).
 
 | strato | contenuto |
 |---|---|
@@ -648,13 +709,18 @@ c'e', ogni area ritagliata costa due disegni.
 Le forme sono disegnate da uno shader **SDF** (`src/shaders/ui.frag`), quindi ogni
 rettangolo ha bordi continui a qualunque dimensione. Anche le **linguette** delle
 sezioni sono una forma — un triangolo — e non il carattere `v`: un carattere cambia
-col carattere scelto e non e' un elemento.
+col carattere scelto e non e' un elemento. Vale per ogni elemento dell'interfaccia:
+le linguette, il `+` e la `x` dei pulsanti della finestra, e i cinque pulsanti di
+navigazione (freccia, freccia, su, aggiorna, stella), che erano `←` `→` `↑` `↻` `★` e
+adesso sono tre forme in SDF — il verso dei vertici, l'unione delle forme e gli assi
+girati di `point` sono trappole pagate in `docs/02` §7.58. Un `>` fra due briciole del
+percorso invece **resta** un carattere: e' punteggiatura dentro una riga di testo.
 
 ### File
 
 | file | responsabilità |
 |---|---|
-| `src/main.cpp` | finestra Win32, navigazione, layout, input, disegno; sceglie e possiede il backend (`BOLT_BACKEND`, fallback). **Lo spezzamento è in corso: 4.816 righe, erano 11.394** (scesa a 7.344, risalita a 7.895, scesa di 3.079 il 2026-10-18: vedi §2-bis e `docs/05` §2) |
+| `src/main.cpp` | finestra Win32, navigazione, layout, input, disegno; sceglie e possiede il backend (`BOLT_BACKEND`, fallback). **Lo spezzamento è in corso: 4.675 righe, erano 11.394** (scesa a 7.344, risalita a 7.895, scesa di 3.079 il 2026-10-18: vedi §2-bis e `docs/05` §2) |
 | `src/theme.*` | i **ruoli di colore** che l'interfaccia legge e le **due tavolozze** (chiara e scura), piu' la preferenza del sistema (`AppsUseLightTheme`). I 35 token dello spec che hanno un lettore stanno qui; quelli che non ce l'hanno sono elencati in `theme.h`, invece di essere campi scritti e mai letti |
 | `src/app_state.h` | lo stato della finestra e i tipi che piu' moduli condividono: il **confine** che prima non esisteva (`docs/05` §2) |
 | `src/app_ui.*` | i supporti che piu' di un modulo usa: UTF-8/UTF-16, nomi di percorso, numeri in lettere, date, `FitText`, `NowSeconds` |
@@ -665,23 +731,27 @@ col carattere scelto e non e' un elemento.
 | `src/view_inspector.*` | il pannello di destra **intero**: le righe dei metadati (`BuildInspectorRows`, le stesse che usa il pannello delle proprieta'), l'immagine grande decodificata, il visualizzatore di testo e il contenuto della cartella scelta |
 | `src/view_statusbar.*` | la barra di stato e la riga in fondo: l'esito di quello che si e' appena fatto, i numeri, e i selettori di vista/misura/ingrandimento. Registra i loro rettangoli come bersagli e **non** risponde ai clic: quello lo fa l'input |
 | `src/view_options.*` | il **pannello delle opzioni** (`Ctrl+,`): la costruzione dell'elenco delle preferenze, il passaggio dello stato alla riga e ritorno (`RefreshOptionItem`/`ApplyOptionFromItem`, le due direzioni di una verità sola), i controlli tipizzati — testo, numero, interruttore, scelta — la modifica in linea, e i tasti e i clic del pannello. Uscito da `main.cpp` il 2026-10-18 |
-| `src/shell_menu.*` | i **verbi della shell**: leggere `IContextMenu` dentro le nostre voci, la banda di id riservata (`kShellCmdFirst..Last`), le etichette ridotte ad ASCII, la cache per non interrogare la shell a ogni tasto destro, e il rilascio degli oggetti COM. Il *disegno* del menu contestuale e l'esecuzione delle voci restano in `main.cpp` |
-| `src/view_context_menu.*` | il **menu contestuale** come superficie: i livelli, la geometria delle righe, lo scorrimento, il disegno, il puntatore, il clic, i tasti, e le azioni del menu (aprire un sottomenu, eseguire una voce, le proprietà). I verbi **non** li legge: quelli sono `shell_menu.*` |
+| `src/shell_menu.*` | i **verbi della shell**: leggere `IContextMenu` dentro le nostre voci, la banda di id riservata (`kShellCmdFirst..Last`), le etichette ridotte ad ASCII, la **soppressione dei verbi che non sono nostri** (quelli che offriamo gia', e quelli dell'applicazione originale — `OpenInFilePilot`, `FilePilotHere`: `docs/02` §7.62), la cache per non interrogare la shell a ogni tasto destro, e il rilascio degli oggetti COM. Il *disegno* del menu contestuale e l'esecuzione delle voci restano in `main.cpp` |
+| `src/view_context_menu.*` | il **menu contestuale** come superficie: i livelli, la geometria delle righe, lo scorrimento, il disegno, il puntatore, il clic, i tasti, e le azioni del menu (aprire un sottomenu, eseguire una voce, le proprietà). Due contesti: la **lista** (selezione, verbi della shell) e una **riga della barra laterale** (`BuildSidebarContextMenu`: fissare, togliere, togliere dai recenti — sul percorso della riga). I verbi della shell **non** li legge: quelli sono `shell_menu.*` |
 | `src/navigation.*` | la **navigazione** e i **tab**: leggere una cartella (`LoadDirectory`, `ReadDirectory`, e le voci di spazio dei nomi), la storia avanti/indietro, e l'albero dei tab — aprirne, attivarlo, chiuderlo, chiudere un ramo, e accogliere un tab trascinato sopra un altro |
+| `src/update.*` | gli **aggiornamenti in app** (forma B): la richiesta a `releases/latest` via `WinHTTP`, la scelta del setup e di `SHA256SUMS`, il download in `%TEMP%\Bolt-update`, lo **SHA-256** con `BCrypt` e il rifiuto con cancellazione se non torna. Su un thread, come `FileOps::Job`: la barra di stato racconta, `Esc` annulla, e il setup parte in silenzioso solo dopo la verifica. Comando esplicito, mai automatico (`docs/06`) |
+| `src/home.*` | la **Home** (`bolt:home`), la pagina di avvio: una **posizione**, non una cartella finta. Costruisce le voci delle tre bande — **Fissaggi**, **Recenti**, **Cartelle note** — deduplicate, con `Entry::band` (0/1/2) che dice a `RebuildView` come raggruppare e `Entry::location` che porta il percorso vero. Il resto sta dove stava: la lettura in `navigation.*`, le bande in `view_list.*`, le guardie in `commands.*`, la riga in `view_sidebar.*` |
+| `src/recents.*` | il **ranking dei recenti**: i tre campi che il riferimento scrive nella sessione (`Score`, `Decay`, `Ordinal`, e l'identità del volume accanto), la formula ricostruita da REA (`docs/04` M4), i tre modi di `StoreRecents` — nessuno dei quali scrive su disco (`docs/06`) — e l'ordine di presentazione (`Score` decrescente, poi `Ordinal`) |
 | `src/input_targets.*` | il **registro dei bersagli** (`HitTest`): chi disegna registra un rettangolo e un tipo, chi riceve il clic chiede qui cosa c'è sotto il puntatore invece di ricalcolare le geometrie |
 | `src/settings.*` | le **preferenze** su disco: `%APPDATA%\Bolt\settings.ini`, una riga per preferenza, testo semplice cancellabile a mano, e il "ricorda" che dice quando non riesce. Il file non contiene nomi di file né cartelle visitate (`docs/06`) |
-| `src/app_actions.h` | **la cucitura dello spezzamento**: le azioni che vivono ancora in `main.cpp` e che i moduli chiamano (l'editor della mappa dei tasti, la chiusura del menu dei fissaggi, i comandi che il menu contestuale chiama), ognuna col modulo che dovrebbe avere accanto. Una lista che deve **accorciarsi** |
+| `src/commands.*` | **i comandi**: `RunCommand` (dove un tasto, una voce di menu o una riga della palette diventano la stessa cosa) e i `Do*` sui file — copia, incolla, elimina, cartella nuova — piu' la rinomina in linea e l'apertura delle voci. Uscito da `main.cpp` il 2026-10-18 |
+| `src/app_actions.h` | **la cucitura dello spezzamento**: le azioni che vivono ancora in `main.cpp` e che i moduli chiamano (le superfici dei menu, il pannello delle proprieta', la geometria, il pannello dell'operazione), ognuna col modulo che dovrebbe avere accanto. Una lista che deve **accorciarsi** |
 | `src/view_menu.*` | il componente a gruppi — palette, GoTo, opzioni, valori di una colonna — con lo stato, il filtro, la geometria e il disegno. `GroupMenuClick`/`GroupMenuKeyDown` restituiscono un `MenuAction`: **cosa significa** una voce scelta lo sa chi ha costruito il menu |
 | `src/keymap.*` | **quale tasto fa quale comando**: una tabella `comando -> tasto` con i tasti di partenza, la ricerca (`CommandFor`), la scrittura (`LabelFor`), la rimappatura (`Rebind`, `Clear`, `Reset`) e il nome di un tasto (`Label`, che per quelli che non hanno un nome scritto a mano lo chiede a Windows). E' la fonte unica: l'input la interroga invece di conoscere i tasti, e le righe di fondo dei menu si scrivono da lei. Chi la **cambia** sta in `main.cpp`: la riga `Key Map` fra le opzioni (e `CmdEditKeyMap` dalla palette) apre l'elenco dei comandi col tasto accanto, e la cattura del tasto nuovo |
 | `src/ui_renderer.*` | il backend **OpenGL** dietro `IRenderer`: quad batcher, una draw call, catena di mipmap |
-| `src/d3d11_renderer.*` | il backend **Direct3D 11** della stessa interfaccia: stessi 30 float per vertice, stessi shader in HLSL, swap chain che segue la finestra |
+| `src/d3d11_renderer.*` | il backend **Direct3D 11** della stessa interfaccia: stessi 34 float per vertice, stessi shader in HLSL, swap chain che segue la finestra |
 | `src/font_atlas.*` | atlante di glifi GDI → strato dell'array; ClearType ridotto a copertura in scala di grigi, con gutter fra le celle |
 | `src/shell_icons.*` | icone di sistema → strato 1 |
 | `src/drag_drop.*` | trascinamento OLE: `IDropTarget` sulla finestra, `IDropSource` per portare fuori |
 | `src/diag.*` | registro diagnostico (`BOLT_DIAG=1` → `bolt-diag.log`) |
 | `src/image_preview.*` | decodifica di un'immagine via WIC, ridimensionata per l'anteprima grande |
 | `src/text_view.*` | decodifica di un file di testo: codifica, righe, terminatori, rifiuto dei binari |
-| `src/shell_location.*` | le cartelle che non sono percorsi (cestino, Questo PC): enumerazione, nomi, PIDL |
+| `src/shell_location.*` | le cartelle che non sono percorsi (cestino, Questo PC): enumerazione, nomi, PIDL. Una posizione puo' essere anche un **PIDL codificato in una stringa** (`shell:pidl:…`): e' cosi' che si apre una cartella riciclata, il cui nome assoluto punta al file riciclato e non a se stessa |
 | `src/ntfs_attributes.*` | gli attributi del record NTFS di un file: volume raw in sola lettura, `FSCTL_GET_NTFS_FILE_RECORD`, la *update sequence array*, i nomi della tabella `AT_*`. La parte che interpreta i byte e' separata da quella che fa I/O, cosi' si prova anche senza privilegi |
 | `src/shell_new.*` | i modelli del menu "Nuovo": chiavi `ShellNew` del registro, etichette risolte con `SHLoadIndirectString` |
 | `src/shell_sendto.*` | le destinazioni di "Invia a": la cartella SendTo, letta a ogni apertura |
@@ -692,14 +762,15 @@ col carattere scelto e non e' un elemento.
 | `src/language.*` | quale delle due lingue si mostra, con `Tr`/`TrW` e i conteggi (`Copiato 1 elemento` / `Copiati 3 elementi`); le coppie di stringhe restano dove si usano |
 | `src/gl_loader.*` | entry point OpenGL 3.3 caricate a runtime |
 | `src/bolt.rc`, `src/resource.h` | icona incorporata, da `brand/bolt.ico` |
-| `tools/` | cattura, input sintetico, `handle-count.ps1` (costo o perdita) |
+| `tools/` | cattura, input sintetico, `handle-count.ps1` (costo o perdita), e il **pacchetto**: `make-installer.ps1` + `verify-installer.ps1` |
+| `installer/` | il **pacchetto**: `bolt.iss` (lo script di Inno Setup, commentato riga per riga: cosa scrive, l'`AppId` stabile, la domanda sulle preferenze in disinstallazione) e il `README.txt` che finisce accanto all'eseguibile installato |
 | `brand/` | identità visiva, brief del logo, icona |
 
 ### Dove sta lo stato del lavoro
 
 - `docs/04-roadmap.md` — le milestone, con le caselle spuntate e i difetti aperti.
 - `docs/05-stato-e-prossimi-passi.md` — dove si è arrivati, cosa resta, le trappole.
-- `docs/02-architettura-ricostruita.md` — l'architettura e le **cinquantasette** voci
+- `docs/02-architettura-ricostruita.md` — l'architettura e le **sessantadue** voci
   del registro dei difetti, §7: trovate guardando l'applicazione, con sintomo, causa e
   correzione (tre sono aperte e lo dicono nel titolo).
 - `docs/03-spec-funzionale.md` — la spec ricostruita dall'originale: 1124 chiavi,
@@ -730,7 +801,7 @@ col carattere scelto e non e' un elemento.
   mani»: una query costa poco, una lettura costa migliaia di token che restano nel
   contesto per tutta la sessione. Vedi §2-bis.
 - **Non aprire nuove sessioni di refactoring largo** senza spazio per riverificare
-  tutto: `main.cpp` a 4.816 righe è un problema noto e in corso di soluzione, non una scoperta.
+  tutto: `main.cpp` a 4.675 righe è un problema noto e in corso di soluzione, non una scoperta.
 
 ---
 

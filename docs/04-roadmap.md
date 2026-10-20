@@ -3,8 +3,8 @@
 Sequenza di lavoro, ordinata in modo che ogni milestone produca qualcosa di
 funzionante e verificabile. Le stime sono per lavoro part-time.
 
-Stato corrente: **M1, M2, M2b, M5, M5b, M5c, M5d, M8 e M10 completate**; M3, M4,
-M6, M7 e M9 parziali; M3b completata. Questo riassunto invecchia a ogni
+Stato corrente: **M1, M2, M2b, M3, M3b, M4, M5, M5b, M5c, M5d, M8, M9 e M10
+completate**; M6 e M7 parziali; M2 con un limite dichiarato. Questo riassunto invecchia a ogni
 milestone: la tabella viva è in `docs/05-stato-e-prossimi-passi.md` §1, che si
 aggiorna a ogni pausa lunga.
 
@@ -17,7 +17,7 @@ Obiettivo: dimostrare end-to-end che l'architettura ricostruita funziona.
 - [x] finestra Win32, DPI per-monitor
 - [x] contesto OpenGL 3.3 core con fallback
 - [x] loader runtime delle entry point (nessuna dipendenza esterna)
-- [x] quad batcher: 4 vertici da 30 float per quad, indice condiviso, una draw call
+- [x] quad batcher: 4 vertici da 34 float per quad, indice condiviso, una draw call
 - [x] shader SDF originali: riempimenti arrotondati, bordi, ombre, dash, gradienti
 - [x] texture array per le icone, con maschera monocromatica
 - [x] atlas di glifi via GDI
@@ -263,22 +263,85 @@ scrive in esadecimale invece di indovinarne il nome.
 
 ---
 
-## M4 — Ranking dei recenti 🟡
+## M4 — Ranking dei recenti ✅
 
-- [ ] ricostruire la formula da `Score`, `Decay`, `Ordinal`
+- [x] **la formula** di `Score`, `Decay` e `Ordinal`, ricostruita da REA
+      (`FUN_140189bb0`): punteggio +3 per visita che satura a 10, `Decay` azzerato
+      dalla visita e cresciuto di uno per ogni cartella **sorella** aperta, un punto
+      di punteggio per ogni passaggio oltre il decimo, `Ordinal` = il piu' grande + 1.
+      Il codice e' `src/recents.*`; le prove indirizzo per indirizzo sono sotto
 - [x] la sezione **`RECENTS`** nella barra laterale: le cartelle visitate, la piu'
-      recente per prima, col nome della cartella. E' l'ordine di visita, non ancora
-      un punteggio, e vale per la **sessione** (`StoreRecents: Session`)
-- [ ] distinguere i tre modi di `StoreRecents`: `LocalDisk`, `Persistent`, `Session`
-- [ ] i **file** aperti, non solo le cartelle
-- [ ] integrare con la finestra GoTo e i gruppi di accesso rapido
+      recente per prima, col nome della cartella, ordinate per `Score` decrescente e
+      poi per `Ordinal` — e il nome si spegne secondo il punteggio (`ShowRecents`)
+- [x] **i tre modi** di `StoreRecents`: `LocalDisk`, `Persistent`, `Session`. Il modo
+      dice **cosa** si registra (tutte le cartelle, o solo quelle dei volumi locali
+      fissi), non dove finisce: nessuno dei tre scrive su disco (`docs/06`)
+- [x] i **file** aperti, non solo le cartelle, con peso 1; e `SortRecents`, che porta
+      i recenti in cima alla lista
+- [x] integrare con la finestra GoTo e i gruppi di accesso rapido: `Accesso rapido`
+      nel GoTo (con «Cancella i recenti» in fondo) e il fissaggio dalle righe della
+      barra laterale
+- [x] ~~**Domanda per REA**~~ — **risposta il 2026-10-18**: la formula e' quella
+      ricostruita qui sotto, e verificata a schermo in sandbox (`docs/05` §3, voce 5)
 
-**Domanda per REA:** nella funzione che scrive `"Score": %d,` e `"Decay": %d,`,
-quali sono le grandezze di ingresso e l'ordine degli aggiornamenti quando una voce
-viene riusata?
+*Stima: 1 settimana, rispettata.* Il blocco che aveva fermato due sessioni era del
+**client** di REA, non del server: la prima chiamata che tocca Ghidra paga ~210 s di
+import e auto-analisi, e il timeout era scritto nella chiave sbagliata (`AGENTS.md`
+§5). La via empirica — leggere i numeri del riferimento — non serve piu'.
 
-*Stima: 1 settimana.* REA è decisiva qui: è un algoritmo isolato e piccolo, il
-caso ideale.
+### Quello che l'analisi ha gia' stabilito — *2026-10-18*
+
+REA ha aperto `analysis/targets/FPilot-2026-08-31.exe` (sha256 `ab5e7bbf…`) e Ghidra
+ha finito l'auto-analisi (3075 procedure da `.pdata`), ma in questa sessione **ogni
+interrogazione vera e' andata in timeout**: solo le chiamate che non toccano il
+database rispondono. La formula quindi **non c'e' ancora**. Quello che si e' ricavato
+senza decompilatore, leggendo il binario con capstone, e' butta la base per la
+prossima sessione:
+
+- il **lettore** della sessione sta a `0x1401a747f` (confronta le chiavi `Score`,
+  `Decay`, `Ordinal`), lo **scrittore** a `0x1401a9c7d` (le tre `printf` con
+  `"Score": %d,` ecc.);
+- **le larghezze dei campi**, lette nelle istruzioni dello scrittore — ed e' il dato
+  che conta:
+
+  | campo | offset | tipo | istruzione |
+  |---|---|---|---|
+  | `Score` | `entry+0x20` | **16 bit** | `movzx eax, word ptr [rsi+0x20]` |
+  | `Decay` | `entry+0x22` | **16 bit** | `movzx eax, word ptr [rsi+0x22]` |
+  | `Ordinal` | `entry+0x24` | **32 bit** | `mov eax, dword ptr [rsi+0x24]` |
+
+  Un punteggio a **16 bit** non e' un caso: satura a 65535, quindi l'algoritmo
+  **limita** il punteggio invece di lasciarlo crescere — e `Decay` e' della stessa
+  misura, cioe' un **numero piccolo di bucket** (giorni o passi di decadimento), non
+  un timestamp a 64 bit. `Ordinal` a 32 bit e' un contatore d'ordine.
+- l'operazione interna si chiama **`RecentsUpdate`** (stringa a `0x14022bce8`),
+  accanto a `ReevalPaths`, `GotoCorrectPaths` e `GotoClearDirties`: e' il nome da
+  cercare nella prossima passata, perche' una delle quattro fa il lavoro;
+- il binario porta anche `SortRecents` e `StoreRecents` come opzioni, e la modalita'
+  `persistent` come stringa accanto a `"Recents": [`.
+
+**Il blocco era del client, non di REA (risolto il 2026-10-18).** Il server risponde:
+`initialize` 2,0 s, `tools/list` 0,2 s con 139 tool, `open_binary` 0,1 s. Il costo e'
+tutto nella **prima** interrogazione che tocca il database di Ghidra —
+`list_procedures` **215 s** di import e auto-analisi — e dopo quella `xrefs` e
+`procedure_pseudo_code` rispondono in decimi di secondo. Il client di pi chiudeva a
+60 s (default dell'SDK MCP) perche' nella registrazione la chiave era `timeout`
+(secondi, formato di Pi) mentre `mcp-adapter.json` vuole **`requestTimeoutMs`**
+(millisecondi): la conversione avviene solo importando un `mcp.json` in formato Pi, e
+li' il valore veniva perso in silenzio. Corretto in `~/.pi/agent/mcp-adapter.json`
+(`requestTimeoutMs: 900000`, backup accanto al file). Il referto completo e il modo
+di misurare stanno in `AGENTS.md` §5; il banco che parla col server senza pi e'
+`analysis/tmp/rea-probe.mjs`, che salva anche il pseudocodice
+(`rea-writer.json`, `rea-recentsupdate-logger.json`).
+
+**Il prossimo passo, concreto.** Con REA ora utilizzabile: `xrefs` su `RecentsUpdate`
+e `procedure_pseudo_code` sulle funzioni che lo circondano, per arrivare a chi
+**aggiorna** i tre campi. Lo scrittore (`0x1401a9c7d`) e' gia' decompilato: formatta
+`Score`/`Decay`/`Ordinal` e le stringhe della sessione, non calcola niente.
+Se REA resta muta, la via empirica e' far girare **il riferimento** e leggere come
+cambiano i numeri — ma quella tocca lo stato dell'applicazione in
+`%APPDATA%\Voidstar\FilePilot`, cioe' dati di chi lavora, e va chiesta (`AGENTS.md`
+§0).
 
 ---
 
@@ -287,6 +350,26 @@ caso ideale.
 - [x] filtro incrementale sulla lista (`Panel_FilterHint`, `FilterText`, `FilterSticky`)
 - [x] filtro per tipo di file (`FilterFileTypes`, `FilterTypes`)
 - [x] ordinamento per ogni colonna (`SortedBy`, `SortIndex`, `FolderSort`)
+- [x] **tre colonne in piu'** il 2026-10-18 — `Data creazione`, `Data accesso` e
+      `Totale` — nove in tutto. Le due date le da' gia' `FindFirstFile` insieme alla
+      modifica, e si formattano **quando si disegnano** (`ColumnValueOf`), non una
+      volta per voce letta; `Totale` e' un derivato — cartelle + file + la voce stessa
+      — cosi' le due colonne accanto lo rendono verificabile. Ordinabili e filtrabili
+      come le altre, con i comandi `Ordina per data di creazione`/`di accesso`/`per
+      numero di elementi`. Con nove colonne i **titoli** si accorciano (`Data mo…`):
+      quello che deve entrare e' il valore — dieci caratteri per una data, pochi per
+      un numero — e le colonne si possono sempre allargare col mouse. Visto a schermo:
+      `documenti` con 0 cartelle, 2 file e **Totale 3**; `vuota` con 0, 0 e **1**
+      (`analysis/tmp/cols-9.png`)
+- [x] **le date si scrivono europee** — `gg/mm/aaaa`, e `gg/mm/aaaa hh:mm` dove c'e' l'ora
+      (lista, suggerimenti, ispettore). Prima erano `aaaa-mm-gg`: ordina bene e si legge
+      male (`2026-10-20` va guardato due volte). Non e' una stringa tradotta, quindi vale
+      uguale in italiano e in inglese, e la lunghezza e' la stessa di prima — dieci
+      caratteri, sedici con l'ora — quindi le colonne non si stringono. Le produce una
+      funzione sola, `FormatFileTime` in `src/app_ui.cpp`; le bande del raggruppamento
+      per data **non** sono date ma nomi relativi («Oggi», «Ieri»), e restano quelli.
+      Visto a schermo: `20/10/2026` nelle tre colonne e `Creato 20/10/2026 16:03`
+      nell'ispettore (`analysis/tmp/menu-icone.png`)
 - [x] raggruppamento sulle cinque dimensioni di `GroupByLabel_*`
 - [x] righe di intestazione di gruppo collassabili
 - [x] selezione multipla e rettangolare (`Color_RectSelection`)
@@ -381,6 +464,15 @@ quelle sono la stessa impaginazione a una scala diversa.
 - [x] secondo corpo di glifi **rasterizzato** per il testo secondario, 4 px sotto il
       corpo principale e da quello **derivato** (vedi §7.12 di
       `docs/02`), su un quarto layer dell'array di texture
+- [x] **i valori delle colonne** — tipo, data, cartelle, file, dimensione — si
+      leggono nel carattere dei **dettagli**, come le intestazioni sopra di loro; il
+      **nome resta nel corpo**, perché e' quello che si legge per primo. Con il corpo
+      `Cartella di file` non ci stava e diventava `Cartella di fi...` (chiesto
+      dall'autore). Perché il carattere più piccolo serva davvero, il bordo destro
+      della colonna `Tipo` sta a **0,45** e non a 0,42: lo spazio lo prende dalla
+      colonna della data, che ha un titolo lungo e dieci cifre di contenuto, e dai
+      conteggi, che sono numeri. A schermo si leggono interi `Cartella di file` e
+      `Documento di testo`, e tutte e sei le intestazioni restano intere
 - [x] **raggruppamento in griglia**: le bande di gruppo stanno anche fra le celle,
       a piena larghezza, e la riga di celle sotto di loro ricomincia da sinistra
 - [x] **ridimensionamento continuo della cella**: `Ctrl`+rotella sopra la griglia, da
@@ -537,7 +629,12 @@ movimento.
       BOOKMARKS, STORAGE (i volumi con occupazione e spazio libero), PLACES — tutte
       richiudibili, e la stella nella barra strumenti che aggiunge un segnalibro
 - [x] **pulsanti di navigazione** nella barra strumenti: indietro, avanti, su,
-      aggiorna, segnalibro — gli stessi comandi della tastiera e della palette
+      aggiorna, segnalibro — gli stessi comandi della tastiera e della palette.
+      I cinque segni sono **forme disegnate**, non caratteri (`←` `→` `↑` `↻` `★`),
+      in una scatola di 12 px con spessore 1,2 px come i pulsanti della finestra, e
+      centrati **sulla riga dell'indirizzo** misurata dal testo e non a occhio:
+      `docs/02` §7.58, che ha anche le tre trappole (verso dei vertici, unione delle
+      forme, assi girati di `point`)
 - [x] il terzo contesto del componente a gruppi: il menu contestuale (fatto in M7)
 - [x] **il fissaggio in qualunque sezione** — deciso dall'autore il 2026-10-16, e fatto:
       `Fissa in...` e `Togli da...` (palette e menu contestuale) mettono una cartella in
@@ -606,9 +703,11 @@ fissaggi vivono quindi in memoria, per la sessione, come i segnalibri e i recent
   con cui confonderli. Con una cartella scelta, "fissa in..." vorrebbe dire "fissa la
   voce scelta", che non e' quello che questo comando fa — e offrirlo lo stesso
   sarebbe promettere qualcosa che non mantiene.
-- **Il toglimento sta nella palette o nel menu contestuale**, non su un gesto della
-  riga: un tasto destro su una voce della barra laterale non c'e'. Il gesto giusto
-  sarebbe quello, e non c'e' ancora.
+- ~~**Il toglimento sta nella palette o nel menu contestuale**, non su un gesto della
+  riga~~ — **fatto il 2026-10-18**: il tasto destro su una voce della barra laterale
+  apre il menu di **quella riga** (`Fissa in...`, `Togli da...`, `Rimuovi dai
+  recenti`), e i tre comandi agiscono sul suo percorso invece che sulla cartella
+  aperta. Vedi `docs/04` M4 e `view_context_menu.cpp` (`BuildSidebarContextMenu`).
 - **I fissaggi non sopravvivono alla sessione**, come i segnalibri di oggi: e' la
   decisione (a), non una dimenticanza.
 
@@ -878,9 +977,18 @@ a gruppi, invece di scriverne tre.
       quel valore avvia un'applicazione invece di creare un file
       (`msaccess.exe /NEWDB 1`, `Wab.exe /CreateContact "%1"`), e imitarlo
       significherebbe eseguire righe di registro arbitrarie
-- [ ] la rinomina della voce nuova mette il cursore **in fondo** al nome; Esplora
-      risorse seleziona la parte senza estensione, così si scrive sopra senza
-      cancellare il `.txt` — sulla voce nuova la selezione è già comoda
+- [x] **la rinomina seleziona il nome senza estensione**, come Esplora risorse:
+      `F2` apre il campo con la parte da riscrivere **evidenziata** (tutto il nome
+      per una cartella), e il primo carattere la sostituisce invece di accodarsi.
+      Perche' serviva un cursore e non bastava togliere l'estensione dal campo: il
+      campo scriveva solo **in coda**, quindi `nota` + `promemoria` faceva
+      `notapromemoria` — e con l'estensione levata e rimessa alla conferma il
+      risultato era `.txtpromemoria`, il nome nuovo **dopo** l'estensione. Adesso
+      `renameCaret` dice dove si inserisce, `renameSelectEnd` quanta parte e'
+      selezionata, e il `Backspace` cammina indietro di **un carattere** (non di un
+      byte: un accento ne occupa due). Verificato: `nota.txt` + `F2` + `promemoria` +
+      `Invio` → il file sul disco si chiama `promemoria.txt`
+      (`analysis/tmp/rename-select.png`, `rename-typed2.png`)
 - [x] il menu della **cartella**, quando non c'è selezione, cioè il tasto destro
       sul fondo della lista: è il menu della *vista*, chiesto con
       `IShellFolder::CreateViewObject(IID_IContextMenu)`, **non** quello della
@@ -1012,6 +1120,62 @@ proprio uno dei motivi per cui la shell viene interrogata.
 **Le voci che la shell offre spente si mostrano spente.** Una selezione mista non
 è una ragione per nascondere che quel verbo esiste: le frecce le saltano e l'Invio
 non le esegue, ma la voce resta leggibile.
+
+### Le icone delle voci della shell — *fatte il 2026-10-20*
+
+Le voci che vengono dalla shell portano l'icona del programma che le offre, come in
+Esplora risorse. Due fonti, e nessuna delle due e' un'ipotesi:
+
+1. **La bitmap della voce.** La shell (o l'estensione) puo' mettere un `hbmpItem` nel
+   `MENUITEMINFO`: si legge con `MIIM_BITMAP`, si converte in RGBA (`ReadBitmap`, che
+   c'era gia' per le icone) e si carica in una celletta dell'atlante. E' di proprieta'
+   dell'HMENU, quindi si legge subito, alla prima apertura, e poi non serve piu'.
+2. **La specifica del registro.** Un'applicazione che registra un verbo dichiara la
+   propria icona in un valore `Icon` sotto la chiave del verbo — la forma e'
+   `percorso,indice` dell'icona dentro il file, e l'indice puo' essere negativo.
+   `VerbIconSpec` guarda `*\shell`, `AllFilesystemObjects`, `Directory`,
+   `Directory\Background`, `Folder` e `Drive`, prima in `HKCU` e poi in `HKLM`, e si
+   ferma alla prima che risponde.
+
+Se nessuna delle due c'e', la voce resta **senza icona**: non si ripiega sul nome
+dell'applicazione, perche' un'icona sbagliata e' peggio di nessuna icona. La colonna
+compare **per livello** — se almeno una voce del livello ne ha una, tutte le etichette
+si spostano di 20 px — perche' un menu con l'icona su otto righe e il testo a due
+rientri si legge peggio di un menu senza icone. L'icona e' 16 px, centrata sulla riga.
+L'atlante delle icone non ha sfratto — un'icona per file lo riempirebbe — ma qui
+l'insieme e' **chiuso**: i verbi di una macchina sono qualche decina, e le icone di
+menu si caricano una volta per verbo, non una per apertura.
+
+*Limite dichiarato: le voci del **menu moderno di Windows 11** non consegnano la
+bitmap a chi legge il menu classico, e non dichiarano un `Icon` nel registro — la loro
+icona sta nel manifest del pacchetto, che `IContextMenu` non espone.* Misurato sulle
+voci di questa macchina: `7-Zip` resta senza icona (verbo `SevenZip`, nessun
+`hbmpItem`, nessuna chiave `Icon` in nessuna delle sei radici, nessun verbo per
+estensione), mentre `WinRAR` e `Modifica nel Blocco note` **hanno** la bitmap e quindi
+l'icona. Le voci senza verbo (`Analizza con Microsoft Defender…`, `Combina file in
+Acrobat…`) arrivano come ownerdraw e restano senza: si potrebbe chiedere al gestore di
+disegnarle con `IContextMenu3::HandleMenuMsg2`, ma vuol dire lasciar disegnare il menu
+a lui, e questo menu lo disegna il nostro renderer.
+
+Visto a schermo in Direct3D 11 e in OpenGL (`BOLT_BACKEND=opengl`): icone su
+`Aggiungi alla scaletta del lettore multimediale VLC`, `Apri con Visual Studio`,
+`Open Git GUI here`, `Open Git Bash here`, `Riproduci con VLC`, `WinRAR`, `Modifica nel
+Blocco note`, `Apri con Code`, `Edit with PyCharm`; niente su `7-Zip`, `Apri con`,
+`Copia come percorso`, `Crea collegamento`. Catture: `analysis/tmp/menu-icone.png`,
+`menu-icone-file.png`, `menu-icone-opengl.png`.
+
+**I comandi dell'applicazione originale non si offrono.** Su una macchina dove File
+Pilot e' installato, la sua estensione di shell aggiunge `Open in File Pilot`
+(`OpenInFilePilot`, sulla selezione) e `File Pilot here` (`FilePilotHere`, sullo sfondo
+della cartella). Non sono funzioni di Bolt: aprono la stessa cartella **in un altro
+programma**, e dentro un clone si leggono come nostre. Si filtrano in
+`ReadShellMenu` — cioe' dove la shell diventa elenco, un livello alla volta, quindi
+anche nei sottomenu — confrontando il **verbo canonico**, che e' il nome stabile;
+l'etichetta si guarda solo come ripiego per le voci ownerdraw senza verbo. Non si
+filtrano invece `Apri con` (elenco dei programmi installati: e' Windows che parla) e
+`Invia a` (una cartella letta a ogni apertura: un collegamento li' e' un file di chi
+usa il programma, e un menu costruito su una cartella non ne nasconde il contenuto).
+Fatto il 2026-10-20, su richiesta dell'autore: `docs/02` §7.62
 
 **Il fondo della cartella è un altro contesto, e chiederlo male non dà errore.**
 Con niente selezionato il menu della vista si chiede con
@@ -1186,7 +1350,10 @@ vogliono un percorso — Taglia, Copia, Rinomina, Elimina, Incolla, Nuova cartel
 Nuovo file, Invia a, terminale, Proprietà — sono **spente** nel menu contestuale:
 li' le voci si gestiscono coi verbi della shell, che quegli oggetti li conoscono.
 Non si trascina fuori da li' (l'oggetto dati si costruisce dai nomi, e sarebbero i
-nomi sbagliati), e non si entra in una cartella riciclata: si ripristina.
+nomi sbagliati). **In una cartella riciclata invece si entra** dal 2026-10-18: la sua
+posizione e' il PIDL codificato (`shell:pidl:…`, `ShellLocation::EncodePidl`), perche'
+il nome assoluto di una cartella riciclata punta al file riciclato. Vedi la casella
+in fondo a questa sezione.
 
 **Verificato** (con un file della sandbox messo nel cestino e poi filtrato):
 
@@ -1198,6 +1365,7 @@ nomi sbagliati), e non si entra in una cartella riciclata: si ripristina.
 | menu contestuale su un file riciclato | **`Ripristina` verbo `undelete`**, e le nostre voci spente |
 | "Ripristina" eseguito | il file torna nella sandbox col contenuto intatto |
 | filtro attivo, poi F5 | il filtro resta e la lista resta filtrata (§7.28) |
+| **entrare in una cartella riciclata** | si apre e mostra il suo contenuto; `Alt+Su` torna al cestino |
 
 **Quattro costi misurati** (registro: `BOLT_DIAG=1` → `bolt-diag.log`):
 
@@ -1449,7 +1617,7 @@ versione la faceva lo stesso, riceveva zeri e li scriveva (§7.31 di `docs/02`).
 
 ---
 
-## M9 — Configurazione, hotkey, temi 🟡
+## M9 — Configurazione, hotkey, temi ✅
 
 **Vincolo di progetto, deciso dall'autore: niente dati personali, niente tracce di
 cosa si è guardato.** Vedi `docs/06-privacy.md`. I tre file JSON sotto
@@ -1482,15 +1650,83 @@ palette (`Tema: chiaro`, `Tema: scuro`, `Tema: segui il sistema`).
 - [x] mappa tasti rimappabile — **in memoria**, per la sessione: la **mappa c'e'** ed
       e' la fonte unica (`src/keymap.*`), e l'**editor** pure — la riga `Key Map` fra le
       opzioni, e `CmdEditKeyMap` anche dalla palette. Vedi sotto
-- [ ] viste per cartella con ereditarietà e applicazione ricorsiva — **in memoria**
-- [ ] layout salvabili — **in memoria**
-- [ ] le opzioni che l'originale ha e qui **non** sono applicate (animazioni,
-      angoli arrotondati, opacità dei pannelli
-      inattivi, estensione nei nomi, percorsi lunghi, percorsi compatti) si
-      mostrano **spente**, con la ragione accanto: un'opzione che non si applica
-      sta in vista e dice che non si tocca
-- [ ] nessun elenco di recenti, nessuna cronologia e nessuna anteprima lasciano la
-      memoria del processo
+- [x] **la pagina di avvio** — la cartella che si apre all'avvio quando dalla riga di
+      comando non arriva niente, scelta con due comandi (`Avvio: la cartella aperta`,
+      `Avvio: Questo PC`) o dalla riga `Avvio` fra le opzioni, dove vuoto vuol dire
+      «Questo PC». Sta in `settings.ini` come `startupFolder=`, e **non** e' «riapri
+      l'ultima cartella»: quella sarebbe cronologia su disco, e `docs/06` la vieta. Una
+      cartella che non esiste piu' non si apre in silenzio: si apre Questo PC e la barra
+      di stato dice perche'. Visto a schermo: impostata su `documenti`, riavviato senza
+      argomenti e si e' aperta `documenti` (`startup-riavvio.png`); impostata su una
+      cartella che non esiste, riavviato e si e' aperto Questo PC col messaggio
+      (`startup-inesistente.png`); «Avvio: Questo PC» toglie la chiave dal file
+- [x] **layout salvabili per cartella** — **in memoria**: `AppState::folderLayouts`
+      tiene, per le cartelle che ne hanno uno, la **vista**, la misura delle celle,
+      l'**ordinamento**, il **raggruppamento** e la **larghezza delle colonne**
+      (`FolderLayout`), e `LoadDirectory` lo riapplica entrando. Sono i due comandi
+      che lo spec chiama `DirHostLayoutSave`/`DirHostLayoutDel`: *Salva il layout di
+      questa cartella* e *Dimentica il layout di questa cartella*, in palette e nel
+      menu contestuale del fondo. Il salvataggio e' **esplicito** e non automatico:
+      una cartella che ricorda da sola com'e' stata guardata e' una preferenza presa
+      al posto di chi usa il programma, e il riferimento ha due comandi apposta.
+      Una cartella **senza layout** tiene quello che si sta usando, invece di
+      riportare tutto a "dettagli".
+      Verificato a schermo: in `immagini` ordinato per dimensione e salvato; il
+      genitore in ordine di nome; rientrando in `immagini` torna l'ordine per
+      dimensione (`layout-parent-name.png` / `layout-restored.png`); dopo *Dimentica*
+      rientrando tiene l'ordine del genitore, cioe' il layout non c'e' piu'
+      (`layout-forgotten4.png`). **Non** c'e' l'ereditarieta' verso le sottocartelle
+      ne' l'applicazione ricorsiva: quelle vogliono un gesto esplicito ("applica a
+      tutte"), che non c'e'
+- [x] **`ShowFileExtension`** e **`DisplayCompactPaths`** — applicate il
+      2026-10-18. La prima toglie l'estensione dal nome **come si scrive**
+      (`DisplayName`): il nome vero resta quello di `Entry::name`, quindi aprire,
+      rinominare e filtrare continuano a usarlo — un nome che il filtro non trova
+      piu' sarebbe peggio di un nome lungo. La seconda stringe le briciole in testa
+      in un `...` quando il percorso non entra, tenendo radice e coda; il `...` non e'
+      cliccabile, perche' non c'e' una destinazione che corrisponda a «quelle in
+      mezzo». Viste a schermo: nomi `dati`, `nota`, `relazione` (`opt-ext-off.png`);
+      `... > Desktop > ... > tmp > sandbox` contro il percorso intero che finisce
+      sotto il conto delle voci (`opt-compact-on.png`, `opt-compact-off.png`,
+      a finestra stretta)
+- [x] **`RoundCorners`, `InactivePanelContentOpacity` e `LongPathsSupport`** —
+      applicate il 2026-10-18, con due stati di disegno nel renderer
+      (`IRenderer::SetCornerScale` e `SetOpacity`, che valgono per un blocco di
+      primitive) e un solo punto di I/O per i percorsi lunghi:
+      - `RoundCorners` moltiplica i **raggi degli angoli** di ogni primitiva (0 =
+        spigoli vivi). Le forme che usano quel numero come **spessore** — `+`, `x`,
+        frecce, stella — sono escluse, o sarebbero sparite: si vede nell'angolo della
+        riga scelta, ingrandito 6 volte (`corner-on.png` / `corner-off.png`).
+      - `InactivePanelContentOpacity` attenua il pannello che **non ha il fuoco**, e il
+        fuoco e' dove si e' cliccato l'ultima volta (`AppState::focusArea`). A opacita'
+        0,52 il titolo dell'ispettore senza fuoco misura **146** su 255 contro **255**
+        col fuoco, e il nome di una riga della lista **141** contro **234**
+        (`opt-inactive-list.png` / `opt-inactive-inspector.png`). Il valore di partenza
+        e' 1,00: nessun pannello si spegne senza che lo si sia chiesto.
+      - `LongPathsSupport` mette il prefisso lungo di Windows (o quello per i percorsi
+        di rete) **nei punti di I/O**, non su ogni stringa: `IOPath` in `app_ui`, usata
+        da `ReadDirectory` e dalla validazione dell'argomento della riga di comando —
+        che prima era limitata a 260 caratteri e faceva partire l'app su «Questo PC»
+        (`docs/02` §7.60). Provato su una cartella di **271** caratteri: spenta non si
+        apre, accesa si apre e mostra il file in fondo (`opt-long-on.png`).
+      Resta **`Animations`** spenta: le animazioni di apertura e scorrimento sono una
+      funzione, non un interruttore
+- [x] **`Animations`** — i pannelli **compaiono in dissolvenza** (160 ms, uscita
+      rapida) invece di apparire di colpo: palette, GoTo, opzioni, mappa dei tasti,
+      valori di colonna, fissaggi e menu contestuale. Il fattore e' uno stato del
+      renderer (`SetOpacity`, lo stesso di `InactivePanelContentOpacity`), applicato
+      al **blocco** che disegna il pannello: velo, ombra, fondo, testo e righe
+      spariscono insieme, senza correggere cinquanta colori. Il sottomenu non entra
+      in dissolvenza: si apre sopra un pannello gia' visibile, e due fade annidati si
+      vedrebbero come uno sfarfallio. E finche' un pannello sta comparendo il
+      fotogramma dopo si chiede (`InvalidateRect` in `RenderFrame`), o l'animazione si
+      fermerebbe al primo disegno, lasciando il pannello fermo a meta'.
+      **Limite dichiarato:** lo **scorrimento** e il **cursore di testo** dello spec
+      non sono animati — sono due comportamenti con una fisica propria, non una
+      dissolvenza, e non ci sono.
+- [x] nessun elenco di recenti, nessuna cronologia e nessuna anteprima lasciano la
+      memoria del processo — verificato: `settings.ini` non contiene percorsi
+      (`docs/06`), e le cache di anteprime, icone e statistiche vivono in `AppState`
 
 *Stima: 3–4 settimane.*
 
@@ -1711,10 +1947,10 @@ L'originale espone `GraphicsBackend` con `Direct3D` e `OpenGL` e importa
 
 - [x] astrazione del renderer dietro un'interfaccia (`IRenderer` in
       `ui_renderer.h`): `BeginFrame`, `Present`, `Begin`/`Draw`/`End`,
-      `SetScissor`/`ClearScissor`, la texture array. Il **formato di vertice** non
+      `SetClip`/`ClearClip`, la texture array. Il **formato di vertice** non
       entra nell'interfaccia: e' la cosa che i due backend hanno in comune
 - [x] backend D3D11 (`d3d11_renderer.*`) con la stessa semantica di quad: stesso
-      batcher, stessi 30 float per vertice, stessa tabella di indici, chiaro e
+      batcher, stessi 34 float per vertice, stessa tabella di indici, chiaro e
       presentato dal backend. La swap chain segue la finestra (`ResizeBuffers`)
 - [x] compilazione HLSL degli stessi shader (`D3DCompile`, `vs_5_0`/`ps_5_0`):
       stessa SDF, stesso bordo, stessa ombra, stesso dash. **Non e' una seconda
@@ -1722,12 +1958,32 @@ L'originale espone `GraphicsBackend` con `Direct3D` e `OpenGL` e importa
       — con un difetto che ha reso quella casella falsa per un pezzo: lo shader
       incorporato chiamava `point` un parametro, che in HLSL e' una parola
       riservata, quindi la compilazione falliva **sempre** e il programma ripiegava
-      in silenzio sull'OpenGL. La correzione e' una parola e **non e' applicata**:
-      accenderebbe il secondo backend per default, e quel percorso non ha ancora
-      avuto un giro completo (menu, trascinamento, anteprime). Vedi `docs/02` §7.52
+      in silenzio sull'OpenGL. **Risolto il 2026-10-18**: il parametro si chiama
+      `p`, e il Direct3D 11 ha avuto il suo giro di verifica a schermo (lista,
+      menu contestuale, opzioni, mappa dei tasti, tema chiaro, immagine grande,
+      visualizzatore di testo, viste a icone) con `--- backend: Direct3D 11` nel
+      registro e nessun errore HLSL. Vedi `docs/02` §7.52, che elenca anche le
+      superfici **non** ripetute sotto questo backend
 - [x] selezione a runtime e fallback: `BOLT_BACKEND=opengl|d3d11`, altrimenti
       Direct3D 11 e, se non parte, OpenGL. Un backend che non c'e' non impedisce
       di usare il programma, e la riga di registro dice quale sta disegnando
+- [x] **il ritaglio per-quad**, fatto il 2026-10-20 — era il debito scritto in
+      `AGENTS.md` §8 e in `docs/05` §2, non una funzione mancante. Il rettangolo di
+      ritaglio e' un **campo del vertice** (34 float invece di 30), confrontato nel
+      pixel shader in GLSL e in HLSL: `glScissor`, `ScissorEnable` e
+      `RSSetScissorRects` non ci sono piu', `SetScissor`/`ClearScissor` diventano
+      `SetClip`/`ClearClip`, e `main.cpp`/`view_inspector.cpp` non chiudono piu' il
+      lotto per ritagliare. Misurato: **5 disegni per fotogramma → 1**
+      (`BOLT_DEV_HUD=1`, stessa schermata). Verificato a schermo in due stati
+      (griglia scorsa a meta' cella, visualizzatore di testo scorso e ingrandito):
+      nessuna cella sopra la barra del titolo, nessuna riga sopra la testata
+      `UTF-8 … righe`, e **0 pixel di differenza** con le catture fatte col vecchio
+      scissor. Controllo negativo: spento il taglio nel pixel shader il difetto
+      torna (`riga 005` sopra la testata, `riga 025` sotto il riquadro). Tutti e due
+      i backend, con l'HLSL compilato prima con `fxc` (vs_5_0 e ps_5_0). Il
+      contatore dei disegni e' nato qui (`IRenderer::DrawCalls`) ed e' costato una
+      scoperta: `QuadCount` ripartiva a ogni `Begin` e mostrava **l'ultimo lotto**
+      (379) invece del fotogramma (1.565) — `docs/02` §7.61
 
 *Stima: 2–3 settimane* se M1 ha definito bene l'interfaccia; molto di più se no.
 L'interfaccia c'era (un solo array di texture, un solo quad batcher), quindi il
@@ -1743,13 +1999,188 @@ D3D11 e' stato un secondo consumatore, non una riscrittura.
   produce un errore di sintassi, e — questa e' la parte peggiore — `D3DCompile`
   risponde `E_FAIL` **senza un messaggio**. Il modo per vederlo e' compilare lo
   shader con `fxc.exe` del Windows SDK, che il messaggio lo da': da li' in poi il
-  ciclo e' stato `fxc` prima, `D3DCompile` dopo.
+  ciclo e' stato `fxc` prima, `D3DCompile` dopo. E' la trappola che il 2026-10-18
+  e' stata pagata fino in fondo: `fxc` sugli shader estratti dalla sorgente dice
+  l'errore **senza aprire una finestra**, che e' il modo giusto di provare una
+  compilazione.
 
 ### Cosa resta
 
 Il cambio di backend e' **all'avvio** (`BOLT_BACKEND`), non un interruttore a
 caldo: ricreare il backend a finestra viva vuol dire ricreare texture e buffer di
 ogni atlante, ed e' un lavoro a se'. Dichiarato.
+
+---
+
+## M11 — Installazione e pacchetto ✅
+
+Chi usa il programma non lo compila: lo installa. Finche' l'unico modo di avere Bolt era
+`cmake --build`, il programma era completo ma non **installabile**.
+
+- [x] **l'installer (Inno Setup 6)**: `installer/bolt.iss`, compilato da
+      `tools/make-installer.ps1` in `out/Bolt-<versione>-win64-setup.exe`. Installazione
+      **per utente** di default (`%LOCALAPPDATA%\Programs\Bolt`, nessun amministratore), con
+      la scelta "per tutti" nel wizard per chi la vuole; cartella nel menu Start, icona
+      sul desktop **solo se la si spunta**, voce in «App e funzionalita'» con la versione,
+      il comando di disinstallazione e la dimensione. `AppId` stabile: una versione nuova
+      **aggiorna** invece di installarsi accanto. Wizard in italiano e in inglese
+- [x] la versione **non** e' scritta nell'installer: la legge `make-installer.ps1` da
+      `CMakeLists.txt` e la passa con `/DAppVersion`
+- [x] la disinstallazione toglie file, collegamento, voce di registro e i due log di
+      diagnosi (`[UninstallDelete]`), e **chiede** se togliere anche le preferenze: in
+      silenzioso non chiede e non cancella. `settings.ini` non lo tocca nessuno dei due
+- [x] lo **zip portatile** (`out/Bolt-<versione>-win64-portable.zip`): stesso contenuto nel
+      layout installato, si scompatta dove si vuole e si lancia `Bolt.exe`, senza
+      installare niente e senza toccare il registro
+- [x] `tools/verify-installer.ps1`: **24 controlli** che installano *davvero* il pacchetto
+      (cartella e collegamento di prova, voce di registro vera, che poi toglie), avviano il
+      Bolt installato con l'**OpenGL** — l'unico backend che legge gli shader da disco —
+      leggono dal registro diagnostico quale cartella ha aperto, catturano la finestra,
+      disinstallano e controllano che non sia rimasto niente, preferenze comprese (che
+      devono restare e non essere riscritte). `try/finally`: la prova non lascia sporco
+      nemmeno quando fallisce, e si rifiuta di partire se Bolt risulta gia' installato
+- [x] **il difetto che impacchettare ha fatto emergere**: l'eseguibile portava dentro il
+      percorso degli shader della macchina che l'aveva compilato, e su un altro computer
+      l'OpenGL non avrebbe trovato niente. Corretto e verificato: `docs/02` §7.63
+
+**Limiti dichiarati.**
+
+- **L'eseguibile non e' firmato**: Windows puo' mostrare l'avviso di SmartScreen. La firma
+  vuole un certificato, e per un progetto personale non c'e'. Il wizard lo dice nel README
+  del pacchetto, con la strada per proseguire
+- **Non e' un pacchetto MSIX**: niente aggiornamenti automatici e niente isolamento. Chi
+  aggiorna lancia il setup nuovo, che riconosce l'installazione dall'`AppId`
+- **Inno Setup e' una dipendenza di build, non di runtime**: serve a produrre il setup, non
+  a Bolt per funzionare. Lo script cerca `ISCC.exe` nel registro e nei posti soliti, e se
+  non c'e' si ferma dicendo dove prenderlo, invece di produrre un pacchetto a meta'
+
+## M12 — La Home ✅
+
+La pagina di avvio: quello che Esplora risorse chiama Home. E' una **posizione**, come
+"Questo PC", non una cartella finta: le sue righe sono destinazioni che esistono gia'
+(`Entry::location` porta il percorso vero, come per le voci del cestino), e il nome della
+posizione e' nostro (`bolt:home`).
+
+- [x] **tre bande**, in ordine: `Fissaggi` (i `pin` di sessione), `Recenti` (il ranking
+      di M4), `Cartelle note` (i `places` della shell — Questo PC, le cartelle standard, il
+      cestino). Una destinazione che starebbe in due bande compare **una volta sola**, nella
+      prima: due righe per la stessa cartella sarebbero due nomi per la stessa cosa
+- [x] **`Entry::band`** (0/1/2, `-1` per tutto il resto) e `RebuildView` che sulla Home
+      raggruppa per banda invece di seguire `groupMode`. L'ordinamento resta quello delle
+      colonne, ma **dentro** la banda; il filtro vale come in una cartella qualsiasi
+- [x] **una riga `Home` in cima alla barra laterale**, fuori dalle sezioni: non e' un
+      fissaggio ne' una cartella nota, e non deve sparire chiudendo `ACCESSO RAPIDO`
+- [x] **niente operazioni su file**: copia, taglia, incolla, rinomina, elimina, cartella
+      nuova, nuovo file, proprieta' e proprieta' di Windows si **rifiutano** con un
+      messaggio (`RefuseInNamespace` esteso), e il menu contestuale spegne quelle voci. Le
+      righe nominano cartelle vere: senza questa guardia `Elimina` cancellerebbe la cartella
+      che la riga nomina, che non e' quella che si sta guardando
+- [x] **niente sorveglianza e niente statistiche ricorsive**: la Home non e' un percorso, e
+      le colonne dei conteggi restano `--`. Il watcher viene svuotato quando si entra
+      nella Home, invece di continuare a guardare l'ultima cartella
+- [x] **l'avvio**: `startupFolder` vuota significa **Home** (era "Questo PC"). "Avvio:
+      Questo PC" adesso **scrive** il nome di spazio dei nomi invece di svuotare la
+      preferenza, e la riga `Avvio` fra le opzioni accetta anche una posizione di spazio
+      dei nomi. Una cartella di avvio che non esiste piu' lo dice e apre la Home
+- [x] **la lingua**: le tre etichette delle bande seguono la lingua scelta, e cambiarla
+      ricostruisce i gruppi. La colonna **Tipo** di una cartella adesso e' tradotta da noi
+      (`File folder` / `Cartella di file`) invece di chiedere alla shell, che la scrive nella
+      lingua di Windows: era italiano in mezzo a intestazioni inglesi
+- [x] **il filtro guarda il nome mostrato**, non il percorso: una voce della Home ha il
+      percorso in `wideName` (e' la sua identita'), e filtrare per quello non trovava il
+      nome che si legge sopra. Il segnaposto dice `voci`, non `file`
+
+**Verificato a schermo il 2026-10-20** (catture in `analysis/tmp/home-*.png`):
+
+- avvio **senza argomenti** → Home, con le tre bande, la riga `Home` nella barra laterale,
+  il titolo e il tab che dicono `Home`;
+- tre bande popolate: un fissaggio, tre recenti e le cartelle note, con `sandbox` presente
+  sia nei fissaggi sia nei recenti e mostrato **una volta**;
+- apertura di una riga della Home, filtro per nome, `F5` che ricostruisce **tenendo** il
+  filtro;
+- `Canc`, `Ctrl+C` e il tasto destro → rifiuto con il messaggio, voci del menu spente
+  (misurate sul pixel: 454 contro 695 di luminosità) e **26 file nella sandbox prima e
+  dopo**;
+- `Su` dalla Home porta a Questo PC; `Avvio: la cartella aperta` e `Avvio: Questo PC`
+  riavviano dove dicono; togliendo la preferenza si torna alla Home;
+- inglese e italiano a finestra aperta: `Pinned`/`Recent`/`Known folders`, `File folder`,
+  `Groups: by band`, e il ritorno all'italiano senza riavviare;
+- `BOLT_DEV_HUD=1`: **0 jobs** sulla Home (nessuna statistica ricorsiva) e un solo disegno.
+
+**Limiti dichiarati.**
+
+- **Le bande non si scelgono**: la Home raggruppa per banda e il controllo "Raggruppa" lo
+  dice invece di ciclare valori che la vista non legge
+- **Recenti e fissaggi sono di sessione** (`docs/06`): riaprendo il programma la Home ha solo
+  le cartelle note, finche' non si visita qualcosa
+- **La Home non e' una cartella da cui si opera**: e' la scelta, non un limite da correggere
+- **Scoperto mentre si verificava**: aprire una cartella da `ACCESSO RAPIDO` la fa diventare
+  una posizione codificata, e li' i comandi per percorso si rifiutano — `docs/02` §7.64,
+  **aperta**, con la direzione della correzione
+
+## M13 — Aggiornamenti in app, forma B ✅
+
+Deciso con l'autore il 2026-10-20, subito dopo la Home. La forma B e' quella che non
+mente: **nessun controllo automatico** — una richiesta a GitHub e' telemetria di fatto
+(`docs/06`) — ma un comando **esplicito** che, quando lo si chiede, controlla, scarica,
+verifica e installa.
+
+- [x] il comando `Controlla aggiornamenti` nella palette (`CmdCheckUpdates`), sotto il
+      gruppo `Updates`, **senza tasto di partenza**: non parte ne' all'avvio ne' per
+      sbaglio. Il lavoro e' `src/update.*`, su un thread, come `FileOps::Job`
+- [x] la richiesta: `releases/latest` della repo `gianmarcotaf02/bolt` con `WinHTTP`
+      (niente librerie nuove), `User-Agent: Bolt/<versione>`, rimandi seguiti, cinque
+      secondi per connettersi e quindici per una risposta. Il corpo massimo accettato
+      per JSON e impronte e' 4 MB
+- [x] la release deve portare **tutte e due** le cose: un asset `*-setup.exe` e un
+      asset `SHA256SUMS`. Se manca l'impronta **non si installa niente**, perche' senza
+      impronta non c'e' niente da verificare
+- [x] il setup si scarica in `%TEMP%\Bolt-update\`, si calcola lo **SHA-256** con
+      `BCrypt`, e se non corrisponde a quello pubblicato il file si **cancella** e
+      l'installazione non parte. E' la sola cosa che rende l'aggiornamento piu' sicuro
+      del download manuale
+- [x] il confronto di versione (`v1.2.3` contro `1.2.3`) legge il tag della release:
+      se non e' piu' nuova, il messaggio e' "Bolt e' aggiornato" e non si scarica niente
+- [x] la barra di stato dice a che punto e' (controllo, impronte, download con
+      percentuale, verifica) e `Esc` annulla. Alla chiusura della finestra il thread si
+      ferma e si aspetta, prima di `CoUninitialize`
+- [x] se tutto torna, il setup parte con `/VERYSILENT /SUPPRESSMSGBOXES /NORESTART`;
+      `CloseApplications=yes` e un `WM_CLOSE` chiudono Bolt mentre Inno lavora
+- [x] `BOLT_UPDATE_API` sposta l'indirizzo del foglio delle release: e' l'attrezzo con
+      cui si prova il percorso download → impronta → rifiuto senza pubblicare niente.
+      Non aggira il confronto dell'impronta
+
+**Verificato a schermo il 2026-10-20** (catture `analysis/tmp/upd-*.png`):
+
+- il comando compare nella palette e la richiesta vera a GitHub arriva: nessuna release
+  pubblicata → `Aggiornamento non riuscito: Nessuna release e' stata pubblicata per
+  gianmarcotaf02/bolt.`
+- con un foglio locale (`BOLT_UPDATE_API`) e un asset vero: **impronta sbagliata** →
+  `L'impronta SHA-256 del setup non corrisponde a quella pubblicata: il file e' stato
+  cancellato e non si installa.` e `%TEMP%\Bolt-update` vuota;
+- release **senza** `SHA256SUMS` → `La release non pubblica le impronte SHA-256: non si
+  installa niente.`;
+- tag uguale alla versione installata → `Bolt e' aggiornato (0.1.0).`
+
+**Anche il caso riuscito, con le release vere.** Il 2026-10-20 `gh` e' stato installato
+(2.102.0) e autenticato, e sono state pubblicate **`v0.1.0`** e **`v0.1.1`** con setup,
+zip portatile e `SHA256SUMS`:
+
+- Bolt **0.1.0** installato davvero (`%LOCALAPPDATA%\Programs\Bolt`), `Controlla
+  aggiornamenti` → ha visto `v0.1.1`, scaricato il setup, verificato lo SHA-256, avviato
+  il setup in silenzioso; la finestra si e' chiusa, Inno ha aggiornato, e
+  «App e funzionalita'» dice **0.1.1** (verificato anche dal registro, e col fatto che
+  il setup silenzioso non rilancia l'applicazione: `skipifsilent`);
+- rilanciata la **0.1.1** installata, lo stesso comando dice `Bolt e' aggiornato
+  (0.1.1)` — il feed vero, non il foglio di prova;
+- la 0.1.1 e' **la stessa base della 0.1.0** (nessuna correzione funzionale): esiste per
+  provare l'aggiornamento fino in fondo, ed e' scritto nelle sue note.
+
+**Limiti dichiarati.** Il setup scaricato resta in `%TEMP%\Bolt-update\` dopo
+l'installazione (lo sta leggendo il setup). Non c'e' un controllo periodico ne' una
+notifica: solo il comando. Il comando non ha un tasto di partenza, chi lo vuole se lo
+rimappa (`Ctrl+,` → Key Map). `BOLT_UPDATE_API` resta l'attrezzo da banco per provare i
+rifiuti senza pubblicare niente.
 
 ---
 

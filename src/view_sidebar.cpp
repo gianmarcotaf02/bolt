@@ -1,6 +1,7 @@
 #include "view_sidebar.h"
 
 #include "app_ui.h"
+#include "home.h"
 #include "shell_location.h"
 
 namespace Bolt
@@ -30,6 +31,19 @@ void BuildSidebarRows(const AppState& app, std::vector<SidebarRow>* rows)
             rows->push_back(std::move(row));
         }
     };
+
+    // La Home e' una riga sola, in cima e **fuori** da ogni sezione: non e' un
+    // fissaggio ne' una cartella nota, e' il posto da cui si parte. Sta sopra
+    // `ACCESSO RAPIDO` perche' le sezioni si aprono e si chiudono, e la porta di
+    // casa non deve poter sparire perche' qualcuno ha chiuso una sezione.
+    {
+        SidebarRow home;
+        home.label = Tr("Home", "Home");
+        home.path  = kHomeLocation;
+        // Nessuna icona di oggetto: la Home non e' un oggetto della shell. Il
+        // disegno ripiega sulla cartella, che e' la forma giusta per una posizione.
+        rows->push_back(std::move(home));
+    }
 
     // QUICK ACCESS si mostra solo se ha qualcosa dentro: una sezione vuota qui non
     // vuol dire "non ne hai fissata nessuna", vuol dire che la cartella della shell
@@ -61,15 +75,18 @@ void BuildSidebarRows(const AppState& app, std::vector<SidebarRow>* rows)
         section("QUICK ACCESS", Tr("ACCESSO RAPIDO", "QUICK ACCESS"), quick);
     }
 
-    // I recenti: le cartelle visitate in questa sessione, la piu' recente per
-    // prima. E' il ranking dei recenti (M4) nella sua forma minima — solo cartelle,
-    // e solo per la sessione (`StoreRecents: Session`, `docs/06`).
+    // I recenti: le cartelle visitate in questa sessione, **per punteggio** —
+    // `Score` decrescente e, a pari punteggio, la piu' recente per prima.
+    // L'ordine e' quello di `Recents::Ranked()`: la formula sta in `src/recents.h`.
+    // Solo cartelle, e solo per la sessione (`StoreRecents: Session`, `docs/06`).
     {
         std::vector<Place> recents;
-        for (const std::wstring& path : app.recents)
+        for (const RecentEntry& entry : app.recents.Ranked())
         {
-            if (path.empty() || path == app.directory)
-                continue;   // dove si e' gia' non e' un "recente" da riproporre
+            const std::wstring& path = entry.path;
+            if (path.empty() || path == app.directory || !entry.isDirectory)
+                continue;   // dove si e' gia' non e' un "recente" da riproporre; e un
+                            // file aperto non e' una destinazione della barra laterale
             // Il nome di una cartella, non il percorso: di un percorso la parte che
             // identifica e' la coda. Per una cartella di spazio dei nomi non c'e' una
             // coda da tagliare, e il nome lo da' la shell.
@@ -196,11 +213,16 @@ void DrawSidebar(AppState& app, const Layout& layout)
         // barra strumenti — e' li' che si e' imparato a leggerla. Sta in fondo alla
         // riga e non davanti al nome: davanti sposterebbe le etichette di una riga
         // sola, e l'elenco non sarebbe piu' allineato.
+        //
+        // Disegnata, non il carattere `★`: la barra strumenti usa la forma, e un
+        // glifo accanto a quella si vede subito che e' un'altra cosa (`docs/02`
+        // §7.58).
         if (item.pinned)
         {
-            const float width = app.smallFont.Measure("★", scale);
-            app.smallFont.Draw(r, row.right() - width - 10.0f * scale, row.y + 6.0f * scale,
-                               "★", t.accent, scale);
+            const float star = 11.0f * scale;
+            r.Draw(UIDraw::Star(Rect{row.right() - star - 10.0f * scale,
+                                     row.y + (row.h - star) * 0.5f, star, star},
+                                t.accent, 1.0f * scale, true));
         }
 
         if (item.volume)

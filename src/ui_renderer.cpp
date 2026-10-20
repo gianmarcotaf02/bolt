@@ -1,5 +1,8 @@
 #include "ui_renderer.h"
 
+#include "app_ui.h"
+#include "diag.h"
+
 #include <cstdio>
 #include <fstream>
 #include <sstream>
@@ -8,7 +11,7 @@ namespace {
 
 // Floats per vertex and vertices per quad. The layout here must stay in step
 // with the attribute locations declared in shaders/ui.vert.
-constexpr size_t kFloatsPerVertex = 30;
+constexpr size_t kFloatsPerVertex = 34;
 constexpr size_t kVerticesPerQuad = 4;
 constexpr size_t kIndicesPerQuad  = 6;
 
@@ -30,6 +33,7 @@ constexpr Attrib kLayout[] = {
     {12, 1, 27},   // aDashOn
     {13, 1, 28},   // aDashOff
     {14, 1, 29},   // aFlags
+    {15, 4, 30},   // aClip: il rettangolo di ritaglio di questo quadrilatero
 };
 
 bool ReadTextFile(const std::string& path, std::string* out)
@@ -183,6 +187,44 @@ UIDraw UIDraw::Cross(Rect rect, Color color, float thickness)
     return d;
 }
 
+UIDraw UIDraw::Arrow(Rect rect, Color color, float thickness, ArrowDirection direction)
+{
+    UIDraw d;
+    d.rect  = rect;
+    d.color = color;
+    d.arrow = true;
+    // Tre direzioni su quattro hanno un bit da accendere, e la quarta (`down`) e'
+    // le due insieme: e' la stessa convenzione del triangolo, che per puntare in
+    // giu' accende un secondo bit invece di avere una seconda formula.
+    d.arrowUp   = direction == ArrowDirection::Up || direction == ArrowDirection::Down;
+    d.arrowLeft = direction == ArrowDirection::Left || direction == ArrowDirection::Down;
+    d.radius    = Corners{thickness, thickness, thickness, thickness};
+    return d;
+}
+
+UIDraw UIDraw::Refresh(Rect rect, Color color, float thickness)
+{
+    UIDraw d;
+    d.rect    = rect;
+    d.color   = color;
+    d.refresh = true;
+    d.radius  = Corners{thickness, thickness, thickness, thickness};
+    return d;
+}
+
+UIDraw UIDraw::Star(Rect rect, Color color, float thickness, bool filled)
+{
+    UIDraw d;
+    d.rect  = rect;
+    d.color = color;
+    d.star  = true;
+    // La stella "vuota" non e' una seconda forma: e' questa, disegnata come bordo.
+    // Lo shader sa gia' tracciare il contorno di qualunque forma (e' quello che fa
+    // per i rettangoli), quindi la differenza fra i due stati e' uno spessore.
+    d.strokeWidth = filled ? 0.0f : thickness;
+    return d;
+}
+
 // ---------------------------------------------------------------------------
 // UIRenderer
 // ---------------------------------------------------------------------------
@@ -268,22 +310,72 @@ bool UIRenderer::Initialize(const std::string& shaderDir, std::string* error)
     return true;
 }
 
-// L'entrata dell'interfaccia: il percorso degli shader lo conosce il backend, non
-// chi lo costruisce. `REA_SHADER_DIR` e' una definizione di compilazione (vedi
-// `CMakeLists.txt`), quindi vale anche qui.
+// Dove stanno gli shader. **Prima accanto all'eseguibile**, poi — solo se li' non
+// ci sono — nel percorso di compilazione.
+//
+// L'ordine e' questo per una ragione che si e' vista impacchettando:
+// `REA_SHADER_DIR` e' il percorso della macchina dove il programma e' stato
+// costruito (`C:/Users/.../Bolt/src/shaders`), e un eseguibile installato su un
+// altro computer lo porta dentro di se' come una promessa che non puo' mantenere.
+// Per il Direct3D 11 non si vede, perche' gli shader HLSL sono scritti nel codice;
+// con l'OpenGL si vedrebbe un errore di lettura, e solo su quella macchina.
+//
+// Il ripiego resta perche' serve a chi lavora nel repository: li' gli shader si
+// modificano a caldo mentre il programma e' aperto (`AGENTS.md` §4).
 #ifndef REA_SHADER_DIR
 #define REA_SHADER_DIR "shaders"
 #endif
 
+// La barra separatrice dei percorsi, come **numero**: in un sorgente pieno di
+// percorsi, `L'\\'` e le stringhe con le barre sono il posto in cui un carattere
+// di escape sbagliato passa inosservato — ed e' successo, scrivendo questa
+// funzione.
+constexpr wchar_t kSep = 92;
+
+bool HasShaderPair(const std::string& dir)
+{
+    const std::wstring base = Bolt::Widen(dir);
+    const std::wstring vert = base + kSep + L"ui.vert";
+    const std::wstring frag = base + kSep + L"ui.frag";
+    return GetFileAttributesW(vert.c_str()) != INVALID_FILE_ATTRIBUTES &&
+           GetFileAttributesW(frag.c_str()) != INVALID_FILE_ATTRIBUTES;
+}
+
+std::string ShaderDirectory()
+{
+    wchar_t module[MAX_PATH]{};
+    if (GetModuleFileNameW(nullptr, module, MAX_PATH) != 0)
+    {
+        std::wstring dir(module);
+        size_t slash = dir.find_last_of(kSep);
+        const size_t alt = dir.find_last_of(L'/');
+        if (alt != std::wstring::npos && (slash == std::wstring::npos || alt > slash))
+            slash = alt;
+        if (slash != std::wstring::npos)
+        {
+            dir.erase(slash);
+            const std::string candidate = Bolt::ToUtf8(dir + kSep + L"shaders");
+            if (HasShaderPair(candidate))
+                return candidate;
+        }
+    }
+    return REA_SHADER_DIR;
+}
+
 bool UIRenderer::Initialize(std::string* error)
 {
-    return Initialize(REA_SHADER_DIR, error);
+    const std::string dir = ShaderDirectory();
+    // La riga che dice **quale** cartella si sta leggendo: senza, un problema di
+    // shader su un'altra macchina sembra un problema di shader.
+    DiagLog("--- shaders: " + dir);
+    return Initialize(dir, error);
 }
 
 void UIRenderer::BeginFrame(int width, int height)
 {
     viewportWidth_  = width;
     viewportHeight_ = height;
+    drawCalls_      = 0;
     if (dc_ == nullptr)
         return;
     glViewport(0, 0, width, height);
@@ -299,24 +391,20 @@ void UIRenderer::Present()
         SwapBuffers(dc_);
 }
 
-void UIRenderer::SetScissor(Rect rect)
+void UIRenderer::SetClip(Rect rect)
 {
     if (rect.w <= 0.0f || rect.h <= 0.0f)
     {
-        ClearScissor();
+        ClearClip();
         return;
     }
-    glEnable(GL_SCISSOR_TEST);
-    // `glScissor` conta dal basso a sinistra; lo spazio dell'interfaccia da in
-    // alto a sinistra. La conversione sta qui, una volta sola.
-    glScissor(static_cast<GLint>(rect.x),
-              static_cast<GLint>(static_cast<float>(viewportHeight_) - rect.bottom()),
-              static_cast<GLsizei>(rect.w), static_cast<GLsizei>(rect.h));
+    clip_ = rect;
 }
 
-void UIRenderer::ClearScissor()
+void UIRenderer::ClearClip()
 {
-    glDisable(GL_SCISSOR_TEST);
+    clip_ = Rect{0.0f, 0.0f, static_cast<float>(viewportWidth_),
+                 static_cast<float>(viewportHeight_)};
 }
 
 void UIRenderer::Shutdown()
@@ -391,6 +479,10 @@ void UIRenderer::Begin(int viewportWidth, int viewportHeight)
     viewportWidth_  = viewportWidth;
     viewportHeight_ = viewportHeight;
     vertices_.clear();
+    // Il ritaglio e' un valore per quadrilatero: ricominciare un lotto vuol dire
+    // ricominciare senza ritaglio, o il rettangolo dell'ultima area ritagliata
+    // resterebbe appiccicato a chi disegna dopo.
+    ClearClip();
 }
 
 void UIRenderer::ReserveQuads(size_t quads)
@@ -415,12 +507,32 @@ void UIRenderer::BorderRect(Rect rect, Color color, float width, float radius)
     Draw(UIDraw::Border(rect, color, width, radius));
 }
 
+void UIRenderer::SetCornerScale(float scale)
+{
+    cornerScale_ = scale;
+}
+
+void UIRenderer::SetOpacity(float opacity)
+{
+    opacity_ = opacity;
+}
+
 void UIRenderer::AppendQuad(const UIDraw& p)
 {
     const Rect  r = p.rect;
+
+    // Le forme che usano `radius` come **spessore** non sono angoli: azzerare il
+    // raggio su un `+`, una freccia o una stella le farebbe sparire.
+    const bool radiusIsStroke = p.plus || p.cross || p.arrow || p.arrowUp || p.arrowLeft ||
+                                p.refresh || p.star;
+    const float cornerScale = radiusIsStroke ? 1.0f : cornerScale_;
+    const float alpha       = p.color.a * opacity_;
     const float flags = (p.textured ? 1.0f : 0.0f) + (p.mono ? 2.0f : 0.0f) +
                         (p.triangle ? 4.0f : 0.0f) + (p.triangleDown ? 8.0f : 0.0f) +
-                        (p.plus ? 16.0f : 0.0f) + (p.cross ? 32.0f : 0.0f);
+                        (p.plus ? 16.0f : 0.0f) + (p.cross ? 32.0f : 0.0f) +
+                        (p.arrow ? 64.0f : 0.0f) + (p.arrowUp ? 128.0f : 0.0f) +
+                        (p.arrowLeft ? 256.0f : 0.0f) + (p.refresh ? 512.0f : 0.0f) +
+                        (p.star ? 1024.0f : 0.0f);
 
     for (size_t vertex = 0; vertex < kVerticesPerQuad; ++vertex)
     {
@@ -435,17 +547,23 @@ void UIRenderer::AppendQuad(const UIDraw& p)
         v[10] = p.u1;  v[11] = p.v1;
         v[12] = p.layer;
 
-        v[13] = p.color.r; v[14] = p.color.g; v[15] = p.color.b; v[16] = p.color.a;
+        v[13] = p.color.r; v[14] = p.color.g; v[15] = p.color.b; v[16] = alpha;
 
         v[17] = p.shadeLeft; v[18] = p.shadeRight; v[19] = p.shadeBottom; v[20] = p.shadeTop;
 
-        v[21] = p.radius.tl; v[22] = p.radius.tr; v[23] = p.radius.br; v[24] = p.radius.bl;
+        v[21] = p.radius.tl * cornerScale; v[22] = p.radius.tr * cornerScale;
+        v[23] = p.radius.br * cornerScale; v[24] = p.radius.bl * cornerScale;
 
         v[25] = p.strokeWidth;
         v[26] = p.softness;
         v[27] = p.dashOn;
         v[28] = p.dashOff;
         v[29] = flags;
+
+        // Il ritaglio viaggia con il vertice: e' quello che permette a un solo
+        // lotto di contenere aree ritagliate e aree libere.
+        v[30] = clip_.x;      v[31] = clip_.y;
+        v[32] = clip_.right(); v[33] = clip_.bottom();
 
         vertices_.insert(vertices_.end(), v, v + kFloatsPerVertex);
     }
@@ -524,6 +642,7 @@ void UIRenderer::End()
                    static_cast<GLsizei>(quadCount * kIndicesPerQuad),
                    GL_UNSIGNED_INT,
                    nullptr);
+    ++drawCalls_;
 
     glBindVertexArray(0);
     glUseProgram(0);

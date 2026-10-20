@@ -21,6 +21,9 @@
 // lo stato dell'applicazione, e la dichiarazione in `theme.h` si accontenta di una
 // dichiarazione anticipata (e' `app_state.h` che include `theme.h`, non il contrario).
 #include "app_state.h"
+// `SetColorScheme` ricorda la scelta: e' l'unica preferenza che questo modulo scrive,
+// e vive qui perche' e' la tavolozza a deciderla.
+#include "settings.h"
 
 namespace Bolt
 {
@@ -145,5 +148,19 @@ void ApplyTheme(AppState& app)
     const BOOL darkFrame = (scheme == ColorScheme::Dark) ? TRUE : FALSE;
     DwmSetWindowAttribute(app.window, DWMWA_USE_IMMERSIVE_DARK_MODE, &darkFrame, sizeof(darkFrame));
 }
+
+// Scegliere una tavolozza dalla palette o dalle opzioni: si applica subito e si
+// ricorda. Sceglierne una vuol dire **smettere** di seguire il sistema: e' quello che
+// uno si aspetta premendo "Tema: chiaro", e l'alternativa sarebbe un comando che
+// sembra non fare niente. L'esito lo dice chi chiama, perche' dalla palette il
+// pannello si chiude e senza una riga di stato non si saprebbe cosa e' cambiato.
+void SetColorScheme(AppState& app, ColorScheme scheme)
+{
+    app.colorScheme       = scheme;
+    app.systemColorScheme = false;
+    ApplyTheme(app);
+    RememberSettings(app);
+}
+
 
 } // namespace Bolt

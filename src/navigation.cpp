@@ -22,6 +22,7 @@
 
 #include "app_ui.h"
 #include "diag.h"
+#include "home.h"
 #include "input_targets.h"
 #include "language.h"
 #include "shell_location.h"
@@ -74,7 +75,8 @@ std::vector<Entry> ReadNamespaceDirectory(const std::wstring& directory, std::st
     return entries;
 }
 
-std::vector<Entry> ReadDirectory(const std::wstring& directory, std::string* error)
+std::vector<Entry> ReadDirectory(const std::wstring& directory, std::string* error,
+                                 bool longPaths)
 {
     std::vector<Entry> entries;
     error->clear();
@@ -85,7 +87,9 @@ std::vector<Entry> ReadDirectory(const std::wstring& directory, std::string* err
         return ReadNamespaceDirectory(directory, error);
 
     WIN32_FIND_DATAW data{};
-    const std::wstring pattern = directory + L"\\*";
+    // `LongPathsSupport`: il prefisso lo vuole Win32, non la shell, e si mette qui
+    // — davanti a `FindFirstFile`, che e' l'unica cosa che parla in questo punto.
+    const std::wstring pattern = IOPath(directory, longPaths) + L"\\*";
     HANDLE search = FindFirstFileExW(pattern.c_str(),
                                      FindExInfoBasic,
                                      &data,
@@ -161,14 +165,33 @@ void LoadDirectory(AppState& app, const std::wstring& directory, bool recordHist
     // cartella non e' cambiare cartella**: premere F5 non deve svuotare la casella
     // del filtro, che sta sotto gli occhi ed e' una cosa che l'utente ha scritto.
     const bool sameFolder = (normalised == app.directory);
+    const bool home = IsHome(normalised);
 
-    app.entries = ReadDirectory(normalised, &app.errorText);
+    // La Home non si legge dal disco e non e' una cartella: le sue righe sono le
+    // destinazioni che conosciamo (fissaggi, recenti, cartelle note). Rifarle qui
+    // significa che F5 la ricostruisce come una cartella qualsiasi.
+    if (home)
+    {
+        app.entries   = BuildHomeEntries(app);
+        app.errorText.clear();
+    }
+    else
+    {
+        app.entries = ReadDirectory(normalised, &app.errorText, app.longPaths);
+    }
     app.directory = normalised;
     app.previews.CancelPending();
     app.stats.CancelQueued();
 
     if (!sameFolder)
     {
+        // Se questa cartella ha un layout salvato, e' quello che si rivede: vista,
+        // misura, ordinamento, gruppi e larghezze delle colonne. Una cartella senza
+        // layout lascia quello che si sta usando, invece di riportare tutto a
+        // "dettagli" — il salvataggio e' esplicito, quindi chi non l'ha chiesto non
+        // se lo trova.
+        ApplyFolderLayout(app);
+
         app.filter.clear();
         app.filterActive = false;
         // I valori di una colonna sono quelli della cartella che si sta lasciando:
@@ -210,13 +233,19 @@ void LoadDirectory(AppState& app, const std::wstring& directory, bool recordHist
         app.historyIndex = static_cast<int>(app.history.size()) - 1;
     }
 
-    // StoreRecents has three modes in the reference key table (LocalDisk,
-    // Persistent, Session). This is Session: nothing is written to disk yet.
-    app.recents.erase(std::remove(app.recents.begin(), app.recents.end(), normalised),
-                      app.recents.end());
-    app.recents.insert(app.recents.begin(), normalised);
-    if (app.recents.size() > 20)
-        app.recents.resize(20);
+    // Il ranking: una visita pesa 3 (lo stesso peso che da' il riferimento alla
+    // navigazione), il punteggio satura a 10 e i fratelli decadono. La formula e'
+    // in `src/recents.h`; qui si dice soltanto che questa e' una visita.
+    //
+    // StoreRecents ha tre modi (LocalDisk, Persistent, Session) e nessuno dei tre
+    // scrive su disco: `docs/06`. La scelta e' Session — in memoria — e si cambia
+    // dal pannello delle opzioni, dove si legge che non si salva.
+    //
+    // La Home non e' una cartella da riproporre fra i recenti: registrarla
+    // vorrebbe dire una voce che riporta alla pagina di avvio, cioe' un giro su se
+    // stessi in cima all'elenco delle destinazioni.
+    if (!home)
+        app.recents.Touch(normalised);
 
     UpdateWindowTitle(app);
 
@@ -224,7 +253,11 @@ void LoadDirectory(AppState& app, const std::wstring& directory, bool recordHist
     // cartella aperta. Se e' la stessa non fa niente, quindi si puo' chiamare qui
     // senza pensarci — e va chiamata **dopo** che `app.directory` e' la cartella
     // nuova, o sorveglierebbe quella di prima.
-    app.watcher.Watch(app.directory);
+    //
+    // Sulla Home il bersaglio si **svuota**: non c'e' niente da sorvegliare, e
+    // lasciare l'ultima cartella vorrebbe dire continuare a raccogliere notifiche
+    // su qualcosa che non si sta guardando.
+    app.watcher.Watch(home ? std::wstring() : app.directory);
 }
 
 // --- tabs -------------------------------------------------------------------

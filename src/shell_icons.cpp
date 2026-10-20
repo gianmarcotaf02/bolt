@@ -1,5 +1,7 @@
 #include "shell_icons.h"
 
+#include "shell_location.h"
+
 #include <shlwapi.h>
 #include <shellapi.h>
 #include <shlobj.h>
@@ -357,34 +359,43 @@ const ShellIconAtlas::IconUV* ShellIconAtlas::Rasterize(const std::string& key, 
     return uv;
 }
 
-// L'icona gia' in mano: da qui in giu' non si sa piu' da dove viene — un nome
-// finto, un percorso, un PIDL o l'associazione di un'estensione.
-const ShellIconAtlas::IconUV* ShellIconAtlas::UploadIcon(const std::string& key, HICON icon)
+// I pixel gia' in mano, BGRA a canale diritto. E' il punto in cui convergono tutte
+// le strade — un'icona, una bitmap di menu, una specifica del registro — e l'unico
+// che sa come si riempie una celletta.
+const ShellIconAtlas::IconUV* ShellIconAtlas::UploadPixels(const std::string& key, int width,
+                                                          int height,
+                                                          const std::vector<uint32_t>& pixels)
 {
-    if (renderer_ == nullptr || icon == nullptr)
+    if (renderer_ == nullptr || width <= 0 || height <= 0 ||
+        pixels.size() < static_cast<size_t>(width) * height)
         return nullptr;
 
     const size_t capacity = static_cast<size_t>(columns_) * columns_;
     if (cells_.size() >= capacity)
         return nullptr;   // full: callers keep the last resolved icon as fallback
 
-    const int width  = cellSize_ - kCellPadding * 2;
-    const int height = cellSize_ - kCellPadding * 2;
+    const int drawSize = cellSize_ - kCellPadding * 2;
 
-    std::vector<uint32_t> pixels;
-    if (ReadIconPixels(icon, width, height, &pixels))
+    // L'immagine si porta alla misura della cella, **non** la si centra: le bitmap
+    // di menu sono 16 px, la cella ne tiene 32, e un'immagine centrata dentro una
+    // cella mappata su un quad da 16 px si vedrebbe a 8 px — meta' misura, sfocata.
+    // Con l'ingrandimento nella cella, la misura sullo schermo e' quella giusta.
+    // (Per le icone di sistema non cambia niente: `UploadIcon` arriva gia' a 32.)
     {
         // Stage one cell, then upload just that cell. Il margine e' il gutter che
         // impedisce al filtro di pescare il pixel dell'icona accanto.
         std::vector<uint8_t> cell(static_cast<size_t>(cellSize_) * cellSize_ * 4, 0);
 
-        for (int y = 0; y < height; ++y)
+        for (int y = 0; y < drawSize; ++y)
         {
-            for (int x = 0; x < width; ++x)
+            const int sy = (std::min)(height - 1, y * height / drawSize);
+            for (int x = 0; x < drawSize; ++x)
             {
-                const uint32_t pixel = pixels[static_cast<size_t>(y) * width + x];
+                const int sx = (std::min)(width - 1, x * width / drawSize);
+                const uint32_t pixel = pixels[static_cast<size_t>(sy) * width + sx];
                 const size_t destination =
-                    (static_cast<size_t>(y + kCellPadding) * cellSize_ + (x + kCellPadding)) * 4;
+                    (static_cast<size_t>(y + kCellPadding) * cellSize_ +
+                     static_cast<size_t>(x + kCellPadding)) * 4;
                 cell[destination + 0] = static_cast<uint8_t>((pixel >> 16) & 0xFF);   // red
                 cell[destination + 1] = static_cast<uint8_t>((pixel >> 8) & 0xFF);    // green
                 cell[destination + 2] = static_cast<uint8_t>(pixel & 0xFF);           // blue
@@ -411,6 +422,107 @@ const ShellIconAtlas::IconUV* ShellIconAtlas::UploadIcon(const std::string& key,
 
     const auto it = cache_.find(key);
     return it == cache_.end() ? nullptr : &it->second;
+}
+
+// L'icona gia' in mano: da qui in giu' non si sa piu' da dove viene — un nome
+// finto, un percorso, un PIDL o l'associazione di un'estensione.
+const ShellIconAtlas::IconUV* ShellIconAtlas::UploadIcon(const std::string& key, HICON icon)
+{
+    if (icon == nullptr)
+        return nullptr;
+
+    const int width  = cellSize_ - kCellPadding * 2;
+    const int height = cellSize_ - kCellPadding * 2;
+
+    std::vector<uint32_t> pixels;
+    if (!ReadIconPixels(icon, width, height, &pixels))
+        return nullptr;
+    // `ReadIconPixels` toglie gia' l'alpha premoltiplicato e la maschera AND: qui i
+    // pixel sono BGRA a canale diritto come li vuole `UploadPixels`.
+    return UploadPixels(key, width, height, pixels);
+}
+
+// Una bitmap di menu: la shell (o un'estensione) la mette in `hbmpItem`, ed e' di
+// proprieta' dell'HMENU — nostra solo in prestito, finche' il menu vive. Si legge
+// subito, si carica in una celletta e non si tocca piu'.
+const ShellIconAtlas::IconUV* ShellIconAtlas::GetForMenuBitmap(const std::string& key,
+                                                              HBITMAP bitmap)
+{
+    if (renderer_ == nullptr || bitmap == nullptr)
+        return nullptr;
+
+    const std::string cacheKey = "menu:" + key;
+    const auto it = cache_.find(cacheKey);
+    if (it != cache_.end())
+        return &it->second;
+
+    BITMAP header{};
+    if (GetObjectW(bitmap, sizeof(header), &header) == 0 ||
+        header.bmWidth <= 0 || header.bmHeight <= 0 || header.bmWidth > 256 ||
+        header.bmHeight > 256)
+        return nullptr;
+
+    std::vector<uint32_t> pixels;
+    if (!ReadBitmap(bitmap, header.bmWidth, header.bmHeight, pixels))
+        return nullptr;
+
+    // Le bitmap di menu sono a 32 bit con l'alpha, ma non tutte: quelle vecchie
+    // hanno il canale a zero e si appoggiano alla maschera. Un alpha tutto a zero
+    // su un'immagine che ha dei pixel non e' trasparenza, e' un formato piu'
+    // vecchio: meglio opaca che invisibile.
+    bool anyAlpha = false;
+    for (const uint32_t pixel : pixels)
+    {
+        if ((pixel >> 24) != 0)
+        {
+            anyAlpha = true;
+            break;
+        }
+    }
+    if (!anyAlpha)
+    {
+        for (uint32_t& pixel : pixels)
+            pixel |= 0xFF000000u;
+    }
+
+    return UploadPixels(cacheKey, header.bmWidth, header.bmHeight, pixels);
+}
+
+// `"C:\...pp.exe"` oppure `"C:\...pp.exe",-105`: la specifica d'icona come la
+// scrive il registro, che e' l'unico posto in cui un'applicazione dice qual e' la
+// sua icona di menu. Un percorso che non porta a un'icona non e' un errore: la voce
+// resta senza, come le voci che l'icona non la dichiarano affatto.
+const ShellIconAtlas::IconUV* ShellIconAtlas::GetForIconSpec(const std::wstring& spec)
+{
+    if (renderer_ == nullptr || spec.empty())
+        return nullptr;
+
+    std::wstring file = spec;
+    int index = 0;
+    const size_t comma = file.rfind(L',');
+    if (comma != std::wstring::npos)
+    {
+        index = _wtoi(file.c_str() + comma + 1);
+        file.erase(comma);
+    }
+
+    const std::string cacheKey = "spec:" + Utf8(spec);
+    const auto it = cache_.find(cacheKey);
+    if (it != cache_.end())
+        return &it->second;
+
+    if (file.size() >= 2 && file.front() == L'"' && file.back() == L'"')
+        file = file.substr(1, file.size() - 2);
+
+    HICON icon = nullptr;
+    if (FAILED(SHDefExtractIconW(file.c_str(), index, 0, &icon, nullptr,
+                                 static_cast<UINT>(cellSize_ - kCellPadding * 2))) ||
+        icon == nullptr)
+        return nullptr;
+
+    const IconUV* uv = UploadIcon(cacheKey, icon);
+    DestroyIcon(icon);
+    return uv;
 }
 
 const ShellIconAtlas::IconUV* ShellIconAtlas::GetFor(const std::string& extension, bool isDirectory)
@@ -478,11 +590,12 @@ const ShellIconAtlas::IconUV* ShellIconAtlas::GetForObject(const std::wstring& l
     // shell lo sa leggere, e da li' si arriva al PIDL, che e' l'unico modo di
     // chiederle l'icona **sua**: senza, `SHGetFileInfoW` risponde con quella di
     // una cartella qualunque.
-    if (location.size() >= 2 && location[0] == L':' && location[1] == L':')
+    if (ShellLocation::IsNamespace(location))
     {
-        PIDLIST_ABSOLUTE pidl = nullptr;
-        if (SUCCEEDED(SHParseDisplayName(location.c_str(), nullptr, &pidl, 0, nullptr)) &&
-            pidl != nullptr)
+        // Il PIDL della posizione: per un nome `::{...}` lo risolve la shell, per un
+        // `shell:pidl:` e' gia' li'. Una sola strada, o l'icona di una cartella
+        // aperta dal cestino sarebbe quella generica.
+        if (PIDLIST_ABSOLUTE pidl = ShellLocation::Parse(location))
         {
             const IconUV* uv =
                 Rasterize(key, reinterpret_cast<LPCWSTR>(pidl), 0, Source::Pidl);

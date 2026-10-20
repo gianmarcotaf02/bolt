@@ -58,11 +58,28 @@ public:
     // back to the generic file icon.
     const IconUV* GetFor(const std::string& extension, bool isDirectory);
 
-    // The icon of one shell object, looked at rather than guessed from a name:
+    // L'icona di one shell object, looked at rather than guessed from a name:
     // a drive root ("D:\\"), a known folder, "This PC", the recycle bin — either a
     // real path or a namespace name (`::{...}`). Null when the shell has no icon
     // for it, so the caller keeps its own fallback.
     const IconUV* GetForObject(const std::wstring& location);
+
+    // L'icona di una voce di menu contestuale. Due forme perche' sono due fonti
+    // diverse, e nessuna delle due e' un'ipotesi:
+    //
+    //   * `GetForMenuBitmap` — la bitmap che la shell (o l'estensione) ha messo nel
+    //     `hbmpItem` della voce. E' di proprieta' dell'HMENU e vale finche' il menu
+    //     vive: si legge subito, si carica in una celletta e non si tocca piu'. `key`
+    //     e' la chiave della cache, e deve essere stabile fra un'apertura e l'altra
+    //     (noi usiamo il verbo).
+    //   * `GetForIconSpec` — `"C:\...\app.exe"` o `"C:\...\app.exe",-105`, cioe' il
+    //     valore `Icon` che un'applicazione scrive sotto la propria chiave di verbo:
+    //     e' l'unico posto in cui dichiara quale icona vuole nel menu.
+    //
+    // Null quando l'icona non c'e': la voce si disegna senza, che e' diverso dal
+    // disegnarla con un'icona sbagliata.
+    const IconUV* GetForMenuBitmap(const std::string& key, HBITMAP bitmap);
+    const IconUV* GetForIconSpec(const std::wstring& spec);
 
     int IconCount() const { return static_cast<int>(cells_.size()); }
 
@@ -86,6 +103,13 @@ private:
     // L'icona gia' in mano, ovunque sia stata presa: la converte in RGBA e la
     // carica nella prima celletta libera. Non distrugge |icon|.
     const IconUV* UploadIcon(const std::string& key, HICON icon);
+
+    // I pixel gia' in mano, BGRA a canale diritto: e' il punto in cui convergono
+    // tutte le strade (icona, bitmap di menu, specifica del registro) e l'unico
+    // che sa come si riempie una celletta. Un'immagine piu' piccola della cella si
+    // centra, cosi' una bitmap da 16 px sta nella cella da 32 senza deformarsi.
+    const IconUV* UploadPixels(const std::string& key, int width, int height,
+                               const std::vector<uint32_t>& pixels);
 
     IRenderer* renderer_ = nullptr;
     int layer_ = 0;

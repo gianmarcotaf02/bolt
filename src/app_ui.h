@@ -22,6 +22,13 @@ namespace Bolt
 // messaggi di stato) e non a sapere che ora e'.
 double NowSeconds();
 
+// Quanto e' "comparso" un pannello aperto a |openedAt|: 0 appena aperto, 1 quando
+// l'animazione e' finita. Con `Animations` spenta torna sempre 1 — il pannello c'e'
+// e basta, che e' il comportamento di prima. L'ultima riga e' quella che serve a chi
+// disegna: se e' < 1 il fotogramma dopo va chiesto di nuovo, o l'animazione si ferma
+// al primo disegno.
+float PanelAppear(double openedAt, bool animations);
+
 // Converte fra UTF-8 e UTF-16. In tutto il programma le stringhe di interfaccia
 // sono strette (UTF-8) e quelle del sistema sono larghe; la conversione sta qui
 // perche' e' l'unica cosa che le mette in comunicazione.
@@ -31,6 +38,17 @@ std::wstring Widen(const std::string& text);
 // Un nome di percorso: l'ultimo pezzo, e il pezzo che lo contiene.
 std::wstring LeafName(const std::wstring& path);
 std::wstring ParentOf(const std::wstring& path);
+
+// Il percorso nella forma che Win32 accetta quando supera i 260 caratteri: il
+// prefisso `\\?\`, o `\\?\UNC\` per un percorso di rete. Con `longPaths` spento —
+// il valore di partenza — torna quello che e' entrato, quindi chi chiama non deve
+// sapere niente: `IOPath(path, app.longPaths)`.
+//
+// Non lo vogliono la shell (`IFileOperation`, `ShellExecute`, i menu contestuali)
+// ne' i percorsi relativi o gia' prefissati: li' il prefisso cambia il significato
+// del nome. La funzione si usa **nei punti di I/O**, non su ogni stringa di
+// percorso.
+std::wstring IOPath(const std::wstring& path, bool longPaths);
 std::wstring JoinPath(const std::wstring& directory, const std::wstring& name);
 
 // Come si scrive una grandezza a chi la legge: "1,2 MB", "13,9K". Rotte le unita'

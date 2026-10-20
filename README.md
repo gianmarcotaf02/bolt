@@ -44,7 +44,7 @@ reimplementato in modo indipendente.
 | Operazioni su file (copia, sposta, rinomina, cestino) | ✅ funzionanti, clipboard interoperabile con Esplora risorse |
 | Drag&drop, menu contestuale della shell | ✅ funzionanti (OLE dentro e fuori, menu a più livelli con **Proprietà in-app** e **Proprietà di Windows**) |
 | Persistenza configurazione, temi, hotkey | 🟡 pannello delle opzioni e `settings.ini`, temi chiaro e scuro, e la mappa dei tasti rimappabile **per la sessione**: l'editor c'e' (riga `Key Map` fra le opzioni), quello che manca e' **salvarla** su disco — per scelta, `docs/04` M9 |
-| Backend Direct3D 11 | 🟡 secondo backend dietro `IRenderer`, scelto all'avvio (`BOLT_BACKEND=d3d11|opengl`, con fallback). Lo shader HLSL incorporato **non compila** (`point` è una parola riservata), quindi non è mai partito davvero: il rimedio è una parola e non è applicato — `docs/02` §7.52 |
+| Backend Direct3D 11 | ✅ secondo backend dietro `IRenderer`, scelto all'avvio (`BOLT_BACKEND=d3d11|opengl`, con fallback): e' lui che disegna, con l'OpenGL come ripiego. Lo shader HLSL incorporato non compilava (`point` è una parola riservata) e il ripiego lo nascondeva; corretto e verificato a schermo il 2026-10-18 — `docs/02` §7.52 |
 
 Vedi [docs/04-roadmap.md](docs/04-roadmap.md) per la sequenza completa,
 [docs/05-stato-e-prossimi-passi.md](docs/05-stato-e-prossimi-passi.md) per dove si
@@ -61,6 +61,34 @@ cmake -S . -B build -G "Visual Studio 17 2022" -A x64
 cmake --build build --config RelWithDebInfo
 .\build\RelWithDebInfo\Bolt.exe
 ```
+
+## Installazione
+
+```powershell
+powershell -ExecutionPolicy Bypass -File tools/make-installer.ps1
+powershell -ExecutionPolicy Bypass -File tools/verify-installer.ps1   # la prova, che non lascia sporco
+```
+
+Il primo comando mette in `out/` (cartella esclusa dal controllo di versione) due
+cose:
+
+| artefatto | cosa fa |
+|---|---|
+| `Bolt-<versione>-win64-setup.exe` | l'installer (Inno Setup 6). Doppio clic, Avanti, Fine: installa **per utente** in `%LOCALAPPDATA%\Programs\Bolt` senza chiedere l'amministratore (la scelta "per tutti" c'è, se la vuoi), mette Bolt nel menu Start, e la voce in «App e funzionalità» con la versione e il comando di disinstallazione. Una versione nuova **aggiorna** quella vecchia invece di installarsi accanto (`AppId` stabile) |
+| `Bolt-<versione>-win64-portable.zip` | lo stesso programma da scompattare dove vuoi: lanci `Bolt.exe` e basta, senza installare niente e senza toccare il registro |
+
+Cosa scrive l'installazione, per intero: la cartella, un collegamento nel menu Start,
+la voce di disinstallazione, e l'icona sul desktop **solo se la spunti**. La
+disinstallazione toglie tutto questo e **chiede** se vuoi togliere anche le
+preferenze: `%APPDATA%\Bolt\settings.ini` lo tocchi tu, non lei.
+
+`tools/make-installer.ps1` **richiede Inno Setup 6** (`ISCC.exe`) installato: è una
+dipendenza di **build**, non di runtime — serve a produrre il setup, non a Bolt per
+funzionare. Lo script lo cerca nel registro e nei posti soliti, e se non c'è si ferma
+dicendo dove prenderlo (<https://jrsoftware.org/isdl.php>).
+
+L'eseguibile **non è firmato**: Windows può mostrare l'avviso di SmartScreen, che per
+un programma senza certificato è il comportamento normale.
 
 Controlli a runtime:
 
@@ -79,6 +107,7 @@ Controlli a runtime:
 | `Ctrl+P` / `F4` | finestra GoTo (percorso, cartelle note, segnalibri, recenti) |
 | `Ctrl+Shift+P` | command palette |
 | `Ctrl+,` | pannello delle opzioni (lista cercabile, con i controlli tipizzati) |
+| palette: `Avvio: la cartella aperta` / `Avvio: Questo PC` | la cartella che si apre all'avvio (c'è anche la riga `Avvio` fra le opzioni; vuota = Questo PC) |
 | `Ctrl+T` / `+` | nuovo tab sulla cartella corrente |
 | `Ctrl+W` / `✕` sul tab | chiude il tab (l'ultimo non è chiudibile) |
 | `Ctrl+Tab` / click sul tab | cambia tab |

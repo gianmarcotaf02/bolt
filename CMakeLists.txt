@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.20)
 
 project(Bolt
-    VERSION 0.1.0
+    VERSION 0.1.1
     DESCRIPTION "Clone of a fast native Windows file manager, reconstructed from static binary analysis"
     LANGUAGES CXX)
 
@@ -36,6 +36,8 @@ add_executable(Bolt WIN32
     src/view_options.cpp
     src/view_options.h
     src/app_actions.h
+    src/commands.cpp
+    src/commands.h
     src/input_targets.cpp
     src/input_targets.h
     src/keymap.cpp
@@ -52,6 +54,12 @@ add_executable(Bolt WIN32
     src/shell_icons.h
     src/navigation.cpp
     src/navigation.h
+    src/recents.cpp
+    src/recents.h
+    src/home.cpp
+    src/home.h
+    src/update.cpp
+    src/update.h
     src/settings.cpp
     src/settings.h
     src/shell_menu.cpp
@@ -92,7 +100,10 @@ target_compile_definitions(Bolt PRIVATE
     NOMINMAX
     UNICODE
     _UNICODE
-    REA_SHADER_DIR="${CMAKE_CURRENT_SOURCE_DIR}/src/shaders")
+    REA_SHADER_DIR="${CMAKE_CURRENT_SOURCE_DIR}/src/shaders"
+    # La versione si legge qui e si passa al codice, cosi' non e' scritta due volte:
+    # la usano l'installer e il controllo degli aggiornamenti.
+    BOLT_VERSION="${PROJECT_VERSION}")
 
 # opengl32 provides the OpenGL 1.1 entry points; everything newer is resolved at
 # runtime through wglGetProcAddress.
@@ -108,7 +119,7 @@ target_compile_definitions(Bolt PRIVATE
 # windowscodecs decodes the image for the inspector's large preview (WIC): the shell
 # thumbnail is 128 px, and its own decoder is the one that knows every format
 # Windows can open.
-target_link_libraries(Bolt PRIVATE opengl32 gdi32 user32 shell32 ole32 uuid shlwapi dwmapi propsys windowscodecs d3d11 dxgi d3dcompiler)
+target_link_libraries(Bolt PRIVATE opengl32 gdi32 user32 shell32 ole32 uuid shlwapi dwmapi propsys windowscodecs d3d11 dxgi d3dcompiler winhttp bcrypt)
 
 if(MSVC)
     target_compile_options(Bolt PRIVATE /W4 /permissive- /utf-8)

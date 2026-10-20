@@ -34,9 +34,20 @@ void RebuildView(AppState& app);
 // lingua della colonna che filtra.
 std::string ColumnValueOf(const AppState& app, const Entry& entry, int column);
 
+// Il nome come si **scrive**: con `ShowFileExtension` spento, senza estensione.
+// Il nome vero resta quello della voce, e questa e' l'unica differenza fra i due.
+std::string DisplayName(const AppState& app, const Entry& entry);
+
 // --- colonne e viste ---------------------------------------------------------
 void InitColumns(AppState& app);
 void SetViewMode(AppState& app, ViewMode mode);
+
+// I **layout per cartella** (`DirHostLayoutSave`/`DirHostLayoutDel`, M9), in memoria.
+// Riflettono `AppState` in un valore, e quel valore lo rimettono: sono le due
+// direzioni della stessa cosa, come `RefreshOptionItem`/`ApplyOptionFromItem`.
+void SaveFolderLayout(AppState& app);      // la cartella aperta ricorda com'e' guardata
+void ForgetFolderLayout(AppState& app);    // e se ne dimentica
+bool ApplyFolderLayout(AppState& app);     // vero se quella cartella ne aveva uno
 
 // --- geometria ---------------------------------------------------------------
 //

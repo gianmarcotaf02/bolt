@@ -4,7 +4,107 @@ Documento di lavoro, non di progetto: serve a riprendere senza rileggere la
 conversazione. Aggiornarlo è l'ultima cosa da fare prima di una pausa lunga o di
 una compattazione del contesto.
 
-Ultimo aggiornamento: **2026-10-16**, dopo la **mappa dei tasti** (M9) e il suo
+Ultimo aggiornamento: **2026-10-20**, dopo **la Home** (M12, `docs/04`): la pagina di
+avvio e' una **posizione** (`bolt:home`) con tre bande — Fissaggi, Recenti, Cartelle note —
+e una riga `Home` in cima alla barra laterale; `startupFolder` vuota apre **lei**, e le
+operazioni su file si rifiutano con un messaggio. Prima, nello stesso giorno: il ritaglio
+per-quad, i comandi di File Pilot fuori dal menu contestuale, le date europee, le icone del
+menu, il pacchetto con Inno Setup e la pagina di avvio. Subito dopo la Home, **gli
+aggiornamenti in app** (M13, forma B): comando esplicito, `releases/latest`, SHA-256,
+rifiuto se non torna, setup in silenzioso.
+
+Prima, in ordine: **`Animations`**, l'ultima riga di M9: i pannelli compaiono in
+dissolvenza (160 ms) invece di apparire di colpo. **M9 e' chiusa**; restano M6 (fissaggi di
+sessione) e M7 (`ShellNew` con `Command`, ormai l'unica casella).
+
+Prima, in ordine: **i layout per cartella**: *Salva il layout
+di questa cartella* e *Dimentica il layout* (`DirHostLayoutSave`/`DirHostLayoutDel`)
+ricordano vista, misura delle celle, ordinamento, gruppi e larghezze delle colonne —
+in memoria, perche' `docs/06` vieta di scriverli. M9 resta con la sola `Animations`.
+
+Prima, in ordine: **tre colonne e la rinomina**: la lista ha
+nove colonne (Data creazione, Data accesso e Totale, tutte ordinabili e filtrabili) e
+la rinomina sul posto seleziona il nome senza estensione, come Esplora risorse —
+`nota.txt` + `F2` + `promemoria` + `Invio` da' `promemoria.txt`.
+
+Prima, in ordine: **le opzioni del riferimento**: cinque
+righe che il pannello mostrava spente adesso si applicano — estensione nei nomi,
+percorsi compatti, angoli arrotondati, opacita' dei pannelli inattivi e percorsi
+lunghi — con due stati di disegno nel renderer e un solo punto di I/O per i percorsi
+lunghi (`docs/02` §7.60: l'argomento oltre i 260 caratteri veniva ignorato). Resta
+spenta solo `Animations`, che e' una funzione e non un interruttore.
+
+Prima, in ordine: **il ranking dei recenti** (`docs/04` M4):
+la formula di `Score`/`Decay`/`Ordinal` e' stata ricostruita con REA — non dedotta —
+ed e' in `src/recents.*`, con i tre modi di `StoreRecents`, la sezione `RECENTI`
+ordinata per punteggio, **`ShowRecents`** (il nome si spegne secondo il punteggio),
+**`SortRecents`** (i recenti in cima alla lista), i **file aperti** come recenti e il
+**GoTo** che li apre, sa cancellarli e mostra anche le cartelle fissate. Chiuso anche
+il **toglimento di M6**: il tasto destro su una riga della barra laterale apre il menu
+di **quella** riga (fissare, togliere, togliere dai recenti), e i comandi agiscono sul
+suo percorso — visto a schermo con la cartella aperta che restava un'altra. Il
+decadimento e l'opacita' sono **misurati sui pixel** (picco 220 → 161 fra punteggio 9
+e 5; 132 contro 234 fra un recente e una cartella mai visitata).
+
+Prima, in ordine: **la caduta sul `Canc`** (`docs/02` §7.59),
+chiusa con AddressSanitizer. Era un `container-overflow`: il fotogramma ridisegnava la
+lista con le righe costruite sull'elenco di **prima**, perche' fra il punto in cui la
+vista si ricostruiva e il disegno c'e' `FinishOperation`, che ricarica la cartella. La
+vista adesso si ricostruisce in `RenderFrame`, un attimo prima di disegnare — e la
+sequenza che cadeva 4 volte su 4 adesso non cade piu' (4 su 4 vive).
+
+Prima, in ordine: **`src/commands.*`**: `RunCommand` e i `Do*` sono usciti da
+`main.cpp` (591 righe, il file e' a **4.348**), `SetColorScheme` e' andato in
+`theme.*`, e la cucitura di `app_actions.h` si e' ricomposta con le superfici che un
+comando deve poter aprire.
+
+Prima, in ordine: **i cinque pulsanti di navigazione**
+disegnati come forme (chiesto dall'autore: «non sono belli» → «più *minimal*, non
+così spesse, sulla stessa riga dell'indirizzo»). Erano i caratteri `←` `→` `↑` `↻` `★`:
+quattro famiglie di segni con quattro spessori e quattro altezze ottiche in una fila
+sola. Adesso sono tre forme SDF (freccia, aggiorna, stella) in **tutt'e due** gli
+shader, in una scatola di 12 px con spessore 1,2, centrate sulla riga dell'indirizzo
+**misurata** e non a occhio — e la stella delle righe fissate nella barra laterale,
+che era ancora `★`, è la stessa forma. `docs/02` §7.58, catture in
+`analysis/tmp/nav-*.png`.
+
+Prima, in ordine: **i valori delle colonne nel carattere dei
+dettagli** (chiesto dall'autore): tipo, data, cartelle, file e dimensione si leggono
+più piccoli del nome, e la colonna `Tipo` si è allargata a 0,45 perché `Cartella di
+file` e `Documento di testo` ci entrino interi (`docs/04` M5c, catture in
+`analysis/tmp/font-*.png`). Il nome resta nel corpo.
+
+Prima, in ordine: **le due piccole bugie** — e sono finite in
+quattro. `docs/02` §7.55, che era l'ultima voce **aperta** del registro: l'ispettore
+mostrava una voce che il filtro aveva nascosto. La strada è quella che il documento
+indicava come più coerente — **il cursore si sposta** sulla prima riga visibile, come
+in Esplora risorse — e sta dentro `RebuildView`, perché a nascondere righe non è solo
+il filtro: ci arrivano anche i filtri di colonna e un gruppo chiuso. La **selezione
+non si tocca**, ed è la decisione che la voce chiedeva. Nel verificarla sono uscite
+tre superfici con lo stesso difetto, chiuse con la stessa regola: **il suggerimento**
+restava appeso alla voce di prima quando il filtro ne toglieva la riga da sotto il
+puntatore; il **suggerimento sopra il pannello delle proprietà** (la regola per farlo
+tacere adesso è una sola, `TooltipsAllowed`, e nomina i pannelli); la **barra di stato**
+contava le scelte nascoste («3 selezionati» davanti a una riga sola). E una cosa
+vista e corretta mentre si provava: azzerare il cursore quando nessuna riga è visibile
+faceva perdere anche `Invio` e non tornava togliendo il filtro — adesso il cursore
+resta dov'è.
+
+**Il registro dei difetti ha una voce aperta.** Sessantaquattro voci, sessantatré chiuse
+(§7.64, trovata verificando la Home): le ultime chiuse sono
+§7.61 (il ritaglio per-quad, debito saldato) e §7.62 (il menu contestuale che offriva i
+comandi di File Pilot).
+Restano i **limiti dichiarati**, che sono un'altra cosa e stanno dove vivono.
+
+Prima, in ordine: la **chiusura del Direct3D 11** (M10, `docs/02` §7.52). Era il primo
+lavoro dell'ordine deciso il 2026-10-18, ed era l'unico punto in cui il programma
+**diceva il falso**: si dichiarava con due backend e ne girava uno, e l'altro non
+compilava — `point` e' una parola riservata in HLSL. Adesso il parametro si chiama
+`p`, i due shader compilano, il backend **disegna** lui (`--- backend: Direct3D 11` nel
+registro) e il giro di verifica è stato fatto su otto superfici. Il passo che ha reso
+la cosa economica è stato compilare gli shader con `fxc` **senza aprire finestre**.
+
+Prima ancora, in ordine: la **mappa dei tasti** (M9) e il suo
 **editor**. Le scorciatoie non sono piu' quarantasei `case` dentro `WindowProc` ma una
 tabella in `src/keymap.*`, e il tasto chiama **lo stesso** `RunCommand` della palette
 (le due copie dello stesso corpo sono sparite). Le righe di fondo dei menu si scrivono
@@ -73,9 +173,10 @@ la **lingua su tutte le superfici**, la **salita da una radice di volume**, le
 — oggetto, applicazione, e grandi alla misura giusta (§7.43, §7.44,
 §7.45) —, i **byte allocati** (§7.46), **`InspectorHideGrid`** e il **backend
 Direct3D 11** (M10).
-Registro: **cinquantasette** voci, **cinquantacinque risolte** e **due aperte** —
-l'ispettore che mostra una voce nascosta dal filtro (§7.55) e il backend Direct3D
-spento apposta (§7.52), che aspettano **una decisione**, non una diagnosi. La caduta
+Registro: **sessanta** voci, **tutte chiuse**. §7.59 (la caduta sul `Canc`) e §7.60
+(l'ispettore e il filtro) sono state le ultime, il 2026-10-18; le superfici sorelle
+di §7.55 — suggerimento, suggerimento sopra i pannelli, barra di stato — sono
+entrate nella stessa voce perché sono la stessa regola. La caduta
 rara all'avvio (§7.54) e' chiusa il 2026-10-18: era §7.53 visto dall'altro lato, con
 la pila che era gia' in `%LOCALAPPDATA%\CrashDumps`. §7.34 non ha piu' un residuo
 dichiarato: il trascinamento fuori dal cestino e' stato visto funzionare. **Una** cosa
@@ -93,11 +194,12 @@ vivono.
 | M2b — navigazione | ✅ |
 | M3 — statistiche di cartella | ✅ byte logici e **allocati**, e i numeri si aggiornano da soli quando la cartella cambia da fuori (`ReadDirectoryChangesW`, con il limite dichiarato di due livelli) |
 | M3b — attributi NTFS | ✅ il record del file letto dal volume raw (`FSCTL_GET_NTFS_FILE_RECORD`), i nomi della tabella `AT_*`, la lista nell'ispettore e la degradazione dichiarata senza privilegi (`src/ntfs_attributes.*`, `docs/04` M3b) |
+| M4 — ranking dei recenti | ✅ la formula di `Score`, `Decay` e `Ordinal` ricostruita da REA (`FUN_140189bb0`, `docs/04` M4), in `src/recents.*`: punteggio a 3 per visita che satura a 10, decadimento dei fratelli **misurato**, `Ordinal` come contatore delle visite, la sezione `RECENTI` ordinata per punteggio, **`ShowRecents`** (il nome si spegne secondo il punteggio) e **`SortRecents`** (i recenti in cima alla lista); i **tre modi** di `StoreRecents` con la preferenza che non si salva (`docs/06`), i **file aperti** come recenti (peso 1) e il **GoTo** che li apre e ha «Cancella i recenti» in fondo al gruppo. Resta solo il fissaggio di un recente nei gruppi di accesso rapido |
 | M5 — filtro, ordinamento, raggruppamento, selezione | ✅ |
 | M5c — modalità di visualizzazione | ✅ quattro viste, celle **derivate** da una misura continua (icona, larghezza e altezza), raggruppamento in griglia e nell'elenco, ridimensionamento continuo con `Ctrl`+rotella, **selettori di vista e misura delle anteprime nella barra in fondo**, e **icone grandi chieste alla misura giusta** invece di ingrandite (`docs/02` §7.45) |
 | M5d — sovrappasso e comportamento del clic | ✅ evidenzia righe e celle, e le otto chiavi di interazione: `HoverToSelect`, `UnderlineOnHover`, `ShowTooltips`, `SingleClick`, `SingleClickFoldersOnly`, `ActOnPress`, `DoubleClickToParent`, `ShowCheckboxes` |
-| M5b — colonne | ✅ ridimensionabili col mouse, con filtri per valore nelle intestazioni e **filtro di testo sul nome** |
-| M6 — tab, barra del titolo, palette, GoTo | ✅ tab, titolo, palette, GoTo, **barra laterale a sezioni** (fissaggi, recenti, segnalibri, volumi, cartelle standard), **pulsanti di navigazione**, **albero dei tab verificato** (creazione per trascinamento, chiusura per ramo, distacco) e il **fissaggio in qualunque sezione**: `Fissa in...` / `Togli da...` (palette e menu contestuale) mettono una cartella in accesso rapido o nei segnalibri, e nell'accesso rapido le nostre righe stanno in cima a quelle della shell con la stella che le distingue. I limiti sono dichiarati in `docs/04` M6 (i comandi agiscono sulla cartella aperta, il toglimento non ha un gesto sulla riga, i fissaggi sono di sessione) |
+| M5b — colonne | ✅ ridimensionabili col mouse, con filtri per valore nelle intestazioni e **filtro di testo sul nome**; **nove** colonne (Nome, Tipo, Data modifica, Data creazione, Data accesso, Cartelle, File, Totale, Dimensione), tutte ordinabili |
+| M6 — tab, barra del titolo, palette, GoTo | ✅ tab, titolo, palette, GoTo, **barra laterale a sezioni** (fissaggi, recenti, segnalibri, volumi, cartelle standard), **pulsanti di navigazione**, **albero dei tab verificato** (creazione per trascinamento, chiusura per ramo, distacco), il **fissaggio in qualunque sezione** e il **menu contestuale delle righe** della barra laterale: `Fissa in...` / `Togli da...` mettono e tolgono una cartella in accesso rapido o nei segnalibri — dalla palette (la cartella aperta) e dal tasto destro su una riga (quella riga) — con la stella che distingue le nostre righe da quelle della shell. Il limite che resta e' dichiarato in `docs/04` M6: i fissaggi sono di sessione |
 | M7 — operazioni su file | 🟡 copia, sposta, rinomina, cestino, clipboard interoperabile, **menu contestuale a più livelli** con **`Proprietà` in-app** e **`Proprietà di Windows`**, le **voci di primo livello della shell**, il **menu della cartella** sul fondo, i **sottomenu delle estensioni**, **`Nuovo file >`** (tipi dal registro, creazione con
 contenuto), **`Invia a >`** (destinazioni della cartella SendTo, eseguite lasciandoci
 cadere sopra la selezione), **drag&drop dentro e fuori** con OLE, la **navigazione
@@ -107,11 +209,14 @@ copia) e il **dialogo di progressione**: copia, spostamento e cestino su un thre
 lavoro, il conto dei byte, la voce in corso, `Esc` e `Annulla` che fermano davvero, e
 il file parziale che la shell cancella da sola, e il **trascinamento fuori dal
 cestino** (una voce riciclata trascinata in una cartella **si ripristina** li': visto
-il 2026-10-17, `docs/02` §7.34). Mancano le cartelle riciclate, che si ripristinano e
-non si aprono |
+il 2026-10-17, `docs/02` §7.34) e **le cartelle riciclate si aprono** (posizione come
+PIDL codificato, `shell:pidl:`). Restano i modelli `ShellNew` con `Command` |
 | M8 — inspector | ✅ metadati, proprietà `PROPSYS`, conteggio per tipo, **visualizzatore di testo** (righe, minimap, spazi visibili, andare a capo, ingrandimento, codifica), **anteprima immagine** decodificata con adattamento e ingrandimento, **griglia di sfondo** (`InspectorHideGrid`) e il **contenuto della cartella scelta** in fondo al pannello, **in elenco** (le prime voci con la loro icona o miniatura, senza aprirla, **a richiesta dell'autore**). Le voci di spazio dei nomi mostrano le colonne della shell (percorso originale, data di eliminazione) |
-| M9 — configurazione e temi | 🟡 pannello delle opzioni (`Ctrl+,`) con i controlli tipizzati, preferenze ricordate in `%APPDATA%\Bolt\settings.ini`, **lingua su tutte le superfici** — comandi, bande dei gruppi di ogni menu, righe delle opzioni, barra laterale, colonne, inspector, con la **chiave** che resta l'inglese (`docs/02` §7.56) —, **tavolozza chiara e scura** con `SystemColorScheme` che segue Windows e l'**editor della mappa dei tasti** (la riga `Key Map` fra le opzioni, `CmdEditKeyMap` nella palette: elenco dei comandi col tasto accanto, cattura del tasto nuovo, `Canc` che toglie, tasti di partenza in cima); mancano le viste per cartella e i layout salvabili |
-| M10 — backend D3D11 | 🟡 `IRenderer` dietro cui stanno **OpenGL** e **Direct3D 11** (stessi shader in HLSL, stesso batcher di quadrilateri), con scelta all'avvio (`BOLT_BACKEND`) e fallback all'OpenGL. Lo shader HLSL incorporato pero' **non compila** — `point` e' una parola riservata — quindi il Direct3D non e' mai partito davvero e il fallback faceva sembrare tutto a posto. Il rimedio e' una parola e non e' applicato: accenderebbe il secondo backend **per default**, e quel percorso non ha avuto un giro completo. `docs/02` §7.52 |
+| M9 — configurazione e temi | ✅ pannello delle opzioni (`Ctrl+,`) con i controlli tipizzati, preferenze ricordate in `%APPDATA%\Bolt\settings.ini`, **cinque opzioni del riferimento applicate** (estensione nei nomi, percorsi compatti, angoli arrotondati, opacita' dei pannelli inattivi, percorsi lunghi), **layout per cartella** (`folderLayouts`, in memoria: vista, misura, ordinamento, gruppi e larghezze, con *salva* e *dimentica*), **lingua su tutte le superfici** — comandi, bande dei gruppi di ogni menu, righe delle opzioni, barra laterale, colonne, inspector, con la **chiave** che resta l'inglese (`docs/02` §7.56) —, **tavolozza chiara e scura** con `SystemColorScheme` che segue Windows e l'**editor della mappa dei tasti** (la riga `Key Map` fra le opzioni, `CmdEditKeyMap` nella palette: elenco dei comandi col tasto accanto, cattura del tasto nuovo, `Canc` che toglie, tasti di partenza in cima), **animazioni di apertura** dei pannelli in dissolvenza (scorrimento e cursore di testo esclusi, dichiarato) |
+| M10 — backend D3D11 | ✅ `IRenderer` dietro cui stanno **OpenGL** e **Direct3D 11** (stessi shader in HLSL, stesso batcher di quadrilateri), scelta all'avvio (`BOLT_BACKEND`) e fallback all'OpenGL. Lo shader HLSL incorporato non compilava — `point` e' una parola riservata — e il fallback faceva sembrare tutto a posto; **corretto e verificato il 2026-10-18** (`p` al posto di `point`), con le catture delle otto superfici e `--- backend: Direct3D 11` nel registro. Ora **disegna lui**. `docs/02` §7.52 |
+| M11 — installazione | ✅ l'installer **Inno Setup 6** (`installer/bolt.iss`, compilato in `out/Bolt-<versione>-win64-setup.exe` da `tools/make-installer.ps1`): installazione per utente senza amministratore, collegamento nel menu Start, voce in «App e funzionalita'» con versione e comando di disinstallazione, `AppId` stabile quindi una versione nuova **aggiorna**; wizard in italiano e inglese; in disinstallazione chiede se togliere le preferenze e in silenzioso non le tocca. Piu' lo zip portatile. `tools/verify-installer.ps1`: **24 controlli** con installazione vera, avvio in OpenGL, cattura, disinstallazione e pulizia garantita da `finally`. Impacchettando e' emerso un difetto vero — l'exe portava il percorso degli shader della macchina di compilazione (`docs/02` §7.63). Limiti: eseguibile non firmato (SmartScreen), niente MSIX, Inno Setup come dipendenza **di build** (`docs/04` M11) |
+| M12 — la Home | ✅ la pagina di avvio e' una **posizione** (`bolt:home`, non una cartella finta): tre bande — **Fissaggi** (i pin di sessione), **Recenti** (il ranking di M4), **Cartelle note** (i `places`) —, deduplicate, con `Entry::band` e un raggruppamento che sulla Home non si sceglie. Aprire, filtrare e `F5` funzionano; **copia, elimina, rinomina e proprieta' si rifiutano** (le righe nominano cartelle vere), e non partono ne' la sorveglianza ne' le statistiche ricorsive. Riga `Home` in cima alla barra laterale; `startupFolder` vuota = Home. `docs/04` M12 |
+| M13 — aggiornamenti in app | ✅ la **forma B**: comando **esplicito** `Controlla aggiornamenti` (nessun timer, nessuna richiesta all'avvio), `releases/latest` della repo, download del setup, **SHA-256** confrontato con quello pubblicato e rifiuto con cancellazione se non torna, poi setup in silenzioso. Lavoro su un thread, avanzamento nella barra di stato, `Esc` che annulla. **Visto tutto**, incluso il caso riuscito: con `v0.1.0` e `v0.1.1` pubblicate, la 0.1.0 installata si e' aggiornata da sola alla 0.1.1 e «App e funzionalita'» lo dice. `docs/04` M13 |
 
 L'applicazione è **usabile**: si naviga, si filtra, si raggruppa, si seleziona, si
 aprono tab, si salta con GoTo, si guardano anteprime e statistiche ricorsive, e si
@@ -130,29 +235,41 @@ Ordinato per quanto morde.
    l'ordine di prima la caduta torna (6 su 120 avvii), togliendolo sparisce (0 su
    515). Resta dichiarata, e non riprodotta, una **seconda famiglia** di dump caduti
    dentro il nostro eseguibile (cinque, tutti prima del 2026-10-16): vedi la voce.
-1. **`src/main.cpp` e' a 4.816 righe, ed erano 11.394** — scesa a 7.344 con lo
-   spezzamento, risalita a 7.895 con l'editor dei tasti e il fissaggio, e scesa di
-   **3.079** il 2026-10-18 in cinque tagli: `src/view_options.*` (764 righe, con cinque
-   funzioni andate nel modulo a cui appartenevano), **`src/shell_menu.*`** (537 righe:
-   i verbi della shell e la loro cache) e **`src/view_context_menu.*`** (1.078 righe: la
-   superficie del menu contestuale — geometria, livelli, disegno, clic, tasti — coi sei
-   comandi che chiama) e **`src/settings.*`** (213 righe: leggere, scrivere e ricordare
-   le preferenze, che era il pezzo con meno dipendenze rimasto li'), **`src/navigation.*`**
-   (538 righe: leggere una cartella, la storia avanti/indietro, l'albero dei tab) e
-   **`src/input_targets.*`** (il registro dei bersagli, spostato **perche'** la
-   navigazione lo chiedeva: un modulo non puo' chiamare una funzione interna a un
-   altro), piu' le due domande sulla selezione
-   (`SelectedPaths`/`SelectedPidls`) passate a `view_list`, che e' il modulo che
-   risponde gia' a "cosa e' selezionato". Sono usciti **dieci** moduli di vista e
-   modello — `src/view_sidebar.*`, `src/view_titlebar.*`, la **lista con le colonne**
-   (`src/view_list.*`), la parte pura dei tab (`src/tabs.*`), **l'ispettore intero**
-   (`src/view_inspector.*`), la **barra di stato** (`src/view_statusbar.*`), i **menu a
-   gruppi** (`src/view_menu.*`), il **pannello delle opzioni** (`src/view_options.*`),
-   i **verbi della shell** (`src/shell_menu.*`) e il **menu contestuale**
-   (`src/view_context_menu.*`), le **impostazioni** (`src/settings.*`), la
-   **navigazione** (`src/navigation.*`) e il **registro dei bersagli**
-   (`src/input_targets.*`) — piu' i supporti (`src/app_ui.*`) e il confine
-   (`src/app_state.h`).
+1. **`src/main.cpp` e' a 4.675 righe** (misurate il 2026-10-20, dopo la Home; erano 4.348 quando e'
+   uscito `src/commands.*`, e le due superfici dei giorni dopo ne hanno aggiunte un
+   paio di centinaio), **ed erano 11.394** — scesa a 7.344 con lo
+   spezzamento, risalita a 7.895 con l'editor dei tasti e il fissaggio, scesa di
+   **3.079** il 2026-10-18 in cinque tagli (`view_options`, `shell_menu`,
+   `view_context_menu`, `settings`, `navigation`, `input_targets`) e di altre **536**
+   con il blocco dei **comandi**: `src/commands.*`, 591 righe, con dentro `RunCommand`,
+   i `Do*` (copia, incolla, elimina, cartella nuova), la rinomina in linea,
+   l'apertura delle voci e la creazione delle voci nuove. `SetColorScheme` e' andato in
+   `theme.*`, che e' il modulo a cui la tavolozza appartiene.
+
+   **La cucitura si e' ricomposta, e va letta nell'ordine giusto.** Sono usciti
+   `RunCommand`, `ActivateSelection` e `CreateNewItem` (ora in `commands.h`); sono
+   entrate le superfici che un comando deve poter **aprire** — `BuildPaletteMenu`,
+   `BuildGoToMenu`, `BuildPinMenu`, `BeginOperation` — che restano in `main.cpp`
+   finche' non hanno il loro modulo (`view_palette.*`, `view_goto.*`, `view_pins.*`,
+   `view_operation.*`). La lista quindi non si e' accorciata di molto: si e' **chiarita**.
+   Le voci che restano sono 10, ognuna**con la sua destinazione scritta accanto** in
+   `app_actions.h`, e il prossimo taglio e' quello delle quattro superfici.
+
+   **Un difetto silenzioso trovato mentre si spostava.** `RefuseInNamespace` era
+   dichiarata, commentata ("i comandi che agiscono su un percorso non valgono dove un
+   percorso non c'e'") e **mai chiamata**: il caso che descriveva, un comando su una
+   cartella dello spazio dei nomi, falliva in silenzio o con l'errore della shell.
+   Adesso la chiamano incolla, elimina e cartella nuova, e la frase la dice.
+
+   Sono usciti **quindici** moduli: `src/view_sidebar.*`, `src/view_titlebar.*`, la
+   **lista con le colonne** (`src/view_list.*`), la parte pura dei tab (`src/tabs.*`),
+   **l'ispettore intero** (`src/view_inspector.*`), la **barra di stato**
+   (`src/view_statusbar.*`), i **menu a gruppi** (`src/view_menu.*`), il **pannello
+   delle opzioni** (`src/view_options.*`), i **verbi della shell** (`src/shell_menu.*`),
+   il **menu contestuale** (`src/view_context_menu.*`), le **impostazioni**
+   (`src/settings.*`), la **navigazione** (`src/navigation.*`), il **registro dei
+   bersagli** (`src/input_targets.*`) e i **comandi** (`src/commands.*`), piu' i
+   supporti (`src/app_ui.*`) e il confine (`src/app_state.h`).
 
    **La decisione sul confine, presa il 2026-10-18.** `WindowProc` non si sposta: e' la
    colla della finestra, e le sue 1.319 righe non sono una unita' ma **i suoi `case`** —
@@ -229,23 +346,38 @@ Ordinato per quanto morde.
    qui)`) perche' il meccanismo non c'era. Il secondo utilizzatore e' arrivato: il
    prossimo menu che ha bisogno di una riga spenta lo paga.
 
+7. **L'Accesso rapido apre le cartelle come posizioni codificate — aperto il 2026-10-20**
+   (`docs/02` §7.64). Una cartella aperta da `ACCESSO RAPIDO` diventa un `shell:pidl:...`,
+   perche' `ILIsEqual` confronta la catena di PIDL (che li' ha per genitore l'Accesso
+   rapido) e non il percorso risolto. Effetto: dentro quelle cartelle incolla, cartella
+   nuova, rinomina ed elimina **si rifiutano**, e le statistiche non partono. Trovato
+   verificando la Home — una riga della Home puo' essere una di quelle cartelle. La
+   correzione tocca l'identita' delle voci dello spazio dei nomi e va fatta con le sue
+   prove (cestino, trascinamento fuori, statistiche): non in coda alla Home.
+
 ---
 
 ## 3. Prossimi passi candidati
 
 **Tre numeri, che sono tre cose diverse e non vanno confusi.**
 
-- **Cinquantasette** voci nel registro `docs/02` §7, una per una con sintomo, causa e
-  correzione: **cinquantacinque risolte**, e le due che restano aperte — §7.52 e §7.55
-  — aspettano una **decisione**, non una diagnosi. È un cumulativo, non una lista di
-  lavoro.
-- **Due** cose **da fare**: la lista qui sotto.
+- **Sessantaquattro** voci nel registro `docs/02` §7, una per una con sintomo, causa e
+  correzione: **sessantatré chiuse, una aperta** (§7.64, l'Accesso rapido codificato).
+  È un cumulativo, non una lista di lavoro.
+- **Due** caselle aperte in tutto `docs/04`: la resa monocromatica delle icone (scelta
+  gia' presa: non si fa) e i modelli `ShellNew` con valore `Command` (limite
+  dichiarato). Tutto il resto sono limiti dichiarati, che e' un'altra cosa.
 - I **limiti dichiarati**: cose che si è scelto di non fare, scritte dove vivono con
   la ragione accanto (il tetto di 1 MB nella lettura dei testi, i modelli `ShellNew`
-  con valore `Command`, le 23 colonne della specifica contro le 6 fatte, il ritaglio
-  per-quad in `AGENTS.md` §8, le sei opzioni che il pannello mostra spente). Ogni
-  volta che nei documenti c'è scritto "dichiarato", vuol dire questo: non risolto, e
-  detto.
+  con valore `Command`, le 23 colonne della specifica contro le 6 fatte, le sei
+  opzioni che il pannello mostra spente, i fissaggi e i recenti che vivono **solo in
+  memoria**, le **icone del menu contestuale** solo dove la shell le dà: le voci del menu
+  moderno di Windows 11 non consegnano la bitmap a chi legge il menu classico, quindi
+  `7-Zip` resta senza icona mentre `WinRAR` ce l'ha — `docs/04` M7). Ogni volta che nei
+  documenti c'è scritto "dichiarato", vuol dire questo:
+  non risolto, e detto. Il ritaglio per-quad **non è più** in questa lista: era l'unico
+  debito tecnico che viveva solo in `AGENTS.md` §8, ed è stato saldato il 2026-10-20
+  (`docs/02` §7.61).
 
 Alcune voci portano con sé un residuo dichiarato — §7.34 ne aveva uno, la voce
 riciclata che non veniva presa, e il 2026-10-17 si è visto che non c'era più: una voce
@@ -261,10 +393,13 @@ In ordine di valore, non di facilità.
 > **l'albero dei tab**, **`InspectorHideGrid`**, il **backend Direct3D 11** e il
 > **tema chiaro** erano voci
 > di questa lista, e sono fatte: vedi `docs/04` M9, M6, M8 e M10, e §7.40/§7.41/§7.42
-> di `docs/02`. Restano della M9 le **viste per cartella** e i **layout salvabili**
-> (la **mappa tasti rimappabile** ha il suo editor: vedi sotto); di M4 il
-> **punteggio** dei recenti, che adesso e' solo l'ordine
-> di visita.
+> di `docs/02`. Della M9 resta solo **`Animations`**: i **layout per cartella** ci
+> sono (`folderLayouts`, in memoria). La **mappa tasti rimappabile** ha il suo
+> editor: vedi sotto. Di M4 **e' fatto**
+> tutto (`src/recents.*`): punteggio, `ShowRecents`, `SortRecents`, i file aperti, le
+> voci dei recenti e dei fissaggi nel GoTo, e il **menu contestuale delle righe** della
+> barra laterale (fissare, togliere, togliere dai recenti) che ha chiuso anche il
+> limite di M6 sul toglimento.
 
 ### L'ordine deciso il 2026-10-16, e dove siamo
 
@@ -310,35 +445,179 @@ perche' la finestra di prova era nata su un'altra scrivania virtuale (`AGENTS.md
 **Il prossimo lavoro, in ordine** — deciso il 2026-10-18, dopo che lo spezzamento e'
 arrivato a un punto in cui il file non e' piu' il problema principale:
 
-1. **Chiudere il Direct3D 11** (`docs/02` §7.52, `docs/04` M10). E' l'unico punto in cui
-   il programma **dice il falso**: si dichiara con due backend e ne gira uno, e l'altro
-   fallisce in silenzio — visibile solo nel registro. La correzione e' una parola
-   (`point` e' riservata in HLSL, il parametro delle funzioni di distanza va chiamato
-   `p`), la parte che conta e' il **giro di verifica** con `BOLT_BACKEND=d3d11`: le
-   superfici da guardare sono gia' un copione (lista, menu contestuale, opzioni,
-   ispettore, mappa dei tasti, tema chiaro) e le catture di riferimento esistono. Se
-   regge, il Direct3D diventa il backend di partenza e la milestone e' vera.
-2. **Le due piccole bugie**, che portano il **registro dei difetti a zero**:
-   **§7.55** — l'ispettore che mostra una voce che il filtro ha nascosto: la
-   raccomandazione e' far **spostare il cursore** sulla prima riga visibile, come fa
-   Esplora, invece di insegnare all'ispettore a tacere; tocca la selezione, quindi e'
-   una decisione dell'autore, non un'improvvisazione. E il **suggerimento disegnato
-   sopra il pannello delle proprieta'**, che vuole una regola sola: i suggerimenti
-   tacciono quando un pannello e' aperto.
-3. **`src/commands.*`** — `RunCommand` e i `Do*` fuori da `main.cpp`. Non per il numero:
-   perche' **M4 ci passa dentro** (`Cancella recenti`, i menu), e spostare un pezzo
-   mentre ci si lavora costa meno che spostarlo dopo. Oggi chiede **13 voci** di
-   cucitura (erano 23 prima di navigazione e tab).
-4. **M4 — il ranking dei recenti**, l'ultima lacuna **funzionale** rispetto al
-   riferimento: oggi `RECENTI` e' l'ordine di visita, in memoria. La formula
-   (`Score`, `Decay`, `Ordinal`) la specifica non la da': serve REA, e conviene
-   cominciare dall'analisi, non dal codice.
+1. ~~**Chiudere il Direct3D 11**~~ (`docs/02` §7.52, `docs/04` M10) — **fatto il
+   2026-10-18.** Era l'unico punto in cui il programma **diceva il falso**: si
+   dichiarava con due backend e ne girava uno, e l'altro falliva in silenzio —
+   visibile solo nel registro. La correzione era una parola (`point` e' riservata in
+   HLSL, il parametro delle funzioni di distanza si chiama `p`), la parte che
+   contava era il **giro di verifica**: `BOLT_BACKEND=d3d11` su otto superfici
+   (lista, menu contestuale, opzioni, mappa dei tasti, tema chiaro, immagine grande,
+   visualizzatore di testo, viste a icone), `--- backend: Direct3D 11` nel registro,
+   nessun errore HLSL, nessuna finestra lasciata aperta. Il Direct3D 11 **disegna
+   lui** adesso, e l'OpenGL resta il ripiego. Le superfici non ripetute sotto questo
+   backend sono elencate in §7.52. Il passo prima del giro e' stato `fxc` sugli
+   shader estratti dalla sorgente: dice l'errore **senza aprire una finestra**, ed e'
+   il modo di provare una compilazione che non chieda lo schermo a chi lavora.
+2. ~~**Le due piccole bugie**~~ — **fatte il 2026-10-18**, e sono diventate quattro
+   superfici (vedi `docs/02` §7.55). `§7.55` — l'ispettore che mostra una voce che il
+   filtro ha nascosto: è stato scelto quello che il documento raccomandava, **il
+   cursore si sposta** sulla prima riga visibile, come fa Esplora, e la **selezione
+   non si tocca** (la decisione che la voce chiedeva). La regola sta in
+   `RebuildView` perché a nascondere righe non è solo il filtro: ci arrivano anche i
+   filtri di colonna e un gruppo chiuso. Il **suggerimento sopra il pannello delle
+   proprietà**, e il suggerimento **rimasto appeso** alla voce di prima quando il
+   filtro ne toglieva la riga: una regola sola, `TooltipsAllowed`, più il controllo
+   che la voce col puntatore sopra sia una riga della vista. E la **barra di stato**,
+   che contava le scelte nascoste. **Il registro dei difetti è a zero.**
+3. ~~**`src/commands.*`**~~ — **fatto il 2026-10-18**, e non per il numero: perche'
+   **M4 ci passa dentro** (`Cancella recenti`, i menu dei recenti). Sono usciti
+   `RunCommand` e i `Do*` in 591 righe; `main.cpp` e' sceso a **4.348**. La cucitura
+   si e' ricomposta, non accorciata: le superfici che un comando deve aprire
+   (`BuildPaletteMenu`, `BuildGoToMenu`, `BuildPinMenu`, `BeginOperation`) sono
+   entrate in `app_actions.h` con la destinazione accanto. `RefuseInNamespace`, che
+   era scritta e mai chiamata, adesso la chiamano incolla, elimina e cartella nuova.
+4. ~~**La caduta sul `Canc`**~~ (`docs/02` §7.59) — **chiusa il 2026-10-18.** Era un
+   `container-overflow`: la vista si ricostruiva **prima** di `FinishOperation`, che
+   ricarica la cartella, e il disegno indicizzava l'elenco nuovo con gli indici del
+   vecchio. Adesso la vista si ricostruisce in `RenderFrame`, subito prima di
+   disegnare. Prima: 4 cadute su 4; dopo: 4 su 4 vive, e i referti ASan sono passati da
+   3 su 3 a 0 su 2. La procedura che l'ha trovata e' quella del §4.
+5. ~~**M4 — il ranking dei recenti**~~ — **fatto il 2026-10-18**, e non con
+   un'inferenza: la formula e' quella di `FUN_140189bb0` (punteggio +3 per visita che
+   satura a 10, `Decay` azzerato dalla visita e cresciuto di uno per ogni cartella
+   **sorella** aperta, poi un punto di punteggio per ogni passaggio oltre il decimo,
+   `Ordinal` = il piu' grande + 1), l'ordine e' `Score` decrescente e poi `Ordinal`,
+   e il codice e' `src/recents.*`. Le prove stanno in `docs/04` M4, indirizzo per
+   indirizzo. Verificato a schermo, come chiede `AGENTS.md` §2: nella sandbox,
+   `documenti` e `immagini` (catture `analysis/tmp/m4-recents-score.png` e
+   `m4-recents-score-2.png`), prima `documenti` che vale 6 contro 3, poi `immagini`
+   che sale a 9 e passa davanti. L'ordine di visita avrebbe dato l'altro risultato,
+   quindi la differenza e' del punteggio e non del tempo.
+
+   Il **decadimento** era l'unica regola scritta e non vista, e adesso e' misurata:
+   quindici cartelle sorelle, `c01` portata a 9, dieci sorelle aperte (nessuna
+   erosione: il credito e' esattamente dieci), poi quattro altre — e il nome di
+   `c01`, letto sul pixel, passa da **220** a **161**, che e' il rapporto fra le
+   opacita' di 5 e 9. Le catture sono `analysis/tmp/m4-decay-prima.png` e
+   `m4-decay-dopo.png`; il conto sta in `docs/04` M4.
+
+   Il blocco che aveva fermato la sessione prima era del **client**, non di REA: la
+   prima interrogazione che tocca Ghidra paga **~210 s** di import e auto-analisi, e
+   il client di pi chiudeva a 60 s perche' la chiave del timeout era scritta nel
+   formato sbagliato (`timeout` in secondi invece di `requestTimeoutMs` in
+   millisecondi). Corretto; il referto e' in `AGENTS.md` §5.
+6. **M4 — chiusa**: `SortRecents`, i file aperti, «Cancella i recenti» e la banda
+   `Accesso rapido` nel GoTo sono fatti e visti; «Mostra tutti i recenti» non si fa,
+   perche' il gruppo mostra gia' tutto. Resta fra i limiti dichiarati il fissaggio di
+   una riga della barra laterale (servirebbe un menu contestuale li').
 
 **Cosa non si fa adesso, e perche'**: M2 (la resa monocromatica delle icone) e' una
 scelta gia' presa; le sei opzioni spente, le 17 colonne mancanti e i `ShellNew` con
-`Command` sono limiti **dichiarati**; le **viste per cartella** e i **layout salvabili**
-(M9) valgono meno di M4 e vogliono una decisione sulla persistenza, che `docs/06` vieta
-di prendere di nascosto.
+`Command` sono limiti **dichiarati**; di M9 resta `Animations`, che e' una funzione.
+
+### Il lavoro fatto il 2026-10-20: la Home (M12)
+
+Era il punto di consegna della sessione prima, con le scelte gia' prese. Adesso c'e', e le
+scelte sono rispettate:
+
+- **cos'e'**: una **posizione** (`bolt:home`), non una cartella finta. Le voci sono
+  `Entry` sintetiche con `Entry::location` pieno, che e' il campo che serve gia' al cestino;
+- **cosa contiene**: tre bande — **Fissaggi** (i `pin` di sessione), **Recenti** (il
+  ranking di M4), **Cartelle note** (i `places`). Una destinazione che starebbe in due
+  bande compare **una volta sola**, nella prima; `Entry::band` dice a `RebuildView` come
+  raggruppare, e sulla Home il raggruppamento non si sceglie (`Gruppi: per banda`);
+- **cosa si puo' fare**: aprire, filtrare, `F5` ricostruisce. **Niente operazioni su
+  file**: copia, taglia, incolla, rinomina, elimina, cartella nuova, nuovo file e
+  proprieta' si rifiutano con un messaggio, e il menu contestuale spegne quelle voci.
+  Senza la guardia, `Elimina` su una riga della Home cancellerebbe la cartella **vera**
+  che quella riga nomina;
+- **cosa non parte**: la sorveglianza della cartella (il bersaglio si svuota entrando
+  nella Home) e le statistiche ricorsive (le colonne dei conteggi restano `--`, e il HUD
+  dice `0 jobs`);
+- **barra laterale**: una riga **Home** in cima, fuori dalle sezioni, cosi' chiudere
+  `ACCESSO RAPIDO` non la porta via;
+- **avvio**: `startupFolder` vuota = **Home**. `Avvio: Questo PC` adesso **scrive** il nome
+  di spazio dei nomi invece di svuotare la preferenza, e la riga `Avvio` fra le opzioni
+  accetta anche una posizione. Una cartella di avvio sparita lo dice e apre la Home.
+
+**Una cosa in piu', trovata guardando**: in inglese la colonna **Tipo** diceva ancora
+`Cartella di file`, perche' il nome lo scrive la shell nella lingua di **Windows**. Per una
+cartella adesso lo scriviamo noi (`File folder` / `Cartella di file`); per i file la
+domanda resta alla shell, che e' l'unica a sapere che un `.png` e' un'immagine. Cambiare
+lingua ricostruisce anche le intestazioni dei gruppi, che sono un valore costruito.
+
+**Verificato a schermo** (catture `analysis/tmp/home-*.png`): avvio senza argomenti sulla
+Home; tre bande popolate con una destinazione deduplicata; apertura di una riga, filtro per
+nome, `F5` che tiene il filtro; `Canc`/`Ctrl+C`/tasto destro rifiutati con il messaggio,
+voci spente (luminosita' 454 contro 695) e **26 file nella sandbox prima e dopo**; `Su`
+dalla Home a Questo PC; `Avvio: la cartella aperta` e `Avvio: Questo PC` che riavviano
+dove dicono, e la preferenza tolta che riporta alla Home; italiano e inglese a finestra
+aperta in tutt'e due i versi.
+
+**Un difetto aperto, trovato li'**: aprire una cartella da `ACCESSO RAPIDO` la trasforma in
+una posizione codificata (`shell:pidl:...`) e dentro i comandi per percorso si rifiutano —
+`docs/02` §7.64. Non e' della Home, ma la Home lo rende visibile: una riga della Home puo'
+essere una di quelle cartelle. E' una correzione che tocca l'identita' delle voci dello
+spazio dei nomi e va fatta con le sue prove.
+
+**Fatto subito dopo la Home, il 2026-10-20: gli aggiornamenti in app (M13)** nella forma B
+— comando `Controlla aggiornamenti` **esplicito** (mai automatico: una richiesta a GitHub
+e' telemetria di fatto), `releases/latest` della repo **`bolt`**, download dell'asset,
+verifica dello **SHA-256** pubblicato nella release, rifiuto se non torna, poi il setup in
+silenzioso (Inno riconosce l'installazione dall'`AppId`).
+
+**E' stato provato tutto, caso riuscito compreso.** `gh` (2.102.0) e' installato e
+autenticato, e la repo ha le release **`v0.1.0`** e **`v0.1.1`** con setup, zip e
+`SHA256SUMS`. La 0.1.0 **installata davvero** ha visto la 0.1.1, scaricato il setup,
+verificato l'impronta, avviato il setup in silenzioso, ed e' arrivata alla **0.1.1**
+(registro e «App e funzionalita'»); rilanciata la 0.1.1, lo stesso comando dice "Bolt e'
+aggiornato (0.1.1)". Visti anche i tre rifiuti (nessuna release, impronta sbagliata con
+file cancellato, release senza impronte) e il messaggio di versione uguale. La 0.1.1 e'
+la stessa base della 0.1.0, e lo dicono le sue note: esiste per questa prova.
+
+**Stato della macchina, da sapere prima di lanciare le prove.** Bolt **0.1.1 e' installato**
+davvero (`%LOCALAPPDATA%\Programs\Bolt`, collegamento nel menu Start, voce in «App e
+funzionalita'»), e ci e' arrivato **aggiornandosi da solo** dalla 0.1.0 durante la prova di
+M13. `tools/verify-installer.ps1` **si rifiuta di partire** se trova un'installazione:
+prima si disinstalla (App e funzionalita' -> Bolt), poi si prova. Se il codice cambia, il
+setup va ricostruito (`tools/make-installer.ps1`) e reinstallato: l'installato resta la
+0.1.1 finche' non lo si sostituisce. `gh` e' installato (`C:\Program Files\GitHub CLI`),
+autenticato come `gianmarcotaf02`.
+
+### La decisione presa il 2026-10-20: il ritaglio per-quad
+
+Restavano cinque strade, e **quattro di queste non sono lavoro da fare ma decisioni gia'
+prese**, che valgono la pena di essere rilette invece di essere riaperte:
+
+1. **La resa monocromatica delle icone (M2)** — l'autore l'ha provata e fatta togliere:
+   e' una scelta, non un residuo. Riaprirla senza una richiesta e' rimettere una cosa
+   che qualcuno ha gia' guardato e scartato.
+2. **i `ShellNew` con valore `Command`** — il limite e' scritto in `docs/04` M7 e la
+   ragione e' tecnica e politica insieme: quel valore non crea un file, **avvia un
+   programma** (`msaccess.exe /NEWDB 1`, `Wab.exe /CreateContact "%1"`). Eseguirlo vuol
+   dire eseguire righe di registro arbitrarie da un file manager, e non e' un prezzo che
+   questo progetto paga per una voce di menu.
+3. **I fissaggi persistenti** — qui la risposta non e' «non conviene» ma **«non si puo'»**:
+   `docs/06` vieta di scrivere su disco elenchi di segnalibri, recenti o ultima cartella,
+   e lo dice come **requisito**, non come limite tecnico. Salvare i fissaggi in
+   `settings.ini` sarebbe esattamente la cosa da cui quel documento difende chi usa il
+   programma. La scelta giusta era gia' quella scritta: vivono in memoria.
+4. **Le altre colonne delle 23** — lavoro vero e utile, ma non il primo: le 17 che
+   mancano sono in buona parte `Empty1..4` (segnaposto che chiedono una configurazione
+   dell'utente), `VolumeUsage`/`FolderUsage`/`PercentFull` (che hanno senso solo sopra un
+   volume, cioe' in un contesto che la lista oggi non ha) e le due del cestino, che
+   vogliono una prova sul cestino stesso. Resta una coda ordinabile, non un blocco.
+5. **Il ritaglio per-quad** — **scelto e fatto.** Era l'unico debito tecnico del
+   progetto, non una funzione mancante: stava scritto in `AGENTS.md` §8 e in §2 di questo
+   documento, con la soluzione gia' indicata («il posto giusto per un ritaglio e' il
+   quad»). Saldarlo rende **vere** due frasi che il progetto gia' scriveva: un disegno per
+   fotogramma, e il ritaglio come proprieta' di chi disegna.
+
+**Come e' stato verificato** e' la parte che conta (`AGENTS.md` §2): il numero prima e
+dopo (`5 draws` → `1 draws`, con la stessa schermata), il confronto al pixel con le
+catture fatte col vecchio scissor (0 pixel diversi su lista, testo e intestazione), il
+  **controllo negativo** che rimette il difetto quando il taglio si spegne, e tutti e due i
+  backend. Il racconto sta in `docs/02` §7.61.
 
 ### L'ordine deciso il 2026-10-16 (storico)
 
@@ -878,6 +1157,55 @@ sembra un errore di sintassi. Vale per gli identificatori che il C aveva gia' pr
 (`small`, `near`, `far`): un errore che nomina il tipo accanto a un identificatore
 innocuo si risolve guardando l'identificatore, non il tipo.
 
+**Un controllo che disattiva meta' della condizione non e' un controllo.** Per provare
+che a ritagliare era la riga nuova del pixel shader, la si e' spenta con
+`if (false && (A || B) || C)` — che per la precedenza degli operatori spegne solo `A` e
+lascia in piedi `B` e `C`. Il difetto non e' tornato, e la conclusione ovvia era
+sbagliata: sembrava che la riga fosse inerte. Il controllo giusto ha le parentesi
+attorno a **tutta** la condizione (`false && (A || B || C)`), e il primo tentativo ha
+fatto perdere un giro di build e due catture. Dopo una sostituzione meccanica di una
+condizione, si legge il **testo risultante** — non quello che si voleva scrivere.
+
+**Un contatore che riparte a ogni lotto non conta il fotogramma.** `QuadCount` azzera
+in `Begin`, e con tre lotti per fotogramma mostrava l'ultimo: 379 quadrilateri su circa
+quattromila. Il numero c'era, era piccolo, e nessuno aveva motivo di sospettarlo: era
+un difetto dello **strumento** e non del disegno, ed e' la specie che fa concludere il
+falso con la coscienza tranquilla. Quando un contatore serve a decidere se un lavoro e'
+riuscito, la prima cosa da verificare e' **cosa misura** — e il modo e' confrontarlo
+con un cambiamento che si conosce (qui: da 5 disegni a 1).
+
+---
+
+**Impacchettare e' un modo di provare.** Le trappole pagate la prima volta che il
+programma e' uscito dal repository (2026-10-20).
+
+- **Il difetto che si vede solo fuori casa.** L'eseguibile portava il percorso degli
+  shader della macchina che l'aveva compilato: qui funzionava, su un altro computer
+  l'OpenGL non avrebbe trovato niente. Un pacchetto si prova **da una cartella in cui la
+  sorgente non c'e'** — `docs/02` §7.63.
+- **`IExpress` risponde `1` e non dice niente.** SED sbagliata, file in una sottocartella
+  o opzione che non gli piace: stesso silenzio, nessun file. Provato con un pacchetto
+  minimo — **un file solo** — e fallisce uguale: su questa build di Windows non e'
+  utilizzabile. E' il motivo per cui l'installer e' Inno Setup, e non e' stato tempo
+  perso: senza quella prova si sarebbe creduto a un errore nel proprio pacchetto.
+- **Il setup di Inno si rilancia come `<nome>.tmp`.** La finestra del wizard appartiene a
+  quel processo, non a quello che si e' lanciato: `Get-Process <setup.exe>` ha
+  `MainWindowHandle` a zero e la cattura risponde «nessuna finestra». Si cerca per
+  **titolo** (`tools/find-window.ps1`) o per `MainWindowTitle`.
+- **`/GROUP` e' ignorato con `DisableProgramGroupPage=yes`.** Misurato: il collegamento
+  finisce comunque in `...\Start Menu\Programs\Bolt`. Quindi la prova che installa il
+  pacchetto **crea il collegamento vero**, ed e' per questo che lo script si rifiuta di
+  partire se Bolt risulta gia' installato: un test che sovrascrive l'installazione di
+  qualcuno e' peggio di un test che manca.
+- **Il disinstallatore di Inno lascia la cartella se ci trova file che non ha messo.** I
+  due log di diagnosi (`bolt-diag.log`, `startup-error.log`) li scrive il programma, non
+  il setup: senza `[UninstallDelete]` la cartella resta li' con dentro un log, e sembra un
+  disinstallatore fermo a meta'.
+- **`Start-Process -ArgumentList` unisce gli argomenti con spazi, senza virgolette.** Un
+  percorso con uno spazio dentro (`...\Bolt installato`) diventa due argomenti e il
+  comando fa un'altra cosa, senza dirlo. Le virgolette vanno **dentro** la stringa
+  dell'argomento. Vale per ogni script di questo banco che passa percorsi.
+
 ---
 
 ## 6. Convenzioni del progetto
@@ -895,3 +1223,8 @@ innocuo si risolve guardando l'identificatore, non il tipo.
   difetto sfuggito: è uno **strumento sbagliato**. La cattura parte dalla finestra
   intera, non dall'area cliente.
 - Quando un valore è in dubbio, **scriverlo in un log e leggerlo** batte dedurlo.
+- Le **date** si scrivono europee, `gg/mm/aaaa` (e `gg/mm/aaaa hh:mm` con l'ora), in
+  tutte e due le lingue: il formato di una data non è una parola da tradurre, e uno
+  che cambia con la lingua cambierebbe anche la larghezza delle colonne. Una sola
+  funzione le produce (`FormatFileTime`, `src/app_ui.cpp`), quindi lista, suggerimenti
+  e ispettore non possono divergere.
