@@ -4,6 +4,32 @@ Documento di lavoro, non di progetto: serve a riprendere senza rileggere la
 conversazione. Aggiornarlo è l'ultima cosa da fare prima di una pausa lunga o di
 una compattazione del contesto.
 
+## Come riprendere in una nuova chat
+
+Incolla questa frase:
+
+> Riprendi Bolt. Leggi `docs/05` §1 e §3 (aggiornati il 2026-10-21) e `AGENTS.md` §0,
+> §2 e §2-bis. Lo stato vero: M1–M13 chiuse, registro difetti `docs/02` §7 a **65 voci,
+> zero aperte**, versione **0.1.3** pubblicata e installata, `gh` autenticato. Non serve
+> ricostruire niente. Non resta lavoro **funzionale**: le uniche due caselle di `docs/04`
+> sono una scelta gia' presa (icone monocromatiche: non si fa) e un limite dichiarato
+> (`ShellNew` con `Command`). Il debito e' in `docs/05` §2; i prossimi passi candidati
+> sono in §3. Regole: `AGENTS.md` §0 (niente file personali, prove solo in
+> `analysis/tmp/sandbox`), §2 (niente e' fatto finche' non e' visto), §2-bis (graphify
+> prima del sorgente). Build con
+> `"/c/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin/cmake.exe" --build build --config RelWithDebInfo`,
+> release con `tools/make-installer.ps1` + `gh release create` (setup, zip, `SHA256SUMS`),
+> e alla fine `docs/04`, `docs/05` e `graphify update .` dalla root.
+
+**Stato della macchina**: Bolt **0.1.3** installato in `%LOCALAPPDATA%\Programs\Bolt`
+(ci e' arrivato aggiornandosi da solo dalla 0.1.2); `gh` 2.102.0 in
+`C:\Program Files\GitHub CLI`, autenticato come `gianmarcotaf02`; release `v0.1.0`,
+`v0.1.1`, `v0.1.2`, `v0.1.3`; sandbox pronta in `analysis/tmp/sandbox` (26 file);
+`settings.ini` con `language=italian` e nessun `startupFolder`. `verify-installer.ps1`
+si rifiuta di partire finche' Bolt e' installato: prima si disinstalla.
+
+---
+
 Ultimo aggiornamento: **2026-10-21**, dopo **la Home** (M12, `docs/04`): la pagina di
 avvio e' una **posizione** (`bolt:home`) con tre bande — Fissaggi, Recenti, Cartelle note —
 e una riga `Home` in cima alla barra laterale; `startupFolder` vuota apre **lei**, e le
@@ -241,7 +267,7 @@ Ordinato per quanto morde.
    l'ordine di prima la caduta torna (6 su 120 avvii), togliendolo sparisce (0 su
    515). Resta dichiarata, e non riprodotta, una **seconda famiglia** di dump caduti
    dentro il nostro eseguibile (cinque, tutti prima del 2026-10-16): vedi la voce.
-1. **`src/main.cpp` e' a 4.675 righe** (misurate il 2026-10-20, dopo la Home; erano 4.348 quando e'
+1. **`src/main.cpp` e' a 4.821 righe** (misurate il 2026-10-21, dopo Home, aggiornamenti e icone; erano 4.348 quando e'
    uscito `src/commands.*`, e le due superfici dei giorni dopo ne hanno aggiunte un
    paio di centinaio), **ed erano 11.394** — scesa a 7.344 con lo
    spezzamento, risalita a 7.895 con l'editor dei tasti e il fissaggio, scesa di
@@ -327,15 +353,11 @@ Ordinato per quanto morde.
 2. **Nessun controllo di versione locale.** Il repository è su GitHub
    (`gianmarcotaf02/bolt`) e il sistema salva con commit automatici a ogni turno,
    ma non c'è una convenzione di branch: si lavora su `main`.
-3. **Il ritaglio costa due disegni per area.** Il posto giusto per un ritaglio è il
-   **quad**, valutato nello shader: riporterebbe il fotogramma a un disegno solo e
-   renderebbe il ritaglio una proprietà di chi disegna invece che dell'ordine in cui
-   si disegna. Vedi `AGENTS.md` §8.
-4. **Lo zoom ricampiona il testo.** A `scale` diverso da 1.0 sia il corpo che il
+3. **Lo zoom ricampiona il testo.** A `scale` diverso da 1.0 sia il corpo che il
    secondo corpo vengono scalati, quindi il ricampionamento torna. Eliminarlo
    richiede una rasterizzazione a runtime per ogni dimensione: è un altro
    mestiere, non un difetto da correggere adesso.
-5. **Una sola operazione su file per volta, e il conto dei byte interpolato.** Il
+4. **Una sola operazione su file per volta, e il conto dei byte interpolato.** Il
    dialogo di progressione non ha una **coda**: una seconda caduta mentre la prima
    gira viene rifiutata — dichiarando `DROPEFFECT_NONE`, cosi' l'origine non cancella
    niente — invece di essere messa in fila come fa Esplora risorse. E i byte mostrati
@@ -343,7 +365,7 @@ Ordinato per quanto morde.
    misurato prima di partire: **esatti per un file solo**, interpolati su tante voci
    piccole, perche' i punti sono proporzionali al tempo e non ai byte. Entrambi sono
    scritti nel codice (`src/file_ops.cpp`) e misurati in `bolt-diag.log`.
-6. **Il componente dei menu non sa disegnare una riga spenta: lo sa solo il pannello
+5. **Il componente dei menu non sa disegnare una riga spenta: lo sa solo il pannello
    delle opzioni.** `GroupMenuItem::enabled` lo legge il ramo `richRows` e i tasti
    delle opzioni; in un menu normale la riga spenta si disegna come le altre e si
    **attiva** lo stesso. Oggi non e' un difetto visibile — nessun menu normale ha
@@ -396,6 +418,35 @@ In ordine di valore, non di facilità.
 > voci dei recenti e dei fissaggi nel GoTo, e il **menu contestuale delle righe** della
 > barra laterale (fissare, togliere, togliere dai recenti) che ha chiuso anche il
 > limite di M6 sul toglimento.
+
+### Cosa resta davvero, in ordine di valore
+
+Non c'e' lavoro funzionale mancante: le milestone sono chiuse e il registro dei difetti e'
+a zero. Quello che resta e' **debito** e **limiti**, e questi sono i candidati, in ordine
+di quanto mordono:
+
+1. **Spezzare l'input di `main.cpp`** (`input_keys.*`, `input_mouse.*`). La decisione e'
+   gia' scritta in §2: prima le superfici (fatte), poi i `case` di `WindowProc`; adesso
+   `WM_KEYDOWN` e i messaggi del mouse non hanno piu' niente da trascinarsi dietro.
+   `main.cpp` e' a **4.821** righe.
+2. **Una coda per le operazioni su file**, invece di rifiutare la seconda mentre la prima
+   gira (oggi dichiara `DROPEFFECT_NONE`), e un **denominatore misurato** per i byte
+   invece della frazione dei punti della shell. Sta in `src/file_ops.*`; il conto e' gia'
+   nel registro (`bolt-diag.log`).
+3. **Le 14 colonne che mancano delle 23** (`docs/03`): in buona parte `Empty1..4`,
+   `VolumeUsage`/`FolderUsage`/`PercentFull` e le due del cestino. E' una coda ordinabile,
+   non un blocco.
+4. **Un tetto all'atlante delle icone**: un `.lnk` costa una cella e non c'e' sfratto
+   (`docs/02` §7.65). Con molte cartelle piene di collegamenti si puo' riempire.
+5. **Lo zoom ricampiona il testo** (§2): richiede una rasterizzazione a runtime per ogni
+   misura, e' un altro mestiere.
+6. **Il componente dei menu non sa disegnare una riga spenta** (§2): oggi nessun menu
+   normale ne ha bisogno, ma il secondo utilizzatore lo pagherebbe.
+7. **Non sono lavoro da fare, sono scelte**: icone monocromatiche (deciso: no), `ShellNew`
+   con `Command` (limite dichiarato), fissaggi e recenti su disco (vietato da `docs/06`).
+
+Se invece si vuole una funzione **nuova**, non e' nello spec: va decisa prima con l'autore,
+e poi scritta con la solita regola — prima lo spec, poi il codice, poi la prova a schermo.
 
 ### L'ordine deciso il 2026-10-16, e dove siamo
 

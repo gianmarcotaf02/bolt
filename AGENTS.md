@@ -208,7 +208,7 @@ skill in chat — `/graphify`, o `/graphify --update` per documenti e immagini.
 
 ### Perché
 
-- `src/main.cpp` è **4.675 righe** (misurate il 2026-10-20, dopo la Home): scesa da 11.394 a **7.344** con lo spezzamento,
+- `src/main.cpp` è **4.821 righe** (misurate il 2026-10-21, dopo Home, aggiornamenti e icone): scesa da 11.394 a **7.344** con lo spezzamento,
   **risalita** a 7.895 con l'editor della mappa dei tasti e il fissaggio, e scese di
   **3.079** con il pannello delle opzioni, i verbi della shell, il menu contestuale, le impostazioni e la navigazione — la curva di un
   file unico che accoglie ogni funzione nuova. Gli ultimi pezzi usciti sono
@@ -721,7 +721,7 @@ percorso invece **resta** un carattere: e' punteggiatura dentro una riga di test
 
 | file | responsabilità |
 |---|---|
-| `src/main.cpp` | finestra Win32, navigazione, layout, input, disegno; sceglie e possiede il backend (`BOLT_BACKEND`, fallback). **Lo spezzamento è in corso: 4.675 righe, erano 11.394** (scesa a 7.344, risalita a 7.895, scesa di 3.079 il 2026-10-18: vedi §2-bis e `docs/05` §2) |
+| `src/main.cpp` | finestra Win32, navigazione, layout, input, disegno; sceglie e possiede il backend (`BOLT_BACKEND`, fallback). **Lo spezzamento è in corso: 4.821 righe, erano 11.394** (scesa a 7.344, risalita a 7.895, scesa di 3.079 il 2026-10-18: vedi §2-bis e `docs/05` §2) |
 | `src/theme.*` | i **ruoli di colore** che l'interfaccia legge e le **due tavolozze** (chiara e scura), piu' la preferenza del sistema (`AppsUseLightTheme`). I 35 token dello spec che hanno un lettore stanno qui; quelli che non ce l'hanno sono elencati in `theme.h`, invece di essere campi scritti e mai letti |
 | `src/app_state.h` | lo stato della finestra e i tipi che piu' moduli condividono: il **confine** che prima non esisteva (`docs/05` §2) |
 | `src/app_ui.*` | i supporti che piu' di un modulo usa: UTF-8/UTF-16, nomi di percorso, numeri in lettere, date, `FitText`, `NowSeconds` |
@@ -802,7 +802,7 @@ percorso invece **resta** un carattere: e' punteggiatura dentro una riga di test
   mani»: una query costa poco, una lettura costa migliaia di token che restano nel
   contesto per tutta la sessione. Vedi §2-bis.
 - **Non aprire nuove sessioni di refactoring largo** senza spazio per riverificare
-  tutto: `main.cpp` a 4.675 righe è un problema noto e in corso di soluzione, non una scoperta.
+  tutto: `main.cpp` a 4.821 righe è un problema noto e in corso di soluzione, non una scoperta.
 
 ---
 
