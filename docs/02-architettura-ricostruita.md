@@ -340,14 +340,22 @@ Questi punti sono il perimetro di lavoro del reverse mirato descritto in
 Documentati perché il metodo conta quanto il risultato: quasi tutti sono stati
 trovati **guardando uno screenshot della propria applicazione**, non leggendo il
 codice. Il ciclo usato è in `tools/capture-window.ps1`. **Nessuna voce è aperta**: le
-sessantacinque del registro sono chiuse. Le ultime cinque: §7.61 — il ritaglio
+settantasei del registro sono chiuse. Le ultime sedici: §7.61 — il ritaglio
 per-quad, che non è un difetto visto a schermo ma un **debito** saldato, con accanto lo
 strumento difettoso che lo nascondeva (un contatore che ripartiva a ogni lotto); §7.62,
 il menu contestuale che offriva i comandi di File Pilot; §7.63, il percorso degli shader
 della macchina di compilazione finito dentro il pacchetto — il primo difetto trovato
 **impacchettando** invece che guardando; §7.64, l'Accesso rapido che apriva le cartelle
-come posizioni codificate, con i comandi per percorso rifiutati; e §7.65, le icone dei
-`.lnk`, i nomi della Home e la casa che era una cartella.
+come posizioni codificate, con i comandi per percorso rifiutati; §7.65, le icone dei
+`.lnk`, i nomi della Home e la casa che era una cartella; §7.66, il conto dei byte che
+seguiva il tempo della shell invece dei byte; §7.67, la riga spenta che esisteva solo
+nel pannello delle opzioni; §7.68, il recente che si chiamava col suo percorso; §7.69, il
+pannello dell'operazione che era un muro e la coda che non c'era; §7.70, la selezione che
+tornava alla prima riga; §7.71, il conto delle voci che non tornava; §7.72, la freccia dell'ordine mangiata dal
+taglio; §7.73, le icone della Home che non erano quelle della barra laterale; e §7.74, la
+Home senza date e senza numeri, con «Data modifica» sparita da tutte le liste; e §7.75, la
+chiusura da venti secondi che fermava l'aggiornamento in app; e §7.76, nella griglia tutte
+le cartelle con l'icona del cestino.
 
 ### 7.1 `gl_VertexID` in una draw call indicizzata — *il bug che nascondeva tutto*
 
@@ -2697,3 +2705,387 @@ per collegamento (l'icona dipende dal file, non dall'estensione). Una cartella c
 centinaia di collegamenti puo' riempirlo; oltre il pieno l'atlante restituisce l'ultima
 icona risolta, che e' il ripiego gia' previsto. Con i pochi collegamenti delle prove non
 si e' visto, e non si dichiara risolto.
+
+### 7.66 Il conto dei byte seguiva il tempo della shell — *chiusa il 2026-10-21*
+
+**Sintomo.** Il pannello dell'operazione dichiarava byte che non erano quelli scritti.
+Con una cartella di un file da 4 MB e 400 file da 10 byte — il 99,9% dei byte sta nel
+file grande — nel momento in cui il file grande era finito il conto diceva **23%**: la
+barra era a un quinto mentre il disco aveva gia' scritto quasi tutto.
+
+**Causa.** Un denominatore solo, moltiplicato per la frazione dei **punti** che la shell
+riporta in `UpdateProgress`: `doneBytes = totalBytes × workSoFar / workTotal`. I punti
+sono proporzionali al **tempo**, non ai byte — un file da 23 byte sono 2 punti, uno da
+4 GB sono 131074 — quindi il numero usciva giusto per un file solo e sbagliato appena le
+voci avevano dimensioni diverse. Era il debito dichiarato nella voce 4 di `docs/05` §2.
+
+**Correzione.** Il conto ha due pezzi (`src/file_ops.cpp`, `JobState::doneBase` e
+`itemBytes`):
+
+- i byte delle voci **finite** sono misurati uno per uno, con `PKEY_Size` chiesto alla
+  shell nel `Pre*` della voce — l'unico momento in cui la si ha in mano prima che venga
+  toccata — e sommati al `Post*`;
+- dentro la voce in corso si interpola con la frazione dei punti, ma **confinata** fra i
+  byte gia' finiti e la fine della voce: fuori da quell'intervallo direbbe una cosa falsa;
+- il conto non torna mai indietro, e una cartella (di cui `PKEY_Size` non dichiara la
+  dimensione) non aggiunge byte inventati: li' la frazione dei punti resta l'unica cosa.
+
+**Verificato**, e con lo strumento accanto perche' la differenza non si vede a occhio su
+un fotogramma: il registro scrive **un decile di byte veri** con accanto quello che
+diceva il conto vecchio (`BOLT_DIAG=1`). Nella sandbox, cartella mista: *90% dei byte
+misurati, 23% secondo la frazione dei punti*. Controllo negativo: un file solo da 2 GB
+— dove i due conti devono coincidere perche' non c'e' nessun'altra voce a falsare la
+media — *100% dei byte misurati, 99% secondo la frazione dei punti*, e il pannello
+catturato a meta' copia dice `1,9 GB / 2,0 GB (96%)`. Nei due giri la somma dei byte
+misurati e' arrivata **esatta** al totale (4.004.000 e 2.147.483.648), cosa che la
+frazione dei punti non garantiva.
+
+**Una cosa provata e lasciata stare, con la ragione.** Il primo tentativo e' stato una
+**coda** delle operazioni — la prima meta' della stessa voce di debito. E' stata
+scritta e poi tolta: il pannello dell'operazione e' **modale** (`WM_LBUTTONDOWN`,
+`WM_KEYDOWN` e i caratteri si fermano li'), quindi una seconda operazione sarebbe
+arrivata solo nei primi 0,35 s, prima che il pannello compaia. Una coda che nessun gesto
+puo' riempire e' peggio di un rifiuto: il rifiuto almeno e' vero. La coda chiede prima
+una decisione sul pannello (modale come Esplora risorse, o finestra che lascia lavorare),
+ed e' scritto in `docs/05` §3.
+
+**Strumento che ne e' uscito.** Quando un passo delle operazioni fallisce, il registro
+adesso **lo nomina**: `operazione, passo destinazione: 0x80070057`. Prima un HRESULT
+senza nome ha fatto cercare il guasto nel posto sbagliato — era il percorso passato da
+riga di comando con le barre in avanti, che `SHCreateItemFromParsingName` rifiuta.
+
+### 7.67 La riga spenta esisteva solo nel pannello delle opzioni — *chiusa il 2026-10-21*
+
+**Sintomo.** Il menu delle destinazioni del fissaggio scriveva la ragione **dentro il
+nome** — `Segnalibri (non e' fissata qui)` — invece di mostrare la riga spenta. Le due
+destinazioni si sceglievano lo stesso e l'unica cosa che succedeva era che il fissaggio
+non cambiava niente: una voce che promette e non fa.
+
+**Causa.** `GroupMenuItem::enabled` lo leggeva solo il ramo `richRows`, cioe' il pannello
+delle opzioni. In un menu normale la riga spenta si disegnava come le altre, il cursore
+ci si fermava, il clic la sceglieva e `Invio` la eseguiva. Era la voce 5 di `docs/05` §2,
+con la nota che il secondo utilizzatore l'avrebbe pagata: il fissaggio ci era arrivato
+vicino e aveva aggirato il problema nel modo peggiore, cioe' nelle etichette.
+
+**Correzione.** Una regola sola nel componente (`src/view_menu.*`,
+`GroupMenuItemEnabled` / `GroupMenuSelectedEnabled`), letta da tutte e tre le vie
+d'ingresso: il cursore **non si posa** su una voce spenta (ne' con le frecce, ne' con
+`Home`/`Fine`, ne' all'apertura, che cerca la prima accesa), il clic non la sceglie e
+non sposta il cursore, `Invio` non la esegue, e il nome si spegne come nel pannello
+delle opzioni (picco di luminosita' 234 → 106). `BuildPinMenu` non ha piu' bisogno della
+parentesi: la ragione la dice il titolo del pannello, `FISSA IN` contro `TOGLI DA`.
+
+**Verificato a schermo** (`analysis/tmp/pin-*.png`): le due righe accese prima di
+fissare; dopo il fissaggio `Accesso rapido` spenta e il cursore posato su `Segnalibri`;
+clic sulla riga spenta che lascia il menu aperto e **non sposta** il cursore (misurato
+sullo sfondo della riga, che resta senza accento); `Giu'` che salta la riga spenta; il
+verso opposto (`TOGLI DA`: 234 contro 106) e il toglimento che funziona davvero —
+`Tolta da Accesso rapido` nella barra di stato e la riga sparita dalla barra laterale.
+Controllo negativo sul pannello delle opzioni, che le righe spente le aveva gia': il
+cursore da `Un clic apre` salta `Un clic: solo le cartelle` (spenta) e si posa su
+`Doppio clic sul fondo`, con l'accento misurato sulla terza riga.
+
+### 7.68 Nella barra laterale un recente si chiamava con il suo percorso — *chiusa il 2026-10-21*
+
+**Sintomo**, segnalato dall'autore: nella sezione `RECENTI` una riga si leggeva
+`C:/Users/Gianmarco/De…` — cioe' un **percorso** al posto di un nome, tagliato dalla
+larghezza della riga. Le altre righe erano nomi.
+
+**Causa**, ed erano due guasti in fila per lo stesso carattere. Un percorso fatto
+arrivare **con le barre in avanti** (`C:/Users/…/sandbox/conto`, come si scrive in una
+shell Unix o in un comando lanciato da li') veniva tenuto com'e':
+
+1. `LeafName` cercava solo la barra **rovesciata**, quindi non trovava nessun nome e
+   restituiva il percorso intero. E' la funzione che fa da ripiego quando la shell non
+   sa dire un nome, quindi la riga della barra laterale mostrava il percorso;
+2. `SHCreateItemFromParsingName` su quel percorso risponde `E_INVALIDARG`, quindi tutte
+   le operazioni su file che ci lavoravano dentro fallivano con **«Parametro non
+   corretto»** — un messaggio che non nomina il colpevole e manda a cercare il guasto
+   nel `Job`. E' successo davvero, il 2026-10-21, ed era stato attribuito al banco di
+   prova invece che all'applicazione (`docs/05` §5: «un valore incerto si logga»).
+
+**Correzione.** `NormalizePath` in `src/app_ui.*`: la barra in avanti diventa barra
+rovesciata **all'ingresso**, nei due punti in cui un percorso arriva da fuori — la riga
+di comando (`wWinMain`) e `startupFolder` letto da `settings.ini`, che e' testo che si
+puo' scrivere a mano. Le posizioni che non sono percorsi si lasciano stare: `shell:pidl:`
+porta un PIDL codificato e li' la barra e' un carattere come un altro. Come ultima
+difesa, `LeafName` e `ParentOf` accettano **tutti e due** i separatori: un nome non deve
+dipendere da quale barra ha usato chi ha scritto il percorso.
+
+**Verificato a schermo e contro disco** (`analysis/tmp/slash-*.png`):
+
+- avvio con `Bolt.exe C:/…/sandbox/conto`: il percorso nella barra diventa
+  `… > sandbox > conto`, il titolo del tab e' `conto`, e navigando dentro `dest` la
+  sezione `RECENTI` mostra **`conto`**, non il percorso (`slash-02-recenti.png`);
+- lo stesso avvio, **copia e incolla**: `uno.txt` copiato e incollato in `dest` riesce —
+  `operazione: 6 byte misurati, 1 voci, 2 punti … 6 byte contati`, e il file c'e'. Prima
+  della correzione la stessa sequenza si fermava su `passo destinazione: 0x80070057`
+  (§7.66), cioe' sulla creazione dell'oggetto della shell per la cartella di
+  destinazione;
+- `startupFolder=C:/…/sandbox/conto` scritto a mano nel file delle preferenze: all'avvio
+  la cartella e' quella giusta e il nome e' `conto`.
+
+### 7.69 Il pannello dell'operazione era un muro, e la seconda operazione si perdeva — *chiusa il 2026-10-21*
+
+**Sintomo.** Durante una copia lunga la finestra era **inutilizzabile**: un clic nella
+lista non selezionava niente, una freccia non muoveva il cursore, una lettera non
+arrivava nel filtro. E una seconda operazione — un incolla, una caduta — veniva
+**rifiutata** con «C'e' gia' un'operazione in corso»: chi aveva lasciato andare il tasto
+su una caduta leggeva dalla destinazione se era andata, e leggeva il nulla.
+
+**Causa, ed erano due.** Il pannello era **modale** (`WM_LBUTTONDOWN`, `WM_KEYDOWN` e i
+caratteri si fermavano li'), scelta di M7 ragionevole finche' una seconda operazione era
+impossibile; e c'era **un solo posto** per l'operazione in corso (`app.operation`), quindi
+la seconda non aveva dove stare. Le due cose si tenevano: senza una coda, lasciar passare
+i gesti avrebbe solo cambiato il messaggio del rifiuto.
+
+**La decisione**, presa qui perche' era l'unica cosa che mancava: **il pannello non e' piu'
+modale**. Resta disegnato sopra tutto e prende solo quello che gli appartiene:
+
+- un clic **dentro** il pannello non fa niente (`Annulla` annulla); un clic fuori si
+  comporta come sempre — selezionare, navigare, copiare, trascinare;
+- la rotella sopra il pannello non scorre l'elenco che gli sta dietro, fuori da lui si';
+- `Esc` annulla; ogni altro tasto va dove andrebbe sempre;
+- e le operazioni che arrivano mentre una gira vanno **in coda**.
+
+**La coda.** `FileOps::Request` (azione, sorgenti, destinazione) e' una richiesta
+**prima** di essere un `Job`: cosi' una richiesta che aspetta non avvia un thread che
+misura byte per un'operazione che forse non partira'. `app.operationQueue` le tiene in
+ordine di arrivo; `BeginOperation` accoda e restituisce **vero** (una caduta accettata
+dichiara `DROPEFFECT_COPY`/`MOVE`, non piu' `NONE`); `StartNextOperation` fa partire la
+successiva quando la precedente ha finito, ed e' chiamata da `FinishOperation` e non dai
+suoi singoli esiti, cosi' non si puo' dimenticare in un ramo. Il pannello dice quante
+aspettano (`— 1 elemento in coda`) e lo dice anche la barra di stato.
+
+**Due cose che la finestra usabile ha reso necessarie.**
+
+1. `app.operationOrigin`: quando l'operazione finisce, la vista si rifa' **solo se** la
+   cartella sullo schermo e' ancora quella da cui si e' partiti. Navigare durante una
+   copia e vedersi ricaricare l'elenco nuovo con la selezione di un'altra cartella era
+   il primo effetto collaterale.
+2. L'annullamento butta via anche la coda, e lo dice: `Esc` e il pulsante passano dalla
+   stessa funzione (`CancelOperation`), e l'esito legge «Operazione annullata — 1
+   elemento in coda annullato». Chi ferma una copia non si aspetta che ne parta
+   un'altra appena quella e' morta.
+
+**Verificato a schermo** (`analysis/tmp/q-*.png`), in sandbox con una cartella di 3000
+file (una copia da 6 GB finiva in un secondo, e non lasciava il tempo di fare niente):
+
+- copia in corso, poi clic su una riga: la selezione cambia e l'ispettore la segue
+  (`q-95.png`), mentre il pannello segna `1858 di 3001 voci`;
+- navigazione **dentro** un'altra cartella durante la copia: `dest`, 0 voci, pannello
+  ancora a `21,5 KB / 43,9 KB (46%)` (`q-a0.png`), e alla fine la vista resta `dest`,
+  senza rimbalzi (`q-a1.png`);
+- seconda copia durante la prima: «1 elemento in coda — parte quando finisce quella in
+  corso» nella barra di stato e `— 1 elemento in coda` nel pannello (`q-95.png`); alla
+  fine della prima la seconda parte da sola e il file arriva;
+- clic **dentro** il pannello: non succede niente, la selezione resta quella di prima;
+- `Esc` e il pulsante `Annulla`: l'operazione si ferma e la richiesta in coda **non
+  parte** (`secondo - Copia.txt` non c'e'), con il conto nell'esito;
+- la selezione resta dov'era per tutta la copia — che ha richiesto la correzione di
+  §7.70.
+
+### 7.70 La selezione tornava alla prima riga a ogni cambiamento della cartella — *chiusa il 2026-10-21*
+
+**Sintomo.** Con una cartella selezionata, un file creato da fuori (o dalla copia in
+corso) faceva saltare cursore e selezione sulla **prima** riga. Si vedeva poco finche'
+la finestra era inutilizzabile durante le operazioni; con il pannello non piu' modale
+(§7.69) diventava il difetto principale: si lavora **durante** una copia, e quello che si
+era scelto sparisce.
+
+**Causa.** `ReloadKeeping(app, app.selection, app.cursor, scroll)` riceveva **per
+riferimento** i due campi che `LoadDirectory` azzera (`selection.clear()`,
+`cursor.clear()`, e poi il cursore si posa sulla prima voce). Dentro la funzione, `keep`
+e `preferCursor` erano quindi il vuoto appena fatto: nessun nome sopravviveva, nessun
+cursore da ritrovare, e la regola di ripiego sceglieva la prima riga. Silenzioso, perche'
+il risultato e' sempre un elenco valido — solo non quello che si stava guardando.
+
+**Correzione.** Le due cose si **copiano** all'inizio di `ReloadKeeping`, prima di
+ricaricare (`keepNames`, `prefer`). Nessun chiamante cambia: `FinishOperation` passava
+gia' un insieme costruito da lui, ed e' per questo che il difetto non si vedeva quando
+l'operazione finiva.
+
+**Verificato**: con `payload` selezionata, un file creato dalla riga di comando mentre
+la finestra guarda la cartella — la selezione resta su `payload` (`q-50.png` prima,
+`q-51.png` dopo, la riga col fondo d'accento e' la stessa); e durante la copia di §7.69
+la selezione non si e' mossa per tutta la durata.
+
+### 7.71 Il pannello diceva «3001 di 3000 voci» — *chiusa il 2026-10-21*
+
+**Sintomo.** Copiando una cartella con 3000 file il pannello finiva su «3001 di 3000
+voci», e per una cartella con un file dentro su «2 di 1». Due conti che non tornavano.
+
+**Causa.** `Measure` contava **il contenuto** delle sorgenti e non le sorgenti stesse,
+mentre la shell manda un `Post*` anche per la cartella che copia: una voce in piu' del
+nostro denominatore, sempre.
+
+**Correzione.** Le sorgenti che sono cartelle contano **una volta ciascuna** nella misura
+(un file di partenza lo contava gia' il ciclo, e il suo `Post*` e' uno solo).
+
+**Verificato** nel registro diagnostico della stessa copia: `3001 voci` misurate e
+`3001 voci fatte` (prima: `3001` contro `3002`), e a schermo `1468 di 3001 voci` durante
+e nessun numero impossibile alla fine.
+
+### 7.72 La freccia dell'ordine spariva nelle colonne strette — *chiusa il 2026-10-21*
+
+**Sintomo.** Cliccando su un'intestazione stretta — `Data c…`, `Cart…` — l'elenco si
+ordinava ma la colonna non diceva **in che verso**: la freccia `^`/`v` non c'era.
+
+**Causa.** L'etichetta si costruiva con il nome **e** la freccia, e poi `FitText` la
+accorciava: la freccia stava in fondo, quindi era la prima cosa che il taglio mangiava.
+Su una colonna larga non si vedeva, e con le colonne strette del layout a nove succedeva
+su tre intestazioni.
+
+**Correzione.** La freccia si aggiunge **dopo** aver accorciato il nome, e lo spazio che
+le serve (`Measure`) si toglie prima dal tetto: il nome si accorcia di quel tanto in piu',
+e il verso si legge sempre.
+
+**Verificato a schermo**: con la colonna `Data creazione` ordinata e larga 130 px, il
+titolo dice `Data c… ^` invece di `Data cre…` senza freccia (`col-07-head.png`).
+
+### 7.73 Le righe della Home avevano l'icona di una cartella, la barra laterale quella giusta — *chiusa il 2026-10-21*
+
+**Sintomo**, segnalato dall'autore con una cattura: nella Home, `Desktop`, `Documenti`,
+`Download`, `Immagini`, `Musica`, `Video` e la cartella personale si disegnavano con la
+**cartella gialla generica**, mentre la barra laterale mostrava per gli stessi posti le
+loro icone (lo schermo blu di Desktop, il foglio di Documenti, la freccia verde di
+Download). Due icone per lo stesso posto, a venti pixel di distanza.
+
+**Causa.** Due domande diverse alla shell per la stessa cosa:
+
+- la barra laterale chiedeva l'icona all'**oggetto** (`SHCreateItemFromParsingName` +
+  `SHGFI_PIDL`, cioe' `GetForObject`), che e' l'unica che sa che
+  `C:\Users\x\Documents` **e'** "Documenti" e non una cartella qualsiasi;
+- la lista chiedeva l'icona al **percorso per attributi** (`GetForPath`), che non tocca
+  il disco ed e' la scelta giusta per una lista di migliaia di file — ma una cartella
+  nota, per lui, e' una cartella.
+
+Nessuna delle due e' sbagliata: e' sbagliato usare la stessa per tutti. `IconFor` chiede
+l'oggetto alle voci che portano un'**identita'** della shell (le unita', le posizioni di
+spazio dei nomi), e per attributi a tutto il resto.
+
+**Correzione.** `Entry::band` — che esiste gia' per dire a quale banda della Home
+appartiene una riga, `-1` per tutto il resto — e' il segnale che serve: `IconFor` chiede
+`GetForObject` per una riga della Home, e solo per quelle. Sono poche righe, e l'atlante
+tiene la risposta: si paga la prima volta, non a ogni fotogramma.
+
+**Una strada provata e scartata, con la ragione.** Il primo tentativo e' stato dare alla
+voce una "chiave d'icona" trovata con `IKnownFolderManager::FindFolderFromIDList`, per
+mappare un percorso alla sua cartella nota. Su questa macchina risponde "non trovata" per
+tutte e sette — e le cartelle di Windows 11 sono reindirizzate dove il manager non
+guarda. E' stato scritto, misurato con una riga di registro, e tolto: la strada buona era
+un'altra domanda alla shell, non una mappa costruita a mano.
+
+**Verificato a schermo** (`analysis/tmp/home-ic-list4.png` e `home-ic-list10.png`,
+ingrandite sul pixel): sulla Home le righe di `Cartelle note` e `Recenti` hanno ora le
+stesse icone della barra laterale — Desktop, Documenti, Download, Immagini, Musica,
+Video, Cestino, Questo PC, le unita' — e una cartella fissata (`sandbox`) resta con
+l'icona di una cartella, che e' quella giusta per lei.
+
+### 7.74 La Home senza date e senza numeri, e «Data modifica» sparita da tutte le liste — *chiusa il 2026-10-21*
+
+**Due difetti, un sintomo solo**, segnalato dall'autore: «la home è rotta, non vedo valori
+di data modifica, totale, dimensioni ecc».
+
+1. **«Data modifica» era vuota in tutte le liste**, non solo nella Home, e da una
+   release sola: la 0.1.7, quella delle due colonne spente. Ogni cella prende la sua
+   larghezza dal bordo della colonna **successiva** (`columnX[i + 1]`), e una colonna
+   nascosta non viene disegnata — quindi la sua posizione **non si calcola** e resta
+   zero. La larghezza di «Data modifica» diventava `0 - x - 12`, cioe' negativa, e
+   `FitText` con una larghezza negativa restituisce la stringa vuota: la colonna c'era,
+   l'intestazione c'era, e sotto non c'era niente. Il `--` delle colonne dei numeri si
+   salvava perche' quelle usano il bordo destro dell'intestazione.
+2. **La Home non chiedeva niente.** `MakeEntry` riempiva nome, tipo e banda e lasciava
+   `modified`, `created`, `accessed` e `bytes` a zero; e la lista chiedeva le statistiche
+   ricorsive solo alle voci con `location` **vuoto**, che per una riga della Home non e'
+   mai vero (il percorso c'e', ed e' quello che serve a navigare). Risultato: date vuote
+   e quattro colonne di numeri a `--`.
+
+**Correzione.** `rightOf(column)` in `src/view_list.cpp`: il bordo destro di una cella e'
+quello della prossima colonna **visibile** (`NextVisibleColumn`), o la fine
+dell'intestazione. Una riga sola, letta da tutte le colonne; con tutte le colonne accese
+da' esattamente i bordi di prima.
+
+E in `src/home.cpp`: le date e la dimensione si chiedono al percorso con
+`GetFileAttributesExW`, come le chiede una cartella qualunque, e la lista chiede le
+statistiche anche alle righe della Home (`entry.band >= 0`) — tranne dove non c'e' un
+albero: `Questo PC` e il cestino restano `--`, che li' e' la verita'.
+
+**Il costo**, dichiarato: aprire la Home adesso avvia il conteggio delle cartelle che
+mostra — la cartella personale sono decine di GB. Il servizio e' quello di sempre, con il
+suo budget di tempo e il suo annullamento, e i numeri si riempiono progressivamente
+(`HUD: 2 jobs`); ma e' lavoro che prima non si faceva, e ora si fa perche' le colonne lo
+chiedono.
+
+**Verificato a schermo**: la Home con `21/10/2026`, `08/10/2026`, `13/10/2026`… e i numeri
+(`61.9K/369.6K/431.6K/22.6 GB` per Desktop, `55.2 GB` per la cartella personale),
+`Cestino` e `Questo PC` a `--` (`home-fix-04.png`); accendendo `Data creazione` compare
+anche quella (`29/09/2021`, `home-fix-05-head.png`); e una cartella normale
+(`sandbox`) con date e numeri come prima (`home-fix-07.png`), che era il controllo che
+la correzione non spostasse niente.
+
+**La lezione.** La verifica della 0.1.7 aveva guardato **le intestazioni** — che colonne
+ci sono, che la freccia si veda — e non i **valori sotto**. Le catture di quella release
+erano ritagli della riga dei titoli: un difetto che svuota le celle non ci poteva
+comparire. `AGENTS.md` §2 dice che si legge il pixel; qui mancava la riga da leggere.
+
+### 7.75 Chiudere Bolt ci metteva venti secondi, e l'aggiornamento in app si fermava — *chiusa il 2026-10-21*
+
+**Sintomo**, trovato provando a installare la 0.1.10 dall'app invece che a mano: il
+comando `Controlla aggiornamenti` scaricava il setup, verificava l'impronta, lo avviava —
+e non succedeva niente. La finestra si chiudeva, «App e funzionalita'» restava alla
+versione vecchia, l'eseguibile non veniva sostituito. Nessun errore da nessuna parte.
+
+**Causa, in due pezzi.** Il primo e' che `DirStatsService::Stop` **aspettava che la coda
+si svuotasse**: `WorkerLoop` usciva solo con «stopping e niente in coda», e ogni lavoro
+interrotto a meta' si rimetteva in fondo alla coda. Con la Home che adesso chiede le
+statistiche (§7.74) — cioe' il conteggio della cartella personale, decine di GB —
+chiudere l'applicazione voleva dire **finire quel conteggio**: misurati **20 secondi**.
+Il secondo e' che il setup di Inno, in silenzioso, non aspetta un processo che sta
+ancora usando il proprio eseguibile: rinuncia e esce senza dire niente, perche' i
+messaggi sono soppressi. Le due cose insieme: l'aggiornamento «partiva» e non installava.
+
+**Correzione.** Chiudendo, la coda si **abbandona**: i due `WorkerLoop` escono appena
+vedono `stopping`, senza guardare cosa resta, e `Stop` svuota le code di ogni corsia
+sotto il proprio lucchetto prima di svegliare i thread. E' quello che serve a un
+programma che si chiude: il lavoro a meta' non interessa piu' a nessuno.
+
+E, per non dipendere dalla velocita' dell'uscita nemmeno in futuro: il setup non si
+avvia piu' mentre la finestra sta chiudendo, ma **due secondi dopo** — una riga di
+`cmd.exe` che aspetta e poi lancia l'installer (`ping -n 3`). Cosi' anche un'uscita lenta
+non puo' piu' far rinunciare l'installer.
+
+**Verificato**: la stessa chiusura, con le statistiche in corso sulla Home, passa da
+**20 s a 0,2 s** (misurata con `CloseMainWindow` e un'attesa sul processo). E
+l'aggiornamento in app e' stato fatto **davvero**, dalla 0.1.11 alla 0.1.12: download,
+impronta, setup, «App e funzionalita'» che dice `0.1.12`, eseguibile installato
+**identico** a quello compilato (stesso SHA-256) e, rilanciato, «Bolt e' aggiornato
+(0.1.12)». La stessa prova con la 0.1.10 — che la correzione non l'aveva — si fermava
+come prima: e' cosi' che si e' saputo che il difetto era la lentezza dell'uscita e non il
+setup, che da solo installava benissimo.
+
+**La lezione.** Il difetto e' arrivato da una funzione aggiunta il giorno stesso (§7.74) e
+si e' visto solo perche' una funzione di *un'altra* parte del programma — l'aggiornamento
+— dipendeva dal tempo di chiusura. Un numero che nessuno aveva misurato: «chiudere
+un'applicazione e' immediato» era un'ipotesi, non un fatto.
+
+### 7.76 Nella griglia tutte le cartelle avevano l'icona del cestino — *chiusa il 2026-10-21*
+
+**Sintomo.** Mettendo la Home a griglia (come chiedeva l'autore) le nove destinazioni
+avevano **la stessa icona**: quella del cestino, che era la prima cella.
+
+**Causa.** La chiave della cache delle icone **grandi** era il *tipo*, non la voce:
+`icon:<dir>` per ogni cartella, `icon:.ext` per i file. Per i file e' la scelta giusta —
+migliaia di file, poche estensioni — ma per una cartella il tipo non dice niente:
+"Questo PC", il cestino e una cartella qualunque sono tutte `<dir>`, quindi la prima
+icona risolta veniva restituita per tutte. Non si vedeva nella vista a dettagli perche'
+li' le icone vengono dall'atlante, con la chiave del percorso.
+
+**Correzione.** Per una cartella la chiave e' `icon:<dir>:<percorso>`. Le cartelle che
+una vista mostra sono quelle sullo schermo, quindi la cache resta piccola — e l'icona
+grande di una cartella adesso e' quella che la shell da' a **quel** percorso.
+
+**Verificato a schermo** (`analysis/tmp/homegrid-02.png`): le nove destinazioni della Home
+a griglia con le loro icone — cestino, schermo, foglio, freccia, cartella, fotografia,
+nota, computer, pellicola — e la stessa griglia ritrovata tornando sulla Home dopo essere
+passati da una cartella normale.

@@ -37,6 +37,24 @@ Entry MakeEntry(const std::wstring& path, int band)
     entry.location    = path;
     entry.typeText    = ShellTypeName("", /*isDirectory=*/true);
     entry.band        = band;
+
+    // Le date e la dimensione, chieste al percorso come le chiede una cartella
+    // qualunque (`FindFirstFile`). Senza, la Home era una tabella con le colonne
+    // della data **vuote**: una colonna che c'e' e non dice niente sembra un guasto,
+    // ed e' la ragione per cui questa riga esiste.
+    if (!ShellLocation::IsNamespace(path))
+    {
+        WIN32_FILE_ATTRIBUTE_DATA data{};
+        if (GetFileAttributesExW(path.c_str(), GetFileExInfoStandard, &data))
+        {
+            entry.modified = data.ftLastWriteTime;
+            entry.created  = data.ftCreationTime;
+            entry.accessed = data.ftLastAccessTime;
+            entry.bytes    = (static_cast<uint64_t>(data.nFileSizeHigh) << 32) | data.nFileSizeLow;
+            entry.modifiedText = FormatFileTime(entry.modified, /*withTime=*/false);
+            entry.modifiedFull = FormatFileTime(entry.modified, /*withTime=*/true);
+        }
+    }
     return entry;
 }
 } // namespace

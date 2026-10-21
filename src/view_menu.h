@@ -30,6 +30,13 @@ void       GroupMenuOpen(GroupMenu& menu, std::string title, std::string placeho
 void       GroupMenuRebuild(GroupMenu& menu);
 void       GroupMenuMove(GroupMenu& menu, int delta);
 int        GroupMenuSelectedId(const GroupMenu& menu);
+
+// Vero se la voce |itemIndex| si puo' scegliere. Una voce spenta si vede spenta e
+// non fa niente: il cursore non ci si ferma, il clic non la sceglie, `Invio` non la
+// esegue. E' una regola sola per le tre vie d'ingresso, ed e' il motivo per cui sta
+// qui invece che in ciascuna di esse.
+bool       GroupMenuItemEnabled(const GroupMenu& menu, int itemIndex);
+bool       GroupMenuSelectedEnabled(const GroupMenu& menu);
 MenuAction GroupMenuKeyDown(GroupMenu& menu, WPARAM key);
 void       GroupMenuChar(GroupMenu& menu, wchar_t character);
 

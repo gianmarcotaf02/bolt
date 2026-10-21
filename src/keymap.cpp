@@ -225,16 +225,25 @@ Shortcut KeyMap::ShortcutFor(int command) const
     return Shortcut{};
 }
 
-std::string KeyMap::LabelFor(int command) const
+std::vector<std::string> KeyMap::LabelsFor(int command) const
 {
-    std::string text;
+    std::vector<std::string> labels;
     for (const auto& binding : bindings_)
     {
         if (binding.first != command)
             continue;
         const std::string label = Label(binding.second);
-        if (label.empty())
-            continue;
+        if (!label.empty())
+            labels.push_back(label);
+    }
+    return labels;
+}
+
+std::string KeyMap::LabelFor(int command) const
+{
+    std::string text;
+    for (const std::string& label : LabelsFor(command))
+    {
         if (!text.empty())
             text += std::string(Tr(" o ", " or "));
         text += label;

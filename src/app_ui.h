@@ -39,6 +39,18 @@ std::wstring Widen(const std::string& text);
 std::wstring LeafName(const std::wstring& path);
 std::wstring ParentOf(const std::wstring& path);
 
+// Il percorso che arriva **da fuori** — la riga di comando, il file delle preferenze,
+// un percorso incollato — nella forma che il resto del programma si aspetta: con la
+// barra rovesciata. `C:/Users/x/Documenti` e' una strada che Win32 accetta quasi
+// ovunque, ma non la shell (`SHCreateItemFromParsingName` risponde "parametro non
+// corretto") e non `LeafName`, che cerca solo la barra rovesciata e restituisce il
+// percorso intero. Si normalizza **all'ingresso**, una volta sola, invece di
+// difendersi in ogni punto che tocca un percorso.
+//
+// Le posizioni che non sono percorsi si lasciano stare: `shell:pidl:...` porta un PIDL
+// codificato, e li' la barra in avanti e' un carattere come un altro.
+std::wstring NormalizePath(const std::wstring& path);
+
 // Il percorso nella forma che Win32 accetta quando supera i 260 caratteri: il
 // prefisso `\\?\`, o `\\?\UNC\` per un percorso di rete. Con `longPaths` spento —
 // il valore di partenza — torna quello che e' entrato, quindi chi chiama non deve

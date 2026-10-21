@@ -57,6 +57,11 @@ public:
     Shortcut    ShortcutFor(int command) const;
     std::string LabelFor(int command) const;
 
+    // Gli stessi nomi, uno per tasto: un comando puo' averne **due** (`Ctrl+P` e `F4`
+    // per il GoTo), e in un menu si scrivono affiancati senza il "o" che serve in una
+    // frase.
+    std::vector<std::string> LabelsFor(int command) const;
+
     // Assegna |key| al comando, togliendolo a chi lo aveva: due comandi sullo stesso
     // tasto sarebbero un tasto che fa due cose a seconda di chi guarda.
     void Rebind(int command, const Shortcut& key);

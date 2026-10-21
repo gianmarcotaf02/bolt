@@ -42,12 +42,43 @@ std::string DisplayName(const AppState& app, const Entry& entry);
 void InitColumns(AppState& app);
 void SetViewMode(AppState& app, ViewMode mode);
 
+// Quali colonne si vedono. Le due date che arrivano insieme alla modifica —
+// creazione e ultimo accesso — si spengono dalle opzioni e di partenza sono
+// **spente**: tre date affiancate si prendono lo spazio dei nomi per dire quasi
+// sempre la stessa cosa. Le altre non si spengono, e la funzione lo dice.
+bool ColumnVisible(const AppState& app, int column);
+
+// L'indice della colonna che ordina su |sort|, o -1: cosi' chi accende o spegne una
+// colonna la nomina per cosa mostra e non per la sua posizione nella tabella.
+int  ColumnOfSort(SortColumn sort);
+
+// I bordi delle colonne, in frazioni della larghezza dell'elenco: `edges[i]` e' il
+// bordo sinistro della colonna `i`, `edges[kColumnCount]` la fine dell'elenco. Una
+// colonna nascosta **non occupa spazio** — il suo bordo si porta su quello della
+// prima visibile che la segue — e lo spazio va alla colonna prima. Le frazioni
+// salvate restano quelle scelte dall'utente: qui si legge, non si scrive.
+void ColumnEdges(const AppState& app, float* edges);
+
+int  NextVisibleColumn(const AppState& app, int column);
+int  PrevVisibleColumn(const AppState& app, int column);
+
+// Accende o spegne una colonna. Spegnerla non lascia niente di invisibile acceso:
+// il filtro per valori di quella colonna si toglie, e se era lei a ordinare si torna
+// al nome — un ordine che nessuna intestazione spiega e' peggio di nessun ordine.
+void SetColumnVisible(AppState& app, int column, bool visible);
+
+// "Adatta": la larghezza di ogni colonna misurata sul suo contenuto, con il nome che
+// prende quello che resta. E' il valore di partenza delle colonne; il trascinamento di
+// un bordo lo spegne (`autoFitColumns`), il doppio clic su un bordo lo riaccende.
+void FitColumns(AppState& app);
+
 // I **layout per cartella** (`DirHostLayoutSave`/`DirHostLayoutDel`, M9), in memoria.
 // Riflettono `AppState` in un valore, e quel valore lo rimettono: sono le due
 // direzioni della stessa cosa, come `RefreshOptionItem`/`ApplyOptionFromItem`.
 void SaveFolderLayout(AppState& app);      // la cartella aperta ricorda com'e' guardata
 void ForgetFolderLayout(AppState& app);    // e se ne dimentica
 bool ApplyFolderLayout(AppState& app);     // vero se quella cartella ne aveva uno
+bool HasFolderLayout(const AppState& app); // vero se ce n'e' uno da applicare
 
 // --- geometria ---------------------------------------------------------------
 //

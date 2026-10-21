@@ -257,13 +257,36 @@ std::wstring LeafName(const std::wstring& path)
     if (path.empty())
         return L"This PC";
     std::wstring trimmed = path;
-    while (trimmed.size() > 3 && trimmed.back() == L'\\')
+    // Due separatori e non uno: un percorso che arriva con la barra in avanti non ha
+    // nessun nome da questa parte, e tornerebbe intero — che e' come un percorso e'
+    // finito nella barra laterale al posto di un nome.
+    while (trimmed.size() > 3 && (trimmed.back() == L'\\' || trimmed.back() == L'/'))
         trimmed.pop_back();
-    const size_t slash = trimmed.find_last_of(L'\\');
+    const size_t slash = trimmed.find_last_of(L"\\/");
     if (slash == std::wstring::npos)
         return trimmed;
     const std::wstring leaf = trimmed.substr(slash + 1);
     return leaf.empty() ? trimmed : leaf;
+}
+
+std::wstring NormalizePath(const std::wstring& path)
+{
+    if (path.empty())
+        return path;
+
+    // Le posizioni che non sono percorsi si lasciano stare: `shell:pidl:...` porta un
+    // PIDL codificato, dove la barra in avanti e' un carattere come un altro, e
+    // cambiarla cambierebbe la posizione.
+    if (ShellLocation::IsNamespace(path) || IsHome(path))
+        return path;
+
+    std::wstring normalized = path;
+    for (wchar_t& character : normalized)
+    {
+        if (character == L'/')
+            character = L'\\';
+    }
+    return normalized;
 }
 
 
@@ -283,7 +306,7 @@ std::wstring ParentOf(const std::wstring& path)
 {
     if (path.size() <= 3)
         return path;   // already a drive root such as C: followed by one slash
-    const size_t slash = path.find_last_of(L'\\');
+    const size_t slash = path.find_last_of(L"\\/");
     if (slash == std::wstring::npos || slash < 2)
         return path;
     std::wstring parent = path.substr(0, slash);

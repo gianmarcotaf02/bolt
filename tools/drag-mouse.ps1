@@ -24,6 +24,11 @@ param(
     [int]$CropH = 0,
     [int]$Steps = 20,
     [int]$HoldMs = 1200,
+    # Tiene premuto Ctrl per tutto il gesto: un rettangolo di selezione con `Ctrl` **si
+    # somma** a quello che c'e' gia', e un trascinamento no. Si preme con `keybd_event`
+    # e non con `SendInput` dei modificatori perche' `GetKeyState` — che e' quello che
+    # l'applicazione interroga — lo vede; vedi `AGENTS.md` §5.
+    [switch]$Ctrl,
     [switch]$Cancel
 )
 
@@ -36,6 +41,7 @@ using System.Runtime.InteropServices;
 public static class BoltDrag {
     [DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);
     [DllImport("user32.dll")] public static extern void mouse_event(uint flags, int dx, int dy, int data, IntPtr extra);
+    [DllImport("user32.dll")] public static extern void keybd_event(byte vk, byte scan, uint flags, IntPtr extra);
 
     public const uint MOVE      = 0x0001;
     public const uint LEFTDOWN  = 0x0002;
@@ -62,6 +68,7 @@ function Move-Steps([int]$fromX, [int]$fromY, [int]$toX, [int]$toY, [int]$steps)
 Write-Output "giu' in ($FromX,$FromY)"
 [BoltDrag]::MoveTo($FromX, $FromY)
 Start-Sleep -Milliseconds 200
+if ($Ctrl) { [BoltDrag]::keybd_event(0x11, 0, 0, [IntPtr]::Zero) }   # VK_CONTROL giu'
 [BoltDrag]::mouse_event([BoltDrag]::LEFTDOWN, 0, 0, 0, [IntPtr]::Zero)
 Start-Sleep -Milliseconds 200
 
@@ -88,4 +95,5 @@ if ($Cancel) {
 }
 
 [BoltDrag]::mouse_event([BoltDrag]::LEFTUP, 0, 0, 0, [IntPtr]::Zero)
+if ($Ctrl) { [BoltDrag]::keybd_event(0x11, 0, 2, [IntPtr]::Zero) }   # KEYEVENTF_KEYUP
 Write-Output "rilasciato in ($ToX,$ToY)"

@@ -126,6 +126,38 @@ void GroupMenuOpen(GroupMenu& menu, std::string title, std::string placeholder,
     GroupMenuRebuild(menu);   // so the selection is valid before the first frame
 }
 
+// Una riga su cui il cursore puo' posarsi: una voce, e accesa. Le righe di gruppo
+// non sono voci, e una voce spenta non fa niente — quindi non si sceglie.
+namespace
+{
+bool GroupMenuRowUsable(const GroupMenu& menu, int row)
+{
+    if (row < 0 || row >= static_cast<int>(menu.rows.size()))
+        return false;
+    const GroupMenuRow& candidate = menu.rows[static_cast<size_t>(row)];
+    if (candidate.header)
+        return false;
+    return menu.items[static_cast<size_t>(candidate.item)].enabled;
+}
+} // namespace
+
+bool GroupMenuItemEnabled(const GroupMenu& menu, int itemIndex)
+{
+    if (itemIndex < 0 || itemIndex >= static_cast<int>(menu.items.size()))
+        return false;
+    return menu.items[static_cast<size_t>(itemIndex)].enabled;
+}
+
+bool GroupMenuSelectedEnabled(const GroupMenu& menu)
+{
+    if (menu.selected < 0 || menu.selected >= static_cast<int>(menu.rows.size()))
+        return false;
+    const GroupMenuRow& row = menu.rows[static_cast<size_t>(menu.selected)];
+    if (row.header)
+        return false;
+    return GroupMenuItemEnabled(menu, row.item);
+}
+
 void GroupMenuRebuild(GroupMenu& menu)
 {
     menu.rows.clear();
@@ -159,14 +191,33 @@ void GroupMenuRebuild(GroupMenu& menu)
         menu.rows.push_back(GroupMenuRow{false, groupIndex, i});
     }
 
-    // Keep the cursor on a real entry.
+    // Keep the cursor on a real entry: una riga di gruppo non e' una voce, e una voce
+    // spenta non si sceglie. Il cursore si posa sulla prima che si puo' davvero
+    // scegliere, avanti e poi indietro — su un menu di due righe puo' capitare che
+    // l'unica accesa sia l'ultima.
     if (menu.selected < 0 || menu.selected >= static_cast<int>(menu.rows.size()) ||
         menu.rows[static_cast<size_t>(menu.selected)].header)
-    {
         menu.selected = 0;
-        while (menu.selected < static_cast<int>(menu.rows.size()) &&
-               menu.rows[static_cast<size_t>(menu.selected)].header)
-            ++menu.selected;
+
+    if (!GroupMenuSelectedEnabled(menu))
+    {
+        int forward = menu.selected;
+        while (forward < static_cast<int>(menu.rows.size()) &&
+               !GroupMenuRowUsable(menu, forward))
+            ++forward;
+
+        if (forward < static_cast<int>(menu.rows.size()))
+        {
+            menu.selected = forward;
+        }
+        else
+        {
+            int backward = (std::min)(menu.selected, static_cast<int>(menu.rows.size()) - 1);
+            while (backward >= 0 && !GroupMenuRowUsable(menu, backward))
+                --backward;
+            if (backward >= 0)
+                menu.selected = backward;
+        }
     }
 }
 
@@ -181,7 +232,7 @@ void GroupMenuMove(GroupMenu& menu, int delta)
     if (target >= count) target = count - 1;
 
     const int step = (delta > 0) ? 1 : -1;
-    while (target >= 0 && target < count && menu.rows[static_cast<size_t>(target)].header)
+    while (target >= 0 && target < count && !GroupMenuRowUsable(menu, target))
         target += step;
 
     if (target >= 0 && target < count)
@@ -197,7 +248,7 @@ void GroupMenuSelectEdge(GroupMenu& menu, bool last)
 
     int index = last ? count - 1 : 0;
     const int step = last ? -1 : 1;
-    while (index >= 0 && index < count && menu.rows[static_cast<size_t>(index)].header)
+    while (index >= 0 && index < count && !GroupMenuRowUsable(menu, index))
         index += step;
 
     if (index >= 0 && index < count)
@@ -221,7 +272,8 @@ MenuAction GroupMenuKeyDown(GroupMenu& menu, WPARAM key)
     switch (key)
     {
         case VK_ESCAPE: return MenuAction::Close;
-        case VK_RETURN: return MenuAction::Activate;
+        case VK_RETURN: return GroupMenuSelectedEnabled(menu) ? MenuAction::Activate
+                                                              : MenuAction::None;
         case VK_UP:     GroupMenuMove(menu, -1); break;
         case VK_DOWN:   GroupMenuMove(menu, 1);  break;
         case VK_NEXT:   GroupMenuMove(menu, 10); break;
@@ -571,7 +623,8 @@ void GroupMenuDraw(AppState& app, const Layout& layout, GroupMenu& menu)
             const std::string detail = FitTextTail(app.smallFont, raw, scale, detailRoom);
             const float width = app.smallFont.Measure(detail, scale);
             app.smallFont.Draw(r, rowRect.right() - width - 12.0f * scale,
-                               TextY(layout, rowRect, app.smallFont), detail, t.textDim, scale);
+                               TextY(layout, rowRect, app.smallFont), detail,
+                               item.enabled ? t.textDim : t.textDim.WithAlpha(0.45f), scale);
             const float room = rowRect.right() - width - 20.0f * scale - (rowRect.x + 14.0f * scale);
             label = FitText(app.font, label, scale, (std::max)(0.0f, room));
         }
@@ -580,8 +633,10 @@ void GroupMenuDraw(AppState& app, const Layout& layout, GroupMenu& menu)
             label = FitText(app.font, label, scale, rowRect.w - 28.0f * scale);
         }
 
-        app.font.Draw(r, rowRect.x + 14.0f * scale, TextY(layout, rowRect, app.font),
-                      label, t.text, scale);
+        // Una voce spenta si vede spenta: il nome si spegne come nel pannello delle
+        // opzioni, che era l'unico posto a saperlo fare.
+        app.font.Draw(r, rowRect.x + 14.0f * scale, TextY(layout, rowRect, app.font), label,
+                      item.enabled ? t.text : t.textDim.WithAlpha(0.55f), scale);
 
         ClickTarget target;
         target.rect  = rowRect;

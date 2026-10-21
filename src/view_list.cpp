@@ -14,6 +14,7 @@
 // ---------------------------------------------------------------------------
 #include "view_list.h"
 
+#include "app_actions.h"
 #include "app_ui.h"
 #include "home.h"
 #include "shell_location.h"
@@ -1047,6 +1048,175 @@ void InitColumns(AppState& app)
         app.columns[i].fraction = kColumns[i].fraction;
 }
 
+bool ColumnVisible(const AppState& app, int column)
+{
+    if (column < 0 || column >= kColumnCount)
+        return false;
+    // La domanda si fa alla colonna, non al suo indice: l'indice cambia se un giorno
+    // se ne infila una in mezzo, e una tabella di indici qui sarebbe una seconda
+    // copia di `kColumns` da tenere allineata.
+    switch (kColumns[column].sort)
+    {
+        case SortColumn::Created:  return app.showCreatedDate;
+        case SortColumn::Accessed: return app.showAccessedDate;
+        default:                   return true;
+    }
+}
+
+void FitColumns(AppState& app)
+{
+    const Layout layout = ComputeLayout(app);
+    const float scale  = layout.scale;
+    const float total  = (std::max)(1.0f, layout.header.w);
+
+    // Il margine di una cella: lo stesso che lascia il disegno (dodici pixel) piu' lo
+    // spazio dell'imbuto del filtro sull'intestazione, che sta dentro la colonna.
+    const float pad   = 28.0f * scale;
+    const float least = kMinColumnWidth * scale;
+
+    // Il valore piu' largo di ogni colonna, misurato su un **campione** di voci: una
+    // cartella da diecimila righe non si misura tutta per disegnarne trenta, ed e' lo
+    // stesso compromesso che fa Esplora risorse quando adatta le colonne.
+    const size_t sample = (std::min)(app.entries.size(), static_cast<size_t>(200));
+
+    float width[kColumnCount] = {};
+    for (int i = 0; i < kColumnCount; ++i)
+        width[i] = app.smallFont.Measure(ColumnLabel(i), scale);
+
+    for (size_t r = 0; r < sample; ++r)
+    {
+        const Entry& entry = app.entries[r];
+        for (int i = 1; i < kColumnCount; ++i)
+        {
+            if (!ColumnVisible(app, i))
+                continue;
+            // I conteggi e la dimensione arrivano dalle statistiche, che possono non
+            // essere ancora state calcolate: si misura la forma che avranno, non il
+            // `--` di adesso, o la colonna si allargherebbe da sola poco dopo.
+            std::string text;
+            if (i >= 5)
+                text = (i == 8) ? HumanBytes(999ull * 1024 * 1024 * 1024) : HumanCount(999999);
+            else
+                text = ColumnValueOf(app, entry, i);
+            width[i] = (std::max)(width[i], app.smallFont.Measure(text, scale));
+        }
+    }
+
+    for (int i = 1; i < kColumnCount; ++i)
+        if (ColumnVisible(app, i))
+            width[i] = (std::max)(least, width[i] + pad);
+
+    // Il nome prende quello che resta, con un minimo leggibile: se le altre colonne non
+    // lasciano spazio, si stringono loro in proporzione — un elenco di cui non si legge
+    // il nome non serve a niente.
+    float fixed = 0.0f;
+    for (int i = 1; i < kColumnCount; ++i)
+        if (ColumnVisible(app, i))
+            fixed += width[i];
+
+    const float nameLeast = 180.0f * scale;
+    if (fixed + nameLeast > total && fixed > 0.0f)
+    {
+        const float room = (std::max)((std::max)(1.0f, total - nameLeast), total - nameLeast);
+        const float factor = room / fixed;
+        for (int i = 1; i < kColumnCount; ++i)
+            if (ColumnVisible(app, i))
+                width[i] *= factor;
+        fixed = room;
+    }
+
+    width[0] = (std::max)(nameLeast, total - fixed);
+
+    // Dalle larghezze alle frazioni: il valore che il resto del disegno usa. Una
+    // colonna nascosta non avanza, e la sua frazione resta quella del punto in cui si
+    // trova — `ColumnEdges` la porta comunque sul bordo della prossima visibile.
+    float x = 0.0f;
+    for (int i = 0; i < kColumnCount; ++i)
+    {
+        app.columns[i].fraction = x / total;
+        if (ColumnVisible(app, i))
+            x += width[i];
+    }
+
+    app.viewDirty = true;
+}
+
+int ColumnOfSort(SortColumn sort)
+{
+    for (int i = 0; i < kColumnCount; ++i)
+        if (kColumns[i].sort == sort)
+            return i;
+    return -1;
+}
+
+void ColumnEdges(const AppState& app, float* edges)
+{
+    for (int i = 0; i < kColumnCount; ++i)
+        edges[i] = app.columns[i].fraction;
+    edges[kColumnCount] = 1.0f;
+
+    // All'indietro: una colonna nascosta si porta sul bordo della successiva, che a
+    // quel punto e' gia' stato sistemato se anche lei era nascosta.
+    for (int i = kColumnCount - 1; i >= 0; --i)
+        if (!ColumnVisible(app, i))
+            edges[i] = edges[i + 1];
+}
+
+int NextVisibleColumn(const AppState& app, int column)
+{
+    for (int i = column + 1; i < kColumnCount; ++i)
+        if (ColumnVisible(app, i))
+            return i;
+    return kColumnCount;
+}
+
+int PrevVisibleColumn(const AppState& app, int column)
+{
+    for (int i = column - 1; i >= 0; --i)
+        if (ColumnVisible(app, i))
+            return i;
+    return -1;
+}
+
+void SetColumnVisible(AppState& app, int column, bool visible)
+{
+    if (column < 0 || column >= kColumnCount)
+        return;
+
+    switch (kColumns[column].sort)
+    {
+        case SortColumn::Created:  app.showCreatedDate  = visible; break;
+        case SortColumn::Accessed: app.showAccessedDate = visible; break;
+        default:                   return;   // le altre colonne non si spengono
+    }
+
+    if (!visible)
+    {
+        // Un filtro su una colonna che non si vede filtra di nascosto: la lista si
+        // stringe e nessuna intestazione dice perche'.
+        app.columns[column].excluded.clear();
+
+        // Il pannello dei valori di quella colonna sarebbe aperto su niente.
+        if (app.columnPanel == column)
+        {
+            app.columnMenu.open = false;
+            app.columnPanel     = -1;
+        }
+
+        // Un ordine che nessuna intestazione spiega e' peggio di nessun ordine: si
+        // torna al nome, e l'elenco si muove sotto gli occhi invece di restare in un
+        // ordine che non si legge piu'.
+        if (app.sortColumn == kColumns[column].sort)
+        {
+            app.sortColumn    = SortColumn::Name;
+            app.sortAscending = true;
+            SortEntries(app);
+        }
+    }
+
+    app.viewDirty = true;
+}
+
 void SaveFolderLayout(AppState& app)
 {
     if (app.directory.empty())
@@ -1067,6 +1237,11 @@ void ForgetFolderLayout(AppState& app)
     app.folderLayouts.erase(app.directory);
 }
 
+bool HasFolderLayout(const AppState& app)
+{
+    return !app.directory.empty() && app.folderLayouts.count(app.directory) != 0;
+}
+
 bool ApplyFolderLayout(AppState& app)
 {
     const auto saved = app.folderLayouts.find(app.directory);
@@ -1078,6 +1253,18 @@ bool ApplyFolderLayout(AppState& app)
     app.gridIconSize = layout.gridIconSize;
     app.sortColumn   = layout.sort;
     app.sortAscending = layout.ascending;
+
+    // Un layout salvato quando la colonna si vedeva non deve riportare un ordine su
+    // una colonna adesso spenta: nessuna intestazione lo direbbe.
+    for (int i = 0; i < kColumnCount; ++i)
+    {
+        if (kColumns[i].sort == app.sortColumn && !ColumnVisible(app, i))
+        {
+            app.sortColumn    = SortColumn::Name;
+            app.sortAscending = true;
+            break;
+        }
+    }
     app.groupMode    = layout.group;
     for (int i = 0; i < kColumnCount; ++i)
         if (layout.widths[i] > 0.0f)
@@ -1101,6 +1288,14 @@ void SetViewMode(AppState& app, ViewMode mode)
         app.gridIconSize = 64.0f;
     else if (mode == ViewMode::Tiles)
         app.gridIconSize = 128.0f;
+
+    // Il modo scelto resta **dove lo si e' scelto**: quello della Home non e' quello
+    // delle cartelle, e uscendo dalla Home si ritrova il proprio (vedi
+    // `LoadDirectory`).
+    if (IsHome(app.directory))
+        app.homeViewMode = mode;
+    else
+        app.viewModeOutsideHome = mode;
 }
 
 // --- le voci: la domanda "dove sta", in un posto solo -----------------------
@@ -1124,6 +1319,17 @@ const ShellIconAtlas::IconUV* IconFor(AppState& app, const Entry& entry)
     if (entry.volumeRoot)
     {
         if (const ShellIconAtlas::IconUV* uv = app.icons.GetForObject(entry.location))
+            return uv;
+    }
+    // Una riga della Home chiede l'icona all'**oggetto** della shell, come fa la barra
+    // laterale: e' l'unica domanda che sa che `C:\Users\x\Documents` e' "Documenti" e
+    // non una cartella gialla. `GetForPath` — che e' quello che serve a una lista di
+    // migliaia di file — chiede l'icona per **attributi**, senza toccare il disco, e
+    // una cartella nota per lui e' una cartella. Le righe della Home sono poche e la
+    // risposta si tiene nell'atlante: si paga la prima volta.
+    if (entry.band >= 0)
+    {
+        if (const ShellIconAtlas::IconUV* uv = app.icons.GetForObject(EntryLocation(app, entry)))
             return uv;
     }
     // Una voce che porta il suo percorso e viene dallo spazio dei nomi — "Questo PC"
@@ -1259,26 +1465,40 @@ void DrawHeader(AppState& app, const Layout& layout, float* columnX)
     // numbers are still moving, and that is worth saying out loud.
     const float pulse = 0.25f + 0.75f * static_cast<float>(std::fabs(std::sin(app.lastFrameTime * 3.0)));
 
+    float edges[kColumnCount + 1] = {};
+    ColumnEdges(app, edges);
+
     for (int i = 0; i < kColumnCount; ++i)
     {
-        const float x = layout.header.x + 10.0f * scale + layout.header.w * app.columns[i].fraction;
+        // Una colonna nascosta non ha intestazione, non ha bordo da trascinare e non
+        // ha un imbuto da cliccare: non esiste, e il suo spazio non c'e' (vedi
+        // `ColumnEdges`).
+        if (!ColumnVisible(app, i))
+            continue;
+
+        const float x = layout.header.x + 10.0f * scale + layout.header.w * edges[i];
         columnX[i] = x;
 
         const bool sorted = (app.sortColumn == kColumns[i].sort);
         std::string label = ColumnLabel(i);
-        if (sorted)
-            label += app.sortAscending ? " ^" : " v";
+        // La freccia dell'ordine si aggiunge **dopo** aver accorciato il nome: messa
+        // prima, `FitText` la tagliava per prima cosa e una colonna stretta ordinata
+        // non diceva in che verso — il verso si vedrebbe solo allargandola.
+        const std::string arrow = sorted ? (app.sortAscending ? " ^" : " v") : std::string();
 
         // Il titolo si accorcia se non ci sta. Con il carattere di partenza ci
         // stava per fortuna; con un carattere piu' largo scelto dalle opzioni (o
         // con una colonna stretta trascinata) i titoli si sovrapponevano, e un
         // titolo sopra un altro e' peggio di un titolo troncato.
         const float nextX = layout.header.x + 10.0f * scale + layout.header.w *
-                            (i + 1 < kColumnCount ? app.columns[static_cast<size_t>(i) + 1].fraction
-                                                  : 1.0f);
+                            (i + 1 < kColumnCount ? edges[i + 1] : 1.0f);
         const float room = nextX - x - (kColumns[i].filterable ? 26.0f * scale : 8.0f * scale);
         if (room > 10.0f * scale)
-            label = FitText(app.smallFont, label, scale, room);
+        {
+            const float arrowRoom = app.smallFont.Measure(arrow, scale);
+            label = FitText(app.smallFont, label, scale, (std::max)(1.0f, room - arrowRoom)) +
+                    arrow;
+        }
 
         app.smallFont.Draw(r, x, TextY(layout, layout.header, app.smallFont), label,
                       sorted ? t.text : t.textDim, scale);
@@ -1292,8 +1512,8 @@ void DrawHeader(AppState& app, const Layout& layout, float* columnX)
         }
 
         const float width = (i < kColumnCount - 1)
-            ? layout.header.w * (app.columns[i + 1].fraction - app.columns[i].fraction)
-            : layout.header.w * (1.0f - app.columns[i].fraction);
+            ? layout.header.w * (edges[i + 1] - edges[i])
+            : layout.header.w * (1.0f - edges[i]);
         ClickTarget target;
         target.rect = Rect{x - 10.0f * scale, layout.header.y, width, layout.header.h};
         target.kind = ClickTarget::Kind::Column;
@@ -1306,7 +1526,7 @@ void DrawHeader(AppState& app, const Layout& layout, float* columnX)
         if (kColumns[i].filterable)
         {
             const float right = layout.header.x + layout.header.w *
-                                (i + 1 < kColumnCount ? app.columns[i + 1].fraction : 1.0f);
+                                (i + 1 < kColumnCount ? edges[i + 1] : 1.0f);
             const float glyphX = right - 16.0f * scale;
             const float glyphY = layout.header.y + layout.header.h * 0.5f;
             const bool  filtered = (i == 0) ? (!app.filter.empty() || app.filterActive)
@@ -1334,7 +1554,7 @@ void DrawHeader(AppState& app, const Layout& layout, float* columnX)
         // copre niente che non sia gia' una zona morta.
         if (i > 0)
         {
-            const float edge = layout.header.x + layout.header.w * app.columns[i].fraction;
+            const float edge = layout.header.x + layout.header.w * edges[i];
             ClickTarget grip;
             grip.rect = Rect{edge - 3.0f * scale, layout.header.y, 6.0f * scale,
                              layout.header.h};
@@ -1570,13 +1790,22 @@ void DrawList(AppState& app, const Layout& layout, const float* columnX)
         const float valueY = TextY(layout, row, app.smallFont);
         const std::wstring fullPath = EntryLocation(app, entry);
 
+        // Il bordo destro di una cella: quello della prossima colonna **visibile**. Non
+        // basta `columnX[column + 1]`, perche' una colonna nascosta non viene
+        // disegnata e la sua posizione non si calcola: leggendola si otteneva zero, e
+        // il testo della colonna prima veniva tagliato a niente (era il caso di "Data
+        // modifica" con le due date spente).
+        const auto rightOf = [&](int column) -> float
+        {
+            const int next = NextVisibleColumn(app, column);
+            return next < kColumnCount ? columnX[next] : layout.header.right();
+        };
+
         // Numeric columns are right aligned so the digits line up down the
         // column, and underlined while the number is still growing.
         const auto columnRight = [&](int column) -> float
         {
-            const float end = (column < kColumnCount - 1) ? columnX[column + 1]
-                                                          : layout.header.right();
-            return end - 8.0f * scale;
+            return rightOf(column) - 8.0f * scale;
         };
         const auto drawRight = [&](int column, const std::string& text, Color color, bool growing)
         {
@@ -1688,28 +1917,41 @@ void DrawList(AppState& app, const Layout& layout, const float* columnX)
             }
         }
 
-        const float typeMax = columnX[2] - columnX[1] - 12.0f * scale;
+        const float typeMax = rightOf(1) - columnX[1] - 12.0f * scale;
         app.smallFont.Draw(r, columnX[1], valueY,
                            FitText(app.smallFont, entry.typeText, scale, typeMax), t.textDim, scale);
         app.smallFont.Draw(r, columnX[2], valueY,
                            FitText(app.smallFont, entry.modifiedText, scale,
-                                   columnX[3] - columnX[2] - 12.0f * scale),
+                                   rightOf(2) - columnX[2] - 12.0f * scale),
                            t.textDim, scale);
-        app.smallFont.Draw(r, columnX[3], valueY,
-                           FitText(app.smallFont, ColumnValueOf(app, entry, 3), scale,
-                                   columnX[4] - columnX[3] - 12.0f * scale),
-                           t.textDim, scale);
-        app.smallFont.Draw(r, columnX[4], valueY,
-                           FitText(app.smallFont, ColumnValueOf(app, entry, 4), scale,
-                                   columnX[5] - columnX[4] - 12.0f * scale),
-                           t.textDim, scale);
+        // Le due date che si possono spegnere: quando la colonna non c'e' non si
+        // formatta nemmeno il valore, che per una data e' lavoro vero.
+        for (int dateColumn : {3, 4})
+        {
+            if (!ColumnVisible(app, dateColumn))
+                continue;
+            const float room = rightOf(dateColumn) - columnX[dateColumn] - 12.0f * scale;
+            app.smallFont.Draw(r, columnX[dateColumn], valueY,
+                               FitText(app.smallFont, ColumnValueOf(app, entry, dateColumn), scale,
+                                       room),
+                               t.textDim, scale);
+        }
 
         // Files answer immediately; folders are answered by the statistics
         // service, which fills them in progressively. Requesting here means only
         // rows that are actually on screen get counted.
         // Sopra una cartella che non e' un percorso non c'e' niente da contare: le
         // statistiche ricorsive camminano il file system, e li' non ce n'e' uno.
-        if (entry.isDirectory && entry.location.empty())
+        //
+        // Le righe della Home hanno un `location` (il percorso vero della
+        // destinazione) ma sono cartelle come le altre: senza chiederle, la Home
+        // mostrava `--` in tutte e quattro le colonne dei numeri. Non si contano le
+        // destinazioni di spazio dei nomi — "Questo PC" e il cestino — perche' li'
+        // non c'e' un albero da camminare.
+        const bool countable = entry.isDirectory &&
+                               (entry.location.empty() || entry.band >= 0) &&
+                               !ShellLocation::IsNamespace(fullPath);
+        if (countable)
         {
             app.stats.Request(fullPath);
 

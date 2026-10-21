@@ -208,7 +208,7 @@ skill in chat — `/graphify`, o `/graphify --update` per documenti e immagini.
 
 ### Perché
 
-- `src/main.cpp` è **4.821 righe** (misurate il 2026-10-21, dopo Home, aggiornamenti e icone): scesa da 11.394 a **7.344** con lo spezzamento,
+- `src/main.cpp` è **4.914 righe** (misurate il 2026-10-21, dopo Home, aggiornamenti e icone): scesa da 11.394 a **7.344** con lo spezzamento,
   **risalita** a 7.895 con l'editor della mappa dei tasti e il fissaggio, e scese di
   **3.079** con il pannello delle opzioni, i verbi della shell, il menu contestuale, le impostazioni e la navigazione — la curva di un
   file unico che accoglie ogni funzione nuova. Gli ultimi pezzi usciti sono
@@ -363,9 +363,15 @@ Le release si pubblicano con **`gh`** (installato in `C:\Program Files\GitHub CL
 autenticato come `gianmarcotaf02`): `gh release create v<versione> --repo
 gianmarcotaf02/bolt <setup> <zip> SHA256SUMS`. La release **deve** avere il setup e
 `SHA256SUMS`: e' quello che legge `Controlla aggiornamenti` (`src/update.*`, `docs/04`
-M13). Le release **v0.1.0**, **v0.1.1**, **v0.1.2** e **v0.1.3** sono pubblicate; la
+M13). Le release **v0.1.0**, **v0.1.1**, **v0.1.2**, **v0.1.3**, **v0.1.4**, **v0.1.5** e
+**v0.1.6**, **v0.1.7**, **v0.1.8**, **v0.1.9**, **v0.1.10**, **v0.1.11**, **v0.1.12**, **v0.1.13**, **v0.1.14**, **v0.1.15** e **v0.1.16** sono pubblicate;
+la
 0.1.1 e' la stessa base della 0.1.0 e serve alla prova dell'aggiornamento, la 0.1.2 porta
-la correzione di `docs/02` §7.64, la 0.1.3 quella di §7.65.
+la correzione di `docs/02` §7.64, la 0.1.3 quella di §7.65, la 0.1.4 quelle di §7.66 e
+§7.67, la 0.1.5 quelle di §7.68, la 0.1.6 quelle di §7.69, §7.70 e §7.71, la 0.1.7 quella di §7.72, la 0.1.8 quella di §7.73, la 0.1.9 quella di §7.74, la 0.1.10 le colonne che si adattano
+(`docs/04` M5b), la 0.1.11 quella di §7.75, la 0.1.12 il setup che aspetta la chiusura, la 0.1.13 quella di §7.76, la 0.1.14 il rettangolo che seleziona
+mentre si trascina (`docs/04` M5d), la 0.1.15 l'assenza di preselezione (`docs/04` M5), la 0.1.16 il menu
+dell'applicazione (`docs/04` M6).
 
 `tools/verify-installer.ps1` installa il pacchetto **davvero**, con `/VERYSILENT`, in
 `analysis/tmp/install-prova`: controlla file, collegamento, voce di registro, avvia il Bolt
@@ -380,7 +386,9 @@ toglie in `finally`, anche quando un controllo fallisce.
 Un pacchetto si prova **da una cartella in cui la sorgente non c'e'**: `docs/02` §7.63 e' il
 difetto che si e' visto il primo giorno che non si e' fatto cosi'.
 **Trascinare** (dentro e fuori): `tools/drag-mouse.ps1` preme, muove a passi,
-**fotografa a metà gesto** e rilascia; `tools/window-rect.ps1` dice dove sta la
+**fotografa a metà gesto** e rilascia (`-Ctrl` tiene premuto il modificatore per tutto il
+gesto: un rettangolo di selezione con `Ctrl` si **somma** alla selezione, e non e' la
+stessa cosa senza); `tools/window-rect.ps1` dice dove sta la
 finestra adesso (`CW_USEDEFAULT` la sposta a ogni avvio, e le coordinate cliente
 non si indovinano); `tools/capture-rect.ps1` salva un riquadro senza toccare
 l'ordine delle finestre; `tools/explorer-side.ps1` apre Esplora risorse su una
@@ -445,6 +453,11 @@ Costano tempo, sembrano bug dell'applicazione e non lo sono. Vedi anche §5 di
   intermittente servono campioni grandi, e per trovarne la causa una **pila** (un
   debugger, AddressSanitizer); se sotto lo strumento non si riproduce, si dichiara
   coi numeri che si hanno.
+- **Un pulsante nuovo nella barra del titolo non riceve i clic finché non è nell'elenco di
+  `WM_NCHITTEST`.** La striscia si dichiara `HTCAPTION` — è la maniglia che sposta la
+  finestra — tranne per i bersagli elencati lì dentro: un pulsante disegnato e registrato
+  in `clickTargets` ma non elencato si vede, si sovrappassa, e il clic non arriva mai.
+  Successo il 2026-10-21 al pulsante della barra laterale.
 - **Un'applicazione che sembra congelata può essere dentro un ciclo di messaggi
   modale.** Due catture identiche a distanza di secondi distinguono "fermo" da
   "lento"; `SendMessageTimeout` dice se risponde, ma **non** se sta lavorando.
@@ -721,7 +734,7 @@ percorso invece **resta** un carattere: e' punteggiatura dentro una riga di test
 
 | file | responsabilità |
 |---|---|
-| `src/main.cpp` | finestra Win32, navigazione, layout, input, disegno; sceglie e possiede il backend (`BOLT_BACKEND`, fallback). **Lo spezzamento è in corso: 4.821 righe, erano 11.394** (scesa a 7.344, risalita a 7.895, scesa di 3.079 il 2026-10-18: vedi §2-bis e `docs/05` §2) |
+| `src/main.cpp` | finestra Win32, navigazione, layout, input, disegno; sceglie e possiede il backend (`BOLT_BACKEND`, fallback). **Lo spezzamento è in corso: 4.914 righe, erano 11.394** (scesa a 7.344, risalita a 7.895, scesa di 3.079 il 2026-10-18: vedi §2-bis e `docs/05` §2) |
 | `src/theme.*` | i **ruoli di colore** che l'interfaccia legge e le **due tavolozze** (chiara e scura), piu' la preferenza del sistema (`AppsUseLightTheme`). I 35 token dello spec che hanno un lettore stanno qui; quelli che non ce l'hanno sono elencati in `theme.h`, invece di essere campi scritti e mai letti |
 | `src/app_state.h` | lo stato della finestra e i tipi che piu' moduli condividono: il **confine** che prima non esisteva (`docs/05` §2) |
 | `src/app_ui.*` | i supporti che piu' di un modulo usa: UTF-8/UTF-16, nomi di percorso, numeri in lettere, date, `FitText`, `NowSeconds` |
@@ -771,7 +784,7 @@ percorso invece **resta** un carattere: e' punteggiatura dentro una riga di test
 
 - `docs/04-roadmap.md` — le milestone, con le caselle spuntate e i difetti aperti.
 - `docs/05-stato-e-prossimi-passi.md` — dove si è arrivati, cosa resta, le trappole.
-- `docs/02-architettura-ricostruita.md` — l'architettura e le **sessantadue** voci
+- `docs/02-architettura-ricostruita.md` — l'architettura e le **settantasei** voci
   del registro dei difetti, §7: trovate guardando l'applicazione, con sintomo, causa e
   correzione (tre sono aperte e lo dicono nel titolo).
 - `docs/03-spec-funzionale.md` — la spec ricostruita dall'originale: 1124 chiavi,
@@ -802,7 +815,7 @@ percorso invece **resta** un carattere: e' punteggiatura dentro una riga di test
   mani»: una query costa poco, una lettura costa migliaia di token che restano nel
   contesto per tutta la sessione. Vedi §2-bis.
 - **Non aprire nuove sessioni di refactoring largo** senza spazio per riverificare
-  tutto: `main.cpp` a 4.821 righe è un problema noto e in corso di soluzione, non una scoperta.
+  tutto: `main.cpp` a 4.914 righe è un problema noto e in corso di soluzione, non una scoperta.
 
 ---
 

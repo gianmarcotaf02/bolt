@@ -50,6 +50,21 @@ enum class Action
     DeleteForever,  // definitiva: non si annulla
 };
 
+// Una richiesta di operazione, **prima** che diventi un `Job`.
+//
+// Esiste per una ragione sola: una richiesta puo' aspettare il suo turno. Chi la
+// prepara non deve avviare un thread che poi magari non parte — la coda serve a
+// questo, e un filo che misura byte per un'operazione che non comincera' e' lavoro
+// sprecato che nessuno vede.
+struct Request
+{
+    Action                    action = Action::Copy;
+    std::vector<std::wstring> sources;
+    std::wstring              destination;   // vuota per il cestino
+
+    bool empty() const { return sources.empty(); }
+};
+
 // Quello che si sa dell'operazione mentre sta girando.
 //
 // E' una **copia**: il thread di lavoro la scrive nello stesso momento, e chi
@@ -129,6 +144,11 @@ private:
 
     std::shared_ptr<FileOpsDetail::JobState> state_;
 };
+
+// Avvia |request| su un thread di lavoro. E' l'unico posto che sceglie fra
+// `StartTransfer` e `StartDelete`, cosi' chi tiene la coda non deve sapere che due
+// funzioni diverse esistono.
+std::unique_ptr<Job> Start(HWND owner, const Request& request);
 
 // Rinomina |path| in |newName|. |newName| e' il solo nome, non un percorso.
 Result Rename(HWND owner, const std::wstring& path, const std::wstring& newName,

@@ -166,6 +166,9 @@ void LoadDirectory(AppState& app, const std::wstring& directory, bool recordHist
     // del filtro, che sta sotto gli occhi ed e' una cosa che l'utente ha scritto.
     const bool sameFolder = (normalised == app.directory);
     const bool home = IsHome(normalised);
+    // Da quale delle due sponde si arriva: la Home ha un modo di visualizzazione suo,
+    // e le cartelle hanno il loro (`docs/04` M12).
+    const bool comingFromHome = IsHome(app.directory);
 
     // La Home non si legge dal disco e non e' una cartella: le sue righe sono le
     // destinazioni che conosciamo (fissaggi, recenti, cartelle note). Rifarle qui
@@ -190,7 +193,17 @@ void LoadDirectory(AppState& app, const std::wstring& directory, bool recordHist
         // layout lascia quello che si sta usando, invece di riportare tutto a
         // "dettagli" — il salvataggio e' esplicito, quindi chi non l'ha chiesto non
         // se lo trova.
-        ApplyFolderLayout(app);
+        const bool layoutApplied = ApplyFolderLayout(app);
+
+        // La **Home nasce a griglia** (icona e nome, non una tabella di colonne), ma
+        // solo se quella cartella non ha un layout suo: chi ha salvato una vista per la
+        // Home ha scelto, e la scelta vince sul valore di partenza. Uscendo dalla Home si
+        // ritrova il modo delle cartelle, che nel frattempo e' rimasto suo.
+        if (home && !comingFromHome && !layoutApplied)
+            app.viewMode = app.homeViewMode;
+        else if (!home && comingFromHome && !layoutApplied)
+            app.viewMode = app.viewModeOutsideHome;
+        app.viewDirty = true;
 
         app.filter.clear();
         app.filterActive = false;
@@ -215,12 +228,16 @@ void LoadDirectory(AppState& app, const std::wstring& directory, bool recordHist
     app.hoverStart = NowSeconds();
 
     SortEntries(app);
-    if (!app.entries.empty())
-    {
-        app.cursor = app.entries.front().wideName;
-        app.selection.insert(app.cursor);
-        app.selectionAnchor = app.cursor;
-    }
+
+    // Le colonne si adattano al contenuto della cartella che si e' appena letta, finche'
+    // non si e' scelta una larghezza a mano: "adatta" e' il valore di partenza.
+    if (app.autoFitColumns)
+        FitColumns(app);
+
+    // Entrando in una cartella **non c'e' niente di scelto**: prima la prima riga si
+    // selezionava da sola, e un `Canc` appena arrivati cancellava un file che nessuno
+    // aveva scelto. Il cursore si posa al primo tasto di movimento (`MoveSelection`
+    // parte dalla prima riga quando non ce l'ha), e il primo clic sceglie.
     app.viewDirty = true;
 
     if (recordHistory)
@@ -523,6 +540,15 @@ void NavigateForward(AppState& app)
 void ReloadKeeping(AppState& app, const std::unordered_set<std::wstring>& keep,
                    const std::wstring& preferCursor, float restoreScroll)
 {
+    // Le due cose da ritrovare si copiano **prima** di ricaricare, e non e' una
+    // precauzione: chi chiama passa quasi sempre `app.selection` e `app.cursor`, cioe'
+    // esattamente i campi che `LoadDirectory` azzera. Per riferimento, qui dentro
+    // restava il vuoto appena fatto: la selezione tornava alla prima riga a ogni
+    // cambiamento della cartella, e nessuno se ne accorgeva finche' non si lavorava
+    // **durante** un'operazione (`docs/02` §7.70).
+    const std::unordered_set<std::wstring> keepNames = keep;
+    const std::wstring prefer = preferCursor;
+
     LoadDirectory(app, app.directory, /*recordHistory=*/false);
 
     const auto present = [&](const std::wstring& name) {
@@ -534,15 +560,15 @@ void ReloadKeeping(AppState& app, const std::unordered_set<std::wstring>& keep,
 
     app.selection.clear();
     for (const Entry& entry : app.entries)
-        if (keep.count(entry.wideName) != 0)
+        if (keepNames.count(entry.wideName) != 0)
             app.selection.insert(entry.wideName);
 
-    if (!preferCursor.empty() && present(preferCursor))
+    if (!prefer.empty() && present(prefer))
     {
-        app.cursor = preferCursor;
+        app.cursor = prefer;
         if (app.selection.empty())
-            app.selection.insert(preferCursor);
-        app.selectionAnchor = preferCursor;
+            app.selection.insert(prefer);
+        app.selectionAnchor = prefer;
     }
     else
     {

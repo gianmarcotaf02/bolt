@@ -248,7 +248,10 @@ void DirStatsService::Impl::WorkerLoop(int laneIndex)
         {
             std::unique_lock<std::mutex> lock(lane.mutex);
             lane.cv.wait(lock, [this, &lane] { return stopping.load() || !lane.queue.empty(); });
-            if (stopping.load() && lane.queue.empty())
+            // Chiudendo, la coda si **abbandona**: aspettare che si svuoti vuol dire
+            // finire di contare la cartella personale prima di uscire — venti secondi
+            // misurati — e chi ha chiesto di chiudere non lo ha chiesto per quello.
+            if (stopping.load())
                 break;
             job = std::move(lane.queue.front());
             lane.queue.pop_front();
@@ -477,8 +480,17 @@ void DirStatsService::Start()
 void DirStatsService::Stop()
 {
     impl_->stopping = true;
+    // Le code si svuotano qui, sotto il lucchetto di ogni corsia: cosi' i worker che
+    // stanno per svegliarsi non trovano altro lavoro da annunciare, e il conteggio a
+    // meta' non riparte.
     for (auto& lane : impl_->lanes)
+    {
+        {
+            std::lock_guard<std::mutex> lock(lane.mutex);
+            lane.queue.clear();
+        }
         lane.cv.notify_all();
+    }
 
     for (auto& lane : impl_->lanes)
     {

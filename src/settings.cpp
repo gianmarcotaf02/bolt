@@ -103,8 +103,10 @@ void LoadSettings(AppState& app)
         app.fontFace = Widen(value);
     // La pagina di avvio. **Una cartella**, e solo quella: e' la preferenza che chi
     // usa il programma ha scelto, non un elenco di dove e' stato (`docs/06`).
+    // Il file e' testo che si puo' scrivere a mano, quindi la barra in avanti capita:
+    // si normalizza qui, dove entra, e non in ogni punto che poi la usa.
     if (ReadSetting(text, "startupFolder", &value))
-        app.startupFolder = Widen(value);
+        app.startupFolder = NormalizePath(Widen(value));
 
     if (ReadSetting(text, "monoFace", &value) && !value.empty())
         app.monoFace = Widen(value);
@@ -117,6 +119,10 @@ void LoadSettings(AppState& app)
     readFlag("showTooltips", &app.showTooltips);
     readFlag("showRecents", &app.showRecents);
     readFlag("showFileExtension", &app.showFileExtension);
+    // Le due colonne delle date: spente se il file non ne parla, che e' il valore di
+    // partenza anche per un'installazione nuova.
+    readFlag("showCreatedDate", &app.showCreatedDate);
+    readFlag("showAccessedDate", &app.showAccessedDate);
     readFlag("compactPaths", &app.compactPaths);
     readFlag("roundCorners", &app.roundCorners);
     readFlag("animations", &app.animations);
@@ -208,6 +214,8 @@ bool SaveSettings(const AppState& app)
     writeFlag("showTooltips", app.showTooltips);
     writeFlag("showRecents", app.showRecents);
     writeFlag("showFileExtension", app.showFileExtension);
+    writeFlag("showCreatedDate", app.showCreatedDate);
+    writeFlag("showAccessedDate", app.showAccessedDate);
     writeFlag("compactPaths", app.compactPaths);
     writeFlag("roundCorners", app.roundCorners);
     writeFlag("animations", app.animations);

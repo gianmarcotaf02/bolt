@@ -50,6 +50,10 @@ void BuildGoToMenu(AppState& app);
 
 // Il menu dei fissaggi.
 void BuildPinMenu(AppState& app, bool removing);
+
+// Il menu dell'applicazione, dietro il pulsante ☰: e' una **superficie**, e come le
+// altre sta qui finche' non ha un modulo suo (`view_app_menu.*`).
+void BuildAppMenu(AppState& app, float x, float y);
 void ClosePinMenu(AppState& app);
 
 // La geometria della finestra: barre, lista, ispettore. Una sola funzione decide, e
@@ -63,9 +67,15 @@ void OpenPropertiesPanel(AppState& app);
 void ToggleBookmark(AppState& app);
 
 // Un'operazione lunga si avvia sempre da qui: cosi' la sorgente e l'ora non si
-// possono dimenticare in uno dei posti che la chiamano, e una seconda operazione
-// mentre la prima gira viene rifiutata invece di sostituirla.
-bool BeginOperation(AppState& app, std::unique_ptr<FileOps::Job> job, OperationSource source);
+// possono dimenticare in uno dei posti che la chiamano. Accettata vuol dire **sara'
+// fatta**: se ce n'e' gia' una in corso la richiesta va in coda, e parte quando quella
+// finisce.
+bool BeginOperation(AppState& app, FileOps::Request request, OperationSource source);
+
+// Fa avanzare la coda: chiamata quando l'operazione in corso ha finito. Sta qui
+// accanto a `BeginOperation` perche' e' l'altra meta' della stessa regola — una
+// richiesta accettata e' una richiesta che parte.
+void StartNextOperation(AppState& app);
 
 // Il controllo degli aggiornamenti. Il lavoro di rete e le impronte stanno in
 // `update.*`; qui resta il comando che lo fa partire, e l'esito che si legge quando

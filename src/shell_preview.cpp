@@ -453,10 +453,17 @@ ShellPreviewCache::State ShellPreviewCache::QueryIcon(const std::string& extensi
     // La chiave nomina il **tipo**, non il file: e il prefisso la tiene separata dai
     // percorsi delle miniature, cosi' un'icona e una miniatura non si sfrattano a
     // vicenda per un nome che si assomiglia.
+    //
+    // Per una **cartella** il tipo non basta, e non e' un dettaglio: "Questo PC", il
+    // cestino e una cartella qualunque sono tutte `<dir>`, e con quella chiave la prima
+    // icona risolta finiva su tutte — la Home a griglia aveva sette destinazioni
+    // disegnate col cestino. Per una cartella la chiave e' il percorso: le cartelle che
+    // una vista mostra sono quelle sullo schermo, non migliaia.
     std::wstring key = L"icon:";
     if (isDirectory)
     {
-        key += L"<dir>";
+        key += L"<dir>:";
+        key += path;
     }
     else
     {

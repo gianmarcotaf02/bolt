@@ -144,7 +144,12 @@ float ContextMenuWidth(const AppState& app, const Layout& layout, int depth)
     for (int i = 0; i < total; ++i)
     {
         const ContextMenuItem* item = LevelItem(app.contextMenu, depth, i);
-        widest = (std::max)(widest, app.font.Measure(item->label, scale));
+        // L'etichetta piu' la sua scorciatoia, con lo spazio che le separa: il pannello
+        // deve entrarci, o la scorciatoia finisce sopra il nome.
+        float rowWidth = app.font.Measure(item->label, scale);
+        if (!item->shortcut.empty())
+            rowWidth += 28.0f * scale + app.smallFont.Measure(item->shortcut, scale);
+        widest = (std::max)(widest, rowWidth);
         if (HasSubmenu(*item))
             arrow = 18.0f * scale;   // lo spazio del segno di sottomenu
     }
@@ -601,12 +606,24 @@ void ContextMenuDrawLevel(AppState& app, const Layout& layout, int depth)
         app.font.Draw(r, labelX, TextY(layout, row, app.font), item->label,
                       item->disabled ? t.textDim : t.text, scale);
 
+        // La scorciatoia, a destra e nel carattere dei dettagli: e' la stessa cosa che
+        // fanno i menu di Windows, e serve a imparare i tasti senza aprire le opzioni.
+        float rightReserved = 14.0f * scale;
+        if (!item->shortcut.empty())
+        {
+            const float width = app.smallFont.Measure(item->shortcut, scale);
+            app.smallFont.Draw(r, row.right() - 12.0f * scale - width,
+                               TextY(layout, row, app.smallFont), item->shortcut,
+                               item->disabled ? t.textDim.WithAlpha(0.55f) : t.textDim, scale);
+            rightReserved += width + 12.0f * scale;
+        }
+
         // Il segno che la voce ne contiene altre. L'atlante dei glifi e' ASCII,
         // quindi e' un '>' e non una punta: si legge uguale, e non chiede un
         // carattere che l'atlante non ha.
         if (HasSubmenu(*item))
-            app.font.Draw(r, row.right() - 18.0f * scale, TextY(layout, row, app.font), ">",
-                          t.textDim, scale);
+            app.font.Draw(r, row.right() - rightReserved - 6.0f * scale,
+                          TextY(layout, row, app.font), ">", t.textDim, scale);
     }
 
     // La barra dice che sopra o sotto c'e' dell'altro: un menu che scorre senza

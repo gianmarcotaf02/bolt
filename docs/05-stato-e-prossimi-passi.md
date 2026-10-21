@@ -10,8 +10,8 @@ Incolla questa frase:
 
 > Riprendi Bolt. Leggi `docs/05` §1 e §3 (aggiornati il 2026-10-21) e `AGENTS.md` §0,
 > §2 e §2-bis. Lo stato vero: M1–M13 fatte (M2 e M7 restano 🟡 per una scelta e un
-> limite dichiarato, non per lavoro mancante), registro difetti `docs/02` §7 a **65 voci,
-> zero aperte**, versione **0.1.3** pubblicata e installata, `gh` autenticato. Non serve
+> limite dichiarato, non per lavoro mancante), registro difetti `docs/02` §7 a **74 voci,
+> zero aperte**, versione **0.1.16** pubblicata e installata, `gh` autenticato. Non serve
 > ricostruire niente. Non resta lavoro **funzionale**: le uniche due caselle di `docs/04`
 > sono una scelta gia' presa (icone monocromatiche: non si fa) e un limite dichiarato
 > (`ShellNew` con `Command`). Il debito e' in `docs/05` §2; i prossimi passi candidati
@@ -22,24 +22,108 @@ Incolla questa frase:
 > release con `tools/make-installer.ps1` + `gh release create` (setup, zip, `SHA256SUMS`),
 > e alla fine `docs/04`, `docs/05` e `graphify update .` dalla root.
 
-**Stato della macchina**: Bolt **0.1.3** installato in `%LOCALAPPDATA%\Programs\Bolt`
-(ci e' arrivato aggiornandosi da solo dalla 0.1.2); `gh` 2.102.0 in
+**Stato della macchina**: Bolt **0.1.16** installato in `%LOCALAPPDATA%\Programs\Bolt`
+(ci e' arrivato aggiornandosi da solo dalla 0.1.14); `gh` 2.102.0 in
 `C:\Program Files\GitHub CLI`, autenticato come `gianmarcotaf02`; release `v0.1.0`,
-`v0.1.1`, `v0.1.2`, `v0.1.3`; sandbox pronta in `analysis/tmp/sandbox` (26 file);
+`v0.1.1`, `v0.1.2`, `v0.1.3`, `v0.1.4`, `v0.1.5`, `v0.1.6`, `v0.1.7`, `v0.1.8`,
+`v0.1.9`, `v0.1.10`, `v0.1.11`, `v0.1.12`, `v0.1.13`, `v0.1.14`, `v0.1.15`; sandbox pronta in `analysis/tmp/sandbox`;
 `settings.ini` con `language=italian` e nessun `startupFolder`. `verify-installer.ps1`
 si rifiuta di partire finche' Bolt e' installato: prima si disinstalla.
 
 ---
 
-Ultimo aggiornamento: **2026-10-21**, dopo **la Home** (M12, `docs/04`): la pagina di
+Ultimo aggiornamento: **2026-10-21**, dopo **il menu dell'applicazione**: il pulsante ☰
+apre il menu del riferimento — `Vai a...`, `Comandi`, i due layout, `Opzioni`,
+`Controlla aggiornamenti` e la versione in fondo — e la barra laterale ha il suo pulsante
+accanto, col riquadro pieno quando si vede (`docs/04` M6). Pubblicata la **0.1.16**.
+
+Prima, nello stesso giorno, **niente piu' preselezione**: entrando in una
+sezione o in una cartella non c'e' niente di scelto — prima la prima riga si selezionava
+da sola, e un `Canc` appena arrivati cancellava un file che nessuno aveva scelto
+(`docs/04` M5). Pubblicata la **0.1.15**.
+
+Prima, nello stesso giorno, **il rettangolo che seleziona mentre si
+trascina**: le righe coperte si accendono subito, non al rilascio, e la selezione si rifa'
+a ogni movimento da una base — stringendo il rettangolo si deseleziona, e con `Ctrl` si
+somma (`docs/04` M5d). Il banco ha guadagnato `-Ctrl` in `tools/drag-mouse.ps1` per
+provarlo. Pubblicata la **0.1.14**.
+
+Prima, nello stesso giorno, **la Home a griglia**: la pagina di avvio si
+guarda a icone invece che a colonne, e il modo di visualizzazione vive **per cartella** —
+uscendo si ritrova quello delle cartelle, rientrando si ritrova la griglia (`docs/04`
+M12). Nel farlo e' saltato fuori `docs/02` §7.76: nella cache delle icone grandi la chiave
+di una cartella era il *tipo*, quindi tutte prendevano l'icona della prima — la Home
+mostrava nove volte il cestino. Pubblicata la **0.1.13**.
+
+Prima, nello stesso giorno, **la chiusura da venti secondi**: con le
+statistiche della Home in corso, `DirStatsService::Stop` aspettava che la coda si
+svuotasse — cioe' finiva di contare la cartella personale prima di uscire — e il setup di
+Inno, in silenzioso, rinunciava a sostituire l'eseguibile di un processo ancora vivo:
+l'aggiornamento in app si fermava senza dire niente (`docs/02` §7.75). Adesso chiudere
+vuol dire abbandonare la coda: **0,2 s** invece di 20 — e il setup adesso si avvia due
+secondi dopo che la finestra si e' chiusa, invece che mentre sta uscendo. Pubblicate la
+**0.1.11** e la **0.1.12**, e l'aggiornamento in app 0.1.11 -> 0.1.12 e' la prova che
+funziona.
+
+Prima, nello stesso giorno, **le colonne che si adattano**: la larghezza
+di partenza e' «adatta» — misurata sul contenuto della cartella aperta, col nome che
+prende quello che resta — e il trascinamento di un bordo passa alla scelta a mano, il
+doppio clic torna ad adattare (`docs/04` M5b). Pubblicata la **0.1.10**.
+
+Prima, nello stesso giorno, **la Home con le date e i numeri**: «Data
+modifica» era vuota in **tutte** le liste — una colonna nascosta non ha posizione, e la
+colonna prima prendeva da lei la sua larghezza (`columnX[i+1]` = 0) — e la Home non
+chiedeva ne' le date ne' le statistiche, quindi mostrava `--` in quattro colonne
+(`docs/02` §7.74). Adesso le righe della Home hanno data e dimensione chieste al percorso,
+e i conteggi si riempiono come in una cartella. Pubblicata la **0.1.9**.
+
+Prima, nello stesso giorno, **le icone della Home**: le righe della Home
+hanno le stesse icone della barra laterale — `Desktop`, `Documenti`, `Download`,
+`Immagini`, `Musica`, `Video` si disegnavano con la cartella gialla generica, perche' la
+lista chiedeva l'icona al **percorso** e la barra laterale all'**oggetto** della shell
+(`docs/02` §7.73). Pubblicata la **0.1.8**.
+
+Prima, nello stesso giorno, **le due colonne spente di partenza**: `Data
+creazione` e `Data accesso` non si vedono finche' non le si accende dalle opzioni —
+resta la data di **modifica** — e la colonna nascosta non occupa spazio (`docs/04` M5b).
+Nello stesso giro, §7.72: la freccia dell'ordine non si fa piu' mangiare dal taglio del
+nome. Pubblicata la **0.1.7**.
+
+Prima, nello stesso giorno, **il pannello non piu' modale e la coda delle
+operazioni**: durante una copia la finestra si usa come sempre — navigare, selezionare,
+copiare — e quello che si chiede nel frattempo va in coda e parte quando la precedente ha
+finito (`docs/02` §7.69). E' stata la decisione che mancava, presa e scritta li'. Nello
+stesso giro, due difetti che solo la finestra usabile rendeva visibili: la selezione che
+tornava alla prima riga a ogni cambiamento della cartella (§7.70, `ReloadKeeping` si
+passava i campi che stava per azzerare) e il conto delle voci che diceva «3001 di 3000»
+(§7.71). Pubblicata la **0.1.6**.
+
+Prima, nello stesso giorno, **il conto dei byte, le righe spente e il
+recente col nome giusto**:
+il pannello dell'operazione conta i byte delle voci finite invece di ricavarne una
+frazione dal tempo della shell (`docs/02` §7.66: al 90% dei byte veri diceva 23%),
+`GroupMenuItem::enabled` vale in **tutti** i menu — cursore, clic e `Invio`, non solo
+nel pannello delle opzioni (`docs/02` §7.67), cosi' il menu dei fissaggi non scrive piu' la
+ragione dentro il nome della voce, e un percorso con le barre in avanti non arriva piu'
+alle API che lo rifiutano: nella sezione `RECENTI` c'era una riga col percorso al posto
+del nome (`docs/02` §7.68). Pubblicate la **0.1.4** e la **0.1.5**, e l'installazione si e'
+aggiornata da sola dalla 0.1.3.
+**La coda delle operazioni su file c'e'**: il 2026-10-21 il pannello ha smesso di essere
+modale e le richieste che arrivano mentre una gira aspettano il loro turno (§7.69). La
+prima versione della coda era stata scritta e tolta poche ore prima, ed era la cosa
+giusta da fare: senza togliere la modalita' sarebbe stata irraggiungibile.
+
+---
+
+Prima, nello stesso giorno: **la Home** (M12, `docs/04`): la pagina di
 avvio e' una **posizione** (`bolt:home`) con tre bande — Fissaggi, Recenti, Cartelle note —
 e una riga `Home` in cima alla barra laterale; `startupFolder` vuota apre **lei**, e le
 operazioni su file si rifiutano con un messaggio. Prima, nello stesso giorno: il ritaglio
 per-quad, i comandi di File Pilot fuori dal menu contestuale, le date europee, le icone del
 menu, il pacchetto con Inno Setup e la pagina di avvio. Subito dopo la Home, **gli
 aggiornamenti in app** (M13, forma B): comando esplicito, `releases/latest`, SHA-256,
-rifiuto se non torna, setup in silenzioso — pubblicate `v0.1.0`, `v0.1.1`, `v0.1.2` e
-`v0.1.3`.
+rifiuto se non torna, setup in silenzioso — pubblicate `v0.1.0`, `v0.1.1`, `v0.1.2`,
+`v0.1.3` e `v0.1.4`.
 **Il 2026-10-21 sono chiusi §7.64 e §7.65**: una cartella aperta da `ACCESSO RAPIDO` non
 e' piu' una posizione codificata, l'ispettore torna alle nostre righe, il cestino si
 comporta come prima, i `.lnk` hanno l'icona della destinazione con la freccetta, e la Home
@@ -268,7 +352,7 @@ Ordinato per quanto morde.
    l'ordine di prima la caduta torna (6 su 120 avvii), togliendolo sparisce (0 su
    515). Resta dichiarata, e non riprodotta, una **seconda famiglia** di dump caduti
    dentro il nostro eseguibile (cinque, tutti prima del 2026-10-16): vedi la voce.
-1. **`src/main.cpp` e' a 4.821 righe** (misurate il 2026-10-21, dopo Home, aggiornamenti e icone; erano 4.348 quando e'
+1. **`src/main.cpp` e' a 4.914 righe** (misurate il 2026-10-21, dopo Home, aggiornamenti e icone; erano 4.348 quando e'
    uscito `src/commands.*`, e le due superfici dei giorni dopo ne hanno aggiunte un
    paio di centinaio), **ed erano 11.394** — scesa a 7.344 con lo
    spezzamento, risalita a 7.895 con l'editor dei tasti e il fissaggio, scesa di
@@ -358,22 +442,19 @@ Ordinato per quanto morde.
    secondo corpo vengono scalati, quindi il ricampionamento torna. Eliminarlo
    richiede una rasterizzazione a runtime per ogni dimensione: è un altro
    mestiere, non un difetto da correggere adesso.
-4. **Una sola operazione su file per volta, e il conto dei byte interpolato.** Il
-   dialogo di progressione non ha una **coda**: una seconda caduta mentre la prima
-   gira viene rifiutata — dichiarando `DROPEFFECT_NONE`, cosi' l'origine non cancella
-   niente — invece di essere messa in fila come fa Esplora risorse. E i byte mostrati
-   sono la frazione dei **punti** della shell moltiplicata per i byte che `Job` ha
-   misurato prima di partire: **esatti per un file solo**, interpolati su tante voci
-   piccole, perche' i punti sono proporzionali al tempo e non ai byte. Entrambi sono
-   scritti nel codice (`src/file_ops.cpp`) e misurati in `bolt-diag.log`.
-5. **Il componente dei menu non sa disegnare una riga spenta: lo sa solo il pannello
-   delle opzioni.** `GroupMenuItem::enabled` lo legge il ramo `richRows` e i tasti
-   delle opzioni; in un menu normale la riga spenta si disegna come le altre e si
-   **attiva** lo stesso. Oggi non e' un difetto visibile — nessun menu normale ha
-   righe spente — ma il fissaggio ci e' arrivato vicino: le due destinazioni che non
-   cambierebbero niente dicono la ragione **nel nome** (`Segnalibri (non e' fissata
-   qui)`) perche' il meccanismo non c'era. Il secondo utilizzatore e' arrivato: il
-   prossimo menu che ha bisogno di una riga spenta lo paga.
+4. **Le operazioni su file — chiuso il 2026-10-21** (`docs/02` §7.66, §7.69 e §7.71).
+   Il conto dei byte segue le voci finite invece della frazione dei punti (misurato:
+   *90% dei byte veri contro 23%*), i conteggi tornano, e c'e' la **coda**: il pannello
+   non e' piu' modale, quindi si naviga e si lavora mentre una copia gira e quello che
+   si chiede nel frattempo parte quando quella ha finito. La decisione — pannello
+   modale come Esplora risorse **no**, finestra che lascia lavorare **si'** — e' scritta
+   in §7.69 con le regole: clic e rotella sopra il pannello si fermano li', `Esc` e il
+   pulsante annullano e buttano via la coda, la vista si rifa' solo se si sta ancora
+   guardando la cartella da cui si e' partiti.
+5. **Il componente dei menu sa disegnare una riga spenta — chiuso il 2026-10-21**
+   (`docs/02` §7.67). `GroupMenuItem::enabled` lo leggeva solo il pannello delle
+   opzioni; adesso lo leggono tutte e tre le vie d'ingresso (cursore, clic, `Invio`) e
+   il fissaggio non scrive piu' la ragione dentro il nome della voce.
 
 ---
 
@@ -381,7 +462,7 @@ Ordinato per quanto morde.
 
 **Tre numeri, che sono tre cose diverse e non vanno confusi.**
 
-- **Sessantacinque** voci nel registro `docs/02` §7, una per una con sintomo, causa e
+- **Sessantotto** voci nel registro `docs/02` §7, una per una con sintomo, causa e
   correzione: **tutte chiuse, nessuna aperta**. È un cumulativo, non una lista di lavoro.
 - **Due** caselle aperte in tutto `docs/04`: la resa monocromatica delle icone (scelta
   gia' presa: non si fa) e i modelli `ShellNew` con valore `Command` (limite
@@ -429,21 +510,15 @@ di quanto mordono:
 1. **Spezzare l'input di `main.cpp`** (`input_keys.*`, `input_mouse.*`). La decisione e'
    gia' scritta in §2: prima le superfici (fatte), poi i `case` di `WindowProc`; adesso
    `WM_KEYDOWN` e i messaggi del mouse non hanno piu' niente da trascinarsi dietro.
-   `main.cpp` e' a **4.821** righe.
-2. **Una coda per le operazioni su file**, invece di rifiutare la seconda mentre la prima
-   gira (oggi dichiara `DROPEFFECT_NONE`), e un **denominatore misurato** per i byte
-   invece della frazione dei punti della shell. Sta in `src/file_ops.*`; il conto e' gia'
-   nel registro (`bolt-diag.log`).
-3. **Le 14 colonne che mancano delle 23** (`docs/03`): in buona parte `Empty1..4`,
+   `main.cpp` e' a **4.914** righe.
+2. **Le 14 colonne che mancano delle 23** (`docs/03`): in buona parte `Empty1..4`,
    `VolumeUsage`/`FolderUsage`/`PercentFull` e le due del cestino. E' una coda ordinabile,
    non un blocco.
-4. **Un tetto all'atlante delle icone**: un `.lnk` costa una cella e non c'e' sfratto
+3. **Un tetto all'atlante delle icone**: un `.lnk` costa una cella e non c'e' sfratto
    (`docs/02` §7.65). Con molte cartelle piene di collegamenti si puo' riempire.
-5. **Lo zoom ricampiona il testo** (§2): richiede una rasterizzazione a runtime per ogni
+4. **Lo zoom ricampiona il testo** (§2): richiede una rasterizzazione a runtime per ogni
    misura, e' un altro mestiere.
-6. **Il componente dei menu non sa disegnare una riga spenta** (§2): oggi nessun menu
-   normale ne ha bisogno, ma il secondo utilizzatore lo pagherebbe.
-7. **Non sono lavoro da fare, sono scelte**: icone monocromatiche (deciso: no), `ShellNew`
+5. **Non sono lavoro da fare, sono scelte**: icone monocromatiche (deciso: no), `ShellNew`
    con `Command` (limite dichiarato), fissaggi e recenti su disco (vietato da `docs/06`).
 
 Se invece si vuole una funzione **nuova**, non e' nello spec: va decisa prima con l'autore,
@@ -624,18 +699,20 @@ file cancellato, release senza impronte) e il messaggio di versione uguale. La 0
 la stessa base della 0.1.0, e lo dicono le sue note: esiste per questa prova.
 
 Il 2026-10-21 la stessa strada ha portato la **0.1.2** (la correzione di `docs/02` §7.64)
-e poi la **0.1.3** (§7.65: icone dei `.lnk`, nomi della Home, casa di Esplora risorse)
+e poi la **0.1.3** (§7.65: icone dei `.lnk`, nomi della Home, casa di Esplora risorse),
+la **0.1.4** (§7.66 e §7.67: il conto dei byte e le righe spente) e la **0.1.5** (§7.68:
+il percorso con le barre in avanti)
 sull'installazione: ogni volta `Controlla aggiornamenti` → download, impronta, setup in
 silenzioso → «App e funzionalita'» dice la versione nuova. Il caso riuscito e' stato visto
-**tre volte**, con tre release diverse.
+**cinque volte**, con cinque release diverse.
 
-**Stato della macchina, da sapere prima di lanciare le prove.** Bolt **0.1.3 e' installato**
+**Stato della macchina, da sapere prima di lanciare le prove.** Bolt **0.1.5 e' installato**
 davvero (`%LOCALAPPDATA%\Programs\Bolt`, collegamento nel menu Start, voce in «App e
-funzionalita'»), e ci e' arrivato **aggiornandosi da solo** dalla 0.1.0 durante la prova di
+funzionalita'»), e ci e' arrivato **aggiornandosi da solo** dalla 0.1.4 durante la prova di
 M13. `tools/verify-installer.ps1` **si rifiuta di partire** se trova un'installazione:
 prima si disinstalla (App e funzionalita' -> Bolt), poi si prova. Se il codice cambia, il
 setup va ricostruito (`tools/make-installer.ps1`) e reinstallato: l'installato resta la
-0.1.3 finche' non lo si sostituisce. `gh` e' installato (`C:\Program Files\GitHub CLI`),
+0.1.5 finche' non lo si sostituisce. `gh` e' installato (`C:\Program Files\GitHub CLI`),
 autenticato come `gianmarcotaf02`.
 
 ### La decisione presa il 2026-10-20: il ritaglio per-quad
@@ -883,6 +960,16 @@ riga per riga. Il diff ha trovato anche un secondo errore — `scale * 0.5f` in 
 centraggio scambiato per una scala di carattere — che nessun test visivo avrebbe
 attribuito alla causa giusta.
 
+**Un pulsante nuovo nella barra del titolo non riceve i clic finché non è nell'elenco di
+`WM_NCHITTEST`.** La striscia del titolo si dichiara `HTCAPTION` — è la maniglia che
+sposta la finestra, e porta con sé il doppio clic che massimizza — **tranne** per i
+bersagli elencati lì dentro. Un pulsante disegnato e registrato in `clickTargets` ma non
+elencato si vede, si sovrappassa, e il clic non arriva mai: Windows lo prende per un
+trascinamento della finestra. È successo il 2026-10-21 al pulsante della barra laterale,
+e il sintomo era «il pulsante non fa niente», senza nessun errore da nessuna parte. La
+domanda giusta, davanti a un bersaglio muto, è **dove finisce il clic**, non se il
+disegno è giusto.
+
 **Un'applicazione che sembra congelata può essere dentro un ciclo modale.** Due
 catture identiche a distanza di secondi distinguono "fermo" da "lento"; una
 `SendMessageTimeout` dice se risponde, ma **non** se sta lavorando. Quando l'app
@@ -940,6 +1027,8 @@ modo di accorgersene è scrivere un nome come lo scriverebbe una persona.
 continuo: la sua evidenza visiva — la destinazione tratteggiata — esiste solo
 mentre il tasto è ancora giù, e tenerlo premuto fra due script non si può.
 `tools/drag-mouse.ps1` preme, muove a passi, **fotografa**, e solo allora rilascia.
+Con `-Ctrl` tiene premuto il modificatore per tutto il gesto: serve al rettangolo di
+selezione additivo, che senza `Ctrl` sostituisce la selezione e con `Ctrl` la somma.
 E due finestre si misurano prima di premerci sopra: `CW_USEDEFAULT` sposta la
 finestra a ogni avvio, e la prima volta ho trascinato verso un punto che nel
 frattempo era diventato un altro.

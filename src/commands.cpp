@@ -205,10 +205,14 @@ void DoPaste(AppState& app)
             (cut ? "tagliati" : "copiati") + ", in " + ToUtf8(LeafName(app.directory)));
 
     // L'operazione adesso e' lunga: si avvia sul suo thread e l'esito si raccoglie
-    // quando finisce, in `FinishOperation`. Qui si dice solo che e' partita.
-    BeginOperation(app,
-                   FileOps::Job::StartTransfer(app.window, paths, app.directory, cut),
-                   OperationSource::Command);
+    // quando finisce, in `FinishOperation`. Qui si dice solo che e' partita — o che e'
+    // in coda dietro un'altra, che dal punto di vista di chi ha premuto e' lo stesso:
+    // sara' fatta.
+    FileOps::Request request;
+    request.action      = cut ? FileOps::Action::Move : FileOps::Action::Copy;
+    request.sources     = std::move(paths);
+    request.destination = app.directory;
+    BeginOperation(app, std::move(request), OperationSource::Command);
 }
 
 void DoDelete(AppState& app, bool permanently)
@@ -221,9 +225,12 @@ void DoDelete(AppState& app, bool permanently)
         return;
 
     // Anche l'eliminazione e' lunga — un albero di cartelle intero — e passa dallo
-    // stesso pannello della copia.
-    BeginOperation(app, FileOps::Job::StartDelete(app.window, paths, permanently),
-                   OperationSource::Command);
+    // stesso pannello della copia. Quello che si butta via e' quello che era
+    // selezionato adesso, non quello della clipboard.
+    FileOps::Request request;
+    request.action  = permanently ? FileOps::Action::DeleteForever : FileOps::Action::Recycle;
+    request.sources = paths;
+    BeginOperation(app, std::move(request), OperationSource::Command);
 }
 
 void DoNewFolder(AppState& app)
@@ -608,6 +615,17 @@ void RunCommand(AppState& app, int command)
             SaveFolderLayout(app);
             ReportStatus(app, TrW(L"Layout di questa cartella salvato.",
                                   L"This folder's layout is saved."));
+            break;
+        case CmdLoadFolderLayout:
+            // "Load Layout" del riferimento: rimettere la vista che questa cartella
+            // ricorda. Non e' la stessa cosa di "ricorda": quello c'e' gia', e vale
+            // entrando. Questo serve dopo aver cambiato vista e voler tornare
+            // indietro senza rientrare.
+            ReportStatus(app, ApplyFolderLayout(app)
+                                ? TrW(L"Layout di questa cartella applicato.",
+                                      L"This folder's layout is applied.")
+                                : TrW(L"Questa cartella non ha un layout salvato.",
+                                      L"This folder has no saved layout."));
             break;
         case CmdForgetFolderLayout:
             ForgetFolderLayout(app);

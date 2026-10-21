@@ -591,6 +591,7 @@ const char* CommandLabelIt(CommandId id)
         case CmdEditKeyMap:             return "Modifica i tasti";
         case CmdPinTo:                  return "Fissa questa cartella in...";
         case CmdSaveFolderLayout:      return "Salva il layout di questa cartella";
+        case CmdLoadFolderLayout:      return "Applica il layout di questa cartella";
         case CmdForgetFolderLayout:    return "Dimentica il layout di questa cartella";
         case CmdUnpin:                  return "Togli questa cartella da...";
         case CmdProperties:             return "Proprietà";
@@ -704,10 +705,9 @@ bool TooltipsAllowed(AppState& app)
         return false;
     if (app.propertiesOpen)
         return false;
-    // L'operazione in corso e' modale appena parte, non quando il suo pannello
-    // compare: la soglia di 0,35 s e' una cortesia per le operazioni brevi.
-    if (app.operation != nullptr)
-        return false;
+    // L'operazione in corso non e' piu' modale, quindi i suggerimenti tornano a
+    // comparire anche mentre si copia: chi naviga durante una copia sta usando la
+    // finestra, e un suggerimento e' parte del modo in cui la usa.
     return app.columnDrag < 0;
 }
 
@@ -1038,6 +1038,7 @@ const CommandDef kCommandTable[] = {
     // parlano: nella palette cadono nella stessa banda delle cartelle note.
     {"Places",  "Pin this folder to...",          CmdPinTo},
     {"View",    "Save this folder's layout",     CmdSaveFolderLayout},
+    {"View",    "Load this folder's layout",     CmdLoadFolderLayout},
     {"View",    "Forget this folder's layout",   CmdForgetFolderLayout},
     {"Places",  "Unpin this folder from...",      CmdUnpin},
     {"File",    "Properties",                   CmdProperties},
@@ -1413,17 +1414,30 @@ std::wstring OperationTitle(FileOps::Action action)
     }
 }
 
-// La riga sotto il titolo: dove stanno andando le cose, o quante se ne buttano via.
-std::wstring OperationSubtitle(const FileOps::Job& job)
+// La riga sotto il titolo: dove stanno andando le cose, o quante se ne buttano via —
+// e quante aspettano il loro turno. La coda si dice **qui** e non solo una volta nella
+// barra di stato: il pannello mostra una operazione sola, e le altre non si vedono da
+// nessun'altra parte.
+std::wstring OperationSubtitle(const AppState& app)
 {
+    const FileOps::Job& job = *app.operation;
+
+    std::wstring text;
     switch (job.action())
     {
         case FileOps::Action::Copy:
         case FileOps::Action::Move:
-            return TrW(L"in ", L"into ") + LeafName(job.destination());
+            text = TrW(L"in ", L"into ") + LeafName(job.destination());
+            break;
         default:
-            return CountItems(job.sources().size());
+            text = CountItems(job.sources().size());
+            break;
     }
+
+    if (!app.operationQueue.empty())
+        text += TrW(L" — ", L" — ") + CountItems(app.operationQueue.size()) +
+                TrW(L" in coda", L" queued");
+    return text;
 }
 
 void DrawOperationPanel(AppState& app, const Layout& layout)
@@ -1448,7 +1462,7 @@ void DrawOperationPanel(AppState& app, const Layout& layout)
     app.smallFont.Draw(r, panel.x + 16.0f * scale, panel.y + 12.0f * scale,
                        ToUtf8(OperationTitle(app.operation->action())), t.textDim, scale);
     app.font.Draw(r, panel.x + 16.0f * scale, panel.y + 34.0f * scale,
-                  FitText(app.font, ToUtf8(OperationSubtitle(*app.operation)), scale,
+                  FitText(app.font, ToUtf8(OperationSubtitle(app)), scale,
                           panel.w - 32.0f * scale),
                   t.text, scale);
 
@@ -1529,23 +1543,32 @@ void DrawOperationPanel(AppState& app, const Layout& layout)
                        progress.cancelRequested ? t.accent : t.textDim, scale);
 }
 
-// Il pannello e' modale come quello delle proprieta': prende la tastiera e non
-// lascia passare niente. `Esc` chiede di annullare, che e' l'unica cosa sensata che
-// possa fare un tasto mentre qualcosa e' in corso.
-bool OperationPanelKey(AppState& app, WPARAM key)
+// Annulla l'operazione in corso, e con lei quello che aspetta: chi ferma una copia non
+// si aspetta che ne parta un'altra appena quella e' morta. Il numero delle richieste
+// buttate via si ricorda (`operationQueueDropped`) perche' l'esito lo racconta dopo
+// `FinishOperation`, che non le ha viste.
+//
+// Lo chiamano le due cose che possono fermare un'operazione: `Esc` e il pulsante.
+void CancelOperation(AppState& app)
 {
-    if (key == VK_ESCAPE && app.operation != nullptr)
-    {
-        app.operation->Cancel();
-        ReportStatus(app, TrW(L"Annullamento...", L"Cancelling..."));
-    }
-    return true;
+    if (app.operation == nullptr)
+        return;
+
+    app.operation->Cancel();
+    app.operationQueueDropped = static_cast<int>(app.operationQueue.size());
+    app.operationQueue.clear();
+    ReportStatus(app, TrW(L"Annullamento...", L"Cancelling..."));
 }
 
 // L'operazione e' finita: si raccoglie l'esito, si aggiorna la vista e si dice com'e'
 // andata. E' l'unico posto in cui si legge il risultato, ed e' il motivo per cui le
 // tre operazioni lunghe non hanno piu' un finale ciascuna.
-void FinishOperation(AppState& app)
+//
+// `FinishOperationNow` fa il lavoro ed esce dalle sue strade come vuole;
+// `FinishOperation` e' quella che chiama il ciclo principale, e dopo aggiunge la sola
+// cosa che manca: se c'e' una richiesta in coda, adesso tocca a lei. L'avanzamento sta
+// qui e non nei singoli esiti perche' cosi' non si puo' dimenticare in uno dei rami.
+void FinishOperationNow(AppState& app)
 {
     std::unique_ptr<FileOps::Job> job = std::move(app.operation);
     if (job == nullptr)
@@ -1556,6 +1579,12 @@ void FinishOperation(AppState& app)
     const std::wstring destination = job->destination();
     const OperationSource source = app.operationSource;
     const float scroll = app.scroll;
+
+    // Adesso si puo' navigare mentre un'operazione gira: la vista si rifa' solo se la
+    // cartella sullo schermo e' ancora quella da cui si e' partiti. Altrimenti si
+    // riscriverebbe un elenco che non c'entra, con una selezione che non gli
+    // appartiene.
+    const bool StillOnScreen = (app.directory == app.operationOrigin);
 
     std::vector<std::wstring> created;
     std::wstring error;
@@ -1589,11 +1618,21 @@ void FinishOperation(AppState& app)
         // finisce senza dire niente e' indistinguibile da un difetto.
         if (source == OperationSource::Drop)
             app.dropReported = true;
-        ReportStatus(app, discarded ? TrW(L"Eliminazione annullata", L"Delete cancelled")
-                                    : TrW(L"Operazione annullata", L"Operation cancelled"));
+        std::wstring cancelled = discarded ? TrW(L"Eliminazione annullata", L"Delete cancelled")
+                                           : TrW(L"Operazione annullata", L"Operation cancelled");
+        if (app.operationQueueDropped > 0)
+        {
+            const bool one = app.operationQueueDropped == 1;
+            cancelled += TrW(L" — ", L" — ") + CountItems(app.operationQueueDropped) +
+                         (one ? TrW(L" in coda annullato", L" queued cancelled")
+                              : TrW(L" in coda annullati", L" queued cancelled"));
+            app.operationQueueDropped = 0;
+        }
+        ReportStatus(app, cancelled);
         // Quello che era partito prima dell'annullamento c'e' ancora: la vista si
         // rifa', tenendo la selezione dove ancora esiste.
-        ReloadKeeping(app, app.selection, app.cursor, scroll);
+        if (StillOnScreen)
+            ReloadKeeping(app, app.selection, app.cursor, scroll);
         return;
     }
 
@@ -1617,7 +1656,8 @@ void FinishOperation(AppState& app)
                     landed = name;
             }
         }
-        ReloadKeeping(app, keep, landed, scroll);
+        if (StillOnScreen)
+            ReloadKeeping(app, keep, landed, scroll);
 
         DiagLog("  esito della caduta: " +
                 std::string(discarded ? "eliminazione" : (copied ? "copia" : "spostamento")) +
@@ -1639,7 +1679,8 @@ void FinishOperation(AppState& app)
 
     if (discarded)
     {
-        ReloadKeeping(app, /*keep=*/{}, /*preferCursor=*/{}, scroll);
+        if (StillOnScreen)
+            ReloadKeeping(app, /*keep=*/{}, /*preferCursor=*/{}, scroll);
         ReportStatus(app,
                      action == FileOps::Action::DeleteForever
                          ? VerbItems(sources.size(), L"Eliminato definitivamente ",
@@ -1672,11 +1713,18 @@ void FinishOperation(AppState& app)
             keep.insert(LeafName(path));
     }
 
-    ReloadKeeping(app, keep, landed, scroll);
+    if (StillOnScreen)
+        ReloadKeeping(app, keep, landed, scroll);
     ReportStatus(app, VerbItems(sources.size(),
                                 action == FileOps::Action::Move ? L"Spostato " : L"Incollato ",
                                 action == FileOps::Action::Move ? L"Spostati " : L"Incollati ",
                                 action == FileOps::Action::Move ? L"Moved " : L"Pasted "));
+}
+
+void FinishOperation(AppState& app)
+{
+    FinishOperationNow(app);
+    StartNextOperation(app);
 }
 
 // --- gli aggiornamenti -------------------------------------------------------
@@ -1751,17 +1799,18 @@ void FinishUpdate(AppState& app)
             // Inno riconosce l'installazione dall'`AppId` e con `CloseApplications=yes`
             // chiude questa finestra da solo; il `WM_CLOSE` e' la stessa cosa detta una
             // volta di piu', per non lasciare il setup fermo ad aspettare.
-            SHELLEXECUTEINFOW info{};
-            info.cbSize       = sizeof(info);
-            info.fMask        = SEE_MASK_NOCLOSEPROCESS;
-            info.lpVerb       = L"open";
-            info.lpFile       = release.setupPath.c_str();
-            info.lpParameters = L"/VERYSILENT /SUPPRESSMSGBOXES /NORESTART";
-            info.nShow        = SW_SHOWNORMAL;
-            if (ShellExecuteExW(&info))
+            // Il setup si avvia **quando questa finestra e' chiusa**, non prima: un
+            // programma che sta ancora uscendo tiene il proprio eseguibile, e
+            // l'installer in silenzioso, invece di aspettare, rinuncia — senza dirlo,
+            // perche' i messaggi sono soppressi (`docs/02` §7.75). Due secondi di
+            // attesa coprono la chiusura anche quando c'e' lavoro da abbandonare.
+            const std::wstring command = L"/c ping -n 3 127.0.0.1 >nul & \"" +
+                                         release.setupPath +
+                                         L"\" /VERYSILENT /SUPPRESSMSGBOXES /NORESTART";
+            HINSTANCE started = ShellExecuteW(nullptr, L"open", L"cmd.exe", command.c_str(),
+                                              nullptr, SW_HIDE);
+            if (reinterpret_cast<INT_PTR>(started) > 32)
             {
-                if (info.hProcess != nullptr)
-                    CloseHandle(info.hProcess);
                 ReportStatus(app, TrW(L"Aggiornamento ", L"Update ") + release.version +
                                        TrW(L" verificato: avvio il setup",
                                            L" verified: starting the setup"));
@@ -2068,16 +2117,27 @@ MenuAction GroupMenuClick(const AppState& app, const Layout& layout, GroupMenu& 
 
     if (const ClickTarget* row = HitTest(app, x, y, ClickTarget::Kind::MenuRow))
     {
-        for (int i = 0; i < static_cast<int>(menu.rows.size()); ++i)
+        // Una voce spenta non fa niente, e non lo fa **in silenzio**: il clic cade su
+        // una riga che si vede spenta, e il menu resta aperto. Chiuderlo e' la
+        // risposta giusta a una scelta, e qui non c'e' stata nessuna scelta.
+        //
+        // E il cursore **non si sposta**: posarlo su una voce morta la farebbe
+        // sembrare scelta, e chi preme `Invio` subito dopo non otterrebbe niente da
+        // una riga che si vede accesa.
+        if (GroupMenuItemEnabled(menu, row->index))
         {
-            const GroupMenuRow& candidate = menu.rows[static_cast<size_t>(i)];
-            if (!candidate.header && candidate.item == row->index)
+            for (int i = 0; i < static_cast<int>(menu.rows.size()); ++i)
             {
-                menu.selected = i;
-                break;
+                const GroupMenuRow& candidate = menu.rows[static_cast<size_t>(i)];
+                if (!candidate.header && candidate.item == row->index)
+                {
+                    menu.selected = i;
+                    break;
+                }
             }
+            return MenuAction::Activate;
         }
-        return MenuAction::Activate;
+        return MenuAction::None;
     }
 
     // Inside the panel but not on a row: swallow the click. Outside it, close.
@@ -2140,22 +2200,21 @@ bool RectsIntersect(const Rect& rect, float x0, float y0, float x1, float y1)
     return !(rect.right() < x0 || rect.x > x1 || rect.bottom() < y0 || rect.y > y1);
 }
 
-// Ends a rubber band drag. Hit testing uses the row rectangles recorded by the
-// last frame, which is at most one frame stale and only matters if the user
-// releases in the same instant the list scrolls.
-void FinishRectSelection(AppState& app)
+// Il rettangolo applicato alla selezione, **adesso**: si chiama a ogni movimento del
+// mouse e al rilascio. La selezione si rifa' ogni volta dalla base (`rectBase`), non si
+// accumula: cosi' le righe che si vedono blu sono esattamente quelle coperte — anche
+// stringendo il rettangolo, che deseleziona.
+//
+// La verifica usa i rettangoli delle righe registrati dall'ultimo fotogramma: sono al
+// massimo uno indietro, e conta solo se si rilascia nell'istante in cui la lista scorre.
+void ApplyRectSelection(AppState& app)
 {
-    if (!app.rectSelecting)
-        return;
-    app.rectSelecting = false;
-
-    if (!app.rectAdditive)
-        app.selection.clear();
-
     const float x0 = (std::min)(app.rectX0, app.rectX1);
     const float x1 = (std::max)(app.rectX0, app.rectX1);
     const float y0 = (std::min)(app.rectY0, app.rectY1);
     const float y1 = (std::max)(app.rectY0, app.rectY1);
+
+    app.selection = app.rectBase;
 
     std::wstring last;
     for (const ClickTarget& target : app.clickTargets)
@@ -2174,6 +2233,17 @@ void FinishRectSelection(AppState& app)
         app.cursor          = last;
         app.selectionAnchor = last;
     }
+}
+
+// Ends a rubber band drag.
+void FinishRectSelection(AppState& app)
+{
+    if (!app.rectSelecting)
+        return;
+
+    ApplyRectSelection(app);
+    app.rectSelecting = false;
+    app.rectBase.clear();
 }
 
 void ScrollBy(AppState& app, const Layout& layout, float delta)
@@ -2345,6 +2415,7 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
                     switch (target.kind)
                     {
                         case ClickTarget::Kind::Menu:
+                        case ClickTarget::Kind::SidebarToggle:
                         case ClickTarget::Kind::Tab:
                         case ClickTarget::Kind::TabClose:
                         case ClickTarget::Kind::TabNew:
@@ -2368,10 +2439,18 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
             {
                 const Layout layout = ComputeLayout(*app);
 
-                // Il pannello dell'operazione in corso e' modale, e sta sopra a
-                // tutto: la rotella non scorre niente sotto di lui.
+                // Il pannello dell'operazione sta sopra a tutto ma non e' piu' un
+                // muro: la rotella **sopra di lui** non scorre l'elenco che gli sta
+                // dietro (sembrerebbe che non risponda), fuori da lui la finestra
+                // funziona come sempre.
                 if (OperationPanelVisible(*app))
-                    return 0;
+                {
+                    POINT wheel{GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam)};
+                    ScreenToClient(window, &wheel);
+                    if (OperationPanelRect(*app, layout)
+                            .Contains(static_cast<float>(wheel.x), static_cast<float>(wheel.y)))
+                        return 0;
+                }
 
                 // Il pannello delle proprieta' e' modale: la rotella lo scorre e
                 // basta.
@@ -2595,9 +2674,15 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
                                     (x - app->columnDragStartX) / (std::max)(1.0f, layout.header.w);
                 const float minimum = kMinColumnWidth * layout.scale /
                                       (std::max)(1.0f, layout.header.w);
-                const float left  = app->columns[index - 1].fraction + minimum;
-                const float right = (index + 1 < kColumnCount ? app->columns[index + 1].fraction
-                                                              : 1.0f) - minimum;
+                // I limiti sono i bordi **visibili**: con una colonna spenta in mezzo,
+                // i suoi due bordi coincidono e il trascinamento deve poter arrivare
+                // fino alla colonna prima, o non potrebbe riprendersi lo spazio.
+                float edges[kColumnCount + 1] = {};
+                ColumnEdges(*app, edges);
+                const int prev = PrevVisibleColumn(*app, index);
+                const int next = NextVisibleColumn(*app, index);
+                const float left  = (prev >= 0 ? edges[prev] : 0.0f) + minimum;
+                const float right = (next < kColumnCount ? edges[next] : 1.0f) - minimum;
                 app->columns[index].fraction = (std::min)(right, (std::max)(left, moved));
                 InvalidateRect(window, nullptr, FALSE);
                 return 0;
@@ -2622,6 +2707,10 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
                 {
                     app->rectX1 = x;
                     app->rectY1 = y;
+                    // La selezione si vede **mentre** si trascina, che e' l'unico modo di
+                    // sapere cosa si sta per prendere prima di lasciare il tasto.
+                    ApplyRectSelection(*app);
+                    InvalidateRect(window, nullptr, FALSE);
                     return 0;
                 }
 
@@ -2723,6 +2812,7 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
                 else if (HitTest(*app, x, y, ClickTarget::Kind::WindowMinimize)) app->hoveredChrome = 2;
                 else if (HitTest(*app, x, y, ClickTarget::Kind::WindowMaximize)) app->hoveredChrome = 3;
                 else if (HitTest(*app, x, y, ClickTarget::Kind::WindowClose))    app->hoveredChrome = 4;
+                else if (HitTest(*app, x, y, ClickTarget::Kind::SidebarToggle))  app->hoveredChrome = 5;
 
                 const int wasHovered = app->hovered;
                 if (const ClickTarget* tab = HitTest(*app, x, y, ClickTarget::Kind::Tab))
@@ -2757,20 +2847,21 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
                         app->focusArea = AppState::FocusArea::List;
                 }
 
-                // L'operazione in corso e' modale come un menu: prende il puntatore
-                // prima di tutto il resto. Un clic fuori dal pannello non fa niente:
-                // chiudere con un clic sarebbe un annullamento per sbaglio, ed e'
-                // l'ultima cosa che si vuole mentre qualcosa si sta muovendo.
+                // Il pannello dell'operazione non e' piu' modale: sopra di lui un clic
+                // o preme `Annulla`, o non fa niente (il puntatore e' sopra un
+                // pannello, e quello che c'e' sotto non deve ricevere il clic); fuori
+                // da lui la finestra si usa come sempre — navigare, selezionare,
+                // copiare — e le operazioni che ne nascono vanno in coda.
                 if (OperationPanelVisible(*app))
                 {
                     const Layout layout = ComputeLayout(*app);
                     const Rect panel = OperationPanelRect(*app, layout);
-                    if (OperationCancelButton(*app, layout, panel).Contains(x, y))
+                    if (panel.Contains(x, y))
                     {
-                        app->operation->Cancel();
-                        ReportStatus(*app, TrW(L"Annullamento...", L"Cancelling..."));
+                        if (OperationCancelButton(*app, layout, panel).Contains(x, y))
+                            CancelOperation(*app);
+                        return 0;
                     }
-                    return 0;
                 }
 
                 // Il pannello delle proprieta' e' modale: il clic o cade sul suo
@@ -2803,6 +2894,9 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
                     app->columnDrag = edge->index;
                     app->columnDragStartX = x;
                     app->columnDragStartFraction = app->columns[edge->index].fraction;
+                    // Da qui in poi la larghezza e' quella scelta a mano: "adatta" era il
+                    // valore di partenza, e chi trascina la sta cambiando.
+                    app->autoFitColumns = false;
                     SetCapture(window);
                     return 0;
                 }
@@ -2941,6 +3035,14 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
                 }
                 else if (HitTest(*app, x, y, ClickTarget::Kind::Menu))
                 {
+                    const Layout layout = ComputeLayout(*app);
+                    const Rect button{layout.titleBar.x + 6.0f * layout.scale,
+                                      layout.titleBar.y + 7.0f * layout.scale,
+                                      30.0f * layout.scale, layout.titleBar.h - 14.0f * layout.scale};
+                    BuildAppMenu(*app, button.x, button.bottom() + 2.0f * layout.scale);
+                }
+                else if (HitTest(*app, x, y, ClickTarget::Kind::SidebarToggle))
+                {
                     app->sidebarVisible = !app->sidebarVisible;
                 }
                 else if (HitTest(*app, x, y, ClickTarget::Kind::WindowMinimize))
@@ -3075,6 +3177,10 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
                             app->cursor.clear();
                             app->selectionAnchor.clear();
                         }
+                        // La base su cui il rettangolo lavora: quello che l'utente ha
+                        // gia' scelto con `Ctrl`, o niente quando il rettangolo
+                        // sostituisce la selezione.
+                        app->rectBase = app->selection;
                     }
                 }
             }
@@ -3134,9 +3240,13 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
             {
                 const float x = static_cast<float>(GET_X_LPARAM(lparam));
                 const float y = static_cast<float>(GET_Y_LPARAM(lparam));
-                if (const ClickTarget* edge = HitTest(*app, x, y, ClickTarget::Kind::ColumnEdge))
+                if (HitTest(*app, x, y, ClickTarget::Kind::ColumnEdge) != nullptr)
                 {
-                    app->columns[edge->index].fraction = kColumns[edge->index].fraction;
+                    // Doppio clic su un bordo: torna **ad adattare**, che e' il valore di
+                    // partenza. Prima riportava la colonna alla frazione scritta nella
+                    // tabella, che era lo stesso gesto ma con un numero indovinato a mano.
+                    app->autoFitColumns = true;
+                    FitColumns(*app);
                     InvalidateRect(window, nullptr, FALSE);
                     return 0;
                 }
@@ -3165,11 +3275,13 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
         case WM_KEYDOWN:
             if (app != nullptr)
             {
-                // Il pannello dell'operazione in corso e' modale come un menu, e sta
-                // sopra a tutto: prende la tastiera prima di ogni altra cosa.
-                if (OperationPanelVisible(*app))
+                // Il pannello dell'operazione non prende piu' la tastiera: prende
+                // `Esc`, che e' l'annullamento, e nient'altro. Il resto va dove
+                // andrebbe sempre — e se un comando avvia un'operazione, quella va in
+                // coda.
+                if (OperationPanelVisible(*app) && wparam == VK_ESCAPE)
                 {
-                    OperationPanelKey(*app, wparam);
+                    CancelOperation(*app);
                     return 0;
                 }
 
@@ -3501,12 +3613,6 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
                 // esce: senza questo, premendo `C` per rimappare Copia il `c`
                 // finirebbe nel filtro dell'elenco sotto.
                 if (app->keyCaptureCommand >= 0)
-                    return 0;
-
-                // Il pannello dell'operazione in corso e' modale anche per i
-                // caratteri: senza questo, una lettera digitata andrebbe nel filtro
-                // della lista sotto il pannello.
-                if (OperationPanelVisible(*app))
                     return 0;
 
                 // Il pannello delle proprieta' e' modale, e i suoi tasti li ha gia'
@@ -4025,12 +4131,67 @@ void ToggleBookmark(AppState& app)
     else
         app.bookmarks.push_back(app.directory);
 }
-// Il pannello delle destinazioni: due righe, e la riga che **vale** porta la ragione
-// accanto al nome invece di essere disegnata spenta. Il componente dei menu non sa
-// disegnare una riga spenta — lo sa solo il pannello delle opzioni — e per due righe
-// non vale la pena darglielo: la riga si puo' scegliere lo stesso, e sceglierla **lo
-// dice**. Un elenco di due righe non ha bisogno di un meccanismo in piu' per dire
-// "questa non si tocca".
+// Il **menu dell'applicazione**, dietro il pulsante ☰ della barra del titolo: le stesse
+// voci del riferimento (`GoTo`, `Commands`, i layout, `Options`) piu' quella che nel
+// riferimento e' il suo setup e qui e' l'aggiornamento. In fondo, come li', la versione.
+//
+// E' un menu contestuale a tutti gli effetti — un livello solo, separatori, voci spente —
+// quindi usa quel componente invece di un secondo modo di disegnare un menu.
+void BuildAppMenu(AppState& app, float x, float y)
+{
+    ContextMenu& menu = app.contextMenu;
+    menu.items.clear();
+    menu.x = x;
+    menu.y = y;
+    menu.openPath.clear();
+    menu.levels.assign(1, ContextMenuLevel{});
+    menu.shellIsBackground = false;
+    menu.shell     = nullptr;   // non c'e' nessuna shell da interrogare
+    menu.shellMenu = nullptr;
+    menu.openedAt  = NowSeconds();
+
+    // Le scorciatoie si chiedono alla mappa dei tasti: se domani si rimappa il GoTo, il
+    // menu lo dice senza che nessuno lo aggiorni.
+    const auto shortcut = [&app](int command)
+    {
+        std::string text;
+        for (const std::string& label : app.keys.LabelsFor(command))
+            text += (text.empty() ? "" : "  ") + label;
+        return text;
+    };
+
+    const bool home = IsHome(app.directory);
+
+    menu.items.push_back({Tr("Vai a...", "GoTo"), CmdGoTo, false, false, shortcut(CmdGoTo)});
+    menu.items.push_back({Tr("Comandi", "Commands"), CmdPalette, false, false,
+                          shortcut(CmdPalette)});
+    menu.items.push_back({"", 0, /*separator=*/true});
+
+    // `Load Layout` nel riferimento si vede **spento** finche' non c'e' un layout da
+    // caricare: e' la stessa informazione, detta invece che nascosta.
+    menu.items.push_back({Tr("Applica il layout", "Load Layout"), CmdLoadFolderLayout, false,
+                          home || !HasFolderLayout(app)});
+    menu.items.push_back({Tr("Salva il layout", "Save Layout"), CmdSaveFolderLayout, false, home});
+    menu.items.push_back({"", 0, /*separator=*/true});
+    menu.items.push_back({Tr("Opzioni", "Options"), CmdOpenOptions, false, false,
+                          shortcut(CmdOpenOptions)});
+    menu.items.push_back({"", 0, /*separator=*/true});
+    menu.items.push_back({Tr("Controlla aggiornamenti", "Check for updates"), CmdCheckUpdates});
+
+    // La versione, come nel riferimento: "FILE PILOT v0.8.5 - Aug 31 2026 [Beta]". La
+    // data di compilazione non l'abbiamo, e inventarla sarebbe peggio che non scriverla.
+    menu.subtitle = std::string("BOLT v") + ToUtf8(Update::CurrentVersion());
+
+    ClosePinMenu(app);
+    app.options.open = false;
+    app.palette.open = false;
+    app.goTo.open    = false;
+    menu.open = true;
+}
+
+// Il pannello delle destinazioni: due righe, e quella che **non cambierebbe niente**
+// si mostra spenta — il componente dei menu sa farlo adesso, e la ragione la dice il
+// titolo del pannello (`FISSA IN` contro `TOGLI DA`), non un'aggiunta al nome.
 void BuildPinMenu(AppState& app, bool removing)
 {
     // Su quale percorso si sta lavorando: quello del menu contestuale se c'e' (una
@@ -4059,17 +4220,15 @@ void BuildPinMenu(AppState& app, bool removing)
         return;
     }
 
-    const char* note = removing ? Tr(" (non e' fissata qui)", " (not pinned here)")
-                                : Tr(" (e' gia' fissata qui)", " (already pinned here)");
-
     std::vector<GroupMenuItem> items;
     items.reserve(kPinTargetCount);
     for (int i = 0; i < kPinTargetCount; ++i)
     {
         const PinTarget target = PinTargetAt(i);
         GroupMenuItem item;
-        item.label = std::string(PinTargetLabel(target)) + (applicable(target) ? "" : note);
-        item.id    = i;
+        item.label   = PinTargetLabel(target);
+        item.id      = i;
+        item.enabled = applicable(target);
         items.push_back(std::move(item));
     }
 
@@ -4217,22 +4376,49 @@ void BuildGoToMenu(AppState& app)
                     app.keys.LabelFor(CmdGoTo) + std::string(Tr(" apre e chiude", " toggles"));
 }
 // Un'operazione lunga si avvia sempre da qui: cosi' la sorgente e l'ora non si
-// possono dimenticare in uno dei tre posti che la chiamano. Restituisce falso se
-// un'operazione e' gia' in corso: la seconda sostituirebbe la prima, e sostituirla
-// vuol dire annullarla **senza dirlo**.
-bool BeginOperation(AppState& app, std::unique_ptr<FileOps::Job> job, OperationSource source)
+// possono dimenticare in uno dei posti che la chiamano. Accettata vuol dire **sara'
+// fatta**: se ce n'e' gia' una in corso la richiesta va in coda, e parte quando
+// quella finisce. Restituisce falso solo quando non c'e' niente da fare, perche' un
+// chiamante che riceve `true` deve poter raccontare al sistema che l'ha presa in
+// carico.
+bool BeginOperation(AppState& app, FileOps::Request request, OperationSource source)
 {
+    if (request.empty())
+        return false;
+
     if (app.operation != nullptr)
     {
-        ReportStatus(app, TrW(L"C'e' gia' un'operazione in corso.",
-                              L"An operation is already running."));
-        return false;
+        app.operationQueue.push_back(QueuedOperation{std::move(request), source});
+
+        const size_t queued = app.operationQueue.size();
+        ReportStatus(app, CountItems(queued) +
+                              TrW(L" in coda — parte quando finisce quella in corso.",
+                                  L" queued — it starts when the current one ends."));
+        return true;
     }
 
-    app.operation       = std::move(job);
+    app.operation       = FileOps::Start(app.window, request);
     app.operationSource = source;
+    app.operationOrigin = app.directory;
     app.operationStart  = NowSeconds();
+    app.operationQueueDropped = 0;
     return true;
+}
+
+// La coda avanza di una posizione: si chiama quando la precedente ha finito, ed e'
+// l'unico posto da cui parte un'operazione che non viene da un gesto.
+void StartNextOperation(AppState& app)
+{
+    if (app.operation != nullptr || app.operationQueue.empty())
+        return;
+
+    QueuedOperation next = std::move(app.operationQueue.front());
+    app.operationQueue.erase(app.operationQueue.begin());
+
+    app.operation       = FileOps::Start(app.window, next.request);
+    app.operationSource = next.source;
+    app.operationOrigin = app.directory;
+    app.operationStart  = NowSeconds();
 }
 } // namespace Bolt
 
@@ -4346,11 +4532,16 @@ bool Drop(HWND window, const std::vector<std::wstring>& sources, const DragDrop:
 
     const bool discard = target.verb == DragDrop::DropVerb::Discard;
 
-    const bool started =
-        BeginOperation(*app,
-                       discard ? FileOps::Job::StartDelete(window, sources, /*permanently=*/false)
-                               : FileOps::Job::StartTransfer(window, sources, target.path, move),
-                       OperationSource::Drop);
+    FileOps::Request request;
+    request.action      = discard ? FileOps::Action::Recycle
+                                  : (move ? FileOps::Action::Move : FileOps::Action::Copy);
+    request.sources     = sources;
+    request.destination = discard ? std::wstring() : target.path;
+
+    // Se un'operazione e' gia' in corso questa va **in coda** e restituisce `true`:
+    // la caduta e' accettata, e chi ha lasciato andare il tasto deve riceverlo — un
+    // `DROPEFFECT_NONE` gli farebbe credere di non aver prodotto niente.
+    const bool started = BeginOperation(*app, std::move(request), OperationSource::Drop);
 
     // La caduta dichiara che l'esito lo dira' questa finestra **solo se e' partita**:
     // chi ha lasciato andare il tasto riceve l'effetto prima che l'operazione sia
@@ -4385,7 +4576,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, LPWSTR, int)
         if (LPWSTR* arguments = CommandLineToArgvW(GetCommandLineW(), &argumentCount))
         {
             if (argumentCount > 1)
-                startArgument = arguments[1];
+                startArgument = NormalizePath(arguments[1]);
             LocalFree(arguments);
         }
     }
@@ -4801,6 +4992,10 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, LPWSTR, int)
         app.operation->Finish(nullptr, nullptr);
         app.operation.reset();
     }
+
+    // Le richieste in coda non sono mai partite, quindi non c'e' niente da fermare:
+    // si buttano, e la finestra se ne va senza lasciare un thread dietro.
+    app.operationQueue.clear();
 
     app.stats.Stop();
     OleUninitialize();

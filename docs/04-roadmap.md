@@ -250,7 +250,8 @@ degradata prima e quella vera dopo.
 **Due trappole pagate in questa prova**, ora in `docs/05` §5: un'applicazione
 **elevata** non riceve i clic sintetici di un banco non elevato (UIPI), e non si
 chiude con `taskkill`. La prima si aggira aprendo Bolt **direttamente sulla cartella
-di prova**, così il cursore cade sulla prima riga e non c'è niente da cliccare; la
+di prova**, così non c'è niente da cliccare (all'epoca il cursore cadeva sulla prima riga;
+dal 2026-10-21 non c'è nessuna preselezione, `docs/04` M5); la
 seconda vuole un `UAC` in più, e va messa in conto prima di avviare.
 
 **Limiti dichiarati.** La lista è tenuta per percorso, come le proprietà del tipo
@@ -347,6 +348,14 @@ cambiano i numeri — ma quella tocca lo stato dell'applicazione in
 
 ## M5 — Ricerca, filtro, ordinamento, raggruppamento ✅
 
+- [x] **nessuna preselezione entrando in una cartella**, il 2026-10-21 su richiesta
+      dell'autore: entrando in una sezione o in una cartella non c'e' **niente di scelto**,
+      mentre prima la prima riga si selezionava da sola — e un `Canc` appena arrivati
+      cancellava un file che nessuno aveva scelto. Il cursore si posa al primo tasto di
+      movimento (`MoveSelection` parte dalla prima riga quando non ce l'ha), il primo clic
+      sceglie, `Ctrl+A` prende tutto. Visto a schermo: `sandbox` con `7 voci` e
+      «Niente selezionato»; `Giu'` che sceglie la prima riga; una cartella aperta e la Home
+      senza niente di scelto; `F5` che non riporta la selezione dove non c'era.
 - [x] filtro incrementale sulla lista (`Panel_FilterHint`, `FilterText`, `FilterSticky`)
 - [x] filtro per tipo di file (`FilterFileTypes`, `FilterTypes`)
 - [x] ordinamento per ogni colonna (`SortedBy`, `SortIndex`, `FolderSort`)
@@ -361,6 +370,37 @@ cambiano i numeri — ma quella tocca lo stato dell'applicazione in
       un numero — e le colonne si possono sempre allargare col mouse. Visto a schermo:
       `documenti` con 0 cartelle, 2 file e **Totale 3**; `vuota` con 0, 0 e **1**
       (`analysis/tmp/cols-9.png`)
+- [x] **le colonne si adattano al contenuto**, il 2026-10-21 su richiesta dell'autore:
+      «adatta» e' il valore di partenza, non una voce da cercare in un menu. Aprendo una
+      cartella ogni colonna si misura sul suo contenuto — l'intestazione e il valore piu'
+      largo di un **campione** di duecento voci, che e' il compromesso che fa anche Esplora
+      risorse, perche' una cartella da diecimila righe non si misura tutta per disegnarne
+      trenta — e il **nome prende quello che resta**, con un minimo leggibile; se le altre
+      non lasciano spazio si stringono loro, perche' un elenco di cui non si legge il nome
+      non serve. I conteggi e la dimensione si misurano sulla forma che avranno
+      (`999.9K`, `999.9 GB`), non sul `--` di adesso, o la colonna si allargherebbe da sola
+      un istante dopo. Trascinando un bordo si passa alla larghezza scelta a mano e resta
+      per tutte le cartelle; il **doppio clic** su un bordo torna ad adattare (prima
+      riportava la colonna a una frazione scritta a mano nella tabella, che era lo stesso
+      gesto con un numero indovinato). Visto a schermo: `sandbox` con `Documento di testo`
+      e le date intere, `vuota` con le sole intestazioni, il trascinamento che resta su
+      un'altra cartella, e il doppio clic che riadatta sulla stessa.
+- [x] **le due date accessorie si possono spegnere** — il 2026-10-21, su richiesta
+      dell'autore: `Data creazione` e `Data accesso` sono **spente di partenza**, e si
+      accendono da due righe delle opzioni (`Mostra la data di creazione`, `Mostra la
+      data di ultimo accesso`, preferenze `showCreatedDate`/`showAccessedDate`). In un
+      elenco di file la data che si guarda e' quella di **modifica**; tre date
+      affiancate si prendono lo spazio dei nomi per dire quasi sempre la stessa cosa
+      (creazione = modifica, accesso = adesso). La colonna nascosta **non occupa
+      spazio**: il suo bordo si porta su quello della prima visibile che la segue, e lo
+      spazio va alla colonna prima (`ColumnEdges` in `src/view_list.*`); le frazioni
+      scelte col mouse restano, quindi riaccenderla la rimette dov'era. Spegnerla non
+      lascia niente di invisibile acceso: **il filtro per valori di quella colonna si
+      toglie**, e se era lei a ordinare si torna al nome. Visto a schermo
+      (`analysis/tmp/col-*.png`): sette colonne di partenza, `Data creazione` che
+      compare accendendola e resta dopo un riavvio, le nove con tutte e due, l'ordine che
+      torna su `Nome` spegnendo la colonna che ordinava, e il bordo trascinato fino a
+      riprendersi lo spazio della colonna nascosta.
 - [x] **le date si scrivono europee** — `gg/mm/aaaa`, e `gg/mm/aaaa hh:mm` dove c'e' l'ora
       (lista, suggerimenti, ispettore). Prima erano `aaaa-mm-gg`: ordina bene e si legge
       male (`2026-10-20` va guardato due volte). Non e' una stringa tradotta, quindi vale
@@ -558,6 +598,16 @@ esisteva già fra i 35.
 - [x] `UnderlineOnHover` — sottolineatura al passaggio, sotto il nome **visibile**
       (sotto quello intero, con un nome troncato, sarebbe una riga lunga quanto una
       parola che non c'è)
+- [x] **il rettangolo di selezione seleziona mentre si trascina**, il 2026-10-21 su
+      richiesta dell'autore: le righe coperte si accendono **subito**, durante il gesto,
+      invece di comparire tutte al rilascio. La selezione si rifa' a ogni movimento da una
+      **base** (`rectBase`: quello che c'era prima del gesto quando si tiene `Ctrl`) piu'
+      le righe coperte, quindi stringendo il rettangolo si deseleziona e un rettangolo
+      senza `Ctrl` non eredita niente dal precedente. Visto a schermo fotografando **a
+      meta' gesto** (`analysis/tmp/rect-01.png`, `rect-03.png`): righe blu col tasto
+      ancora giu'; con `Ctrl` la riga scelta prima resta e le altre si sommano; un
+      rettangolo piu' piccolo dopo ne lascia due sole (`rect-04.png`). Per provarlo il
+      banco ha guadagnato `-Ctrl` in `tools/drag-mouse.ps1`.
 - [x] `ShowTooltips` — nome per esteso, tipo, data e dimensione; per una cartella
       anche i conteggi ricorsivi quando ci sono. Compare dopo 0,55 s **di puntatore
       fermo**: il conto riparte a ogni movimento, quindi scorrendo l'elenco non
@@ -618,6 +668,24 @@ movimento.
 
 - [x] tab multipli: creazione, chiusura, attivazione, stato indipendente
 - [x] barra del titolo propria al posto di quella nativa, con pulsanti di finestra
+- [x] **il menu dell'applicazione dietro il pulsante ☰**, il 2026-10-21 su richiesta
+      dell'autore, che ha mandato la cattura del riferimento: `Vai a...` (`Ctrl+P` `F4`),
+      `Comandi` (`Ctrl+Maiusc+P`), i due layout (`Applica il layout` / `Salva il layout`),
+      `Opzioni` (`Ctrl+,`), `Controlla aggiornamenti` — dove il riferimento ha il suo
+      setup, noi abbiamo l'aggiornamento — e in fondo la **versione** (`BOLT v0.1.16`),
+      come li' `FILE PILOT v0.8.5`.
+      E' un **menu contestuale** a un livello solo, quindi usa quel componente (separatori,
+      voci spente, sottotitolo) invece di un secondo modo di disegnare un menu; le
+      scorciatoie a destra vengono dalla mappa dei tasti (`KeyMap::LabelsFor`), quindi si
+      aggiornano da sole se si rimappa. `Applica il layout` si vede **spento** quando la
+      cartella non ne ha uno salvato — e per questo e' nato `CmdLoadFolderLayout`, che
+      prima non c'era (il layout si applicava solo entrando). Finche' il menu non c'era, il
+      ☰ accendeva la barra laterale: adesso quella ha il **suo pulsante** accanto, col
+      riquadro pieno quando si vede. Visto a schermo: il menu con le scorciatoie e la
+      versione (`analysis/tmp/menu-01.png`), `Applica il layout` spento a 160 di luminosita'
+      e acceso a 234 dopo aver salvato, `Vai a...` che apre il GoTo, `Opzioni` che apre il
+      suo pannello, `Controlla aggiornamenti` che dice che Bolt e' aggiornato, e il
+      pulsante della barra laterale che la toglie e la rimette.
 - [x] command palette con gruppi collassabili
 - [x] finestra GoTo con recenti e segnalibri
 - [x] componente menu a gruppi, condiviso da palette e GoTo
@@ -673,11 +741,10 @@ palette, le sezioni che accettano le righe fissate, e il toglimento — **adesso
   **Segnalibri**, le due sezioni che accettano una riga — e **`Togli da...`** apre lo
   stesso elenco per togliere. Due comandi e non uno con un verso: chi cerca "togli"
   non deve leggere "fissa" e capire da solo che fa il contrario. La riga di una
-  destinazione che non cambierebbe niente lo **dice** (`Accesso rapido (e' gia'
-  fissata qui)`), invece di essere disegnata spenta: il componente dei menu non sa
-  disegnare una riga spenta — lo sa solo il pannello delle opzioni — e per due righe
-  non vale la pena darglielo. Se non c'e' niente da fare, il pannello non si apre e
-  l'esito si legge nella barra di stato.
+  destinazione che non cambierebbe niente si **disegna spenta** e non si sceglie
+  (`docs/02` §7.67: prima la ragione era scritta dentro il nome, perche' il
+  componente dei menu non sapeva spegnere una riga). Se non c'e' niente da fare, il
+  pannello non si apre e l'esito si legge nella barra di stato.
 - **Nell'accesso rapido le nostre righe stanno in cima**, con la stella dei
   segnalibri in fondo alla riga e in colore d'accento; quelle della shell restano
   sotto, come erano, senza stella. La stella sta in fondo e non davanti al nome
@@ -1035,14 +1102,17 @@ due file piccoli finisce prima, e un pannello che compare per tre fotogrammi è
 peggio di nessun pannello. `Esc` e il pulsante `Annulla` chiedono la stessa cosa, e
 finché la shell non ha davvero smesso il pannello lo dice.
 
-Una cosa che l'asincrono ha reso possibile e che va **rifiutata**: una seconda
-operazione mentre la prima gira. Sostituirla vuol dire annullarla senza dirlo, e per
-una caduta è peggio — chi ha mollato il tasto legge dalla destinazione se
-l'operazione è riuscita, e su `DROPEFFECT_MOVE` cancella gli originali. Una caduta
-rifiutata adesso dichiara `DROPEFFECT_NONE`. **Restano dichiarati**: una sola
-operazione per volta (non c'è coda) e l'annullamento che dipende dal fatto che la
-shell legga il codice d'errore del sink, che è documentato per i `Pre*Item` e
-osservato per `UpdateProgress`.
+Una cosa che l'asincrono ha reso possibile e che va **rifiutata**: **sostituire**
+l'operazione in corso con la seconda. Sostituirla vuol dire annullarla senza dirlo, e per
+una caduta è peggio — chi ha mollato il tasto legge dalla destinazione se l'operazione è
+riuscita, e su `DROPEFFECT_MOVE` cancella gli originali. La seconda non sostituisce: va
+**in coda** (`docs/02` §7.69), e la caduta dichiara l'effetto vero (`COPY`/`MOVE`), non
+`NONE`: una richiesta accettata è una richiesta che sarà fatta. **Resta dichiarato**
+l'annullamento che dipende dal fatto che la shell legga il codice d'errore del sink, che è
+documentato per i `Pre*Item` e osservato per `UpdateProgress`. **Il conto dei byte non è
+più interpolato** (§7.66): le voci finite valgono i loro byte misurati, i punti
+interpolano solo dentro la voce in corso — e il numero delle voci conta anche la cartella
+di partenza, come fa la shell (§7.71).
 
 Verificato a schermo e contro disco, nella sandbox: il conto che si muove dentro un
 file solo (938 MB → 1,8 GB sulla stessa copia), l'annullamento col tasto **e** col
@@ -2080,9 +2150,21 @@ posizione e' nostro (`bolt:home`).
       messaggio (`RefuseInNamespace` esteso), e il menu contestuale spegne quelle voci. Le
       righe nominano cartelle vere: senza questa guardia `Elimina` cancellerebbe la cartella
       che la riga nomina, che non e' quella che si sta guardando
-- [x] **niente sorveglianza e niente statistiche ricorsive**: la Home non e' un percorso, e
-      le colonne dei conteggi restano `--`. Il watcher viene svuotato quando si entra
-      nella Home, invece di continuare a guardare l'ultima cartella
+- [x] **niente sorveglianza**, la Home non e' un percorso: il watcher viene svuotato
+      quando si entra nella Home, invece di continuare a guardare l'ultima cartella.
+      ~~niente statistiche ricorsive~~: il 2026-10-21 la Home le chiede come le chiede una
+      cartella — le colonne dei conteggi erano `--` e sembrava rotta (`docs/02` §7.74). Le
+      destinazioni di spazio dei nomi (`Questo PC`, cestino) restano `--`: li' non c'e' un
+      albero da camminare
+- [x] **la Home si guarda a griglia**, il 2026-10-21 su richiesta dell'autore: e' una
+      pagina di destinazioni, non un elenco di file, e una griglia di icone la legge meglio
+      di una tabella con sette colonne. Il modo di visualizzazione vive **per cartella** —
+      `homeViewMode` e `viewModeOutsideHome` — quindi uscendo dalla Home si ritrova quello
+      delle cartelle e rientrando si ritrova la griglia (o quello che si e' scelto mentre
+      si era li'). Un **layout salvato** per la Home vince sul valore di partenza: chi ha
+      scelto ha scelto. Visto a schermo: la Home a griglia all'avvio, `sandbox` in
+      dettagli cliccandola, e la griglia di nuovo tornando alla Home
+      (`analysis/tmp/homegrid-*.png`).
 - [x] **l'avvio**: `startupFolder` vuota significa **Home** (era "Questo PC"). "Avvio:
       Questo PC" adesso **scrive** il nome di spazio dei nomi invece di svuotare la
       preferenza, e la riga `Avvio` fra le opzioni accetta anche una posizione di spazio
@@ -2110,7 +2192,9 @@ posizione e' nostro (`bolt:home`).
   riavviano dove dicono; togliendo la preferenza si torna alla Home;
 - inglese e italiano a finestra aperta: `Pinned`/`Recent`/`Known folders`, `File folder`,
   `Groups: by band`, e il ritorno all'italiano senza riavviare;
-- `BOLT_DEV_HUD=1`: **0 jobs** sulla Home (nessuna statistica ricorsiva) e un solo disegno.
+- `BOLT_DEV_HUD=1`: **0 jobs** sulla prima cattura della Home (all'epoca nessuna
+  statistica ricorsiva), **un solo disegno**; dal 2026-10-21 i job ci sono, perche' le
+  colonne dei numeri si riempiono.
 
 **Limiti dichiarati.**
 

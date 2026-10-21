@@ -9,6 +9,10 @@
 #include <shlobj.h>
 #include <shobjidl.h>
 
+// PKEY_Size: la dimensione di una voce, chiesta alla shell invece che a disco. E'
+// l'unico modo di misurarla mentre la shell la sta gia' copiando.
+#include <propkey.h>
+
 #include <algorithm>
 #include <atomic>
 #include <memory>
@@ -95,6 +99,25 @@ struct JobState
     int          doneItems  = 0;
     UINT         workTotal  = 0;
     UINT         workSoFar  = 0;
+
+    // Il conto dei byte, in due pezzi invece che in una frazione sola.
+    //
+    // `doneBase` sono i byte delle voci **finite**, misurati uno per uno prima che
+    // la shell li toccasse. `itemBytes` e' la dimensione della voce in corso, zero
+    // quando non si sa (una cartella: la shell non ne dichiara la dimensione, e
+    // l'unico numero vero e' quello ricorsivo che abbiamo gia' contato). Dentro la
+    // voce in corso si interpola coi punti, perche' non c'e' altro: ma una voce
+    // finita vale i suoi byte, non la sua parte di tempo — i punti sono
+    // proporzionali al tempo, e cento file da un kilobyte pesano quanto un file da
+    // cento megabyte solo perche' ci mettono lo stesso tempo.
+    uint64_t     doneBase   = 0;
+    uint64_t     itemBytes  = 0;
+
+    // L'ultimo decile di byte **misurati** che e' finito nel registro. Serve a
+    // scrivere poche righe (dieci per operazione, non una per voce) che dicono se il
+    // conto vecchio — la frazione dei punti — stava dicendo la verita' o no.
+    int          loggedDecile = 0;
+
     bool         measured   = false;
     bool         preparing  = true;
 
@@ -187,10 +210,17 @@ public:
     HRESULT STDMETHODCALLTYPE PreNewItem(DWORD, IShellItem*, LPCWSTR) override { return S_OK; }
 
     // `iWorkTotal` e `iWorkSoFar` sono "punti", e il documento non promette che siano
-    // byte. La **frazione** pero' e' una frazione: moltiplicata per i byte che
-    // abbiamo misurato da' un numero di byte — esatto se i punti sono byte,
-    // proporzionale se non lo sono. E' il solo conto che la shell offre, e senza
-    // conto un pannello di avanzamento non ha niente da muovere.
+    // byte. La **frazione** pero' e' una frazione, e serve a muovere la barra dentro
+    // la voce in corso — l'unica cosa che la shell dice mentre un file si copia.
+    //
+    // Il numero dei byte non si ricava da li': le voci **finite** valgono i byte che
+    // abbiamo misurato noi (`doneBase`), e la frazione dei punti resta confinata fra
+    // il loro totale e la fine della voce in corso, perche' fuori da quell'intervallo
+    // direbbe una cosa falsa. Prima di questa correzione un solo denominatore
+    // globale dava i byte delle voci finite uguali alla loro parte di **tempo**:
+    // cento file da un kilobyte coperti in un decimo del tempo si prendevano un
+    // decimo dei byte, e il pannello dichiarava di aver finito dei byte che non
+    // aveva nemmeno cominciato a scrivere.
     //
     // Ed e' anche il posto giusto per fermarsi: `UpdateProgress` arriva **mentre** si
     // copia anche un solo file, e un codice d'errore qui annulla l'operazione in
@@ -204,10 +234,27 @@ public:
         std::lock_guard<std::mutex> lock(state_->mutex);
         state_->workTotal = iWorkTotal;
         state_->workSoFar = iWorkSoFar;
-        if (iWorkTotal > 0 && state_->totalBytes > 0)
-            state_->doneBytes = static_cast<uint64_t>(static_cast<double>(state_->totalBytes) *
-                                                      static_cast<double>(iWorkSoFar) /
-                                                      static_cast<double>(iWorkTotal));
+
+        const uint64_t total = state_->totalBytes;
+        const uint64_t base  = (std::min)(state_->doneBase, total);
+        uint64_t value       = base;
+
+        if (iWorkTotal > 0 && total > 0)
+        {
+            const double estimate = static_cast<double>(total) *
+                                    static_cast<double>(iWorkSoFar) /
+                                    static_cast<double>(iWorkTotal);
+            const uint64_t ceiling = state_->itemBytes > 0
+                                         ? (std::min)(total, base + state_->itemBytes)
+                                         : total;
+            value = static_cast<uint64_t>(estimate);
+            value = (std::max)(value, base);
+            value = (std::min)(value, ceiling);
+        }
+
+        // Non si torna mai indietro: il conto e' l'unica cosa che chi guarda usa per
+        // capire se l'operazione sta procedendo.
+        state_->doneBytes = (std::max)(state_->doneBytes, value);
         return S_OK;
     }
 
@@ -252,6 +299,10 @@ private:
     // finestra di avanzamento (`SIGDN_NORMALDISPLAY`): "foto.jpg", non il percorso.
     // Resta nello stato e non va da nessun'altra parte — il registro diagnostico non
     // lo vede, perche' un nome di file personale non si scrive in un file di log.
+    //
+    // Qui si misura anche **quanto e' grande** la voce che sta per cominciare: e' la
+    // sola occasione in cui la si ha in mano prima che venga toccata, e la dimensione
+    // serve al conto dei byte quando la voce finisce.
     HRESULT Note(IShellItem* item)
     {
         // Prima di ogni voce si guarda se qualcuno ha chiesto di fermarsi: e' il
@@ -272,7 +323,28 @@ private:
             std::lock_guard<std::mutex> lock(state_->mutex);
             state_->currentItem = std::move(text);
         }
+
+        const uint64_t size = ItemBytes(item);
+        std::lock_guard<std::mutex> lock(state_->mutex);
+        state_->itemBytes = size;
         return S_OK;
+    }
+
+    // Quanto e' grande una voce, se la shell lo dice. Un file lo dice (`PKEY_Size`);
+    // una cartella no — la sua dimensione e' la somma di quello che contiene, che
+    // nessuna proprieta' riporta e che abbiamo gia' contato noi in ricorsione. Zero
+    // vuol dire "non si sa", e il conto allora resta dentro la voce senza
+    // attribuirle byte che non conosce.
+    static uint64_t ItemBytes(IShellItem* item)
+    {
+        ComPtr<IShellItem2> item2;
+        if (FAILED(item->QueryInterface(IID_PPV_ARGS(&item2))))
+            return 0;
+
+        uint64_t size = 0;
+        if (FAILED(item2->GetUInt64(PKEY_Size, &size)))
+            return 0;
+        return size;
     }
 
     // Il nome definitivo di una voce appena creata, e una voce in piu' nel conto.
@@ -292,11 +364,46 @@ private:
             }
         }
 
-        std::lock_guard<std::mutex> lock(state_->mutex);
-        if (SUCCEEDED(hr))
-            ++state_->doneItems;
-        if (!path.empty())
-            state_->created.push_back(std::move(path));
+        int    logPercent   = -1;
+        int    pointPercent = 0;
+        {
+            std::lock_guard<std::mutex> lock(state_->mutex);
+            if (SUCCEEDED(hr))
+            {
+                ++state_->doneItems;
+                // I byte di questa voce adesso sono davvero scritti: si sommano al
+                // conto, e la voce in corso riparte da zero. Da qui in avanti il
+                // pannello non puo' piu' attribuirle la parte di tempo che le
+                // toccava.
+                state_->doneBase += state_->itemBytes;
+
+                // Il confronto fra i due conti, ogni decimo di byte veri: e' l'unico
+                // modo di vedere la differenza senza guardare un fotogramma a caso.
+                const uint64_t total = state_->totalBytes;
+                if (total > 0)
+                {
+                    const uint64_t decile = state_->doneBase * 10 / total;
+                    if (decile > static_cast<uint64_t>(state_->loggedDecile))
+                    {
+                        state_->loggedDecile = static_cast<int>(decile > 10 ? 10 : decile);
+                        logPercent   = state_->loggedDecile * 10;
+                        pointPercent = state_->workTotal > 0
+                                           ? static_cast<int>(state_->workSoFar * 100 /
+                                                              state_->workTotal)
+                                           : 0;
+                    }
+                }
+            }
+            state_->itemBytes = 0;
+            if (!path.empty())
+                state_->created.push_back(std::move(path));
+        }
+
+        // Fuori dal lucchetto: chi disegna sta aspettando quel lucchetto per un
+        // fotogramma, e un file di registro non e' una ragione per farlo aspettare.
+        if (logPercent >= 0)
+            DiagLog("  conto: " + std::to_string(logPercent) + "% dei byte misurati, " +
+                    std::to_string(pointPercent) + "% secondo la frazione dei punti");
         return S_OK;
     }
 
@@ -323,6 +430,18 @@ void Measure(const std::vector<std::wstring>& paths, double budgetSeconds, uint6
     uint64_t total = 0;
     int      count = 0;
     bool     done  = true;
+
+    // La shell conta anche la **cartella** che si sta copiando, non solo quello che
+    // contiene: senza questa riga il pannello diceva "3001 di 3000 voci" perche' i
+    // `Post*` arrivano per la cartella di partenza e la misura guardava soltanto
+    // dentro. Un file di partenza lo conta gia' il ciclo qui sotto.
+    for (const std::wstring& root : paths)
+    {
+        const DWORD attributes = GetFileAttributesW(root.c_str());
+        if (attributes != INVALID_FILE_ATTRIBUTES &&
+            (attributes & FILE_ATTRIBUTE_DIRECTORY) != 0)
+            ++count;
+    }
 
     while (!pending.empty() && done)
     {
@@ -553,15 +672,32 @@ void Job::Run(std::shared_ptr<FileOpsDetail::JobState> state)
         return;
     }
 
+    // Ogni passo si nomina nel registro se fallisce: "Parametro non corretto" da solo
+    // non dice **quale** chiamata l'ha detto, e un codice senza nome fa cercare il
+    // guasto nel posto sbagliato. E' successo con le barre in avanti in un percorso,
+    // che `SHCreateItemFromParsingName` rifiuta, e il sospetto era caduto sul `Job`.
+    const auto step = [](const char* name, HRESULT value)
+    {
+        if (FAILED(value))
+        {
+            char code[16];
+            std::snprintf(code, sizeof(code), "0x%08lX", static_cast<unsigned long>(value));
+            DiagLog(std::string("  operazione, passo ") + name + ": " + code);
+        }
+        return value;
+    };
+
     HRESULT hr = FAILED(com) ? com : S_OK;
 
     ComPtr<IFileOperation> operation;
     if (SUCCEEDED(hr))
-        hr = CoCreateInstance(CLSID_FileOperation, nullptr, CLSCTX_ALL, IID_PPV_ARGS(&operation));
+        hr = step("CoCreateInstance",
+                  CoCreateInstance(CLSID_FileOperation, nullptr, CLSCTX_ALL,
+                                   IID_PPV_ARGS(&operation)));
     if (SUCCEEDED(hr))
-        hr = operation->SetOperationFlags(state->flags);
+        hr = step("SetOperationFlags", operation->SetOperationFlags(state->flags));
     if (SUCCEEDED(hr))
-        hr = operation->SetOwnerWindow(state->owner);
+        hr = step("SetOwnerWindow", operation->SetOwnerWindow(state->owner));
 
     // Il sink si registra **una volta** con `Advise`: da li' arrivano tutte le
     // notifiche, `UpdateProgress` compreso. Passarlo anche a `CopyItem`
@@ -571,19 +707,19 @@ void Job::Run(std::shared_ptr<FileOpsDetail::JobState> state)
     if (SUCCEEDED(hr))
     {
         sink = new ProgressSink(state);
-        hr   = operation->Advise(sink, &cookie);
+        hr   = step("Advise", operation->Advise(sink, &cookie));
     }
 
     if (SUCCEEDED(hr))
     {
         ComPtr<IShellItem> target;
         if (state->action == Action::Copy || state->action == Action::Move)
-            hr = ShellItemFromPath(state->destination, &target);
+            hr = step("destinazione", ShellItemFromPath(state->destination, &target));
 
         for (size_t i = 0; SUCCEEDED(hr) && i < state->sources.size(); ++i)
         {
             ComPtr<IShellItem> item;
-            hr = ShellItemFromPath(state->sources[i], &item);
+            hr = step("sorgente", ShellItemFromPath(state->sources[i], &item));
             if (FAILED(hr))
                 break;
 
@@ -603,7 +739,7 @@ void Job::Run(std::shared_ptr<FileOpsDetail::JobState> state)
     }
 
     if (SUCCEEDED(hr))
-        hr = operation->PerformOperations();
+        hr = step("PerformOperations", operation->PerformOperations());
 
     if (cookie != 0)
         operation->Unadvise(cookie);
@@ -612,12 +748,15 @@ void Job::Run(std::shared_ptr<FileOpsDetail::JobState> state)
 
     // Una riga che dice come la shell conta su **questa** macchina, e che serve a
     // leggere invece di supporre: i "punti" non sono byte (un file da 4 GB sono
-    // 131074 punti, cioe' 32 KB l'uno, e un file da 23 byte sono 2 punti), quindi il
-    // conto del pannello e' esatto per un file solo e interpolato su tante voci
-    // piccole. Misurato cosi' il 2026-10-16.
+    // 131074 punti, cioe' 32 KB l'uno, e un file da 23 byte sono 2 punti). Il conto
+    // del pannello non si ricava piu' da quella frazione: le voci finite valgono i
+    // byte misurati, e i punti interpolano solo dentro la voce in corso.
     DiagLog("  operazione: " + std::to_string(state->totalBytes) + " byte misurati, " +
             std::to_string(state->totalItems) + " voci, " + std::to_string(state->workTotal) +
-            " punti dichiarati dalla shell, " + std::to_string(state->workSoFar) + " fatti");
+            " punti dichiarati dalla shell, " + std::to_string(state->workSoFar) + " fatti, " +
+            std::to_string(state->doneBase) + " byte delle voci finite, " +
+            std::to_string(state->doneBytes) + " byte contati, " +
+            std::to_string(state->doneItems) + " voci fatte");
 
     if (FAILED(hr))
     {
@@ -688,6 +827,22 @@ std::unique_ptr<Job> Job::StartDelete(HWND owner, const std::vector<std::wstring
                        : (kBaseFlags | FOF_SILENT);
 
     return std::unique_ptr<Job>(new Job(std::move(state)));
+}
+
+std::unique_ptr<Job> Start(HWND owner, const Request& request)
+{
+    switch (request.action)
+    {
+        case Action::Copy:
+            return Job::StartTransfer(owner, request.sources, request.destination, /*move=*/false);
+        case Action::Move:
+            return Job::StartTransfer(owner, request.sources, request.destination, /*move=*/true);
+        case Action::Recycle:
+        case Action::DeleteForever:
+            return Job::StartDelete(owner, request.sources,
+                                    request.action == Action::DeleteForever);
+    }
+    return Job::StartDelete(owner, request.sources, /*permanently=*/false);
 }
 
 Job::~Job()

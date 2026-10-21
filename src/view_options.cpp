@@ -62,6 +62,9 @@ enum OptionId
     OptTooltips, OptHoverToSelect, OptUnderlineOnHover, OptSingleClick,
     OptSingleClickFoldersOnly, OptActOnPress, OptDoubleClickToParent,
     OptShowCheckboxes, OptSidebar, OptGridIconSize, OptLanguage,
+    // Le due colonne che di partenza sono spente: la creazione e l'ultimo accesso.
+    // La data di modifica resta, e non e' un'opzione.
+    OptShowCreatedColumn, OptShowAccessedColumn,
     // `ShowRecents` e `SortRecents`: le due opzioni dei recenti che si vedono
     // nella lista — una li spegne, l'altra li porta in cima.
     OptShowRecents, OptSortRecents,
@@ -296,6 +299,14 @@ void RefreshOptionItem(const AppState& app, GroupMenuItem& item)
             item.control  = OptionControl::Toggle;
             item.toggleOn = app.compactPaths;
             break;
+        case OptShowCreatedColumn:
+            item.control  = OptionControl::Toggle;
+            item.toggleOn = app.showCreatedDate;
+            break;
+        case OptShowAccessedColumn:
+            item.control  = OptionControl::Toggle;
+            item.toggleOn = app.showAccessedDate;
+            break;
         default:
             break;
     }
@@ -471,6 +482,15 @@ void ApplyOptionFromItem(AppState& app, GroupMenuItem& item)
             app.showFileExtension = item.toggleOn;
             app.viewDirty         = true;
             break;
+        // Le due colonne: `SetColumnVisible` fa tutto quello che serve oltre al
+        // disegno — togliere il filtro di quella colonna, e riportare l'ordine al nome
+        // se era lei a ordinare.
+        case OptShowCreatedColumn:
+            SetColumnVisible(app, ColumnOfSort(SortColumn::Created), item.toggleOn);
+            break;
+        case OptShowAccessedColumn:
+            SetColumnVisible(app, ColumnOfSort(SortColumn::Accessed), item.toggleOn);
+            break;
         case OptTooltips:        app.showTooltips     = item.toggleOn; break;
         case OptShowRecents:     app.showRecents      = item.toggleOn; break;
         case OptSortRecents:
@@ -644,6 +664,14 @@ void BuildOptionsMenu(AppState& app)
         {"Show Checkboxes", "Mostra le caselle di scelta",
          "Una casella di scelta su ogni riga.",
          "Shows a checkbox on every row.", OptShowCheckboxes, false},
+        {"Show Creation Date Column", "Mostra la data di creazione",
+         "La colonna della data di creazione. Di partenza e' spenta: resta la data di modifica.",
+         "The creation date column. Off by default: only the modified date stays.",
+         OptShowCreatedColumn, false},
+        {"Show Last Access Date Column", "Mostra la data di ultimo accesso",
+         "La colonna dell'ultimo accesso. Di partenza e' spenta: resta la data di modifica.",
+         "The last access date column. Off by default: only the modified date stays.",
+         OptShowAccessedColumn, false},
         {"Show The Sidebar", "Mostra la barra laterale",
          "Mostra il riquadro dei segnalibri e dei posti a sinistra.",
          "Shows the bookmark and place panel on the left.", OptSidebar, false},

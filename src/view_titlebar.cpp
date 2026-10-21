@@ -18,12 +18,12 @@ void DrawTitleBar(AppState& app, const Layout& layout)
     r.FillRect(Rect{bar.x, bar.bottom() - 1.0f, bar.w, 1.0f}, t.separator);
 
     const float buttonWidth = 44.0f * scale;
-    const float stripLeft   = 44.0f * scale;
+    const float stripLeft   = 80.0f * scale;
     const float stripRight  = bar.right() - buttonWidth * 3.0f;
 
-    // Menu button. The reference opens the application menu here; the menu
-    // component arrives with the command palette, so for now it toggles the one
-    // thing the shell already has.
+    // Il pulsante ☰ apre il **menu dell'applicazione** (`BuildAppMenu`), come nel
+    // riferimento. La barra laterale ha il suo, accanto: erano la stessa cosa finche' il
+    // menu non c'era, e adesso che c'e' non hanno piu' niente in comune.
     const Rect menu{bar.x + 6.0f * scale, bar.y + 7.0f * scale, 30.0f * scale, bar.h - 14.0f * scale};
     r.FillRect(menu, app.hoveredChrome == 0 ? t.rowHover : t.panelBg, 5.0f * scale);
     for (int i = 0; i < 3; ++i)
@@ -33,6 +33,27 @@ void DrawTitleBar(AppState& app, const Layout& layout)
         ClickTarget target;
         target.rect = menu;
         target.kind = ClickTarget::Kind::Menu;
+        app.clickTargets.push_back(target);
+    }
+
+    // Il riquadro della barra laterale: due rettangoli accostati, quello di sinistra
+    // pieno quando la barra si vede. E' una forma e non un carattere (AGENTS.md §8).
+    const Rect panel{bar.x + 42.0f * scale, bar.y + 7.0f * scale, 30.0f * scale,
+                     bar.h - 14.0f * scale};
+    r.FillRect(panel, app.hoveredChrome == 5 ? t.rowHover : t.panelBg, 5.0f * scale);
+    {
+        const float box = 12.0f * scale;
+        const Rect frame{panel.x + (panel.w - box) * 0.5f, panel.y + (panel.h - box) * 0.5f, box,
+                         box};
+        r.Draw(UIDraw::Border(frame, t.textDim, 1.0f, 2.0f * scale));
+        if (app.sidebarVisible)
+            r.FillRect(Rect{frame.x + 1.0f, frame.y + 1.0f, frame.w * 0.38f, frame.h - 2.0f},
+                       t.textDim);
+    }
+    {
+        ClickTarget target;
+        target.rect = panel;
+        target.kind = ClickTarget::Kind::SidebarToggle;
         app.clickTargets.push_back(target);
     }
 

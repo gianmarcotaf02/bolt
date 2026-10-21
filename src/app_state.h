@@ -119,6 +119,7 @@ struct Entry
     // sessanta volte al secondo.
     bool volumeRoot = false;
 
+
     // La banda della Home: 0 fissaggi, 1 recenti, 2 cartelle note. `-1` per ogni
     // voce che non viene dalla Home. Non e' un raggruppamento scelto dall'utente:
     // e' l'ordine con cui le destinazioni si presentano, e vale anche quando le
@@ -168,6 +169,7 @@ struct ClickTarget
     enum class Kind
     {
         Column, ColumnEdge, ColumnFilter, ColumnFilterRow, Breadcrumb, NavButton, Place,
+        SidebarToggle,
         SidebarHeader, Row, GroupHeader, GroupMode, Checkbox,
         Menu, Tab, TabClose, TabNew,
         WindowMinimize, WindowMaximize, WindowClose,
@@ -281,7 +283,8 @@ enum CommandId
     // Il fissaggio: due domande — dove, e da dove togliere — sulla stessa lista di
     // destinazioni. Sono due comandi e non uno con un verso, perche' chi cerca
     // "togli" non deve leggere "fissa" e capire da solo che fa il contrario.
-    CmdPinTo, CmdUnpin, CmdForgetRecent, CmdSaveFolderLayout, CmdForgetFolderLayout,
+    CmdPinTo, CmdUnpin, CmdForgetRecent, CmdSaveFolderLayout, CmdLoadFolderLayout,
+    CmdForgetFolderLayout,
     // Le proprieta': quella in-app e quella di Windows, due voci distinte.
     CmdProperties, CmdPropertiesWindows,
     // Gli aggiornamenti: un comando **esplicito** e basta. Non ha un tasto di
@@ -446,6 +449,12 @@ struct ContextMenuItem
     // shell saprebbe fare in un altro contesto.
     bool        disabled  = false;
 
+    // La scorciatoia, scritta a destra come in ogni menu che si rispetti ("Ctrl+P").
+    // E' testo gia' pronto e non un tasto: chi costruisce il menu sa se quella voce ha
+    // una scorciatoia **e** quale, e il disegno non deve chiederlo alla mappa dei tasti
+    // per ogni riga.
+    std::string shortcut;
+
     // Sottomenu. `children` vuoto non vuol dire "niente sottomenu": la shell lo
     // descrive con un HMENU che si legge **quando si apre**, perche' il suo
     // contenuto non esiste prima di WM_INITMENUPOPUP. Vedi `HasSubmenu`.
@@ -530,9 +539,10 @@ struct TextRow
 // dalla larghezza dell'elenco: e' una frazione e non una misura in pixel perche'
 // cosi' la vista si stringe e si allarga senza che le colonne si accavallino.
 //
-// La frazione si puo' cambiare — si trascina il bordo, come in Esplora risorse — e
-// quindi il valore vivo sta in `AppState`, non qui: qui c'e' solo quello di
-// partenza, che e' anche quello a cui torna un doppio clic sul bordo.
+// Il valore vivo sta in `AppState`, non qui: qui c'e' solo quello con cui le colonne
+// nascono, prima che la prima cartella letta le faccia **adattare** al suo contenuto
+// (`FitColumns`). Trascinare un bordo passa alla larghezza scelta a mano; il doppio
+// clic su un bordo torna ad adattare.
 struct ColumnDef
 {
     const char* label;     // il nome della chiave dello spec ("Name", "Size", …)
@@ -619,6 +629,13 @@ enum class OperationSource
     None,
     Command,   // da un comando: incolla, elimina
     Drop,      // da una caduta: copia, spostamento, cestino
+};
+
+// Una richiesta accettata che aspetta il suo turno: cosa fare, e da dove e' arrivata.
+struct QueuedOperation
+{
+    FileOps::Request request;
+    OperationSource  source = OperationSource::None;
 };
 
 struct AppState
@@ -777,6 +794,12 @@ struct AppState
     bool  rectSelecting = false;
     bool  rectAdditive  = false;
     float rectX0 = 0.0f, rectY0 = 0.0f, rectX1 = 0.0f, rectY1 = 0.0f;
+
+    // La selezione che c'era quando il rettangolo e' partito (solo con `Ctrl`: senza,
+    // la si sta sostituendo). Serve perche' il rettangolo **seleziona mentre si muove**
+    // e non solo al rilascio: a ogni movimento la selezione si rifa' da questa base
+    // piu' le righe coperte, cosi' stringendo il rettangolo si deseleziona.
+    std::unordered_set<std::wstring> rectBase;
 
     // Trascinamento. La pressione su una riga non e' ancora un trascinamento: lo
     // diventa quando il mouse si muove oltre la soglia di sistema — sotto quella
@@ -955,6 +978,21 @@ struct AppState
     // rinomina o si filtra — un nome che il filtro non trova piu' sarebbe peggio
     // di un nome lungo.
     bool showFileExtension = true;
+
+    // Le due date che `FindFirstFile` da' insieme alla modifica: **spente** di
+    // partenza, e si accendono dalle opzioni. In un elenco di file la data che si
+    // guarda e' quella di modifica; tre date affiancate si prendono lo spazio dei
+    // nomi e dicono quasi sempre la stessa cosa (creazione = modifica, accesso =
+    // adesso). La scelta e' dell'autore, 2026-10-21.
+    bool showCreatedDate  = false;
+    bool showAccessedDate = false;
+
+    // La larghezza delle colonne si **adatta al contenuto** finche' non si trascina un
+    // bordo: "adatta" e' il valore di partenza, non una scelta da cercare in un menu.
+    // Trascinando un bordo si passa alla larghezza scelta a mano (e resta), e il doppio
+    // clic su un bordo torna ad adattare. Se resta acceso, ogni cartella aperta si
+    // adatta alla sua: e' quello che ci si aspetta da una colonna che si chiama cosi'.
+    bool autoFitColumns = true;
     // `DisplayCompactPaths`: quando il percorso nella barra non entra tutto, le
     // briciole in testa si stringono in un `...` invece di uscire dal riquadro.
     // Acceso di partenza: un percorso che esce dalla finestra si legge a meta'.
@@ -1068,6 +1106,13 @@ struct AppState
     bool       sortAscending = true;
     ViewMode   viewMode      = ViewMode::Details;
 
+    // Il modo di visualizzazione vive **per cartella**. La Home nasce a **griglia**:
+    // e' una pagina di destinazioni, non un elenco di file, e una griglia di icone la
+    // legge meglio di una tabella con sette colonne. Le altre cartelle hanno il loro
+    // modo, e questo campo se lo ricorda: uscendo dalla Home si torna a quello.
+    ViewMode   homeViewMode       = ViewMode::Icons;
+    ViewMode   viewModeOutsideHome = ViewMode::Details;
+
     // View: filter and grouping sit between the directory and the rows.
     std::wstring filter;          // free text; a term may be an extension pattern
     bool         filterActive = false;
@@ -1127,6 +1172,30 @@ struct AppState
     std::unique_ptr<FileOps::Job> operation;
     OperationSource               operationSource = OperationSource::None;
     double                        operationStart  = 0.0;
+
+    // La cartella che si stava guardando quando l'operazione e' partita. Serve a una
+    // cosa sola: quando l'operazione finisce, la vista si rifa' **solo se e' ancora
+    // quella**. Adesso che il pannello non e' piu' modale si puo' navigare mentre una
+    // copia gira, e ricaricare la cartella aperta adesso con la selezione di allora
+    // vorrebbe dire toccare un elenco che non c'entra.
+    std::wstring operationOrigin;
+
+    // Le richieste accettate e non ancora partite, in ordine di arrivo.
+    //
+    // Prima una seconda operazione mentre la prima girava veniva **rifiutata**, e
+    // per una caduta questo voleva dire dichiarare `DROPEFFECT_NONE`: chi aveva
+    // mollato il tasto leggeva dalla destinazione se era andata, e leggeva il
+    // nulla. Una coda fa quello che fa Esplora risorse — la seconda parte quando la
+    // prima ha finito — e non ha bisogno di dire niente di falso.
+    //
+    // La sorgente sta con la richiesta e non con l'operazione: due richieste in coda
+    // possono venire da gesti diversi, e ognuna racconta la sua.
+    std::vector<QueuedOperation> operationQueue;
+
+    // Quante richieste in coda sono state buttate via annullando l'operazione in
+    // corso. Il numero serve **dopo**, quando l'esito si legge: l'annullamento lo
+    // racconta `FinishOperation`, che non sa cosa e' stato buttato via.
+    int operationQueueDropped = 0;
 
     // Il controllo degli aggiornamenti in corso. E' **esplicito**: parte solo dal
     // comando `Controlla aggiornamenti` e non da un timer, perche' una richiesta a
