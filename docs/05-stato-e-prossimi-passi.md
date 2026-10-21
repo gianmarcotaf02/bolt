@@ -9,7 +9,8 @@ una compattazione del contesto.
 Incolla questa frase:
 
 > Riprendi Bolt. Leggi `docs/05` §1 e §3 (aggiornati il 2026-10-21) e `AGENTS.md` §0,
-> §2 e §2-bis. Lo stato vero: M1–M13 chiuse, registro difetti `docs/02` §7 a **65 voci,
+> §2 e §2-bis. Lo stato vero: M1–M13 fatte (M2 e M7 restano 🟡 per una scelta e un
+> limite dichiarato, non per lavoro mancante), registro difetti `docs/02` §7 a **65 voci,
 > zero aperte**, versione **0.1.3** pubblicata e installata, `gh` autenticato. Non serve
 > ricostruire niente. Non resta lavoro **funzionale**: le uniche due caselle di `docs/04`
 > sono una scelta gia' presa (icone monocromatiche: non si fa) e un limite dichiarato
