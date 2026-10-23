@@ -522,7 +522,7 @@ di quanto mordono:
 1. **Spezzare l'input di `main.cpp`** (`input_keys.*`, `input_mouse.*`). La decisione e'
    gia' scritta in §2: prima le superfici (fatte), poi i `case` di `WindowProc`; adesso
    `WM_KEYDOWN` e i messaggi del mouse non hanno piu' niente da trascinarsi dietro.
-   `main.cpp` e' a **5.568** righe, e la curva non si e' fermata: il menu dell'applicazione,
+   `main.cpp` e' a **5.604** righe, e la curva non si e' fermata: il menu dell'applicazione,
    le sottocartelle nella lista, il layout, la sessione e la ricerca nel menu contestuale
 2. **Il messaggio della caduta senza percorso non e' visto** (`docs/04`). Le due tappe degli
    split sono fatte e viste, e ora anche il **trascinamento di una scheda** da un pannello
