@@ -78,7 +78,8 @@ constexpr int kTextureLayerSize = 1024;
 // Le colonne che si possono ordinare. Non e' l'ordine in cui si vedono: e' l'elenco
 // dei valori su cui `SortEntries` sa confrontare (`TotalItems` e' un derivato:
 // cartelle + file + se stessa).
-enum class SortColumn { Name, Type, Modified, Created, Accessed, Folders, Files, TotalItems, Size };
+enum class SortColumn { Name, Type, Modified, Created, Accessed, Folders, Files, TotalItems, Size,
+                        FreeSpace, VolumeUsage, FileSystem };
 
 struct Entry
 {
@@ -107,6 +108,19 @@ struct Entry
     // un'altra voce — chiederle il menu di quel nome da' il menu di *quel* file, e
     // "Ripristina" sparisce.
     std::vector<BYTE> pidl;
+
+    // Il percorso assoluto, quando la voce **non** sta nella cartella aperta: le voci
+    // piatte di `Toggle Subfolders`, che portano il contenuto delle sottocartelle nella
+    // stessa lista. E' un campo suo e non `location`, che vuol dire "vengo dallo spazio
+    // dei nomi" e cambia il modo in cui si chiedono icona, anteprima e menu: usare
+    // quello avrebbe rotto tre cose per farne funzionare una.
+    std::wstring fullPath;
+
+    // Il genitore di una voce piatta, **relativo alla cartella aperta** (`immagini`,
+    // `immagini\vecchie`): si scrive accanto al nome, perche' due file con lo stesso
+    // nome in due sottocartelle diverse sono due righe che altrimenti si leggono uguali.
+    // Vuoto per le voci della cartella aperta, che il genitore non ce l'hanno.
+    std::string  parentHint;
 
     // Vero se aprirla porta dove dice il suo nome. Le voci normali si'; un'unita'
     // dentro "Questo PC" si'; una cartella dentro il cestino no: li' il nome e' il
@@ -176,6 +190,14 @@ struct ClickTarget
         MenuRow, MenuHeader,
         // I selettori di vista e lo stepper delle anteprime, nella barra in fondo.
         ViewSelect, PreviewDown, PreviewUp,
+        // Il pulsante della cartella nuova: un comando della barra in fondo, non un
+        // selettore, ma sta fra gli altri perche' li' si cerca.
+        NewFolder,
+        // Le due pastiglie in fondo a una riga della palette: la stella dei preferiti
+        // e il `+` per assegnare un tasto senza passare dalla mappa.
+        PaletteStar, PaletteAssign,
+        // Il campo della ricerca globale, nella riga dei pulsanti.
+        SearchField,
     };
     Rect         rect;
     Kind         kind = Kind::Row;
@@ -261,6 +283,15 @@ enum CommandId
     CmdFocusFilter, CmdClearFilter, CmdScrollTop, CmdScrollBottom,
     CmdToggleHoverToSelect, CmdToggleUnderlineOnHover, CmdToggleTooltips, CmdToggleShowRecents,
     CmdToggleSortRecents,
+    // `Toggle Subfolders` (`Ctrl+E`): il contenuto delle sottocartelle dentro la lista,
+    // con il genitore accanto al nome.
+    CmdToggleSubfolders,
+    // Il layout della finestra: salvato, ricaricato, dimenticato. Uno solo, e senza
+    // un nome da scrivere — un layout si salva per ritrovare la forma che si sta
+    // guardando, non per collezionare.
+    CmdSaveLayout, CmdLoadLayout, CmdForgetLayout,
+    // `LoadOnStartup = LastSession`: spegnere l'interruttore cancella il file.
+    CmdToggleRememberTabs,
     CmdSingleClick, CmdSingleClickFoldersOnly, CmdActOnPress, CmdDoubleClickToParent,
     CmdShowCheckboxes,
     CmdCloseInTree, CmdCloseAllInTree, CmdDetachTab,
@@ -341,6 +372,11 @@ struct GroupMenuItem
     // e' la lezione del riferimento (`System Light / Dark Scheme` li' e' cosi').
     bool          enabled   = true;
     std::vector<std::pair<std::string, int>> choices;   // Choice: (etichetta, valore)
+
+    // I tasti, uno per pastiglia: il riferimento li disegna cosi' — un comando puo'
+    // averne due (`Ctrl+P` e `F4`), e due pastiglie si leggono meglio di una frase con
+    // dentro un "o". `detail` resta per i menu che scrivono un testo solo.
+    std::vector<std::string> chips;
 };
 
 struct GroupMenuRow
@@ -366,6 +402,9 @@ struct GroupMenu
     // dei tasti no: li' quella colonna vuol dire una cosa sola — il tasto — e un
     // gruppo scritto dov'era il tasto sarebbe una bugia su un comando senza tasti.
     bool         detailFallsBackToGroup = false;
+    // Il dettaglio si disegna come **pastiglie** invece che come testo: e' quello che
+    // serve ai tasti, dove ogni tasto e' un'informazione sua e non una riga di prosa.
+    bool         detailAsChips = false;
     // Dove appoggiarlo. Vuoto: al centro, come la palette. Riempito: sotto
     // quell'angolo, come il pannello dei valori di una colonna, che deve stare
     // attaccato all'intestazione da cui e' nato.
@@ -375,6 +414,16 @@ struct GroupMenu
     std::string  title;
     std::string  placeholder;
     std::string  hint;   // the footer line, which differs per caller
+
+    // La testata che il riferimento scrive in cima a un menu popup: che cosa fa il
+    // comando a cui quel pannello appartiene, come si chiama, e i suoi tasti. Serve
+    // a **insegnare** il comando nel punto in cui lo si sta usando — chi apre questo
+    // menu col puntatore scopre che si apre anche da tastiera. Vuota dove il pannello
+    // non e' un comando solo (la palette, le opzioni, l'elenco dei valori di una
+    // colonna): li' non c'e' niente da insegnare, e una riga vuota sarebbe rumore.
+    std::string              caption;
+    std::string              command;      // gia' scritto per esteso, senza i tasti
+    std::vector<std::string> commandKeys;  // una pastiglia per tasto
 
     // Quando si e' aperto, in secondi monotoni: e' l'unica cosa che serve a
     // `Animations` per far comparire il pannello invece di farlo lampeggiare. 0
@@ -550,6 +599,12 @@ struct ColumnDef
     SortColumn  sort;
     float       fraction;   // of the list width, measured from its left edge
     bool        filterable; // se questa colonna offre il filtro per valori
+    // Spenta di partenza. E' il caso delle colonne che dicono una cosa **del volume**
+    // invece che della voce: in una cartella tutte le righe portano lo stesso valore,
+    // quindi accenderle di serie vorrebbe dire occupare spazio per ripetere un numero
+    // trenta volte. Ci sono, si accendono dal menu dell'intestazione, e chi non le
+    // vuole non le vede mai.
+    bool        defaultHidden = false;
 };
 
 // Name, then the columns a directory entry already knows, then the three that
@@ -589,6 +644,12 @@ const ColumnDef kColumns[] = {
     // peggio di un totale che non c'e'.
     {"TotalItems", "Totale",       SortColumn::TotalItems, 0.848f, true},
     {"Size",     "Dimensione",     SortColumn::Size,     0.922f, true},
+    // Le tre del **volume**. Non sono della voce ma del disco su cui la voce sta:
+    // in una cartella tutte le righe dicono la stessa cosa, che e' esattamente quello
+    // che fa Esplora risorse. Per questo nascono spente (`defaultHidden`).
+    {"FreeSpace",   "Spazio libero", SortColumn::FreeSpace,   0.950f, true, true},
+    {"VolumeUsage", "Occupazione",   SortColumn::VolumeUsage, 0.972f, true, true},
+    {"FileSystem",  "File system",   SortColumn::FileSystem,  0.992f, true, true},
 };
 constexpr int kColumnCount = static_cast<int>(sizeof(kColumns) / sizeof(kColumns[0]));
 
@@ -845,6 +906,10 @@ struct AppState
     {
         float                 fraction = 0.0f;
         std::set<std::string> excluded;
+        // Chiusa dal menu dell'intestazione. E' uno stato **suo** e non una
+        // preferenza: `Show File Extension` vale per tutta la finestra, la colonna
+        // chiusa e' una scelta di come si guarda questa cartella, come la larghezza.
+        bool                  hidden = false;
     };
     std::array<ColumnState, kColumnCount> columns{};
 
@@ -852,12 +917,84 @@ struct AppState
     float        columnDragStartX = 0.0f;
     float        columnDragStartFraction = 0.0f;
 
+    // Le proprieta' del **volume** su cui sta la cartella aperta: spazio libero,
+    // occupazione e file system. Si chiedono una volta a ogni cartella aperta e non a
+    // ogni fotogramma: tre letture di disco per disegnare una tabella sarebbero una
+    // lettura per fotogramma. `valid` falso vuol dire "non si sa", e la colonna scrive
+    // `--` invece di inventare.
+    struct VolumeFacts
+    {
+        wchar_t      root[4] = {L'\0', L'\0', L'\0', L'\0'};
+        std::string  fileSystem;
+        uint64_t     freeBytes  = 0;
+        uint64_t     totalBytes = 0;
+        bool         valid      = false;
+    };
+    VolumeFacts volumeFacts;
+
+    // --- la ricerca globale (la barra in alto a destra) ----------------------
+    //
+    // Una ricerca **ricorsiva** dalla cartella aperta, per nome. Non apre un thread:
+    // avanza a **passi** dal ciclo dei messaggi (`AdvanceSearch`), qualche decina di
+    // cartelle per giro. La finestra resta viva, e fermarsi e' una bandierina invece
+    // di una richiesta di chiusura a un altro thread.
+    struct SearchJob
+    {
+        bool                     active    = false;   // sta lavorando adesso
+        bool                     finished  = false;   // ha finito, i risultati restano
+        std::wstring             query;               // in minuscolo, come si confronta
+        std::wstring             root;                // da dove e' partita
+        std::vector<std::wstring> pending;            // cartelle ancora da leggere
+        std::vector<Entry>        found;
+        std::size_t              visited   = 0;       // cartelle lette
+        bool                     truncated = false;   // un limite ha morso
+    };
+    SearchJob    search;
+    // Il campo della barra: quando e' acceso prende la tastiera, come il filtro.
+    bool         searchFieldActive = false;
+    std::wstring searchText;
+
+    // La larghezza del **pannello di destra**, in pixel (prima dello `zoom`): si prende
+    // dal suo bordo sinistro e si ricorda, come le larghezze delle colonne. Prima era
+    // un 292 scritto dentro il calcolo del layout, e l'unico modo di avere piu' spazio
+    // per una cartella era chiudere l'ispettore.
+    float inspectorWidth = 292.0f;
+    int   inspectorDrag  = -1;      // 0 mentre si trascina il bordo
+    float inspectorDragStartX = 0.0f;
+    float inspectorDragStartWidth = 0.0f;
+
     // Il pannello dei valori: aperto su una colonna, con i valori che aveva
     // quando e' stato aperto — si ricalcolano all'apertura, non a ogni fotogramma,
     // perche' contarli vuol dire scorrere tutte le voci.
     int                                     columnPanel = -1;
     std::vector<std::pair<std::string, int>> columnPanelValues;
     GroupMenu                               columnMenu;
+
+    // Il menu del **tasto destro sull'intestazione**: le operazioni sulla colonna —
+    // adattala al contenuto, chiudila, riporta le colonne di partenza — che il
+    // riferimento tiene separate dal filtro per valori. Due gesti, due pannelli:
+    // l'imbuto sceglie i valori, il tasto destro lavora sulla colonna. Qui c'era un
+    // solo pannello, e il tasto destro faceva il mestiere dell'imbuto.
+    GroupMenu                               columnOps;
+    int                                     columnOpsIndex = -1;
+
+    // `Save Layout` / `Load Layout` del riferimento: la **forma** della finestra, senza
+    // percorsi dentro. E' una preferenza come le altre, quindi sta in `settings.ini` e
+    // non tocca niente di personale.
+    struct SavedLayout
+    {
+        bool        defined        = false;
+        int         viewMode       = 0;
+        int         previewStep    = 2;
+        float       zoom           = 1.0f;
+        int         sortColumn     = 0;
+        bool        sortAscending  = true;
+        int         groupMode      = 0;
+        bool        sidebarVisible = true;
+        bool        showSubfolders = false;
+        std::array<ColumnState, kColumnCount> columns{};
+    };
+    SavedLayout savedLayout;
 
     // --- verbi della shell, tenuti per selezione -----------------------------
     //
@@ -1010,6 +1147,22 @@ struct AppState
     // tutto il resto. Spento di partenza: riordinare una cartella mentre la si
     // guarda e' una cosa che si chiede, non che si trova gia' fatta.
     bool sortRecentsOnTop = false;
+
+    // `Toggle Subfolders` (`Ctrl+E`): anche il contenuto delle sottocartelle nella
+    // stessa lista, con il genitore accanto al nome. Spento di partenza: una lista che
+    // contiene piu' di quello che la cartella contiene e' una cosa da chiedere.
+    bool showSubfolders = false;
+
+    // I comandi col segno nella palette. Sono **id di comando**, non percorsi: nel
+    // file delle preferenze finisce un elenco di numeri, che non dice niente di cosa
+    // si e' guardato.
+    std::set<int> favoriteCommands;
+
+    // `LoadOnStartup = LastSession`: riapre le schede dell'ultima volta. Spento di
+    // partenza, e non e' una preferenza come le altre — per farlo bisogna scrivere su
+    // disco **quali cartelle** erano aperte. Vedi `SaveSession` per il file e
+    // `docs/06` per il perche' sta in un file suo e non in `settings.ini`.
+    bool rememberTabs = false;
 
     // --- comportamento del clic (M5d) ----------------------------------------
     //

@@ -2462,3 +2462,249 @@ Paths`, e altre sotto il bordo.
 **La lingua** non compare fra queste: sta piu' in basso o altrove. Da noi la scelta
 della lingua c'e' gia' ed e' nella palette, che per ora e' anche la nostra superficie
 delle preferenze: quando arrivera' il pannello delle opzioni, la lingua ci si sposta.
+
+### Il secondo confronto dal vivo (v0.8.5) — *Visto il 2026-10-21*
+
+L'autore ha chiesto di riaprire il riferimento e confrontarlo con la nostra
+applicazione, per trovare quello che ancora manca. Aperto **sulla sandbox**, in
+un passaggio non programmato: un clic che doveva chiudere una sezione della barra
+laterale e' caduto su `PLACES` e ha aperto la cartella utente di chi lavora: la
+cattura e' stata cancellata appena vista e da li' in poi si e' catturato **solo il
+riquadro a destra della barra laterale**, cosi' i nomi personali non entravano nel
+file. La lezione e' quella di `AGENTS.md` §0: su una finestra di cui non si conosce
+la geometria, il primo clic e' un tiro.
+
+**Quello che l'originale ha e noi no** (in ordine di valore):
+
+1. `Toggle Subfolders` (`Ctrl+E`): il contenuto delle sottocartelle dentro la lista,
+   con il genitore accanto al nome (`vecchie > immagini`), il titolo della scheda che
+   diventa `sandbox [...]` e la barra di stato a coppie *visibili/totali* (`4/5`
+   cartelle, `3/26` file).
+2. `Split Right` (`Ctrl+Shift+S`) e `Split Bottom` (`Ctrl+S`): piu' pannelli nella
+   stessa finestra, ognuno coi suoi tab.
+3. Il **menu contestuale e la lista dei comandi sono cercabili**, con la stella per
+   fissare una voce e il `+` per assegnarle un tasto (`Select a system command...`).
+4. Il **menu dell'intestazione di colonna** e' per le colonne (`Shift Column
+   Left/Right`, `Size Column To Fit`, `Size All Columns To Fit`, `Close Column`,
+   `Restore Default / Factory Columns`), e il filtro per **valori** sta
+   sull'imbuto: due gesti, due pannelli.
+5. Colonne che non abbiamo: `Date Deleted`, `Original Location`, `Free Space`, `File
+   System`, `Percent Full`, `Volume Usage`, `Folder Usage`, `Empty 1..4`.
+6. `Load Layout` / `Save Layout` (finestra intera, non per cartella) e
+   `LoadOnStartup = LastSession` (tab e pannelli tornano com'erano).
+7. `Dare accesso a ▸` fra i verbi della shell (adesso c'e': vedi sotto).
+8. Ogni popup scrive in cima **che cosa fa** e **`Cmd: nome (tasto)`**: il menu
+   insegna il comando nel punto in cui lo si usa.
+
+**Quello che invece c'era gia', e la documentazione diceva di no.** Gli accenti nei
+verbi della shell: `docs/02` §7.62 dice che si ripiegano su ASCII, ma
+`ShellLabelToAscii` passa il latino-1 dal 2026-10-20 e l'atlante lo disegna. Il
+commento in `shell_menu.cpp` era rimasto indietro rispetto al codice — un difetto
+silenzioso della stessa famiglia di «un campo scritto e mai letto», solo al
+contrario.
+
+**Fatto in questo passaggio** (costruito, lanciato e guardato):
+
+- il menu del **tasto destro sull'intestazione** (`BuildColumnOpsMenu`), con
+  `Adatta questa colonna`, `Adatta tutte le colonne`, `Chiudi colonna`,
+  `Ripristina le colonne` e `Colonne di fabbrica` spenta con la ragione accanto
+  (`FitColumn`, `ResetColumns`, `ColumnState::hidden`);
+- la **testata del comando** in cima ai menu (`GroupMenu::caption`, `command`,
+  `commandKeys`, e `MenuListTop` come unica definizione della geometria): la usano
+  il menu della colonna e quello dei valori;
+- nella barra in fondo, i **conteggi di cartelle e file** (`2/4` con una selezione,
+  `5 cartelle` senza) e il **pulsante della cartella nuova**;
+- `Toggle Subfolders` (`Ctrl+E`, `CmdToggleSubfolders`): il contenuto delle
+  sottocartelle dentro la lista, con il genitore accanto al nome (`appunti.txt >
+  documenti`, `sbiadita.png > immagini\vecchie`). Le voci piatte portano il loro
+  **percorso assoluto** in `Entry::fullPath`, e `EntryLocation` lo preferisce: senza
+  quello, copiare o cancellare una riga piatta avrebbe agito su un file che non
+  esiste. Due limiti dichiarati — profondita' 3 e 2000 voci — e quando mordono lo
+  dicono nella barra di stato invece di mostrare un elenco a meta' come se fosse
+  completo. Verificato: 7 voci, poi 31 con `Ctrl+E` (cinque cartelle e ventisei file,
+  gli stessi numeri che da' il riferimento), poi di nuovo 7;
+- la palette dei comandi mostra i **tasti come pastiglie** a destra di ogni voce
+  (`GroupMenuItem::chips`, `GroupMenu::detailAsChips`), uno per tasto: `Vai a una
+  cartella...` porta `Ctrl+P` e `F4` affiancati, che e' come li scrive il
+  riferimento. Il dettaglio **non si disegnava affatto**, perche' alla palette
+  mancava `detailed`: un campo che nessuno leggeva;
+- `Dare accesso a ▸` e' tornato nel menu contestuale. Non era un verbo che mancava:
+  la shell lo offre (`Windows.Share`), e `IsShellOwnSubmenuVerb` lo saltava come
+  sottomenu "non eseguibile". Il sottomenu si popola benissimo con lo stesso
+  `HandleMenuMsg(WM_INITMENUPOPUP, ...)` che gia' serviva a WinRAR e 7-Zip:
+  verificato, due voci (`Rimuovi accesso`, `Utenti specifici...`) senza una riga di
+  codice nuova. Il salto resta per `Windows.SendTo`, perche' "Invia a" lo
+  costruiamo noi e due voci con lo stesso nome sarebbero un doppione;
+- le tre colonne del **volume** — `Spazio libero`, `Occupazione`, `File system` —
+  con le spunte di visibilita' nel menu dell'intestazione (`[x] Tipo`, `[ ] Spazio
+  libero`, ...). Il valore e' del disco, non della voce, quindi le colonne nascono
+  spente (`ColumnDef::defaultHidden`) e si leggono una volta per cartella
+  (`RefreshVolumeFacts`, `AppState::volumeFacts`): tre letture di disco per
+  fotogramma sarebbero tre letture per fotogramma. Verificato: `187.7 GB` — lo
+  stesso numero che la barra laterale scrive per `Windows (C:)` — `80%` e `NTFS`.
+
+**Quello che si e' scoperto facendolo**: il disegno delle celle fermava la lista
+delle colonne alla dimensione (`drawRight(8, ...)` e basta), quindi una colonna
+nuova sarebbe stata larga e **vuota**. Adesso le colonne dopo `Size` si disegnano
+in un ciclo che chiede il valore a `ColumnValueOf`: una colonna nuova si vede senza
+toccare il disegno, che e' il modo in cui il resto della tabella funziona gia'.
+
+**Colonne dello spec ancora fuori**, con la ragione: `Date Deleted` e `Original
+Location` esistono solo nel cestino e li' arrivano dalla shell, non da
+`FindFirstFile`; `Folder Usage` non ha una definizione che possiamo verificare;
+`Empty 1..4` sono segnaposto configurabili e senza una superficie che le configuri
+sarebbero quattro colonne vuote per sempre — un campo scritto e mai letto.
+
+**Resta da fare**, con la ragione: gli split toccano il modello dei pannelli (una
+sessione di lavoro con spazio per riverificare tutto); palette e menu contestuale
+cercabili vogliono le descrizioni dei 102 comandi e la memoria dei preferiti; le
+colonne nuove vogliono i dati che oggi non leggiamo (`Date Deleted` e `Original
+Location` esistono solo nel cestino, `Volume Usage` vuole l'occupazione del volume
+per ogni voce); layout e sessione toccano la persistenza, che `docs/06` tiene a
+freno apposta.
+
+**Un limite noto di `Toggle Subfolders`**: la selezione e' per **nome**, e due file
+con lo stesso nome in due sottocartelle diverse si selezionano insieme. E' il prezzo
+di un modello in cui l'identita' di una voce e' il suo nome; si sana il giorno in cui
+l'identita' diventa il percorso, e non e' una riga.
+
+### Layout della finestra, sessione, e una vista "Elenco" che non c'era
+
+Tre cose chieste dal confronto, fatte e guardate il 2026-10-21.
+
+**`Save Layout` / `Load Layout`** (`CmdSaveLayout`, `CmdLoadLayout`, `CmdForgetLayout`):
+la forma della finestra — vista, misura delle anteprime, ingrandimento, ordinamento,
+gruppi, barra laterale, sottocartelle e **quali** colonne — salvata in `settings.ini`
+(`layout.*`) e rimessa con un comando. Non porta percorsi dentro, quindi sta con le
+preferenze. Un layout dice quali colonne, **non quanto sono larghe**: la prima
+versione salvava anche le frazioni, e caricandolo in un'altra vista due intestazioni
+finivano una sull'altra (`Data modifica` dentro `Cartelle`). La larghezza si riadatta
+al contenuto al caricamento.
+
+**`LoadOnStartup = LastSession`** (`CmdToggleRememberTabs`): le schede aperte si
+ritrovano al prossimo avvio. Spento di partenza, e **l'unica cosa che questo
+programma scrive su disco che non e' una preferenza**: per riaprire le schede bisogna
+ricordarsi quali erano. Sta in un file suo, `%APPDATA%\Bolt\session.ini`, e spegnendo
+l'interruttore il file viene **cancellato subito**, non alla prossima uscita. Vedi
+`docs/06`, che ha una riga nuova apposta. Verificato: tre schede, chiusura, riapertura
+senza argomenti → le tre schede tornano, con la terza attiva.
+
+**Difetto trovato facendolo.** `SaveSession` scriveva un file con `active=0` e
+**nessuna** scheda: la scheda attiva ha la cartella nello stato vivo, e il suo `Tab`
+si riempie solo quando si cambia scheda (`SaveActiveTab`). Adesso la scheda attiva
+prende `app.directory`.
+
+**La vista `Elenco` non era una vista.** Disegnava l'intestazione delle colonne come
+`Dettagli` e con le colonne strette si leggeva `Data modifica` dentro `Cartelle`; le
+righe erano alte 20 px ma contenevano tutte le colonne. Adesso `Elenco` non ha
+intestazione, e una riga e' **il nome e la dimensione in fondo** — che e' quello che
+il riferimento mostra. `columnX` si riempie lo stesso, perche' e' il punto in cui il
+disegno delle righe legge dove finisce il nome: a zero il nome non si sarebbe visto
+affatto.
+
+### Spostare le colonne, e i due dettagli di `Toggle Subfolders`
+
+**`Shift Column Left/Right`** (`ShiftColumn`), che era l'unico pezzo del menu
+dell'intestazione ancora fuori. Non serve un ordine da tenere da parte: **l'ordine e'
+la frazione**. Spostare una colonna scambia la sua frazione con quella della vicina e
+ricalcola il bordo dell'altra, cosi' ognuna tiene la sua larghezza; `ColumnEdges` mette
+in fila le colonne per frazione invece che per indice, e `NextVisibleColumn`/
+`PrevVisibleColumn` rispondono "la prossima **a destra**" invece di "`i + 1`". Le
+frazioni crescenti sono il caso normale, quindi tutto il resto non si accorge di
+niente; `ApplyColumnWidths` scrive le frazioni in ordine **di posizione**, o adattare
+le larghezze rimetterebbe l'ordine di partenza. Il nome resta la prima colonna: e'
+quella che prende lo spazio che resta. Verificato: `Data modifica` spostata davanti a
+`Tipo`, valori al loro posto, larghezze intatte.
+
+**I due dettagli di `Toggle Subfolders`** che mancavano: il titolo della scheda
+diventa `sandbox [...]`, e la barra in fondo passa alle coppie **dirette/tutte**
+(`4/5` cartelle, `3/26` file) — gli stessi due numeri del riferimento. Senza
+sottocartelle la coppia torna a voler dire scelte/totale.
+
+### La stella dei preferiti e il `+`, nella palette
+
+Due dei tre pezzi del punto «palette e menu contestuale cercabili con i preferiti»:
+ogni riga della palette porta a destra una **stella** (piena se il comando e' fra i
+preferiti) e un **`+`** che apre la mappa dei tasti gia' posata su quel comando e
+comincia la cattura — lo stesso `BeginKeyCapture` dell'editor, non una seconda strada.
+
+I preferiti stanno in `settings.ini` come `favorites=56,71`: **id di comando**, non
+percorsi, quindi il file resta senza traccia di cosa si e' guardato. Si mostrano in un
+gruppo `Preferiti` in cima, e un preferito **non** compare anche nel suo gruppo —
+due righe per lo stesso comando sono due cose da tenere allineate.
+
+**Quello che resta di quel punto**, con la ragione: le descrizioni a due linee (una per
+comando, 107 righe di testo da scrivere e da tenere vere) e il **campo di ricerca nel
+menu contestuale**. Quest'ultimo non e' una casella da aggiungere: `view_context_menu.*`
+indicizza le voci con `LevelItem(depth, index)` e un filtro vuol dire un indice di
+righe **visibili** frapposto fra il disegno, l'hover, il clic e `ContextMenuActivate`,
+che oggi leggono tutti lo stesso indice. Va fatto con spazio per riprovare la tastiera
+e i sottomenu.
+
+### La palette a due linee, e le testate del comando
+
+La palette mostra **nome e contesto** su due linee, con le pastiglie dei tasti, la
+stella e il `+` sulla destra: e' la forma della lista dei comandi del riferimento.
+Il contesto e' quello del **gruppo** (`GroupDescription`, 19 frasi), non una frase per
+comando: 107 frasi sarebbero 107 cose da tenere vere una per una, e meta' sarebbero la
+ripetizione del nome.
+
+Le testate `Cmd: <comando> (<tasti>)` adesso ci sono su quattro menu — valori di una
+colonna, operazioni sulla colonna, palette, opzioni, mappa dei tasti. **Non** sul menu
+contestuale: quello non e' un `GroupMenu` e la testata li' vuol dire spostare la
+geometria delle righe in `view_context_menu.cpp`.
+
+Un difetto trovato guardando: «Dove sta il file delle impostazioni» stava nel gruppo
+`Language`, e la seconda linea diceva «In che lingua si legge il programma». Adesso
+sta in `Options`. E' il rischio di una descrizione per gruppo: se il gruppo e' sbagliato,
+la riga lo dice ad alta voce.
+
+**Resta di questi due punti**: il **campo di ricerca nel menu contestuale** (il modello
+delle righe va filtrato, e lo leggono quattro funzioni) e la testata `Cmd:` in quel menu.
+
+### Pannello dell'ispettore ridimensionabile, e la barra laterale
+
+Il bordo sinistro dell'ispettore si prende e si trascina (`AppState::inspectorWidth`,
+una striscia di sei pixel perche' un bordo di un pixel non si prende col mouse). La
+larghezza si ricorda in `settings.ini` (`inspectorWidth`), e si chiude **sul rilascio**:
+aspettare il primo movimento del mouse dopo lasciava il pannello largo e la preferenza
+vecchia — visto provando. Prima era un `292` scritto dentro `ComputeLayout`, e l'unico
+modo di avere piu' spazio era chiudere il pannello.
+
+La barra laterale nasce **aperta** (`sidebarVisible = true`): una preferenza salvata a
+`0` durante le prove la faceva comparire chiusa, e sembrava un difetto.
+
+### Cosa manca di "A": la ricerca globale
+
+Decisa la forma, non ancora scritta: barra in alto a destra nella riga dei pulsanti,
+ricerca **ricorsiva** dalla cartella aperta per nome, risultati nella lista con il
+genitore accanto (`Entry::parentHint`, lo stesso di `Toggle Subfolders`).
+
+La strada scelta, per non aprire un thread: un **passo alla volta dal ciclo dei
+messaggi** — un `SearchJob` con la coda delle cartelle da leggere, qualche decina per
+giro, i risultati che si accumulano, `Esc` che ferma. La finestra resta viva senza
+`FileOps::Job` ne' sincronizzazione, e l'annullamento e' una bandierina. Servono: il
+campo e il suo bersaglio nella riga dei pulsanti, il testo che si scrive (come il
+filtro in fondo), il passo nel ciclo, i risultati al posto di `app.entries`, la riga di
+stato che dice quanti ne ha trovati, e il limite dichiarato (voci e cartelle lette).
+
+### La ricerca globale funziona
+
+Barra in alto a destra, ricerca **ricorsiva** dalla cartella aperta per nome, risultati
+nella lista con il genitore accanto (`> molte`), `Esc` che ferma e riporta la cartella.
+Provata: `voce` nella sandbox → **15 voci in 6 cartelle**, i quindici `voce-*.txt`;
+`Esc` → le 7 voci della cartella.
+
+**Due difetti trovati provandola, nessuno dei due si vedeva leggendo il codice:**
+
+1. la query arrivava **vuota** a `StartSearch`: la funzione comincia azzerando
+   `app.searchText`, e il testo da cercare era **proprio** `app.searchText` passato per
+   riferimento — il primo `clear()` lo svuotava. Con la query vuota `find(L"")` avrebbe
+   trovato tutto (visto: 31 voci invece di 15). Adesso il testo arriva **per valore**, e
+   un controllo rifiuta la query vuota invece di cercare il nulla.
+2. l'avanzamento era su un `SetTimer` e il passo non arrivava mai: la barra si svuotava
+   e la lista restava quella di prima. Adesso `AdvanceSearch` si chiama nel **ciclo dei
+   fotogrammi**, che e' un giro che succede comunque.
+
+Il passo legge 24 cartelle per giro, con due limiti dichiarati (4000 cartelle lette,
+5000 voci trovate): quando uno morde lo dice, invece di far finta di aver finito.

@@ -16,6 +16,7 @@
 
 #include "app_actions.h"
 #include "app_ui.h"
+#include "diag.h"
 #include "home.h"
 #include "shell_location.h"
 
@@ -758,6 +759,15 @@ bool SortEntries(AppState& app)
                              case SortColumn::Type:
                                  order = left.typeText.compare(right.typeText);
                                  break;
+                             // Le tre del volume valgono uguale per tutte le voci della
+                             // cartella — sono del disco, non della voce — quindi
+                             // ordinarle non cambia niente. Si dichiara invece di
+                             // fingere un ordine: sotto resta quello del nome.
+                             case SortColumn::FreeSpace:
+                             case SortColumn::VolumeUsage:
+                             case SortColumn::FileSystem:
+                                 order = 0;
+                                 break;
                              case SortColumn::Name:
                              default:
                                  // Le righe della Home si ordinano per **nome mostrato**:
@@ -856,6 +866,23 @@ std::string ColumnValueOf(const AppState& app, const Entry& entry, int column)
                 return "< 1 GB";
             return ">= 1 GB";
         }
+        // Le tre del **volume**: il valore non dipende dalla voce, quindi si legge
+        // una volta dal disco della cartella aperta (`RefreshVolumeFacts`). Una voce
+        // che viene dallo spazio dei nomi — il cestino — sta su un disco che non
+        // conosciamo per percorso, e li' si scrive `--`.
+        case 9:
+            if (!app.volumeFacts.valid)
+                return "--";
+            return HumanBytes(app.volumeFacts.freeBytes);
+        case 10:
+        {
+            if (!app.volumeFacts.valid || app.volumeFacts.totalBytes == 0)
+                return "--";
+            const uint64_t used = app.volumeFacts.totalBytes - app.volumeFacts.freeBytes;
+            return std::to_string(used * 100 / app.volumeFacts.totalBytes) + "%";
+        }
+        case 11:
+            return app.volumeFacts.fileSystem.empty() ? std::string("--") : app.volumeFacts.fileSystem;
         default: return std::string();
     }
 }
@@ -1040,28 +1067,75 @@ void RebuildView(AppState& app)
     EnsureCursorOnVisibleRow(app);
 }
 
-// La larghezza di partenza e' quella di `kColumns`. Si chiama una volta, quando
-// l'applicazione nasce: dopo, la larghezza e' quella che l'utente ha scelto.
+// "Le tre del volume": la cartella aperta sta su un disco, e queste tre cose sono del
+// disco. Si chiedono tutte e tre insieme, una volta per cartella, perche' vengono dalla
+// stessa fonte — `GetVolumeInformation` e `GetDiskFreeSpaceEx` — e chiederle a ogni
+// colonna disegnata vorrebbe dire tre letture per fotogramma.
+void RefreshVolumeFacts(AppState& app)
+{
+    app.volumeFacts = AppState::VolumeFacts{};
+
+    const std::wstring& path = app.directory;
+    if (path.size() < 2 || path[1] != L':')
+        return;   // una cartella di spazio dei nomi non ha un volume
+
+    app.volumeFacts.root[0] = path[0];
+    app.volumeFacts.root[1] = L':';
+    app.volumeFacts.root[2] = L'\\';
+
+    wchar_t fsName[MAX_PATH + 1] = {};
+    if (GetVolumeInformationW(app.volumeFacts.root, nullptr, 0, nullptr, nullptr, nullptr, fsName,
+                              MAX_PATH))
+        app.volumeFacts.fileSystem = ToUtf8(fsName);
+
+    ULARGE_INTEGER available{};
+    ULARGE_INTEGER total{};
+    ULARGE_INTEGER freeBytes{};
+    if (GetDiskFreeSpaceExW(app.volumeFacts.root, &available, &total, &freeBytes) &&
+        total.QuadPart > 0)
+    {
+        app.volumeFacts.freeBytes  = freeBytes.QuadPart;
+        app.volumeFacts.totalBytes = total.QuadPart;
+        app.volumeFacts.valid      = true;
+    }
+}
+
 void InitColumns(AppState& app)
 {
     for (int i = 0; i < kColumnCount; ++i)
+    {
         app.columns[i].fraction = kColumns[i].fraction;
+        // Le colonne del volume nascono spente: ci sono, ma non occupano spazio
+        // finche' qualcuno non le chiede dal menu dell'intestazione.
+        app.columns[i].hidden = kColumns[i].defaultHidden;
+    }
 }
 
 bool ColumnVisible(const AppState& app, int column)
 {
     if (column < 0 || column >= kColumnCount)
         return false;
-    // La domanda si fa alla colonna, non al suo indice: l'indice cambia se un giorno
-    // se ne infila una in mezzo, e una tabella di indici qui sarebbe una seconda
-    // copia di `kColumns` da tenere allineata.
+
+    // La colonna del nome non si chiude: e' quella che prende lo spazio che resta, e
+    // una lista di cui non si legge il nome non serve a niente.
+    if (column == 0)
+        return true;
+
+    // Le due date che arrivano insieme alla modifica hanno la loro preferenza, perche'
+    // si spengono anche dalle opzioni; le altre no.
     switch (kColumns[column].sort)
     {
-        case SortColumn::Created:  return app.showCreatedDate;
-        case SortColumn::Accessed: return app.showAccessedDate;
-        default:                   return true;
+        case SortColumn::Created:  if (!app.showCreatedDate)  return false; break;
+        case SortColumn::Accessed: if (!app.showAccessedDate) return false; break;
+        default:                   break;
     }
+
+    return !app.columns[static_cast<size_t>(column)].hidden;
 }
+
+// Letto dalle due strade che lo scrivono: `FitColumns` (adatta tutte) e `FitColumn`
+// (adatta questa). Dichiarato qui perche' si usa prima di essere definito.
+void ApplyColumnWidths(AppState& app, float* width, float total, float scale);
 
 void FitColumns(AppState& app)
 {
@@ -1106,9 +1180,17 @@ void FitColumns(AppState& app)
         if (ColumnVisible(app, i))
             width[i] = (std::max)(least, width[i] + pad);
 
-    // Il nome prende quello che resta, con un minimo leggibile: se le altre colonne non
-    // lasciano spazio, si stringono loro in proporzione — un elenco di cui non si legge
-    // il nome non serve a niente.
+    ApplyColumnWidths(app, width, total, scale);
+}
+
+// Da larghezze in pixel alle **frazioni** che il resto del disegno legge, con la
+// regola del nome: prende quello che resta, con un minimo leggibile, e se le altre
+// colonne non lasciano spazio si stringono loro in proporzione — un elenco di cui non
+// si legge il nome non serve a niente. E' la coda di `FitColumns`, e la usano anche
+// "adatta questa colonna" e il ripristino: **un solo posto** scrive
+// `columns[].fraction`, cosi' le tre strade non possono divergere.
+void ApplyColumnWidths(AppState& app, float* width, float total, float scale)
+{
     float fixed = 0.0f;
     for (int i = 1; i < kColumnCount; ++i)
         if (ColumnVisible(app, i))
@@ -1117,7 +1199,7 @@ void FitColumns(AppState& app)
     const float nameLeast = 180.0f * scale;
     if (fixed + nameLeast > total && fixed > 0.0f)
     {
-        const float room = (std::max)((std::max)(1.0f, total - nameLeast), total - nameLeast);
+        const float room = (std::max)(1.0f, total - nameLeast);
         const float factor = room / fixed;
         for (int i = 1; i < kColumnCount; ++i)
             if (ColumnVisible(app, i))
@@ -1127,18 +1209,103 @@ void FitColumns(AppState& app)
 
     width[0] = (std::max)(nameLeast, total - fixed);
 
-    // Dalle larghezze alle frazioni: il valore che il resto del disegno usa. Una
-    // colonna nascosta non avanza, e la sua frazione resta quella del punto in cui si
-    // trova — `ColumnEdges` la porta comunque sul bordo della prossima visibile.
-    float x = 0.0f;
+    // Una colonna nascosta non avanza, e la sua frazione resta quella del punto in cui
+    // si trova — `ColumnEdges` la porta comunque sul bordo della prossima visibile.
+    // Le frazioni si scrivono in **ordine di posizione** — quello delle frazioni di
+    // adesso — non di indice: dopo uno spostamento l'ordine non e' piu' quello di
+    // `kColumns`, e riadattare le larghezze non deve rimettere quello di partenza.
+    int order[kColumnCount];
     for (int i = 0; i < kColumnCount; ++i)
+        order[i] = i;
+    std::sort(order, order + kColumnCount, [&app](int a, int b) {
+        if (app.columns[a].fraction != app.columns[b].fraction)
+            return app.columns[a].fraction < app.columns[b].fraction;
+        return a < b;
+    });
+
+    float x = 0.0f;
+    for (int pos = 0; pos < kColumnCount; ++pos)
     {
+        const int i = order[pos];
         app.columns[i].fraction = x / total;
         if (ColumnVisible(app, i))
             x += width[i];
     }
 
     app.viewDirty = true;
+}
+
+// "Adatta **questa** colonna": la larghezza misurata sul suo contenuto, le altre
+// dove stanno. E' il `Size Column To Fit` del riferimento, dove il tasto destro
+// sull'intestazione lavora sulle colonne e l'imbuto sceglie i valori: due gesti, due
+// pannelli. Il nome non si adatta — e' la colonna che prende quello che resta — e una
+// colonna nascosta non ha niente da adattare.
+void FitColumn(AppState& app, int column)
+{
+    if (column <= 0 || column >= kColumnCount || !ColumnVisible(app, column))
+        return;
+
+    const Layout layout = ComputeLayout(app);
+    const float scale = layout.scale;
+    const float total = (std::max)(1.0f, layout.header.w);
+
+    float edges[kColumnCount + 1];
+    ColumnEdges(app, edges);
+
+    float width[kColumnCount] = {};
+    for (int i = 0; i < kColumnCount; ++i)
+        width[i] = (edges[i + 1] - edges[i]) * total;
+
+    // Lo stesso margine di `FitColumns`, e lo stesso **campione**: una cartella da
+    // diecimila righe non si misura tutta per disegnarne trenta.
+    const float pad   = 28.0f * scale;
+    const float least = kMinColumnWidth * scale;
+    const size_t sample = (std::min)(app.entries.size(), static_cast<size_t>(200));
+
+    float wanted = app.smallFont.Measure(ColumnLabel(column), scale);
+    for (size_t r = 0; r < sample; ++r)
+    {
+        const Entry& entry = app.entries[r];
+        // I conteggi e la dimensione arrivano dalle statistiche, che possono non
+        // essere ancora state calcolate: si misura la forma che avranno, non il `--`
+        // di adesso, o la colonna si allargherebbe da sola poco dopo.
+        std::string text;
+        switch (kColumns[column].sort)
+        {
+            case SortColumn::Folders:
+            case SortColumn::Files:
+            case SortColumn::TotalItems: text = HumanCount(999999); break;
+            case SortColumn::Size:       text = HumanBytes(999ull * 1024 * 1024 * 1024); break;
+            default:                     text = ColumnValueOf(app, entry, column); break;
+        }
+        wanted = (std::max)(wanted, app.smallFont.Measure(text, scale));
+    }
+
+    width[column] = (std::max)(least, wanted + pad);
+    app.autoFitColumns = false;
+    ApplyColumnWidths(app, width, total, scale);
+}
+
+// "Ripristina le colonne": larghezze, visibilita' e filtri tornano quelli di
+// partenza — le stesse che `InitColumns` da' a un'applicazione appena nata. E' il
+// `Restore Default Columns` del riferimento: il nome dei tre pezzi che una colonna
+// puo' avere cambiato, in un comando solo.
+void ResetColumns(AppState& app)
+{
+    for (int i = 0; i < kColumnCount; ++i)
+        app.columns[static_cast<size_t>(i)] = AppState::ColumnState{};
+
+    InitColumns(app);
+    app.showCreatedDate  = false;
+    app.showAccessedDate = false;
+    app.columnPanel      = -1;
+    // Le larghezze "di partenza" non sono i numeri di `kColumns`: all'avvio le
+    // colonne si adattano al contenuto (`FitColumns`), ed e' quella la forma che una
+    // finestra appena aperta ha. Ripristinare i numeri grezzi darebbe uno stato che
+    // non si e' mai visto.
+    FitColumns(app);
+    app.autoFitColumns = true;
+    app.viewDirty        = true;
 }
 
 int ColumnOfSort(SortColumn sort)
@@ -1151,23 +1318,97 @@ int ColumnOfSort(SortColumn sort)
 
 void ColumnEdges(const AppState& app, float* edges)
 {
+    // L'ordine delle colonne sullo schermo e' quello delle loro **frazioni**, non
+    // quello dell'indice: "sposta la colonna a sinistra" scambia due frazioni, e
+    // larghezze, bordi e intestazioni seguono senza che nessuno debba sapere che
+    // esiste un ordine. Con le frazioni crescenti — cioe' sempre, tranne dopo uno
+    // spostamento — questo e' esattamente l'ordine dell'indice.
+    int order[kColumnCount];
+    for (int i = 0; i < kColumnCount; ++i)
+        order[i] = i;
+    std::sort(order, order + kColumnCount, [&app](int a, int b) {
+        if (app.columns[a].fraction != app.columns[b].fraction)
+            return app.columns[a].fraction < app.columns[b].fraction;
+        return a < b;
+    });
+
     for (int i = 0; i < kColumnCount; ++i)
         edges[i] = app.columns[i].fraction;
     edges[kColumnCount] = 1.0f;
 
-    // All'indietro: una colonna nascosta si porta sul bordo della successiva, che a
-    // quel punto e' gia' stato sistemato se anche lei era nascosta.
-    for (int i = kColumnCount - 1; i >= 0; --i)
-        if (!ColumnVisible(app, i))
-            edges[i] = edges[i + 1];
+    // All'indietro **in ordine di posizione**: una colonna nascosta si porta sul bordo
+    // della prossima visibile, che a quel punto e' gia' stato sistemato se anche lei
+    // era nascosta.
+    float nextEdge = 1.0f;
+    for (int pos = kColumnCount - 1; pos >= 0; --pos)
+    {
+        const int id = order[pos];
+        if (!ColumnVisible(app, id))
+            edges[id] = nextEdge;
+        else
+            nextEdge = edges[id];
+    }
 }
 
+// La prossima **a destra**: fra le colonne visibili, quella con la frazione piu'
+// piccola che sia maggiore della sua. Con le frazioni in ordine di indice coincide con
+// `column + 1`, quindi il chiamante non si accorge di niente.
 int NextVisibleColumn(const AppState& app, int column)
 {
-    for (int i = column + 1; i < kColumnCount; ++i)
-        if (ColumnVisible(app, i))
-            return i;
-    return kColumnCount;
+    if (column < 0 || column >= kColumnCount)
+        return kColumnCount;
+    const float here = app.columns[column].fraction;
+    int best = kColumnCount;
+    for (int i = 0; i < kColumnCount; ++i)
+    {
+        if (i == column || !ColumnVisible(app, i) || app.columns[i].fraction <= here)
+            continue;
+        if (best == kColumnCount || app.columns[i].fraction < app.columns[best].fraction)
+            best = i;
+    }
+    return best;
+}
+
+// Il bordo destro di una colonna, come frazione: la frazione della prossima visibile,
+// o la fine dell'elenco.
+static float ColumnRightEdge(const AppState& app, int column)
+{
+    const int next = NextVisibleColumn(app, column);
+    return next < kColumnCount ? app.columns[next].fraction : 1.0f;
+}
+
+// "Sposta questa colonna" a sinistra (-1) o a destra (+1): si scambia di posto con la
+// vicina e ognuna **tiene la sua larghezza**. E' lo `Shift Column Left/Right` del
+// riferimento, e funziona senza un ordine da tenere da parte: l'ordine e' la frazione.
+void ShiftColumn(AppState& app, int column, int direction)
+{
+    if (column <= 0 || column >= kColumnCount || !ColumnVisible(app, column))
+        return;
+
+    const int other = (direction < 0) ? PrevVisibleColumn(app, column)
+                                      : NextVisibleColumn(app, column);
+    // Il nome resta la prima colonna: e' quella che prende lo spazio che resta, e una
+    // lista che comincia con `Dimensione` non e' una lista di file.
+    if (other <= 0 || other >= kColumnCount || !ColumnVisible(app, other))
+        return;
+
+    const float leftA  = app.columns[column].fraction;
+    const float widthA = ColumnRightEdge(app, column) - leftA;
+    const float leftB  = app.columns[other].fraction;
+    const float widthB = ColumnRightEdge(app, other) - leftB;
+
+    if (direction < 0)
+    {
+        app.columns[column].fraction = leftB;
+        app.columns[other].fraction  = leftB + widthA;
+    }
+    else
+    {
+        app.columns[other].fraction  = leftA;
+        app.columns[column].fraction = leftA + widthB;
+    }
+    app.autoFitColumns = false;
+    app.viewDirty = true;
 }
 
 int PrevVisibleColumn(const AppState& app, int column)
@@ -1180,14 +1421,18 @@ int PrevVisibleColumn(const AppState& app, int column)
 
 void SetColumnVisible(AppState& app, int column, bool visible)
 {
-    if (column < 0 || column >= kColumnCount)
+    // Il nome e' la colonna che prende lo spazio che resta: chiuderla vorrebbe dire un
+    // elenco senza nomi. Il rifiuto e' dichiarato nel menu, che la mostra spenta.
+    if (column <= 0 || column >= kColumnCount)
         return;
+
+    app.columns[static_cast<size_t>(column)].hidden = !visible;
 
     switch (kColumns[column].sort)
     {
         case SortColumn::Created:  app.showCreatedDate  = visible; break;
         case SortColumn::Accessed: app.showAccessedDate = visible; break;
-        default:                   return;   // le altre colonne non si spengono
+        default:                   break;
     }
 
     if (!visible)
@@ -1306,7 +1551,9 @@ void SetViewMode(AppState& app, ViewMode mode)
 // non possono divergere sul significato di "dove sta questa voce".
 std::wstring EntryLocation(const AppState& app, const Entry& entry)
 {
-    return entry.location.empty() ? JoinPath(app.directory, entry.wideName) : entry.location;
+    return entry.location.empty()
+               ? (entry.fullPath.empty() ? JoinPath(app.directory, entry.wideName) : entry.fullPath)
+               : entry.location;
 }
 
 // L'icona di una voce della lista. Per quasi tutte e' quella della **sua
@@ -1455,9 +1702,23 @@ void DrawHeader(AppState& app, const Layout& layout, float* columnX)
     if (app.viewMode == ViewMode::Tiles || app.viewMode == ViewMode::Icons)
         return;   // nothing to head, and the list already has the space
 
+    // **Elenco** non ha intestazione: le colonne non ci sono, la riga e' una riga di
+    // nome e dimensione. Prima l'intestazione si disegnava lo stesso, e con le colonne
+    // strette si leggeva `Data modifica` dentro `Cartelle` — due testi uno sopra
+    // l'altro. `columnX` pero' va riempito lo stesso: e' il punto in cui il disegno
+    // delle righe legge dove finisce il nome, e a zero il nome non si sarebbe visto
+    // affatto.
+    const float scale = layout.scale;
+
+    if (app.viewMode == ViewMode::List)
+    {
+        for (int i = 0; i < kColumnCount; ++i)
+            columnX[i] = layout.list.right() - 10.0f * scale;
+        return;
+    }
+
     IRenderer& r = *app.renderer;
     const Theme& t = app.theme;
-    const float scale = layout.scale;
 
     r.FillRect(layout.header, t.headerBg, 4.0f * scale);
 
@@ -1899,6 +2160,10 @@ void DrawList(AppState& app, const Layout& layout, const float* columnX)
             // nella stessa colonna, quindi prende lo spazio che resta — e se non ne
             // resta abbastanza non si scrive, invece di scrivere tre lettere e un
             // puntino.
+            //
+            // `Toggle Subfolders`: al posto del collegamento (una voce piatta e' un
+            // file normale, non un `.lnk`) sta il **genitore** — `> immagini`,
+            // `> immagini\vecchie` — perche' il nome da solo non dice da dove viene.
             const std::wstring& linkTarget = ShortcutTarget(app, entry);
             if (!linkTarget.empty())
             {
@@ -1915,6 +2180,32 @@ void DrawList(AppState& app, const Layout& layout, const float* columnX)
                                   scale);
                 }
             }
+            else if (!entry.parentHint.empty())
+            {
+                const float from = nameX + app.font.Measure(shown, scale) + 12.0f * scale;
+                const float room = columnX[1] - from - 8.0f * scale;
+                if (room > 30.0f * scale)
+                {
+                    const std::string hint = "> " + entry.parentHint;
+                    app.smallFont.Draw(r, from, textY,
+                                       FitText(app.smallFont, hint, scale, room),
+                                       t.textDim, scale);
+                }
+            }
+        }
+
+        // In **Elenco** non ci sono colonne: una riga e' il nome e, a destra, la
+        // dimensione. Chiedere le statistiche qui vorrebbe dire far camminare il file
+        // system per numeri che non si vedono.
+        if (app.viewMode != ViewMode::Details)
+        {
+            const float right = layout.list.right() - 12.0f * scale;
+            const float width = app.smallFont.Measure(entry.sizeText, scale);
+            app.smallFont.Draw(r, right - width, valueY, entry.sizeText, t.textDim, scale);
+            // Le colonne sono l'ultima cosa che si disegna di una riga, quindi si esce
+            // da qui: chi aggiunge qualcosa **dopo** le celle deve ricordarsi di questa
+            // riga, e sta scritto apposta.
+            continue;
         }
 
         const float typeMax = rightOf(1) - columnX[1] - 12.0f * scale;
@@ -1972,6 +2263,20 @@ void DrawList(AppState& app, const Layout& layout, const float* columnX)
             drawRight(6, "--", t.textDim, false);
             drawRight(7, "--", t.textDim, false);
             drawRight(8, entry.sizeText, t.textDim, false);
+        }
+
+        // Le colonne **dopo** la dimensione — oggi quelle del volume — non hanno un
+        // disegno proprio: il valore lo sa `ColumnValueOf`, e si scrive allineato a
+        // destra come gli altri numeri. Si parte dalla colonna dopo `Size` invece di
+        // elencarle una per una: cosi' una colonna nuova si vede **senza** toccare il
+        // disegno, che e' il modo in cui questa tabella e' andata avanti finora — e si
+        // e' visto subito quando non e' stato fatto (le due colonne erano larghe e
+        // vuote).
+        for (int c = ColumnOfSort(SortColumn::Size) + 1; c < kColumnCount; ++c)
+        {
+            if (!ColumnVisible(app, c))
+                continue;
+            drawRight(c, ColumnValueOf(app, entry, c), t.textDim, false);
         }
     }
 

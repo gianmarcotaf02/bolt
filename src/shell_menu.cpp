@@ -193,8 +193,13 @@ bool IsShellOwnSubmenuVerb(const wchar_t* verb)
     if (verb[0] == L'\0')
         return true;
 
+    // `Windows.Share` **non** e' in questa lista: e' il sottomenu "Dare accesso a",
+    // che la shell popola come gli altri e che noi non offriamo con un menu nostro.
+    // Prima si saltava, e spariva dal menu contestuale una cosa che il riferimento
+    // ha. `Windows.SendTo` si salta perche' "Invia a" lo costruiamo noi
+    // (`shell_sendto.*`), e due voci con lo stesso nome sarebbero un doppione.
     static const wchar_t* const kShellOwn[] = {
-        L"New",      L"Windows.Share", L"Windows.SendTo", L"SendTo",
+        L"New",      L"Windows.SendTo", L"SendTo",
         L"View",     L"Arrange",       L"Arrangement",    L"Sort",
         L"Group",    L"Layout",        L"Background",     L"Customize",
     };
@@ -516,7 +521,8 @@ void ReadShellMenu(IContextMenu* shell, HMENU handle, bool folderBackground,
                 if (!haveVerb || IsShellOwnSubmenuVerb(verb))
                 {
                     DiagLog("  saltata (sottomenu della shell, non eseguibile): '" +
-                            item.label + "'");
+                            item.label + "' verbo '" +
+                            (haveVerb ? ShellLabelToAscii(verb) : std::string("?")) + "'");
                     ++(*outSkipped);
                     continue;
                 }

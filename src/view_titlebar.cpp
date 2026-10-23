@@ -76,7 +76,13 @@ void DrawTitleBar(AppState& app, const Layout& layout)
         // se avanza spazio.
         // Anche per una cartella normale il nome e' quello che Windows mostra:
         // "Documenti" per `...\Documents`, come nella barra laterale e nella Home.
-        const std::wstring leafW = named ? LocationLabel(app, source) : FriendlyName(source);
+        std::wstring leafW = named ? LocationLabel(app, source) : FriendlyName(source);
+        // `Toggle Subfolders`: la scheda dice che la lista contiene **piu'** di quello
+        // che la cartella contiene, con lo stesso segno del riferimento (`sandbox
+        // [...]`). Solo per la scheda attiva: le altre sono ferme com'erano quando le
+        // si e' lasciate, e il segno lo porta il loro stato salvato quando ci si torna.
+        if (i == app.activeTab && app.showSubfolders && !named)
+            leafW += L" [...]";
         std::wstring parentW;
         if (!named)
         {

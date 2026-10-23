@@ -166,3 +166,19 @@ programma; la seconda protegge chi lo *usa*.
 Nota pratica per chi verifica: le prove si fanno in `analysis/tmp/`, con file
 finti, **mai** nelle cartelle reali di chi lavora — nemmeno solo per una cattura,
 perché uno screenshot di una cartella vera ne contiene i nomi dei file.
+
+## L'unica eccezione: le schede aperte, se lo chiedi
+
+`LoadOnStartup = LastSession` del riferimento — "riapri le schede dell'ultima volta" —
+vuol dire per forza ricordarsi **quali cartelle** erano aperte. E' l'unica cosa che
+Bolt scrive che non e' una preferenza, e per questo ha un trattamento suo:
+
+- **spenta di partenza**: senza un comando esplicito non si scrive niente;
+- **in un file separato**, `%APPDATA%\Bolt\session.ini`, non dentro `settings.ini` —
+  cosi' il file delle preferenze resta quello che era: nessun percorso dentro;
+- **cancellata quando spegni l'interruttore**, subito e non alla prossima uscita:
+  "non lo faccio piu'" deve valere da quel momento;
+- **scritta solo all'uscita**, quando le schede sono quelle che si stanno guardando.
+
+Chi non vuole nessuna traccia non la accende, e il file non esiste. Chi la accende
+l'ha chiesto, e sa dove sta.

@@ -28,6 +28,8 @@
 
 #include "app_ui.h"
 #include "language.h"
+#include "navigation.h"
+#include "shell_location.h"
 #include "theme.h"
 #include "view_statusbar.h"
 
@@ -134,6 +136,96 @@ void LoadSettings(AppState& app)
         if (ReadSetting(text, "inactiveOpacity", &v))
             app.inactiveOpacity = std::clamp(static_cast<float>(atof(v.c_str())), 0.2f, 1.0f);
     }
+    // Il modo dell'elenco: si ricorda come le altre preferenze della vista. Nessun
+    // nome di file finisce in `settings.ini` — e' la regola di `docs/06` — qui si
+    // scrive solo un interruttore.
+    // `LoadOnStartup = LastSession` del riferimento, ma **a scelta e spenta**: con
+    // questa accesa le schede aperte si ritrovano al prossimo avvio, e per farlo
+    // bisogna pur scrivere da qualche parte quali cartelle erano aperte. E' l'unica
+    // cosa di `docs/06` che il programma scrive su disco e non e' una preferenza:
+    // sta in un file **suo** (`session.ini`), si cancella a mano, e spegnendo
+    // l'interruttore il file **sparisce** invece di restare li'.
+    readFlag("rememberTabs", &app.rememberTabs);
+    {
+        // La larghezza dell'ispettore: un numero, e si tiene dentro limiti sensati
+        // anche se qualcuno scrive il file a mano.
+        std::string v;
+        if (ReadSetting(text, "inspectorWidth", &v))
+            app.inspectorWidth = std::clamp(static_cast<float>(atof(v.c_str())), 200.0f, 900.0f);
+    }
+
+    // I comandi preferiti: un elenco di **id**, non di percorsi. `std::set` invece di
+    // un vettore perche' l'ordine non conta niente — la palette li mette in cima e li
+    // ordina lei.
+    if (ReadSetting(text, "favorites", &value) && !value.empty())
+    {
+        size_t at = 0;
+        while (at <= value.size())
+        {
+            const size_t comma = value.find(',', at);
+            const std::string piece =
+                value.substr(at, (comma == std::string::npos ? value.size() : comma) - at);
+            if (!piece.empty())
+                app.favoriteCommands.insert(std::atoi(piece.c_str()));
+            if (comma == std::string::npos)
+                break;
+            at = comma + 1;
+        }
+    }
+
+    // Il layout salvato: la **forma** della finestra. Nessun percorso dentro, quindi
+    // sta qui e non nel file della sessione.
+    {
+        std::string v;
+        if (ReadSetting(text, "layout.on", &v) && v == "1")
+        {
+            AppState::SavedLayout& layout = app.savedLayout;
+            layout.defined = true;
+
+            const auto readInt = [&](const char* key, int* target) {
+                std::string n;
+                if (ReadSetting(text, key, &n))
+                    *target = std::atoi(n.c_str());
+            };
+            const auto readFloat = [&](const char* key, float* target) {
+                std::string n;
+                if (ReadSetting(text, key, &n))
+                    *target = static_cast<float>(atof(n.c_str()));
+            };
+            const auto readBool = [&](const char* key, bool* target) {
+                std::string n;
+                if (ReadSetting(text, key, &n))
+                    *target = (n == "1");
+            };
+
+            readInt("layout.viewMode", &layout.viewMode);
+            readInt("layout.previewStep", &layout.previewStep);
+            readFloat("layout.zoom", &layout.zoom);
+            readInt("layout.sort", &layout.sortColumn);
+            readBool("layout.ascending", &layout.sortAscending);
+            readInt("layout.group", &layout.groupMode);
+            readBool("layout.sidebar", &layout.sidebarVisible);
+            readBool("layout.subfolders", &layout.showSubfolders);
+
+            // Una riga per colonna: larghezza e se e' chiusa. I **filtri** per valore
+            // non si salvano: un elenco di cartelle tenuto in un file e' una traccia di
+            // cosa si e' guardato, e questo file non ne contiene.
+            // Un carattere per colonna, `0` = accesa, `1` = chiusa: **quali** colonne
+            // erano, non quanto erano larghe. Le larghezze salvate in una vista si
+            // ritrovavano nell'altra, e due intestazioni una sopra l'altra
+            // (`Data modifica` dentro `Cartelle`) erano il risultato: la larghezza si
+            // riadatta al contenuto quando il layout si carica. I **filtri** per valore
+            // non si salvano — un elenco di valori tenuto in un file e' una traccia di
+            // cosa si e' guardato, e questo file non ne contiene.
+            std::string bits;
+            if (ReadSetting(text, "layout.columns", &bits))
+            {
+                for (int i = 0; i < kColumnCount && i < static_cast<int>(bits.size()); ++i)
+                    layout.columns[static_cast<size_t>(i)].hidden =
+                        (bits[static_cast<size_t>(i)] == '1');
+            }
+        }
+    }
     readFlag("sortRecents", &app.sortRecentsOnTop);
     readFlag("hoverToSelect", &app.hoverToSelect);
     readFlag("underlineOnHover", &app.underlineOnHover);
@@ -223,6 +315,19 @@ bool SaveSettings(const AppState& app)
     char opacity[32];
     std::snprintf(opacity, sizeof(opacity), "inactiveOpacity=%.2f\n", app.inactiveOpacity);
     text += opacity;
+    writeFlag("showSubfolders", app.showSubfolders);
+    writeFlag("rememberTabs", app.rememberTabs);
+    char inspector[48];
+    std::snprintf(inspector, sizeof(inspector), "inspectorWidth=%.0f\n",
+                  static_cast<double>(app.inspectorWidth));
+    text += inspector;
+    if (!app.favoriteCommands.empty())
+    {
+        std::string favorites;
+        for (int command : app.favoriteCommands)
+            favorites += (favorites.empty() ? "" : ",") + std::to_string(command);
+        text += "favorites=" + favorites + "\n";
+    }
     writeFlag("sortRecents", app.sortRecentsOnTop);
     writeFlag("hoverToSelect", app.hoverToSelect);
     writeFlag("underlineOnHover", app.underlineOnHover);
@@ -243,6 +348,29 @@ bool SaveSettings(const AppState& app)
     text += "rowSpacing=" + std::to_string(static_cast<int>(app.rowSpacing)) + "\n";
     text += "previewStep=" + std::to_string(app.previewStep) + "\n";
 
+    // Il layout salvato, quando c'e'. `layout.on` e' la riga che dice se il resto
+    // vale: senza di lei un file vecchio o scritto a mano non riempirebbe campi a
+    // caso.
+    if (app.savedLayout.defined)
+    {
+        const AppState::SavedLayout& layout = app.savedLayout;
+        text += "layout.on=1\n";
+        text += "layout.viewMode=" + std::to_string(layout.viewMode) + "\n";
+        text += "layout.previewStep=" + std::to_string(layout.previewStep) + "\n";
+        char zoom[32];
+        std::snprintf(zoom, sizeof(zoom), "layout.zoom=%.3f\n", static_cast<double>(layout.zoom));
+        text += zoom;
+        text += "layout.sort=" + std::to_string(layout.sortColumn) + "\n";
+        text += std::string("layout.ascending=") + (layout.sortAscending ? "1" : "0") + "\n";
+        text += "layout.group=" + std::to_string(layout.groupMode) + "\n";
+        text += std::string("layout.sidebar=") + (layout.sidebarVisible ? "1" : "0") + "\n";
+        text += std::string("layout.subfolders=") + (layout.showSubfolders ? "1" : "0") + "\n";
+        std::string bits;
+        for (int i = 0; i < kColumnCount; ++i)
+            bits += layout.columns[static_cast<size_t>(i)].hidden ? '1' : '0';
+        text += "layout.columns=" + bits + "\n";
+    }
+
     DWORD written = 0;
     const BOOL ok = WriteFile(file, text.data(), static_cast<DWORD>(text.size()), &written, nullptr);
     CloseHandle(file);
@@ -254,5 +382,151 @@ void RememberSettings(AppState& app)
     if (!SaveSettings(app))
         ReportStatus(app, TrW(L"Impostazioni non salvate: il file non si e' potuto scrivere",
                               L"Settings not saved: the file could not be written"));
+}
+} // namespace Bolt
+namespace Bolt
+{
+namespace
+{
+// Legge un file di testo UTF-8 tutto in una volta. Falso se non c'e'.
+bool ReadWholeFile(const std::wstring& path, std::string* out)
+{
+    out->clear();
+    if (path.empty())
+        return false;
+    HANDLE file = CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING,
+                              FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (file == INVALID_HANDLE_VALUE)
+        return false;
+
+    char buffer[8192];
+    DWORD read = 0;
+    while (ReadFile(file, buffer, sizeof(buffer), &read, nullptr) && read > 0)
+        out->append(buffer, read);
+    CloseHandle(file);
+    return true;
+}
+
+bool WriteWholeFile(const std::wstring& path, const std::string& text)
+{
+    if (path.empty())
+        return false;
+    HANDLE file = CreateFileW(path.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS,
+                              FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (file == INVALID_HANDLE_VALUE)
+        return false;
+    DWORD written = 0;
+    const BOOL ok = WriteFile(file, text.data(), static_cast<DWORD>(text.size()), &written, nullptr);
+    CloseHandle(file);
+    return ok != FALSE && written == text.size();
+}
+} // namespace
+
+std::wstring SessionPath()
+{
+    const std::wstring base = SettingsPath();   // ...\Bolt\settings.ini
+    if (base.empty())
+        return std::wstring();
+    const size_t slash = base.find_last_of(L'\\');
+    if (slash == std::wstring::npos)
+        return std::wstring();
+    return base.substr(0, slash + 1) + L"session.ini";
+}
+
+void SaveSession(const AppState& app)
+{
+    const std::wstring path = SessionPath();
+    if (path.empty())
+        return;
+
+    // Spento vuol dire **nessuna traccia**: il file si cancella, non resta li' con
+    // dentro l'ultima sessione. E' la differenza fra "non lo faccio piu'" e "l'ho
+    // fatto finora e lo tengo".
+    if (!app.rememberTabs)
+    {
+        DeleteFileW(path.c_str());
+        return;
+    }
+
+    std::string text =
+        "# Bolt — le schede aperte l'ultima volta.\n"
+        "# Scritto solo perche' 'Riapri le schede' e' acceso; cancellabile a mano.\n";
+    text += "active=" + std::to_string(app.activeTab) + "\n";
+    // La scheda **attiva** ha la cartella nello stato vivo, non nel suo `Tab`: la
+    // struct si riempie quando si cambia scheda (`SaveActiveTab`), e quella li' non e'
+    // passata. Chiedere solo a `tab.directory` scriveva un file senza nessuna scheda —
+    // visto: `active=0` e nient'altro.
+    for (size_t i = 0; i < app.tabs.size(); ++i)
+    {
+        const std::wstring& directory =
+            (static_cast<int>(i) == app.activeTab) ? app.directory : app.tabs[i].directory;
+        if (directory.empty())
+            continue;
+        text += "tab=" + ToUtf8(directory) + "\n";
+    }
+    WriteWholeFile(path, text);
+}
+
+bool RestoreSession(AppState& app)
+{
+    if (!app.rememberTabs)
+        return false;
+
+    std::string text;
+    if (!ReadWholeFile(SessionPath(), &text))
+        return false;
+
+    std::vector<std::wstring> paths;
+    int active = 0;
+    size_t at = 0;
+    while (at < text.size())
+    {
+        const size_t end = text.find('\n', at);
+        const std::string line = text.substr(at, (end == std::string::npos ? text.size() : end) - at);
+        at = (end == std::string::npos) ? text.size() : end + 1;
+        if (line.empty() || line[0] == '#')
+            continue;
+
+        const size_t eq = line.find('=');
+        if (eq == std::string::npos)
+            continue;
+        const std::string key   = line.substr(0, eq);
+        const std::string value = line.substr(eq + 1);
+        if (key == "active")
+        {
+            active = std::atoi(value.c_str());
+        }
+        else if (key == "tab" && !value.empty())
+        {
+            const std::wstring path = Widen(value);
+            // Una cartella sparita si salta: riaprire una scheda su niente non aiuta
+            // nessuno. Le posizioni di spazio dei nomi non hanno attributi da leggere.
+            if (ShellLocation::IsNamespace(path))
+            {
+                paths.push_back(path);
+                continue;
+            }
+            const DWORD attributes = GetFileAttributesW(IOPath(path, app.longPaths).c_str());
+            if (attributes != INVALID_FILE_ATTRIBUTES && (attributes & FILE_ATTRIBUTE_DIRECTORY) != 0)
+                paths.push_back(path);
+        }
+    }
+
+    if (paths.empty())
+        return false;
+
+    // La prima cartella va nella scheda che c'e' gia' (chi chiama ha appena creato la
+    // prima tab), le altre sono schede nuove. `NewTab` carica la cartella, quindi lo
+    // stato vivo finisce per essere l'ultima: alla fine si attiva quella che era
+    // attiva, e la vista torna dove era rimasta.
+    LoadDirectory(app, paths[0], /*recordHistory=*/false);
+    for (size_t i = 1; i < paths.size(); ++i)
+        NewTab(app, paths[i]);
+
+    if (active < 0)
+        active = 0;
+    if (active < static_cast<int>(app.tabs.size()))
+        ActivateTab(app, active);
+    return true;
 }
 } // namespace Bolt

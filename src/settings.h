@@ -28,4 +28,14 @@ bool SaveSettings(const AppState& app);
 // Ricorda la preferenza e, se non si riesce, lo dice: e' l'unico modo di sapere che
 // una scelta non verra' ritrovata al prossimo avvio.
 void RememberSettings(AppState& app);
+
+// La **sessione**: le schede aperte. E' l'unica cosa che questo programma scrive su
+// disco che non e' una preferenza — per riaprire le schede bisogna pur ricordarsi
+// quali erano. Per questo sta in un file **suo**, `session.ini`, creato solo se
+// `rememberTabs` e' acceso; spegnendo l'interruttore il file viene **cancellato**
+// invece di restare li'.
+std::wstring SessionPath();
+void SaveSession(const AppState& app);
+// Vero se ha riaperto almeno una scheda. Quelle che non esistono piu' si saltano.
+bool RestoreSession(AppState& app);
 } // namespace Bolt

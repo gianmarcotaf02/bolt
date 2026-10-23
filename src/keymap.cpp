@@ -181,6 +181,10 @@ void KeyMap::Reset()
         {CmdNewTab,          Ctrl('T')},
         {CmdCloseTab,        Ctrl('W')},
 
+        // Le sottocartelle dentro la lista: `Ctrl+E` e' il tasto che il riferimento
+        // da' a `Toggle Subfolders`.
+        {CmdToggleSubfolders, Ctrl('E')},
+
         {CmdNextTab,         Ctrl(VK_TAB)},
         {CmdPalette,         CtrlShift('P')},
 

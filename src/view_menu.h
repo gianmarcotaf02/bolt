@@ -50,6 +50,12 @@ GroupMenu* OpenMenu(AppState& app);
 // Le stesse risposte servono a disegnare, a scorrere e a sapere dove si e' cliccato:
 // l'altezza di una riga, la prima visibile, e il pannello di ogni menu.
 float MenuRowHeight(const Layout& layout, const GroupMenu& menu);
+
+// Dove comincia l'elenco delle righe dentro un pannello. La testata del comando,
+// quando c'e', sta fra il campo di ricerca e la prima riga, e sposta l'elenco in
+// basso: disegno e clic devono leggere **questa** funzione, o il puntatore finirebbe
+// su una riga diversa da quella che si vede.
+float MenuListTop(const Layout& layout, const Rect& panel, const GroupMenu& menu);
 int   GroupMenuFirstVisible(const GroupMenu& menu, float listTop, float listBottom, float rowHeight);
 Rect  GroupMenuPanel(const AppState& app, const Layout& layout, const GroupMenu& menu);
 Rect  ColumnMenuPanel(const AppState& app, const Layout& layout, const GroupMenu& menu);

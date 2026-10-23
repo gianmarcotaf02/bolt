@@ -5,7 +5,11 @@
 # file e' l'unico modo affidabile di ripetere queste prove.
 param(
     [Parameter(Mandatory = $true)][string]$Action,
-    [string]$Text = ''
+    [string]$Text = '',
+    # Il processo a cui mandare i tasti. Il default e' Bolt; il parametro esiste
+    # perche' le prove di confronto mandano gli stessi gesti al riferimento
+    # (`analysis/targets/FPilot-*.exe`), che non si chiama Bolt.
+    [string]$ProcessName = 'Bolt'
 )
 
 Add-Type -TypeDefinition @'
@@ -39,7 +43,7 @@ public static class BoltKeys {
 }
 '@
 
-$process = Get-Process Bolt -ErrorAction Stop | Select-Object -First 1
+$process = Get-Process -Name $ProcessName -ErrorAction Stop | Select-Object -First 1
 $handle = $process.MainWindowHandle
 
 [void][BoltKeys]::SetWindowPos($handle, [IntPtr](-1), 0, 0, 0, 0, 3)

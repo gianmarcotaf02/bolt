@@ -185,6 +185,82 @@ void DrawStatusBar(AppState& app, const Layout& layout)
         penX -= 14.0f * scale;
     }
 
+    // Cartelle e file, e quante sono scelte: le stesse due pastiglie che il
+    // riferimento tiene in fondo a destra. Con una selezione il numero davanti e' quello
+    // delle scelte — `2/4` vuol dire "due cartelle scelte su quattro" — e senza
+    // selezione non c'e' niente da mettere davanti, quindi si legge quanti sono.
+    {
+        int folders = 0;
+        int files = 0;
+        int chosenFolders = 0;
+        int chosenFiles = 0;
+        // Con `Toggle Subfolders` acceso i due numeri vogliono dire un'altra cosa, ed e'
+        // quella del riferimento: **dirette / tutte**. `4/5` cartelle vuol dire quattro
+        // nella cartella aperta e una dentro una sottocartella; senza, il primo numero
+        // e' quello delle scelte, e senza nemmeno quelle si scrive il totale.
+        int directFolders = 0;
+        int directFiles = 0;
+        for (const Entry& entry : app.entries)
+        {
+            const bool chosen = app.selection.count(entry.wideName) != 0;
+            const bool direct = entry.parentHint.empty();
+            if (entry.isDirectory)
+            {
+                ++folders;
+                chosenFolders += chosen ? 1 : 0;
+                directFolders += direct ? 1 : 0;
+            }
+            else
+            {
+                ++files;
+                chosenFiles += chosen ? 1 : 0;
+                directFiles += direct ? 1 : 0;
+            }
+        }
+
+        std::string folderText;
+        std::string fileText;
+        if (app.showSubfolders)
+        {
+            folderText = std::to_string(directFolders) + "/" + std::to_string(folders);
+            fileText   = std::to_string(directFiles) + "/" + std::to_string(files);
+        }
+        else if (chosenCount != 0)
+        {
+            folderText = std::to_string(chosenFolders) + "/" + std::to_string(folders);
+            fileText   = std::to_string(chosenFiles) + "/" + std::to_string(files);
+        }
+        else
+        {
+            folderText = std::to_string(folders) + " " + Tr("cartelle", "folders");
+            fileText   = std::to_string(files) + " " + Tr("file", "files");
+        }
+
+        // Due pastiglie, da destra: prima i file, poi le cartelle.
+        const std::string texts[2] = {fileText, folderText};
+        for (const std::string& text : texts)
+        {
+            const float width = app.smallFont.Measure(text, scale) + 14.0f * scale;
+            app.smallFont.Draw(r, penX - width + 7.0f * scale, textY, text, t.textDim, scale);
+            penX -= width + 4.0f * scale;
+        }
+
+        // Il pulsante della **cartella nuova**, dove il riferimento lo mette: accanto ai
+        // conteggi. Un comando che esiste solo da tastiera e' un comando che meta' delle
+        // persone non trova.
+        const float side = layout.statusBar.h - 8.0f * scale;
+        const Rect button{penX - side - 8.0f * scale, layout.statusBar.y + 4.0f * scale, side, side};
+        r.FillRect(button, t.headerBg, 3.0f * scale);
+        app.smallFont.Draw(r,
+                           button.x + (side - app.smallFont.Measure("+", scale)) * 0.5f,
+                           TextY(layout, button, app.smallFont), "+", t.text, scale);
+        ClickTarget target;
+        target.rect = button;
+        target.kind = ClickTarget::Kind::NewFolder;
+        app.clickTargets.push_back(target);
+        penX -= side + 14.0f * scale;
+    }
+
     if (position > 0)
     {
         const std::string pos = std::to_string(position) + " / " + std::to_string(visible);

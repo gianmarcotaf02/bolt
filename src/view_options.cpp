@@ -322,7 +322,7 @@ void RefreshOptionItems(const AppState& app, GroupMenu& menu)
 int OptionRowAt(const Layout& layout, const GroupMenu& menu, const Rect& panel, float y)
 {
     const float rowHeight  = MenuRowHeight(layout, menu);
-    const float listTop    = panel.y + 58.0f * layout.scale;
+    const float listTop    = MenuListTop(layout, panel, menu);
     const float listBottom = panel.bottom() - 26.0f * layout.scale;
     if (y < listTop || y >= listBottom)
         return -1;
@@ -736,6 +736,10 @@ void BuildOptionsMenu(AppState& app)
     GroupMenuOpen(app.options, Tr("OPZIONI", "OPTIONS"),
                   Tr("Scegli un'opzione...", "Select an option..."), std::move(items));
     app.options.richRows = true;
+    // La testata: le preferenze sono un comando come gli altri, e dicono come si apre.
+    app.options.caption     = Tr("Le preferenze del programma.", "The program's preferences.");
+    app.options.command     = Tr("Apri le opzioni", "Open options");
+    app.options.commandKeys = app.keys.LabelsFor(CmdOpenOptions);
     app.options.hint     = Tr("Su Giu' per navigare   Invio per usare   Esc per chiudere",
                               "Up Down to navigate   Enter to use   Escape to dismiss");
 }
@@ -884,7 +888,7 @@ MenuAction OptionsClick(AppState& app, const Layout& layout, GroupMenu& menu, fl
         return MenuAction::None;
 
     const float rowHeight = MenuRowHeight(layout, menu);
-    const float listTop   = panel.y + 58.0f * layout.scale;
+    const float listTop   = MenuListTop(layout, panel, menu);
     const int   first     = GroupMenuFirstVisible(menu, listTop, panel.bottom() - 26.0f * layout.scale,
                                                   rowHeight);
     const Rect  rowRect{panel.x + 6.0f * layout.scale,

@@ -28,6 +28,7 @@
 #include "shell_location.h"
 #include "tabs.h"
 #include "view_list.h"
+#include "view_statusbar.h"
 
 namespace Bolt
 {
@@ -147,6 +148,90 @@ std::vector<Entry> ReadDirectory(const std::wstring& directory, std::string* err
     return entries;
 }
 
+// `Toggle Subfolders`: anche il contenuto delle sottocartelle nella stessa lista, con
+// il genitore accanto al nome. Due limiti, dichiarati: la **profondita'** e il numero
+// di voci. Senza, accendere questa modalita' su `C:\Windows` leggerebbe decine di
+// migliaia di cartelle durante il primo fotogramma, e la finestra non risponderebbe
+// piu'. Quando un limite morde lo si dice: un elenco a meta' che sembra completo e'
+// peggio di un elenco corto.
+constexpr int    kSubfolderDepth = 3;
+constexpr size_t kSubfolderCap   = 2000;
+
+// Quante voci sono arrivate dalle sottocartelle, e se il limite ha morso.
+struct SubfolderResult
+{
+    size_t added = 0;
+    bool   capped = false;
+};
+
+SubfolderResult ExpandSubfolders(AppState& app)
+{
+    SubfolderResult result;
+    if (!app.showSubfolders || IsHome(app.directory) || ShellLocation::IsNamespace(app.directory))
+        return result;
+
+    // Una coda di cartelle da leggere, ognuna con la **catena** che la porta alla
+    // cartella aperta: e' quella catena che diventa il genitore accanto al nome.
+    struct Pending
+    {
+        std::wstring path;
+        std::string  chain;
+        int          depth = 0;
+    };
+    std::vector<Pending> queue;
+
+    for (const Entry& entry : app.entries)
+        if (entry.isDirectory && entry.location.empty())
+            queue.push_back({JoinPath(app.directory, entry.wideName), entry.name, 1});
+
+    std::vector<Entry> added;
+    for (size_t head = 0; head < queue.size(); ++head)
+    {
+        if (added.size() >= kSubfolderCap)
+        {
+            result.capped = true;
+            break;
+        }
+
+        const Pending item = queue[head];
+        if (item.depth > kSubfolderDepth)
+        {
+            result.capped = true;
+            continue;
+        }
+
+        std::string error;
+        std::vector<Entry> children = ReadDirectory(item.path, &error, app.longPaths);
+        // Una sottocartella che non si legge non ferma le altre: "accesso negato" su
+        // una non vuol dire niente sulle sue sorelle.
+        if (!error.empty())
+            continue;
+
+        for (Entry& child : children)
+        {
+            if (added.size() >= kSubfolderCap)
+            {
+                result.capped = true;
+                break;
+            }
+
+            child.fullPath   = JoinPath(item.path, child.wideName);
+            child.parentHint = item.chain;
+
+            // Le figlie si leggono al giro dopo, con la catena che le nomina.
+            if (child.isDirectory && item.depth < kSubfolderDepth)
+                queue.push_back({child.fullPath, item.chain + "\\" + child.name, item.depth + 1});
+
+            added.push_back(std::move(child));
+        }
+    }
+
+    result.added = added.size();
+    for (Entry& entry : added)
+        app.entries.push_back(std::move(entry));
+    return result;
+}
+
 void UpdateWindowTitle(AppState& app)
 {
     if (app.window == nullptr)
@@ -181,10 +266,22 @@ void LoadDirectory(AppState& app, const std::wstring& directory, bool recordHist
     else
     {
         app.entries = ReadDirectory(normalised, &app.errorText, app.longPaths);
+        // `Toggle Subfolders`: le voci della cartella ci sono, e se la modalita' e'
+        // accesa si aggiunge quello che sta dentro le sue sottocartelle. Si fa qui e
+        // non nel comando perche' vale a ogni lettura — `F5`, il sorvegliante della
+        // cartella, un tab riaperto — e un modo che si accende una volta e poi si
+        // dimentica al primo ricaricamento sarebbe un mezzo modo.
+        const SubfolderResult subfolders = ExpandSubfolders(app);
+        if (subfolders.capped)
+            ReportStatus(app, TrW(L"Sottocartelle: elenco fermato a un limite",
+                                  L"Subfolders: list stopped at a limit"));
     }
     app.directory = normalised;
     app.previews.CancelPending();
     app.stats.CancelQueued();
+    // Le tre colonne del volume leggono da qui: si chiede una volta per cartella, non
+    // a ogni fotogramma.
+    RefreshVolumeFacts(app);
 
     if (!sameFolder)
     {

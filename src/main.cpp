@@ -32,6 +32,7 @@ constexpr UINT kDirectoryChanged = WM_APP + 1;
 #include "input_targets.h"
 #include "language.h"
 #include "navigation.h"
+#include "recents.h"
 #include "gl_loader.h"
 #include "resource.h"
 #include "shell_icons.h"
@@ -273,6 +274,158 @@ void BuildPlaces(AppState& app)
 // The window draws its own caption. The native one is removed by answering
 // WM_NCCALCSIZE; what replaces it is a tab strip, which is the point of the
 // milestone, plus the three window buttons and the menu button.
+// ---------------------------------------------------------------------------
+// La ricerca globale: avvio, un passo, fine.
+//
+// Non c'e' un thread. `AdvanceSearch` legge qualche decina di cartelle e torna: la
+// chiama il ciclo dei messaggi (un `SetTimer` acceso solo mentre si cerca), cosi' la
+// finestra ridisegna e risponde fra un passo e l'altro. Un albero grande si legge in
+// un secondo o due invece che in un fotogramma solo, e "ferma" e' una bandierina.
+//
+// Il limite e' **dichiarato**: oltre un tetto di cartelle lette la ricerca si ferma e
+// lo dice. Una ricerca che continua per dieci minuti su `C:\` sembra un blocco.
+constexpr int    kSearchFoldersPerStep = 24;
+constexpr size_t kSearchFolderCap      = 4000;
+constexpr size_t kSearchResultCap      = 5000;
+
+// Quante cartelle ha in coda, per la riga di stato.
+std::wstring MatchParent(const std::wstring& root, const std::wstring& folder)
+{
+    // Il genitore **relativo alla radice**, che e' quello che si scrive accanto al
+    // nome: `immaginiecchie`. E' la stessa forma di `Toggle Subfolders`.
+    if (folder.size() <= root.size())
+        return std::wstring();
+    std::wstring relative = folder.substr(root.size());
+    while (!relative.empty() && (relative.front() == L'\\' || relative.front() == L'/'))
+        relative.erase(relative.begin());
+    return relative;
+}
+
+// |text| **per valore**: la funzione comincia azzerando `app.searchText`, e quel testo
+// e' proprio `app.searchText` quando arriva da `Invio`. Passato per riferimento, il
+// primo `clear()` lo svuotava, e la ricerca partiva con la query vuota — che il
+// controllo qui sotto respingeva, senza dire niente. Il registro l'ha detto in una riga.
+void StartSearch(AppState& app, std::wstring text)
+{
+    // La ricerca si azzera **prima** di riempire: il testo che si cerca arriva come
+    // argomento e non dallo stato, perche' azzerare lo stato dopo averlo letto vuol dire
+    // cercare la stringa vuota — che trova tutto. Visto: 31 voci invece delle 15 `voce`.
+    app.search = AppState::SearchJob{};
+    app.searchText.clear();
+    app.search.query = FoldCase(text);
+    DiagLog("--- ricerca: avvio, query '" + ToUtf8(app.search.query) + "' da " +
+            ToUtf8(app.directory));
+
+    if (app.search.query.empty())
+        return;
+
+    // Dal campo si cerca: la cartella aperta **e sotto**. Da una cartella di spazio dei
+    // nomi non c'e' un albero da camminare, e lo si dice invece di cercare a vuoto.
+    if (ShellLocation::IsNamespace(app.directory) || IsHome(app.directory))
+    {
+        ReportStatus(app, TrW(L"Da qui non c'e' un albero di cartelle da cercare",
+                              L"There is no folder tree to search from here"));
+        return;
+    }
+
+    app.search.active = true;
+    app.search.root   = app.directory;
+    app.search.pending.push_back(app.directory);
+    ReportStatus(app, TrW(L"Cerco...", L"Searching..."));
+}
+
+// Il passo: legge |kSearchFoldersPerStep| cartelle e accumula. Quando la coda e' vuota
+// i risultati diventano la lista.
+void AdvanceSearch(AppState& app)
+{
+    if (!app.search.active)
+        return;
+
+    int budget = kSearchFoldersPerStep;
+    while (budget-- > 0 && !app.search.pending.empty())
+    {
+        if (app.search.visited >= kSearchFolderCap ||
+            app.search.found.size() >= kSearchResultCap)
+        {
+            app.search.truncated = true;
+            app.search.pending.clear();
+            break;
+        }
+
+        const std::wstring folder = app.search.pending.back();
+        app.search.pending.pop_back();
+        ++app.search.visited;
+
+        std::string error;
+        std::vector<Entry> entries = ReadDirectory(folder, &error, app.longPaths);
+        if (!error.empty())
+            continue;   // una cartella che non si legge non ferma le altre
+
+        for (Entry& entry : entries)
+        {
+            if (entry.isDirectory && entry.location.empty())
+                app.search.pending.push_back(JoinPath(folder, entry.wideName));
+
+            if (FoldCase(entry.wideName).find(app.search.query) == std::wstring::npos)
+                continue;
+            if (app.search.found.size() >= kSearchResultCap)
+            {
+                app.search.truncated = true;
+                break;
+            }
+            entry.fullPath   = JoinPath(folder, entry.wideName);
+            entry.parentHint = ToUtf8(MatchParent(app.search.root, folder));
+            app.search.found.push_back(std::move(entry));
+        }
+    }
+
+    DiagLog("--- ricerca: passo, lette " + std::to_string(app.search.visited) +
+            ", in coda " + std::to_string(app.search.pending.size()) +
+            ", trovati " + std::to_string(app.search.found.size()));
+    const bool done = app.search.pending.empty() || app.search.truncated;
+    if (!done)
+    {
+        // I risultati si vedono **mentre arrivano**: la lista si aggiorna a ogni passo,
+        // e chi cerca la cosa giusta la vede comparire senza aspettare la fine.
+        const float keepScroll = app.scroll;
+        app.entries = app.search.found;
+        SortEntries(app);
+        app.scroll     = keepScroll;
+        app.viewDirty  = true;
+        InvalidateRect(app.window, nullptr, FALSE);
+        return;
+    }
+
+    app.search.active   = false;
+    app.search.finished = true;
+
+    app.entries = app.search.found;
+    SortEntries(app);
+    app.cursor.clear();
+    app.selection.clear();
+    app.scroll    = 0.0f;
+    app.viewDirty = true;
+    RebuildView(app);
+    InvalidateRect(app.window, nullptr, FALSE);
+
+    ReportStatus(app, TrW(L"Trovati ", L"Found ") + std::to_wstring(app.entries.size()) +
+                          TrW(L" in ", L" in ") + std::to_wstring(app.search.visited) +
+                          TrW(L" cartelle", L" folders"));
+    if (app.search.truncated)
+        ReportStatus(app, TrW(L"Ricerca interrotta a un limite: restringi o usa un nome",
+                              L"Search stopped at a limit: narrow it or use a name"));
+}
+
+// Fermare la ricerca e tornare alla cartella: i risultati non sono una cartella, e
+// lasciarli li' dopo aver premuto Esc confonderebbe chi guarda.
+void StopSearch(AppState& app)
+{
+    app.search = AppState::SearchJob{};
+    app.searchText.clear();
+    app.searchFieldActive = false;
+    LoadDirectory(app, app.directory, /*recordHistory=*/false);
+}
+
 void DrawToolbar(AppState& app, const Layout& layout, const std::wstring& displayPath)
 {
     IRenderer& r = *app.renderer;
@@ -467,6 +620,37 @@ void DrawToolbar(AppState& app, const Layout& layout, const std::wstring& displa
         }
     }
 
+    // La **ricerca globale**: un campo nella riga dei pulsanti, a destra. Cerca per
+    // nome nella cartella aperta **e sotto**, e i risultati prendono il posto della
+    // lista. Prima di questa riga lo spazio a destra era del solo conto delle voci.
+    {
+        const float boxWidth  = 200.0f * scale;
+        const float boxHeight = 24.0f * scale;
+        const Rect box{static_cast<float>(app.viewportWidth) - boxWidth - 96.0f * scale,
+                       layout.toolbar.y + (layout.toolbar.h - boxHeight) * 0.5f, boxWidth,
+                       boxHeight};
+        // Rettangolo con gli angoli arrotondati, e il bordo **sempre**: senza, il campo
+        // spento si confondeva con la riga dei pulsanti e non si vedeva dov'era. Il
+        // raggio e' otto pixel: abbastanza da leggersi arrotondato, non tanto da
+        // sembrare una pastiglia.
+        const float radius = 8.0f * scale;
+        r.FillRect(box, t.panelBg, radius);
+        r.Draw(UIDraw::Border(box, app.searchFieldActive ? t.accent : t.panelBorder, 1.0f,
+                              radius));
+
+        std::string text = app.searchText.empty()
+                               ? Tr("Cerca in questa cartella e sotto...", "Search here and below...")
+                               : ToUtf8(app.searchText);
+        const Color ink = app.searchText.empty() ? t.textDim.WithAlpha(0.7f) : t.text;
+        app.smallFont.Draw(r, box.x + 8.0f * scale, TextY(layout, box, app.smallFont),
+                           FitText(app.smallFont, text, scale, box.w - 16.0f * scale), ink, scale);
+
+        ClickTarget target;
+        target.rect = box;
+        target.kind = ClickTarget::Kind::SearchField;
+        app.clickTargets.push_back(target);
+    }
+
     // Il conto delle voci, a destra: le stesse parole della barra di stato, cosi'
     // la stessa cosa non si dice in due modi.
     char summary[64];
@@ -537,6 +721,11 @@ const char* CommandLabelIt(CommandId id)
         case CmdToggleTooltips:         return "Mostra i suggerimenti";
         case CmdToggleShowRecents:      return "Evidenzia i recenti";
         case CmdToggleSortRecents:      return "Recenti in cima";
+        case CmdToggleSubfolders:       return "Sottocartelle nella lista";
+        case CmdSaveLayout:             return "Salva il layout della finestra";
+        case CmdLoadLayout:             return "Carica il layout della finestra";
+        case CmdForgetLayout:           return "Dimentica il layout";
+        case CmdToggleRememberTabs:     return "Riapri le schede dell'ultima volta";
         case CmdSingleClick:            return "Un clic apre";
         case CmdSingleClickFoldersOnly: return "Un clic: solo le cartelle";
         case CmdActOnPress:             return "Agisci premendo";
@@ -611,6 +800,155 @@ const char* CommandLabelIt(CommandId id)
 constexpr int kFilterAllId  = -1;
 constexpr int kFilterNoneId = -2;
 
+// Le voci del menu del tasto destro sull'intestazione — le operazioni sulla
+// **colonna**, che il riferimento tiene separate dal filtro per valori.
+constexpr int kColumnOpsFitId     = -1;
+constexpr int kColumnOpsFitAllId  = -2;
+constexpr int kColumnOpsCloseId   = -3;
+constexpr int kColumnOpsResetId   = -4;
+constexpr int kColumnOpsFactoryId = -5;
+constexpr int kColumnOpsLeftId    = -6;
+constexpr int kColumnOpsRightId   = -7;
+// Le spunte di visibilita', una per colonna: l'id e' la base piu' l'indice, cosi' una
+// riga sa dire **quale** colonna senza una tabella accanto.
+constexpr int kColumnOpsColumnBase = 100;
+
+// La colonna sotto un punto dell'intestazione, o -1. Una colonna nascosta non ha un
+// rettangolo: la sua frazione e' quella della prossima visibile (`ColumnEdges`),
+// quindi si cerca **fra quelle visibili** invece di fidarsi dell'indice.
+int ColumnAtPoint(const AppState& app, const Layout& layout, float x)
+{
+    if (layout.header.w <= 0.0f)
+        return -1;
+    const float fraction = (x - layout.header.x) / layout.header.w;
+    float edges[kColumnCount + 1];
+    ColumnEdges(app, edges);
+    for (int i = 0; i < kColumnCount; ++i)
+    {
+        if (!ColumnVisible(app, i))
+            continue;
+        // Il bordo destro e' quello della prossima **visibile a destra**, non di
+        // `i + 1`: dopo uno spostamento i due non coincidono.
+        const int   next  = NextVisibleColumn(app, i);
+        const float right = next < kColumnCount ? edges[next] : 1.0f;
+        if (fraction >= edges[i] && fraction < right)
+            return i;
+    }
+    return -1;
+}
+
+// Il menu del **tasto destro sull'intestazione**: le operazioni sulla colonna. Non ha
+// le spunte di visibilita' che il riferimento mette in fondo allo stesso pannello: da
+// noi le colonne si accendono e si spengono dalle opzioni e dalla palette, e due posti
+// che fanno la stessa cosa sono due posti da tenere allineati.
+void BuildColumnOpsMenu(AppState& app, int column)
+{
+    const Layout layout = ComputeLayout(app);
+    float edges[kColumnCount + 1];
+    ColumnEdges(app, edges);
+
+    app.columnOpsIndex = column;
+    app.columnOps.anchor = Rect{layout.header.x + layout.header.w * edges[column],
+                                layout.header.y, 0.0f, layout.header.h};
+
+    const bool closable = column > 0;
+    std::vector<GroupMenuItem> items;
+    // Sposta a sinistra o a destra: si accende solo dove c'e' dove andare — il nome non
+    // si sposta (e' la colonna che prende lo spazio che resta) e la prima e l'ultima
+    // non hanno una vicina da quel lato.
+    const bool canLeft  = column > 0 && PrevVisibleColumn(app, column) > 0;
+    const bool canRight = column > 0 && NextVisibleColumn(app, column) < kColumnCount;
+    items.push_back({"", Tr("Sposta a sinistra", "Shift Column Left"), "",
+                     kColumnOpsLeftId, OptionControl::None, "", "", false, 0.0f, canLeft});
+    items.push_back({"", Tr("Sposta a destra", "Shift Column Right"), "",
+                     kColumnOpsRightId, OptionControl::None, "", "", false, 0.0f, canRight});
+    items.push_back({"", Tr("Adatta questa colonna", "Size Column To Fit"), "",
+                     kColumnOpsFitId});
+    items.push_back({"", Tr("Adatta tutte le colonne", "Size All Columns To Fit"), "",
+                     kColumnOpsFitAllId});
+    items.push_back({"", Tr("Chiudi colonna", "Close Column"),
+                     closable ? std::string() : Tr("il nome resta", "Name stays"),
+                     kColumnOpsCloseId});
+    items.push_back({"", Tr("Ripristina le colonne", "Restore Default Columns"), "",
+                     kColumnOpsResetId});
+    // Le colonne "di fabbrica" ci sono e si vedono **spente**, con la ragione accanto:
+    // e' la stessa regola del riferimento, dove `System Light / Dark Scheme` sta li' e
+    // non si tocca invece di sparire. Le "di fabbrica" sarebbero quelle del prodotto
+    // originale, che non conosciamo: dichiararlo e' meglio che inventarle.
+    items.push_back({"", Tr("Colonne di fabbrica", "Restore Factory Columns"),
+                     Tr("non le conosciamo", "not known here"),
+                     kColumnOpsFactoryId, OptionControl::None, "", "", false, 0.0f, false});
+
+    // Le spunte di visibilita'. Il nome non c'e': e' la colonna che prende lo spazio
+    // che resta e chiuderla vorrebbe dire un elenco senza nomi — il perche' sta scritto
+    // nella riga `Chiudi colonna`, un posto sopra.
+    for (int i = 1; i < kColumnCount; ++i)
+    {
+        const bool shown = ColumnVisible(app, i);
+        items.push_back({Tr("Colonne", "Columns"),
+                         (shown ? "[x] " : "[ ] ") + ColumnLabel(i), "",
+                         kColumnOpsColumnBase + i});
+    }
+
+    GroupMenuOpen(app.columnOps, ColumnLabel(column),
+                  Tr("Cerca un'operazione...", "Find an operation..."), std::move(items));
+    app.columnOps.anchored    = true;
+    app.columnOps.caption     = Tr("Adatta, chiudi o riporta le colonne di partenza.",
+                                   "Size, close or restore the columns.");
+    app.columnOps.command     = Tr("Opzioni della colonna", "Show Column Options");
+    app.columnOps.commandKeys = {Tr("Tasto destro", "MouseRight")};
+}
+
+// Cosa fa l'Invio, o un clic, in quel menu.
+void RunColumnOpsSelection(AppState& app)
+{
+    if (app.columnOpsIndex < 0)
+        return;
+    const int id     = GroupMenuSelectedId(app.columnOps);
+    const int column = app.columnOpsIndex;
+
+    // Una spunta di visibilita' **non chiude** il pannello: e' una lista di caselle, e
+    // se ne spuntano piu' d'una di seguito. Il segno cambia sul posto, senza ricostruire
+    // l'elenco — ricostruirlo rimetterebbe il cursore in cima a ogni spunta.
+    if (id >= kColumnOpsColumnBase)
+    {
+        const int target = id - kColumnOpsColumnBase;
+        if (target <= 0 || target >= kColumnCount)
+            return;
+        SetColumnVisible(app, target, !ColumnVisible(app, target));
+        // Accendere una colonna che non c'era vuol dire che le altre si erano prese il
+        // suo spazio: senza riadattare, la nuova nasce larga venti pixel e si legge
+        // `36 E` invece di `36 B`. Le larghezze tornano "adattate al contenuto", che
+        // e' il valore di partenza di una colonna appena comparsa.
+        if (ColumnVisible(app, target))
+            FitColumns(app);
+        for (GroupMenuItem& item : app.columnOps.items)
+        {
+            if (item.id < kColumnOpsColumnBase)
+                continue;
+            const int which = item.id - kColumnOpsColumnBase;
+            item.label = (ColumnVisible(app, which) ? "[x] " : "[ ] ") + ColumnLabel(which);
+        }
+        app.viewDirty = true;
+        return;
+    }
+
+    app.columnOps.open = false;
+    app.columnOpsIndex = -1;
+
+    switch (id)
+    {
+        case kColumnOpsLeftId:   ShiftColumn(app, column, -1); break;
+        case kColumnOpsRightId:  ShiftColumn(app, column, 1); break;
+        case kColumnOpsFitId:    FitColumn(app, column); break;
+        case kColumnOpsFitAllId: app.autoFitColumns = false; FitColumns(app); break;
+        case kColumnOpsCloseId:  SetColumnVisible(app, column, false); break;
+        case kColumnOpsResetId:  ResetColumns(app); break;
+        default:                 return;   // spenta: la voce non si sceglie
+    }
+    app.viewDirty = true;
+}
+
 void BuildColumnMenu(AppState& app, int column)
 {
     // Il pannello si appoggia al bordo sinistro della sua colonna: e' cosi' che si
@@ -664,6 +1002,11 @@ void BuildColumnMenu(AppState& app, int column)
                   Tr("Scrivi per filtrare i valori...", "Type to filter values..."),
                   std::move(items));
     app.columnMenu.anchored = true;
+    // La testata del comando: che cosa fa questo pannello e da dove si apre anche da
+    // tastiera. E' quello che il riferimento scrive in cima al menu dei valori.
+    app.columnMenu.caption = Tr("Scegli quali valori tenere in questa colonna.",
+                                "Choose which values to keep in this column.");
+    app.columnMenu.command = Tr("Apri l'elenco dei valori", "Open Values Dropdown");
 }
 
 // Rimette le caselle al loro posto dopo una spunta, senza ricontare e senza
@@ -939,7 +1282,7 @@ const CommandDef kCommandTable[] = {
     // accesa, e non serve indovinare lo stato di partenza.
     {"Language", "Language: Italian",           CmdLanguageItalian},
     {"Language", "Language: English",           CmdLanguageEnglish},
-    {"Language", "Where the settings file is",  CmdShowSettingsPath},
+    {"Options",  "Where the settings file is",  CmdShowSettingsPath},
     // Gli aggiornamenti: **esplicito**, e senza tasto di partenza. Una richiesta a
     // GitHub e' telemetria di fatto, e non deve partire ne' da sola ne' per sbaglio.
     {"Updates", "Check for updates",            CmdCheckUpdates},
@@ -983,6 +1326,11 @@ const CommandDef kCommandTable[] = {
     {"View",    "Show tooltips",                CmdToggleTooltips},
     {"View",    "Highlight recents",            CmdToggleShowRecents},
     {"View",    "Recents on top",                CmdToggleSortRecents},
+    {"View",    "Subfolders in the list",         CmdToggleSubfolders},
+    {"View",    "Save layout",                     CmdSaveLayout},
+    {"View",    "Load layout",                     CmdLoadLayout},
+    {"View",    "Forget layout",                   CmdForgetLayout},
+    {"Startup", "Remember open tabs",              CmdToggleRememberTabs},
     // "Interaction" e' il nome del gruppo nella tabella delle chiavi. Sono cinque
     // chiavi, non cinque funzioni: nessuna fa niente da sola, cambiano *come* si
     // apre e si sceglie.
@@ -2015,6 +2363,10 @@ void DrawFrame(AppState& app, const Layout& layout)
     // Il pannello dei valori sta attaccato all'intestazione da cui e' nato, e si
     // disegna per ultimo: e' l'unico che deve coprire la lista.
     GroupMenuDraw(app, layout, app.columnMenu);
+    // Il menu del tasto destro sull'intestazione: le operazioni sulla colonna. Sta
+    // dove sta quello dei valori, perche' e' lo stesso genere di pannello — ancorato
+    // all'intestazione da cui e' nato — e i due non sono mai aperti insieme.
+    GroupMenuDraw(app, layout, app.columnOps);
     // L'editor dei tasti prende il posto delle opzioni: si apre da una loro riga, e
     // aprendosi le chiude, quindi non si vedono mai insieme.
     GroupMenuDraw(app, layout, app.keyMap);
@@ -2558,6 +2910,23 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
             const float x = static_cast<float>(GET_X_LPARAM(lparam));
             const float y = static_cast<float>(GET_Y_LPARAM(lparam));
 
+            // Sull'**intestazione** il tasto destro apre le operazioni della colonna
+            // sotto il puntatore — adattala, chiudila, riporta quelle di partenza. Il
+            // filtro per valori resta sull'imbuto: sono due gesti, e prima erano lo
+            // stesso — il tasto destro faceva il mestiere dell'imbuto.
+            {
+                const Layout layout = ComputeLayout(*app);
+                if (layout.header.Contains(x, y))
+                {
+                    const int column = ColumnAtPoint(*app, layout, x);
+                    if (column >= 0)
+                    {
+                        BuildColumnOpsMenu(*app, column);
+                        return 0;
+                    }
+                }
+            }
+
             // Sulla **barra laterale** il menu e' quello della riga: le voci che
             // agiscono su un percorso — fissare, togliere, togliere dai recenti —
             // prendono quella riga, non la cartella aperta. E' il gesto che prima
@@ -2665,6 +3034,34 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
 
             // Il trascinamento di un bordo: la colonna cresce e la vicina si
             // stringe, e nessuna delle due scende sotto la larghezza leggibile.
+            // Il bordo sinistro dell'ispettore si prende e si trascina come il bordo di
+            // una colonna: la finestra non si sposta, il pannello si allarga.
+            if (app != nullptr && app->inspectorDrag >= 0)
+            {
+                if ((wparam & MK_LBUTTON) == 0)
+                {
+                    app->inspectorDrag = -1;
+                    RememberSettings(*app);
+                }
+                else
+                {
+                    const float x = static_cast<float>(GET_X_LPARAM(lparam));
+                    const float scale = app->zoom;
+                    // Il pannello non si stringe sotto i 200 px e non si prende piu' di
+                    // meta' finestra: sotto, i valori non si leggono; sopra, la lista
+                    // sparisce.
+                    const float sidebar = app->sidebarVisible ? 186.0f * scale : 0.0f;
+                    const float least   = 200.0f;
+                    const float most    = (static_cast<float>(app->viewportWidth) - sidebar - 260.0f * scale) / scale;
+                    app->inspectorWidth = std::clamp(app->inspectorDragStartWidth -
+                                                         (x - app->inspectorDragStartX) / scale,
+                                                     least, (std::max)(least, most));
+                    app->viewDirty = true;
+                    InvalidateRect(window, nullptr, FALSE);
+                    return 0;
+                }
+            }
+
             if (app != nullptr && app->columnDrag > 0)
             {
                 const Layout layout = ComputeLayout(*app);
@@ -2889,6 +3286,23 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
                 // Un bordo d'intestazione si prende e si trascina. La presa viene
                 // prima di tutto il resto: mentre si trascina, la lista sotto non
                 // deve rispondere ai clic.
+                // Il bordo sinistro dell'ispettore si prende da una striscia di sei pixel:
+                // un bordo di un pixel non si prende col mouse, e il pannello resterebbe
+                // largo quello che e' per sempre.
+                {
+                    const Layout layout = ComputeLayout(*app);
+                    const Rect grip{layout.inspector.x - 3.0f * layout.scale, layout.inspector.y,
+                                    6.0f * layout.scale, layout.inspector.h};
+                    if (grip.Contains(x, y))
+                    {
+                        app->inspectorDrag           = 0;
+                        app->inspectorDragStartX     = x;
+                        app->inspectorDragStartWidth = app->inspectorWidth;
+                        SetCapture(window);
+                        return 0;
+                    }
+                }
+
                 if (const ClickTarget* edge = HitTest(*app, x, y, ClickTarget::Kind::ColumnEdge))
                 {
                     app->columnDrag = edge->index;
@@ -2918,6 +3332,37 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
                 // underneath is reachable.
                 if (GroupMenu* menu = OpenMenu(*app))
                 {
+                    // Le due pastiglie della palette si prendono il clic prima della
+                    // riga: sono sopra di lei, e `HitTest` legge al contrario.
+                    if (menu == &app->palette)
+                    {
+                        if (const ClickTarget* hit =
+                                HitTest(*app, x, y, ClickTarget::Kind::PaletteStar))
+                        {
+                            const int command =
+                                app->palette.items[static_cast<size_t>(hit->index)].id;
+                            if (app->favoriteCommands.count(command) != 0)
+                                app->favoriteCommands.erase(command);
+                            else
+                                app->favoriteCommands.insert(command);
+                            RememberSettings(*app);
+                            BuildPaletteMenu(*app);
+                            return 0;
+                        }
+                        if (const ClickTarget* hit =
+                                HitTest(*app, x, y, ClickTarget::Kind::PaletteAssign))
+                        {
+                            // Assegnare un tasto **da qui**: si apre la mappa gia'
+                            // posata su quel comando e la cattura del tasto comincia.
+                            const int command =
+                                app->palette.items[static_cast<size_t>(hit->index)].id;
+                            app->palette.open = false;
+                            BuildKeyMapMenu(*app, command);
+                            BeginKeyCapture(*app, command);
+                            return 0;
+                        }
+                    }
+
                     const Layout layout = ComputeLayout(*app);
                     // Il pannello delle opzioni calcola da se' la riga e il
                     // controllo sotto il puntatore: non lascia bersagli nella
@@ -2952,6 +3397,8 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
                             RunKeyMapSelection(*app);
                         else if (menu == &app->pinMenu)
                             RunPinMenuSelection(*app);
+                        else if (menu == &app->columnOps)
+                            RunColumnOpsSelection(*app);
                         else
                             RunColumnMenuSelection(*app);
                     }
@@ -2986,10 +3433,24 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
                 // I selettori di vista e lo stepper delle anteprime, nella barra in
                 // fondo. Cambiare vista da qui e' l'unico gesto col puntatore: prima
                 // c'era solo la palette.
+                // Il campo della ricerca: il clic lo accende. Un secondo clic dentro lo
+                // lascia com'e' — la tastiera e' gia' sua.
+                if (HitTest(*app, x, y, ClickTarget::Kind::SearchField))
+                {
+                    app->searchFieldActive = true;
+                    app->filterActive      = false;
+                    return 0;
+                }
+
                 if (const ClickTarget* v = HitTest(*app, x, y, ClickTarget::Kind::ViewSelect))
                 {
                     app->viewMode  = static_cast<ViewMode>(v->index);
                     app->viewDirty = true;
+                    return 0;
+                }
+                if (HitTest(*app, x, y, ClickTarget::Kind::NewFolder))
+                {
+                    RunCommand(*app, CmdNewFolder);
                     return 0;
                 }
                 if (HitTest(*app, x, y, ClickTarget::Kind::PreviewDown))
@@ -3187,6 +3648,16 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
             return 0;
 
         case WM_LBUTTONUP:
+            // Lasciando il bordo dell'ispettore si chiude il trascinamento **e** si
+            // ricorda la larghezza: aspettare il primo movimento del mouse dopo il
+            // rilascio lasciava il pannello largo e la preferenza vecchia.
+            if (app != nullptr && app->inspectorDrag >= 0)
+            {
+                app->inspectorDrag = -1;
+                ReleaseCapture();
+                RememberSettings(*app);
+                return 0;
+            }
             if (app != nullptr && app->optionSliderDrag >= 0)
             {
                 // Fine del trascinamento di uno slider: il valore e' gia' stato
@@ -3380,6 +3851,8 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
                             RunKeyMapSelection(*app);
                         else if (menu == &app->pinMenu)
                             RunPinMenuSelection(*app);
+                        else if (menu == &app->columnOps)
+                            RunColumnOpsSelection(*app);
                         else
                             RunColumnMenuSelection(*app);
                     }
@@ -3427,6 +3900,7 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
                     {
                         case VK_RETURN: CommitRename(*app); break;
                         case VK_ESCAPE: CancelRename(*app); break;
+                        // (il campo della ricerca ha il suo `Backspace` piu' sotto)
                         case VK_BACK:
                             // Con una selezione, `Backspace` la cancella tutta: e' il
                             // gesto che ci si aspetta da un campo di testo, e qui la
@@ -3492,6 +3966,15 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
                             ReportStatus(*app, TrW(L"Annullamento...", L"Cancelling..."));
                             break;
                         }
+                        // Il campo della ricerca, prima del filtro: `Esc` ferma la
+                        // ricerca e riporta la cartella, che e' quello che ci si aspetta
+                        // da un campo in cui si e' appena scritto.
+                        if (app->search.active || app->search.finished ||
+                            app->searchFieldActive || !app->searchText.empty())
+                        {
+                            StopSearch(*app);
+                            break;
+                        }
                         if (!app->filter.empty() || app->filterActive)
                         {
                             app->filter.clear();
@@ -3499,6 +3982,7 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
                             app->viewDirty = true;
                         }
                         break;
+
                     case VK_DOWN:
                     case VK_UP:
                     case VK_NEXT:
@@ -3532,9 +4016,25 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
                         break;
                     }
                     case VK_RETURN:
+                        // Nel campo della ricerca `Invio` fa partire la ricerca; ovunque
+                        // altrove apre la voce scelta.
+                        if (app->searchFieldActive && !app->searchText.empty())
+                        {
+                            StartSearch(*app, app->searchText);
+                            app->searchFieldActive = false;
+                            break;
+                        }
                         ActivateSelection(*app);
                         break;
                     case VK_BACK:
+                        // Il campo della ricerca si cancella come un campo di testo, e
+                        // non fa salire di livello: chi sta scrivendo non sta navigando.
+                        if (app->searchFieldActive)
+                        {
+                            if (!app->searchText.empty())
+                                app->searchText.pop_back();
+                            break;
+                        }
                         // Backspace edits the filter while it is active, and only
                         // navigates to the parent when there is nothing to erase.
                         if (app->filterActive && !app->filter.empty())
@@ -3658,6 +4158,12 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
                         const std::wstring wide(1, character);
                         app->optionEditText += ToUtf8(wide);
                     }
+                    else if (app->searchFieldActive)
+                    {
+                        // Il campo della ricerca prende i caratteri prima del filtro: e'
+                        // un campo di testo, e chi l'ha acceso sta scrivendo li'.
+                        app->searchText.push_back(character);
+                    }
                     else if (GroupMenu* menu = OpenMenu(*app))
                     {
                         GroupMenuChar(*menu, character);
@@ -3774,6 +4280,11 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
             // nessuno rilascerebbe piu'.
             if (app != nullptr)
                 ContextMenuClose(*app);
+            // Le schede aperte, se si e' chiesto di ricordarle. Prima di tutto il
+            // resto: le schede sono ancora quelle, e dopo `PostQuitMessage` non c'e'
+            // piu' tempo per scrivere niente.
+            if (app != nullptr)
+                SaveSession(*app);
             PostQuitMessage(0);
             return 0;
 
@@ -3929,6 +4440,10 @@ void CheckForUpdates(AppState& app)
     ReportStatus(app, TrW(L"Controllo gli aggiornamenti...", L"Checking for updates..."));
 }
 
+// Dichiarato qui perche' la testata della mappa dei tasti lo usa, e la definizione sta
+// piu' sotto con le altre funzioni della palette.
+std::string CommandLabelById(int id);
+
 void BuildKeyMapMenu(AppState& app, int selectCommand)
 {
     std::vector<GroupMenuItem> items;
@@ -3970,6 +4485,11 @@ void BuildKeyMapMenu(AppState& app, int selectCommand)
     // Il tasto si scrive a destra della riga: `detailed` e' quello che fa disegnare il
     // dettaglio, ed e' l'unica cosa che questo elenco ha in piu' della palette.
     app.keyMap.detailed = true;
+    // La testata: che cosa si sta cambiando e da dove si apre. Dopo una rimappatura il
+    // tasto della mappa puo' essere un altro, e `LabelsFor` lo dice gia' aggiornato.
+    app.keyMap.caption     = Tr("Quale tasto fa quale comando.", "Which key runs which command.");
+    app.keyMap.command     = CommandLabelById(CmdEditKeyMap);
+    app.keyMap.commandKeys = app.keys.LabelsFor(CmdEditKeyMap);
     app.keyMap.hint     = Tr("Invio rimappa   Canc toglie   Esc chiude",
                              "Enter rebinds   Del removes   Esc closes");
 
@@ -3993,7 +4513,7 @@ Layout ComputeLayout(const AppState& app)
     const float height = static_cast<float>(app.viewportHeight);
 
     const float sidebarWidth   = app.sidebarVisible ? 186.0f * scale : 0.0f;
-    const float inspectorWidth = 292.0f * scale;
+    const float inspectorWidth = app.inspectorWidth * scale;
     const float titleHeight    = 34.0f * scale;
     const float toolbarHeight  = 38.0f * scale;
     // A grid view has no columns to head, so it gives the space back to the list.
@@ -4251,6 +4771,44 @@ void BuildPinMenu(AppState& app, bool removing)
                                 : Tr("Invio fissa   Esc chiude", "Enter pins   Esc closes");
 }
 // --- building the two menus -------------------------------------------------
+// La seconda linea di una riga della palette: che cosa fa questo **gruppo** di
+// comandi. Una frase per comando sarebbero 107 frasi da tenere vere una per una, e
+// meta' sarebbero la ripetizione del nome; il gruppo dice il contesto — il nome dice
+// gia' l'azione — e le due righe insieme si leggono come una frase sola.
+// L'etichetta di un comando **per id**: `CommandLabel` vuole la riga della tabella, e
+// qui serve il nome di un comando che si conosce per id (la testata di un menu).
+std::string CommandLabelById(int id)
+{
+    for (const CommandDef& command : kCommandTable)
+        if (command.id == id)
+            return CommandLabel(command);
+    return std::string();
+}
+
+std::string GroupDescription(const std::string& group)
+{
+    if (group == "Appearance")  return Tr("Come si vedono i colori e i caratteri", "How colours and fonts look");
+    if (group == "Bookmarks")   return Tr("I posti fissati, e la loro memoria", "Saved places, and their memory");
+    if (group == "File")        return Tr("Le operazioni sui file scelti", "What to do with the chosen files");
+    if (group == "Folder")      return Tr("La cartella aperta: leggerla, ricaricarla, aprirla fuori", "The open folder: read, reload, open elsewhere");
+    if (group == "GoTo")        return Tr("Andare in un altro posto", "Go somewhere else");
+    if (group == "GroupBy")     return Tr("Come si raggruppano le righe", "How the rows are grouped");
+    if (group == "Inspector")   return Tr("Il pannello di destra e cio' che mostra", "The right-hand panel and what it shows");
+    if (group == "Interaction") return Tr("Come si apre e si sceglie una voce", "How an item is opened and chosen");
+    if (group == "Language")    return Tr("In che lingua si legge il programma", "The language the program speaks");
+    if (group == "Options")     return Tr("Il pannello delle preferenze, e chi lo apre", "The preferences panel, and who opens it");
+    if (group == "Places")      return Tr("Le cartelle note, pronte da aprire", "The known folders, ready to open");
+    if (group == "Recents")     return Tr("Le cartelle gia' visitate in questa sessione", "Folders already visited in this session");
+    if (group == "Scroll")      return Tr("Andare in cima o in fondo senza il puntatore", "Top and bottom without the pointer");
+    if (group == "Sort")        return Tr("Su quale colonna si ordina, e in che verso", "Which column sorts, and which way");
+    if (group == "Startup")     return Tr("Dove si apre il programma", "Where the program opens");
+    if (group == "Tabs")        return Tr("Le schede: aprirle, chiuderle, spostarle", "Tabs: open, close, move");
+    if (group == "Text")        return Tr("Il visualizzatore di testo dell'ispettore", "The inspector's text viewer");
+    if (group == "Updates")     return Tr("Cercare una versione nuova, quando lo chiedi", "Looking for a new version, when asked");
+    if (group == "View")        return Tr("Come si guarda l'elenco", "How the list is shown");
+    return std::string();
+}
+
 void BuildPaletteMenu(AppState& app)
 {
     // Un comando scelto dalla palette non ha una riga sotto il puntatore: agisce
@@ -4259,8 +4817,26 @@ void BuildPaletteMenu(AppState& app)
     app.contextTargetPath.clear();
     app.contextTargetLabel.clear();
     std::vector<GroupMenuItem> items;
+
+    // I preferiti in cima, in un gruppo loro: la stella serve a non ricercare ogni
+    // volta nell'elenco lungo. Un comando preferito **non** compare anche nel suo
+    // gruppo — due righe per lo stesso comando sono due cose da tenere allineate.
     for (const CommandDef& command : kCommandTable)
     {
+        if (app.favoriteCommands.count(command.id) == 0)
+            continue;
+        std::string label = CommandLabel(command);
+        if (command.id == CmdToggleBookmark && IsBookmarked(app))
+            label = Tr("Togli questo posto dai segnalibri", "Remove bookmark from this folder");
+        items.push_back(GroupMenuItem{Tr("Preferiti", "Favorites"), label, "", command.id});
+        items.back().chips = app.keys.LabelsFor(command.id);
+        items.back().description = GroupDescription(command.group);
+    }
+
+    for (const CommandDef& command : kCommandTable)
+    {
+        if (app.favoriteCommands.count(command.id) != 0)
+            continue;
         // L'etichetta della tabella e' quella inglese, che e' anche il nome della
         // chiave; in italiano la da' `CommandLabelIt`, e se non c'e' resta quella.
         // In inglese vale l'etichetta della tabella; in italiano la traduzione, se
@@ -4271,6 +4847,11 @@ void BuildPaletteMenu(AppState& app)
         if (command.id == CmdToggleBookmark && IsBookmarked(app))
             label = Tr("Togli questo posto dai segnalibri", "Remove bookmark from this folder");
         items.push_back(GroupMenuItem{command.group, label, "", command.id});
+        // I tasti del comando, uno per pastiglia, sulla destra: si impara il comando
+        // leggendolo, che e' quello che fa anche il riferimento nella sua lista.
+        items.back().chips = app.keys.LabelsFor(command.id);
+        // La seconda linea: il contesto del gruppo (vedi `GroupDescription`).
+        items.back().description = GroupDescription(command.group);
     }
 
     // Locations are data, not code: one entry per known folder, so the palette
@@ -4279,6 +4860,7 @@ void BuildPaletteMenu(AppState& app)
     {
         items.push_back(GroupMenuItem{"Places", app.places[static_cast<size_t>(i)].label, "",
                                       kPalettePlaceBase + i});
+        items.back().description = GroupDescription("Places");
     }
 
     CloseKeyMap(app);
@@ -4292,9 +4874,22 @@ void BuildPaletteMenu(AppState& app)
     // mano: se il tasto cambia, cambia quello che si legge. Prima erano lettere
     // dentro una frase, ed erano l'ultimo posto in cui una scorciatoia viveva per
     // conto suo.
-    // Col dettaglio acceso il gruppo fa da dettaglio, che e' quello che la palette
-    // mostra da sempre: il flag dice a chi disegna che li' il ripiego e' voluto.
-    app.palette.detailFallsBackToGroup = true;
+    // Col dettaglio acceso la colonna di destra porta i **tasti**, non il gruppo: il
+    // gruppo lo dicono gia' le intestazioni, e ripeterlo toglieva spazio all'unica
+    // cosa che li' non si puo' leggere altrove.
+    // Il dettaglio **c'e'**: senza `detailed` la colonna di destra non si disegna
+    // affatto, e le pastiglie dei tasti sarebbero state scritte e mai viste — la
+    // palette mostrava un elenco di nomi e basta.
+    app.palette.detailed             = true;
+    app.palette.detailFallsBackToGroup = false;
+    app.palette.detailAsChips          = true;
+    // Righe a due linee: nome e contesto. E' la forma della lista dei comandi del
+    // riferimento, e il motivo per cui le pastiglie dei tasti ci stanno accanto.
+    app.palette.richRows               = true;
+    // La testata: che cosa si sta guardando, e da dove si apre anche da tastiera.
+    app.palette.caption     = Tr("Scegli un comando: Invio lo esegue.", "Pick a command: Enter runs it.");
+    app.palette.command     = CommandLabelById(CmdPalette);
+    app.palette.commandKeys = app.keys.LabelsFor(CmdPalette);
     app.palette.hint = std::string(Tr("Invio esegue   Esc chiude   ", "Enter runs   Esc closes   ")) +
                        app.keys.LabelFor(CmdPalette) + std::string(Tr(" apre e chiude   ", " toggles   ")) +
                        app.keys.LabelFor(CmdOpenOptions) + std::string(Tr(" opzioni", " options"));
@@ -4853,7 +5448,12 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, LPWSTR, int)
 
     app.tabs.push_back(Tab{});
     app.activeTab = 0;
-    LoadDirectory(app, initialDirectory);
+    // La sessione, se e' stato chiesto di ricordarla: le schede di ieri si riaprono.
+    // Un argomento sulla riga di comando vince — chi ha chiesto una cartella vuole
+    // quella, non le sue schede di ieri.
+    const bool restored = startDirectory.empty() && RestoreSession(app);
+    if (!restored)
+        LoadDirectory(app, initialDirectory);
 
     SetWindowLongPtrW(window, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(&app));
 
@@ -4938,6 +5538,13 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, LPWSTR, int)
             app.viewStatsRevision = statsRevision;
             app.lastViewRebuild   = now;
         }
+
+        // La ricerca globale avanza **qui**: un passo a ogni giro del ciclo, che
+        // succede comunque. Con un `SetTimer` la ricerca non partiva affatto — la
+        // barra si svuotava e la lista restava quella di prima, cioe' il passo non
+        // arrivava mai. Un giro che c'e' gia' non puo' non arrivare.
+        if (app.search.active)
+            AdvanceSearch(app);
 
         // Il controllo degli aggiornamenti: mentre gira la barra di stato dice a che
         // punto e', e quando ha finito l'esito si legge qui, una volta sola.

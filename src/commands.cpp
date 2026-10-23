@@ -520,6 +520,96 @@ void RunCommand(AppState& app, int command)
         // Riordina subito: l'opzione si vede nella lista, quindi la lista deve
         // gia' essere nell'ordine nuovo quando il pannello si chiude.
         case CmdToggleSortRecents:      app.sortRecentsOnTop = !app.sortRecentsOnTop; SortEntries(app); app.viewDirty = true; RememberSettings(app); break;
+        // `Toggle Subfolders`: ricaricare e' l'unico modo onesto di cambiare modo. Le
+        // voci in piu' stanno su disco, non in memoria: tenerne un secondo elenco da
+        // parte per toglierle senza rileggere vorrebbe dire un elenco che si
+        // disallinea al primo `F5`.
+        case CmdToggleSubfolders:
+            app.showSubfolders = !app.showSubfolders;
+            LoadDirectory(app, app.directory, /*recordHistory=*/false);
+            ReportStatus(app, app.showSubfolders
+                                  ? TrW(L"Sottocartelle nella lista", L"Subfolders in the list")
+                                  : TrW(L"Sottocartelle fuori dalla lista",
+                                        L"Subfolders off the list"));
+            RememberSettings(app);
+            break;
+        case CmdSaveLayout:
+        {
+            // Il layout e' la **forma** della finestra, e si salva da dove si sta
+            // guardando: nessuna domanda, perche' la risposta e' gia' sullo schermo.
+            AppState::SavedLayout& layout = app.savedLayout;
+            layout.defined        = true;
+            layout.viewMode       = static_cast<int>(app.viewMode);
+            layout.previewStep    = app.previewStep;
+            layout.zoom           = app.zoom;
+            layout.sortColumn     = static_cast<int>(app.sortColumn);
+            layout.sortAscending  = app.sortAscending;
+            layout.groupMode      = static_cast<int>(app.groupMode);
+            layout.sidebarVisible = app.sidebarVisible;
+            layout.showSubfolders = app.showSubfolders;
+            layout.columns        = app.columns;
+            RememberSettings(app);
+            ReportStatus(app, TrW(L"Layout salvato", L"Layout saved"));
+            break;
+        }
+        case CmdLoadLayout:
+        {
+            if (!app.savedLayout.defined)
+            {
+                ReportStatus(app, TrW(L"Nessun layout salvato: usa 'Salva il layout' prima",
+                                      L"No saved layout: use 'Save layout' first"));
+                break;
+            }
+            const AppState::SavedLayout& layout = app.savedLayout;
+            const int modes = static_cast<int>(ViewMode::Icons) + 1;
+            app.viewMode      = static_cast<ViewMode>(std::clamp(layout.viewMode, 0, modes - 1));
+            app.previewStep   = std::clamp(layout.previewStep, 0, AppState::kPreviewStepCount - 1);
+            app.zoom          = layout.zoom;
+            app.sortColumn    = static_cast<SortColumn>(layout.sortColumn);
+            app.sortAscending = layout.sortAscending;
+            app.groupMode     = static_cast<GroupMode>(layout.groupMode);
+            app.sidebarVisible = layout.sidebarVisible;
+            // Un layout dice **quali** colonne, non quanto sono larghe: le larghezze
+            // salvate in una vista le si ritrovava nell'altra, e due intestazioni una
+            // sopra l'altra (`Data modifica` dentro `Cartelle`) sono il risultato. La
+            // larghezza si riadatta al contenuto, che e' il valore di partenza di una
+            // colonna appena comparsa.
+            for (int i = 0; i < kColumnCount; ++i)
+                app.columns[static_cast<size_t>(i)].hidden =
+                    layout.columns[static_cast<size_t>(i)].hidden;
+            app.showCreatedDate  = !layout.columns[static_cast<size_t>(ColumnOfSort(SortColumn::Created))].hidden;
+            app.showAccessedDate = !layout.columns[static_cast<size_t>(ColumnOfSort(SortColumn::Accessed))].hidden;
+            FitColumns(app);
+            app.autoFitColumns = true;
+            SortEntries(app);
+            app.viewDirty = true;
+            // `Toggle Subfolders` cambia cosa c'e' nella lista, e l'unico modo onesto
+            // di applicarlo e' rileggere la cartella.
+            if (app.showSubfolders != layout.showSubfolders)
+            {
+                app.showSubfolders = layout.showSubfolders;
+                LoadDirectory(app, app.directory, /*recordHistory=*/false);
+            }
+            ReportStatus(app, TrW(L"Layout caricato", L"Layout loaded"));
+            break;
+        }
+        case CmdForgetLayout:
+            app.savedLayout = AppState::SavedLayout{};
+            RememberSettings(app);
+            ReportStatus(app, TrW(L"Layout dimenticato", L"Layout forgotten"));
+            break;
+        // Riaprire le schede: e' l'unica preferenza che scrive **quali cartelle** erano
+        // aperte. Spegnendola il file viene cancellato subito, non alla prossima uscita.
+        case CmdToggleRememberTabs:
+            app.rememberTabs = !app.rememberTabs;
+            RememberSettings(app);
+            SaveSession(app);
+            ReportStatus(app, app.rememberTabs
+                                  ? TrW(L"Le schede aperte si ritrovano al prossimo avvio",
+                                        L"Open tabs will be restored next time")
+                                  : TrW(L"Le schede non si ricordano piu'",
+                                        L"Open tabs will not be remembered"));
+            break;
         case CmdSingleClick:            app.singleClick            = !app.singleClick;            RememberSettings(app); break;
         case CmdSingleClickFoldersOnly: app.singleClickFoldersOnly = !app.singleClickFoldersOnly; RememberSettings(app); break;
         case CmdActOnPress:             app.actOnPress             = !app.actOnPress;             RememberSettings(app); break;

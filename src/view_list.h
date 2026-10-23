@@ -40,6 +40,10 @@ std::string DisplayName(const AppState& app, const Entry& entry);
 
 // --- colonne e viste ---------------------------------------------------------
 void InitColumns(AppState& app);
+
+// Le proprieta' del volume della cartella aperta — spazio libero, occupazione, file
+// system — chieste una volta a ogni cartella e tenute in `AppState::volumeFacts`.
+void RefreshVolumeFacts(AppState& app);
 void SetViewMode(AppState& app, ViewMode mode);
 
 // Quali colonne si vedono. Le due date che arrivano insieme alla modifica —
@@ -71,6 +75,20 @@ void SetColumnVisible(AppState& app, int column, bool visible);
 // prende quello che resta. E' il valore di partenza delle colonne; il trascinamento di
 // un bordo lo spegne (`autoFitColumns`), il doppio clic su un bordo lo riaccende.
 void FitColumns(AppState& app);
+
+// "Adatta questa colonna": la larghezza misurata sul contenuto di |column|, le altre
+// dove stanno. E' il comando che il riferimento mette nel menu del tasto destro
+// sull'intestazione, dove l'imbuto invece sceglie i valori.
+void FitColumn(AppState& app, int column);
+
+// "Sposta questa colonna": -1 a sinistra, +1 a destra. Scambia il posto con la
+// vicina e ognuna tiene la sua larghezza. E' lo `Shift Column Left/Right` del
+// riferimento.
+void ShiftColumn(AppState& app, int column, int direction);
+
+// "Ripristina le colonne": larghezze, visibilita' e filtri di partenza, come in
+// un'applicazione appena nata. Il nome lo dice: si torna indietro, non si adatta.
+void ResetColumns(AppState& app);
 
 // I **layout per cartella** (`DirHostLayoutSave`/`DirHostLayoutDel`, M9), in memoria.
 // Riflettono `AppState` in un valore, e quel valore lo rimettono: sono le due

@@ -319,6 +319,7 @@ GroupMenu* OpenMenu(AppState& app)
     if (app.options.open)       return &app.options;
     if (app.palette.open)       return &app.palette;
     if (app.goTo.open)          return &app.goTo;
+    if (app.columnOps.open)     return &app.columnOps;
     if (app.columnMenu.open)    return &app.columnMenu;
     return nullptr;
 }
@@ -329,6 +330,18 @@ constexpr float kOptionRowHeight = 46.0f;
 float MenuRowHeight(const Layout& layout, const GroupMenu& menu)
 {
     return menu.richRows ? kOptionRowHeight * layout.scale : layout.rowHeight;
+}
+
+// L'altezza della testata del comando: due righe di carattere piccolo piu' il
+// respiro attorno. E' una costante e non una misura del testo perche' la leggono due
+// funzioni che il testo non ce l'hanno — la geometria e il disegno — e due misure
+// diverse della stessa cosa sono due bersagli sbagliati.
+constexpr float kMenuCaptionHeight = 38.0f;
+
+float MenuListTop(const Layout& layout, const Rect& panel, const GroupMenu& menu)
+{
+    const float base = panel.y + 58.0f * layout.scale;
+    return menu.caption.empty() ? base : base + kMenuCaptionHeight * layout.scale;
 }
 
 // La prima riga visibile: la stessa formula per il disegno e per il clic, o le
@@ -389,7 +402,11 @@ Rect ColumnMenuPanel(const AppState& app, const Layout& layout, const GroupMenu&
 {
     const float scale = layout.scale;
     const float width = 260.0f * scale;
-    const float wanted = 84.0f * scale + static_cast<float>(menu.rows.size()) * layout.rowHeight;
+    // La testata del comando, quando c'e', occupa spazio **dentro** il pannello: senza
+    // contarla qui le ultime due voci cadevano fuori dal fondo, e un elenco che dice
+    // "5 di 5" e ne mostra tre e' peggio di un elenco corto.
+    const float caption = menu.caption.empty() ? 0.0f : kMenuCaptionHeight * scale;
+    const float wanted = 84.0f * scale + caption + static_cast<float>(menu.rows.size()) * layout.rowHeight;
     const float room = static_cast<float>(app.viewportHeight) - menu.anchor.bottom() - 20.0f * scale;
     const float height = (std::min)((std::min)(520.0f * scale, wanted), (std::max)(160.0f * scale, room));
     float x = menu.anchor.x;
@@ -536,10 +553,39 @@ void GroupMenuDraw(AppState& app, const Layout& layout, GroupMenu& menu)
         r.FillRect(Rect{caretX, panel.y + 32.0f * scale, 1.0f, app.font.LineHeight() * scale}, t.text);
     }
 
-    const float listTop    = panel.y + 58.0f * scale;
+    const float listTop    = MenuListTop(layout, panel, menu);
     const float listBottom = panel.bottom() - 26.0f * scale;
     const float rowHeight  = MenuRowHeight(layout, menu);
     r.FillRect(Rect{panel.x + 1.0f, listTop - 4.0f * scale, panel.w - 2.0f, 1.0f}, t.separator);
+
+    // La testata del comando, quando chi ha aperto il menu ne conosce uno: la
+    // descrizione, poi "Cmd: il nome" coi tasti come pastiglie a destra. E' il modo
+    // in cui il riferimento insegna la scorciatoia dentro il menu stesso, invece di
+    // lasciarla scoprire a chi apre la mappa dei tasti.
+    if (!menu.caption.empty())
+    {
+        const float captionX = panel.x + 16.0f * scale;
+        const float captionW = panel.w - 32.0f * scale;
+        app.smallFont.Draw(r, captionX, panel.y + 54.0f * scale,
+                           FitText(app.smallFont, menu.caption, scale, captionW), t.textDim, scale);
+
+        float penX = panel.right() - 16.0f * scale;
+        for (size_t i = menu.commandKeys.size(); i-- > 0;)
+        {
+            const std::string& label = menu.commandKeys[i];
+            const float width = app.smallFont.Measure(label, scale) + 12.0f * scale;
+            const Rect pill{penX - width, panel.y + 70.0f * scale, width, 18.0f * scale};
+            r.FillRect(pill, t.headerBg, 3.0f * scale);
+            app.smallFont.Draw(r, pill.x + 6.0f * scale, TextY(layout, pill, app.smallFont), label,
+                               t.textDim, scale);
+            penX -= width + 6.0f * scale;
+        }
+        const std::string command = menu.command.empty() ? std::string() : ("Cmd: " + menu.command);
+        if (!command.empty())
+            app.smallFont.Draw(r, captionX, panel.y + 70.0f * scale,
+                               FitText(app.smallFont, command, scale, penX - captionX - 8.0f * scale),
+                               t.textDim, scale);
+    }
 
     const int firstVisible =
         GroupMenuFirstVisible(menu, listTop, listBottom, rowHeight);
@@ -586,13 +632,60 @@ void GroupMenuDraw(AppState& app, const Layout& layout, GroupMenu& menu)
         {
             const Color nameInk = item.enabled ? t.text : t.textDim.WithAlpha(0.6f);
             const Color descInk = item.enabled ? t.textDim : t.textDim.WithAlpha(0.45f);
-            app.font.Draw(r, rowRect.x + 14.0f * scale, rowRect.y + 7.0f * scale,
-                          item.label, nameInk, scale);
             const Rect control = OptionControlRect(layout, item, rowRect);
-            const float descMax = control.x - (rowRect.x + 14.0f * scale) - 16.0f * scale;
-            if (descMax > 24.0f)
+
+            // Una riga a due linee che porta anche le pastiglie: la palette mostra
+            // nome, contesto, tasti, stella e `+`. Le pastiglie si disegnano **prima**
+            // del testo, perche' il testo si accorcia su quello che resta.
+            float textRight = control.x - 6.0f * scale;
+            if (menu.detailAsChips)
+            {
+                const float side = 16.0f * scale;
+                const float top  = rowRect.y + (rowRect.h - side) * 0.5f;
+                const Rect assign{textRight - side, top, side, side};
+                const Rect star{assign.x - 4.0f * scale - side, top, side, side};
+                const bool favourite = app.favoriteCommands.count(item.id) != 0;
+
+                r.FillRect(star, t.headerBg, 3.0f * scale);
+                r.FillRect(assign, t.headerBg, 3.0f * scale);
+                app.smallFont.Draw(r, star.x + (side - app.smallFont.Measure("*", scale)) * 0.5f,
+                                   TextY(layout, star, app.smallFont), "*",
+                                   favourite ? t.text : t.textDim.WithAlpha(0.45f), scale);
+                app.smallFont.Draw(r, assign.x + (side - app.smallFont.Measure("+", scale)) * 0.5f,
+                                   TextY(layout, assign, app.smallFont), "+", t.textDim, scale);
+
+                ClickTarget starTarget;
+                starTarget.rect  = star;
+                starTarget.kind  = ClickTarget::Kind::PaletteStar;
+                starTarget.index = row.item;
+                app.clickTargets.push_back(starTarget);
+
+                ClickTarget assignTarget;
+                assignTarget.rect  = assign;
+                assignTarget.kind  = ClickTarget::Kind::PaletteAssign;
+                assignTarget.index = row.item;
+                app.clickTargets.push_back(assignTarget);
+
+                textRight = star.x - 6.0f * scale;
+
+                for (size_t c = item.chips.size(); c-- > 0;)
+                {
+                    const std::string& chip = item.chips[c];
+                    const float width = app.smallFont.Measure(chip, scale) + 12.0f * scale;
+                    const Rect pill{textRight - width, top, width, 18.0f * scale};
+                    r.FillRect(pill, t.headerBg, 3.0f * scale);
+                    app.smallFont.Draw(r, pill.x + 6.0f * scale,
+                                       TextY(layout, pill, app.smallFont), chip, t.textDim, scale);
+                    textRight -= width + 6.0f * scale;
+                }
+            }
+
+            const float textMax = textRight - (rowRect.x + 14.0f * scale) - 8.0f * scale;
+            app.font.Draw(r, rowRect.x + 14.0f * scale, rowRect.y + 7.0f * scale,
+                          FitText(app.font, item.label, scale, textMax), nameInk, scale);
+            if (textMax > 24.0f)
                 app.smallFont.Draw(r, rowRect.x + 14.0f * scale, rowRect.y + 27.0f * scale,
-                                   FitText(app.smallFont, item.description, scale, descMax),
+                                   FitText(app.smallFont, item.description, scale, textMax),
                                    descInk, scale);
             DrawOptionControl(app, layout, item, control);
             continue;
@@ -611,22 +704,81 @@ void GroupMenuDraw(AppState& app, const Layout& layout, GroupMenu& menu)
             // Se non avanza niente, si tiene una scheggia e si accorcia l'etichetta:
             // meglio due testi troncati che due testi sovrapposti.
             //
-            // Quando il dettaglio manca, il ripiego e' il gruppo, ma **solo** dove il
-            // menu lo chiede: vedi `GroupMenu::detailFallsBackToGroup`. Vuoto vuol dire
-            // vuoto, ed e' un'informazione anche quella.
-            const std::string& raw = (item.detail.empty() && menu.detailFallsBackToGroup)
-                                         ? item.group
-                                         : item.detail;
-            const float labelNeed = app.font.Measure(label, scale);
-            const float detailRoom = (std::max)(60.0f * scale,
-                                                rowRect.w - labelNeed - 34.0f * scale);
-            const std::string detail = FitTextTail(app.smallFont, raw, scale, detailRoom);
-            const float width = app.smallFont.Measure(detail, scale);
-            app.smallFont.Draw(r, rowRect.right() - width - 12.0f * scale,
-                               TextY(layout, rowRect, app.smallFont), detail,
-                               item.enabled ? t.textDim : t.textDim.WithAlpha(0.45f), scale);
-            const float room = rowRect.right() - width - 20.0f * scale - (rowRect.x + 14.0f * scale);
-            label = FitText(app.font, label, scale, (std::max)(0.0f, room));
+            // Con `detailAsChips` il dettaglio non e' una riga ma una fila di
+            // pastiglie, da destra: e' come il riferimento scrive i tasti, e un tasto
+            // per pastiglia si conta a colpo d'occhio, mentre "Ctrl+P o F4" dentro una
+            // frase va letto.
+            float rightEdge = rowRect.right() - 12.0f * scale;
+
+            // Le due pastiglie della palette: la stella (piena se il comando e' fra i
+            // preferiti) e il `+` che apre la cattura del tasto su **quel** comando.
+            // Stanno a destra, prima delle scorciatoie, e sono bersagli piccoli perche'
+            // il clic che conta resta quello sulla riga.
+            if (menu.detailAsChips)
+            {
+                const float side = 16.0f * scale;
+                const float top  = rowRect.y + (rowRect.h - side) * 0.5f;
+                const Rect assign{rightEdge - side, top, side, side};
+                const Rect star{assign.x - 4.0f * scale - side, top, side, side};
+                const bool favourite = app.favoriteCommands.count(item.id) != 0;
+
+                r.FillRect(star, t.headerBg, 3.0f * scale);
+                r.FillRect(assign, t.headerBg, 3.0f * scale);
+                app.smallFont.Draw(r, star.x + (side - app.smallFont.Measure("*", scale)) * 0.5f,
+                                   TextY(layout, star, app.smallFont), "*",
+                                   favourite ? t.text : t.textDim.WithAlpha(0.45f), scale);
+                app.smallFont.Draw(r, assign.x + (side - app.smallFont.Measure("+", scale)) * 0.5f,
+                                   TextY(layout, assign, app.smallFont), "+", t.textDim, scale);
+
+                ClickTarget starTarget;
+                starTarget.rect  = star;
+                starTarget.kind  = ClickTarget::Kind::PaletteStar;
+                starTarget.index = row.item;
+                app.clickTargets.push_back(starTarget);
+
+                ClickTarget assignTarget;
+                assignTarget.rect  = assign;
+                assignTarget.kind  = ClickTarget::Kind::PaletteAssign;
+                assignTarget.index = row.item;
+                app.clickTargets.push_back(assignTarget);
+
+                rightEdge = star.x - 6.0f * scale;
+            }
+
+            if (menu.detailAsChips && !item.chips.empty())
+            {
+                for (size_t c = item.chips.size(); c-- > 0;)
+                {
+                    const std::string& chip = item.chips[c];
+                    const float width = app.smallFont.Measure(chip, scale) + 12.0f * scale;
+                    const Rect pill{rightEdge - width, rowRect.y + (rowRect.h - 18.0f * scale) * 0.5f,
+                                    width, 18.0f * scale};
+                    r.FillRect(pill, t.headerBg, 3.0f * scale);
+                    app.smallFont.Draw(r, pill.x + 6.0f * scale,
+                                       TextY(layout, pill, app.smallFont), chip,
+                                       item.enabled ? t.textDim : t.textDim.WithAlpha(0.45f),
+                                       scale);
+                    rightEdge -= width + 6.0f * scale;
+                }
+                label = FitText(app.font, label, scale,
+                                (std::max)(0.0f, rightEdge - (rowRect.x + 14.0f * scale) - 12.0f * scale));
+            }
+            else
+            {
+                const std::string& raw = (item.detail.empty() && menu.detailFallsBackToGroup)
+                                             ? item.group
+                                             : item.detail;
+                const float labelNeed = app.font.Measure(label, scale);
+                const float detailRoom = (std::max)(60.0f * scale,
+                                                    rowRect.w - labelNeed - 34.0f * scale);
+                const std::string detail = FitTextTail(app.smallFont, raw, scale, detailRoom);
+                const float width = app.smallFont.Measure(detail, scale);
+                app.smallFont.Draw(r, rowRect.right() - width - 12.0f * scale,
+                                   TextY(layout, rowRect, app.smallFont), detail,
+                                   item.enabled ? t.textDim : t.textDim.WithAlpha(0.45f), scale);
+                const float room = rowRect.right() - width - 20.0f * scale - (rowRect.x + 14.0f * scale);
+                label = FitText(app.font, label, scale, (std::max)(0.0f, room));
+            }
         }
         else
         {
