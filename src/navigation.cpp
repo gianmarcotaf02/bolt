@@ -56,6 +56,27 @@ std::vector<Entry> ReadNamespaceDirectory(const std::wstring& directory, std::st
         entry.pidl        = item.pidl;
         entry.navigable   = item.navigable;
 
+        // Le due cose che solo il cestino sa dire: quando e' stata buttata e da dove
+        // veniva. Si chiedono per **ogni** voce di spazio dei nomi e non solo li': una
+        // cartella che non e' un percorso non ha un altro modo di rispondere, e fuori dal
+        // cestino la shell dice subito che non lo sa (`ShellLocation::RecycleFacts`), che
+        // costa una chiamata e restituisce niente.
+        if (!entry.pidl.empty())
+        {
+            FILETIME deleted{};
+            std::string from;
+            if (ShellLocation::RecycleFacts(entry.pidl, &deleted, &from))
+            {
+                const bool dated = deleted.dwLowDateTime != 0 || deleted.dwHighDateTime != 0;
+                // Il tempo arriva in UTC: `FormatFileTime` lo porta in locale, ed e'
+                // l'unica funzione che scrive una data in questo programma.
+                entry.deleted     = deleted;
+                entry.deletedText = dated ? FormatFileTime(deleted, /*withTime=*/false) : "";
+                entry.originalText = from;
+            }
+
+        }
+
         // Un'unita' dentro "Questo PC" e' un disco, non una cartella, e l'icona
         // gliela sa dare solo la shell. Si decide **adesso**, una volta per cartella
         // aperta: chiedere il tipo di un'unita' puo' far girare un lettore ottico, e

@@ -133,6 +133,15 @@ Le quattro colonne `Empty1..4` sono segnaposto configurabili: l'utente può
 assegnare loro un contenuto. `DateDeleted` e `OriginalLocation` hanno senso solo
 con il cestino reale, che è confermato dall'integrazione shell.
 
+**Come sono state implementate** (`src/app_state.h`, `kColumns`): le venti colonne qui
+sopra ci sono tutte, nello stesso ordine, e le otto che mancavano stanno in fondo —
+`PercentFull`, `FolderUsage`, `DateDeleted`, `OriginalLocation`, `Empty1..4`. Le due del
+cestino si leggono dalla shell per **nome canonico** (`System.Recycle.DateDeleted`,
+`System.Recycle.DeletedFrom`): non sono proprietà di sistema, `propkey.h` non le ha, e
+chiederle per indice di colonna vorrebbe dire indovinare una tabella i cui nomi sono
+tradotti. `FolderUsage` è la sola con una definizione **ricostruita** e non verificata:
+quanto del volume occupa la voce (vedi `docs/04` M5b).
+
 Le 20 etichette `PanelInspector_Label*` coprono: cartella singola o conteggio,
 file singolo o conteggio, percorso, tipo o tipi, dimensione o somma, dimensioni
 dell'immagine, sottocartelle, sottofile, creazione, modifica, percorso originale,

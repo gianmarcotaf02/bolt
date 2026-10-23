@@ -674,8 +674,12 @@ bool SortEntries(AppState& app)
 
     auto statValue = [&statsFor](const Entry& entry, SortColumn which) -> uint64_t
     {
+        // `FolderUsage` e' la stessa quantita' di `Size` — byte logici — letta contro il
+        // volume invece che in assoluto: per ordinarla serve il numero della voce, che per
+        // un file sono i suoi byte e per una cartella la somma dei suoi. Le altre colonne
+        // numeriche qui sotto parlano di conteggi, e per un file valgono zero.
         if (!entry.isDirectory)
-            return (which == SortColumn::Size) ? entry.bytes : 0;
+            return (which == SortColumn::Size || which == SortColumn::FolderUsage) ? entry.bytes : 0;
 
         DirStats stats;
         if (!statsFor(entry, &stats))
@@ -759,15 +763,46 @@ bool SortEntries(AppState& app)
                              case SortColumn::Type:
                                  order = left.typeText.compare(right.typeText);
                                  break;
-                             // Le tre del volume valgono uguale per tutte le voci della
-                             // cartella — sono del disco, non della voce — quindi
-                             // ordinarle non cambia niente. Si dichiara invece di
-                             // fingere un ordine: sotto resta quello del nome.
-                             case SortColumn::FreeSpace:
-                             case SortColumn::VolumeUsage:
-                             case SortColumn::FileSystem:
-                                 order = 0;
-                                 break;
+                            // Le colonne del volume valgono uguale per tutte le voci
+                            // della cartella — sono del disco, non della voce — quindi
+                            // ordinarle non cambia niente. Si dichiara invece di fingere
+                            // un ordine: sotto resta quello del nome. Lo stesso vale per un
+                            // segnaposto `Empty`, che mostra il valore di un'altra colonna e
+                            // un ordine suo non ce l'ha.
+                            case SortColumn::FreeSpace:
+                            case SortColumn::VolumeUsage:
+                            case SortColumn::FileSystem:
+                            case SortColumn::PercentFull:
+                            case SortColumn::Empty1:
+                            case SortColumn::Empty2:
+                            case SortColumn::Empty3:
+                            case SortColumn::Empty4:
+                                order = 0;
+                                break;
+                            // `FolderUsage` invece e' della voce: e' la stessa quantita' di
+                            // `Size` divisa per una costante (la capienza del volume), e
+                            // quindi si ordina come `Size`.
+                            case SortColumn::FolderUsage:
+                            {
+                                const uint64_t a = statValue(left, SortColumn::FolderUsage);
+                                const uint64_t b = statValue(right, SortColumn::FolderUsage);
+                                order = (a < b) ? -1 : (a > b) ? 1 : 0;
+                                break;
+                            }
+                            // Quando e' stata buttata, sul tempo vero e non sul testo.
+                            case SortColumn::DateDeleted:
+                            {
+                                const uint64_t a = FileTimeToUint64(left.deleted);
+                                const uint64_t b = FileTimeToUint64(right.deleted);
+                                order = (a < b) ? -1 : (a > b) ? 1 : 0;
+                                break;
+                            }
+                            // Da dove veniva: un percorso, quindi si confronta come una
+                            // parola e non come un numero.
+                            case SortColumn::OriginalLocation:
+                                order = _stricmp(left.originalText.c_str(),
+                                                 right.originalText.c_str());
+                                break;
                              case SortColumn::Name:
                              default:
                                  // Le righe della Home si ordinano per **nome mostrato**:
@@ -789,6 +824,47 @@ bool SortEntries(AppState& app)
     return true;
 }
 
+
+namespace
+{
+// Una frazione in percentuale, **come si legge**: intera da due cifre in su, con un
+// decimale sotto il 10%, e «meno di 0,1%» quando c'e' qualcosa ma non arriva a un
+// decimo. «0%» su un disco che ha dentro qualcosa e' un numero che si legge male; un
+// decimale accanto a `87%` e' una cifra che non serve a nessuno.
+std::string PercentText(uint64_t part, uint64_t total)
+{
+    if (total == 0)
+        return "--";
+    const uint64_t perMille = (part * 1000ull) / total;
+    if (part > 0 && perMille == 0)
+        return Tr("< 0,1%", "< 0.1%");
+
+    char text[32] = {};
+    if (perMille >= 100)
+        std::snprintf(text, sizeof(text), "%llu%%",
+                      static_cast<unsigned long long>(perMille / 10));
+    else
+        std::snprintf(text, sizeof(text), Tr("%llu,%llu%%", "%llu.%llu%%"),
+                      static_cast<unsigned long long>(perMille / 10),
+                      static_cast<unsigned long long>(perMille % 10));
+    return text;
+}
+} // namespace
+
+std::string ColumnTitle(const AppState& app, int column)
+{
+    if (column < 0 || column >= kColumnCount)
+        return std::string();
+    if (column < kEmptyColumnFirst)
+        return ColumnLabel(column);
+
+    // Un segnaposto senza contenuto si intitola per quello che e' — «Vuota 2» — perche'
+    // un titolo vuoto lascerebbe un'intestazione senza nome e senza spiegazione.
+    const int which = app.emptyColumnSource[column - kEmptyColumnFirst];
+    if (which <= 0 || which >= kEmptyColumnFirst)
+        return ColumnLabel(column);
+    return ColumnLabel(which);
+}
 
 // Il valore di una colonna per una voce, **come si vede**: la stessa stringa che
 // disegna la cella. Un filtro che parla una lingua diversa da quella della colonna
@@ -866,7 +942,7 @@ std::string ColumnValueOf(const AppState& app, const Entry& entry, int column)
                 return "< 1 GB";
             return ">= 1 GB";
         }
-        // Le tre del **volume**: il valore non dipende dalla voce, quindi si legge
+        // Le colonne del **volume**: il valore non dipende dalla voce, quindi si legge
         // una volta dal disco della cartella aperta (`RefreshVolumeFacts`). Una voce
         // che viene dallo spazio dei nomi — il cestino — sta su un disco che non
         // conosciamo per percorso, e li' si scrive `--`.
@@ -874,15 +950,72 @@ std::string ColumnValueOf(const AppState& app, const Entry& entry, int column)
             if (!app.volumeFacts.valid)
                 return "--";
             return HumanBytes(app.volumeFacts.freeBytes);
+        // I byte **usati** sul volume. Prima questa colonna scriveva la percentuale, che
+        // e' quello che dice il nome dell'altra: due nomi per un numero solo, e il numero
+        // di byte non c'era. Adesso i nomi dicono quello che mostrano.
         case 10:
+        {
+            if (!app.volumeFacts.valid)
+                return "--";
+            return HumanBytes(app.volumeFacts.totalBytes - app.volumeFacts.freeBytes);
+        }
+        case 11:
+            return app.volumeFacts.fileSystem.empty() ? std::string("--") : app.volumeFacts.fileSystem;
+        // Quanto e' pieno il disco. La percentuale e' intera quando e' a due cifre, e ha
+        // un decimale sotto il 10%: «0%» su un disco con dentro qualcosa e' un numero che
+        // si legge male, e un decimale a 87% e' una cifra che non serve a nessuno.
+        case 12:
         {
             if (!app.volumeFacts.valid || app.volumeFacts.totalBytes == 0)
                 return "--";
             const uint64_t used = app.volumeFacts.totalBytes - app.volumeFacts.freeBytes;
-            return std::to_string(used * 100 / app.volumeFacts.totalBytes) + "%";
+            return PercentText(used, app.volumeFacts.totalBytes);
         }
-        case 11:
-            return app.volumeFacts.fileSystem.empty() ? std::string("--") : app.volumeFacts.fileSystem;
+        // Quanto del volume occupa **questa** voce. Per una cartella sono i byte che
+        // contano le statistiche ricorsive — gli stessi che mostra `Size` — quindi il
+        // valore compare quando il conteggio arriva, e non e' una lettura in piu'. La
+        // definizione e' una **ricostruzione**: `docs/03` dice che le colonne esistono e
+        // non dice cosa misurano, e questa e' l'unica lettura che non fa doppione con
+        // `Size` ne' con `PercentFull` (`docs/04` M5b).
+        case 13:
+        {
+            if (!app.volumeFacts.valid || app.volumeFacts.totalBytes == 0)
+                return "--";
+            uint64_t bytes = entry.bytes;
+            if (entry.isDirectory)
+            {
+                if (!entry.location.empty())
+                    return "--";
+                DirStats stats;
+                if (!app.stats.TryGet(JoinPath(app.directory, entry.wideName), &stats))
+                    return "--";
+                bytes = stats.logicalBytes;
+            }
+            return PercentText(bytes, app.volumeFacts.totalBytes);
+        }
+        // Le due del **cestino**. Non le sa il file system: una voce riciclata non e' un
+        // file che si legge con `FindFirstFile`, e' una voce della shell che si porta
+        // dietro quando e' stata buttata e da dove (`ShellLocation::RecycleFacts`).
+        // Altrove restano vuote, e la colonna scrive `--` invece di inventare una data.
+        case 14:
+            return entry.deletedText.empty() ? std::string("--") : entry.deletedText;
+        case 15:
+            return entry.originalText.empty() ? std::string("--") : entry.originalText;
+        // I quattro segnaposto: mostrano il valore della colonna che l'utente ha scelto
+        // dal menu dell'intestazione, senza il titolo di quella colonna. Una catena di
+        // segnaposto (uno che punta a un altro) non si costruisce: la scelta esclude le
+        // `Empty` stesse, e qui si controlla lo stesso perche' un `settings.ini` scritto
+        // a mano non passa dal menu.
+        case 16:
+        case 17:
+        case 18:
+        case 19:
+        {
+            const int which = app.emptyColumnSource[column - kEmptyColumnFirst];
+            if (which <= 0 || which >= kEmptyColumnFirst)
+                return std::string();
+            return ColumnValueOf(app, entry, which);
+        }
         default: return std::string();
     }
 }
@@ -1155,7 +1288,7 @@ void FitColumns(AppState& app)
 
     float width[kColumnCount] = {};
     for (int i = 0; i < kColumnCount; ++i)
-        width[i] = app.smallFont.Measure(ColumnLabel(i), scale);
+        width[i] = app.smallFont.Measure(ColumnTitle(app, i), scale);
 
     for (size_t r = 0; r < sample; ++r)
     {
@@ -1262,7 +1395,7 @@ void FitColumn(AppState& app, int column)
     const float least = kMinColumnWidth * scale;
     const size_t sample = (std::min)(app.entries.size(), static_cast<size_t>(200));
 
-    float wanted = app.smallFont.Measure(ColumnLabel(column), scale);
+    float wanted = app.smallFont.Measure(ColumnTitle(app, column), scale);
     for (size_t r = 0; r < sample; ++r)
     {
         const Entry& entry = app.entries[r];
@@ -1741,7 +1874,7 @@ void DrawHeader(AppState& app, const Layout& layout, float* columnX)
         columnX[i] = x;
 
         const bool sorted = (app.sortColumn == kColumns[i].sort);
-        std::string label = ColumnLabel(i);
+        std::string label = ColumnTitle(app, i);
         // La freccia dell'ordine si aggiunge **dopo** aver accorciato il nome: messa
         // prima, `FitText` la tagliava per prima cosa e una colonna stretta ordinata
         // non diceva in che verso — il verso si vedrebbe solo allargandola.

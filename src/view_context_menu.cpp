@@ -20,6 +20,9 @@
 #include <shlwapi.h>
 
 #include <algorithm>
+// `std::tolower`: la ricerca non distingue le maiuscole, e la regola e' quella di
+// `MenuMatch` (vedi `ContextLabelMatch`).
+#include <cctype>
 #include <cstdio>
 #include <string>
 #include <vector>
@@ -54,6 +57,51 @@ constexpr int kNewItemCmdLast  = 0x70FF;
 // posizione nell'elenco letto dalla cartella SendTo.
 constexpr int kSendToCmdFirst = 0x7100;
 constexpr int kSendToCmdLast  = 0x71FF;
+
+// L'altezza della riga del campo di ricerca. E' una costante e non una misura del
+// testo perche' la leggono la geometria — l'altezza del pannello, dove comincia
+// l'elenco, lo spazio che resta alle voci — e il disegno: due misure della stessa
+// cosa sono due bersagli sbagliati.
+constexpr float kContextSearchHeight = 34.0f;
+
+// Fa combaciare un termine di ricerca con l'etichetta di una voce: tutti i termini
+// devono comparire, in qualunque ordine, senza distinzione di maiuscole.
+//
+// E' la **stessa regola** di `MenuMatch` in `view_menu.cpp`, e la scelta e'
+// deliberata: chi cerca "nuo car" nella palette e "nuo car" nel menu contestuale
+// deve ottenere la stessa cosa, perche' e' la stessa ricerca fatta in due posti. Due
+// componenti (vedi `ContextMenu` in `app_state.h`) che condividono una regola e non
+// un tipo si portano dietro questo: la regola vive in due punti, e chi ne cambia una
+// deve cambiare anche l'altra.
+bool ContextLabelMatch(const std::string& text, const std::wstring& filter)
+{
+    if (filter.empty())
+        return true;
+
+    std::string lower = text;
+    for (char& c : lower)
+        c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+
+    size_t start = 0;
+    for (;;)
+    {
+        size_t space = filter.find(L' ', start);
+        if (space == std::wstring::npos)
+            space = filter.size();
+        if (space > start)
+        {
+            std::string term = ToUtf8(filter.substr(start, space - start));
+            for (char& c : term)
+                c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+            if (lower.find(term) == std::string::npos)
+                return false;
+        }
+        if (space >= filter.size())
+            break;
+        start = space + 1;
+    }
+    return true;
+}
 
 const std::vector<ContextMenuItem>* LevelItems(const ContextMenu& menu, int depth)
 {
@@ -101,6 +149,74 @@ ContextMenuItem* LevelItemMutable(ContextMenu& menu, int depth, int index)
     if (index < 0 || index >= static_cast<int>(items->size()))
         return nullptr;
     return &(*items)[static_cast<size_t>(index)];
+}
+
+// Vero se la voce si vede nell'elenco che si sta mostrando.
+//
+// Il filtro vale per il livello 0 e basta: un sottomenu parla di quello che sta
+// **dentro** la voce scelta, e filtrarlo cambierebbe il contenuto di quella voce
+// invece di cercare nel menu che si ha davanti.
+bool LevelItemVisible(const ContextMenu& menu, int depth, const ContextMenuItem& item)
+{
+    if (depth != 0 || menu.filter.empty())
+        return true;
+    // Un separatore non ha un'etichetta da confrontare, e sotto filtro resterebbe
+    // in mezzo a due voci che non ci sono piu': una riga vuota che non separa
+    // niente.
+    if (item.separator)
+        return false;
+    return ContextLabelMatch(item.label, menu.filter);
+}
+
+// Quante voci del livello si vedono. E' la misura su cui si contano la capacita'
+// del pannello, la barra di scorrimento e la posizione della scelta.
+int LevelVisibleCount(const ContextMenu& menu, int depth)
+{
+    if (depth != 0 || menu.filter.empty())
+        return LevelCount(menu, depth);
+
+    const std::vector<ContextMenuItem>* items = LevelItems(menu, depth);
+    if (items == nullptr)
+        return 0;
+    int count = 0;
+    for (const ContextMenuItem& item : *items)
+        if (LevelItemVisible(menu, depth, item))
+            ++count;
+    return count;
+}
+
+// L'indice **nella lista delle voci** della voce che si vede in posizione
+// |position|, o -1 se non c'e'.
+//
+// Il disegno, il puntatore e il cursore ragionano per posizioni visibili; le voci
+// e `openPath` per indici. Con il filtro vuoto le due numerazioni coincidono, ed
+// e' per questo che il cambio si e' potuto fare senza toccare la sostanza: questa
+// funzione e' l'unico punto in cui le due si incontrano.
+int LevelVisibleIndex(const ContextMenu& menu, int depth, int position)
+{
+    if (position < 0)
+        return -1;
+    if (depth != 0 || menu.filter.empty())
+        return position < LevelCount(menu, depth) ? position : -1;
+
+    const std::vector<ContextMenuItem>* items = LevelItems(menu, depth);
+    if (items == nullptr)
+        return -1;
+    int seen = 0;
+    for (int i = 0; i < static_cast<int>(items->size()); ++i)
+    {
+        if (!LevelItemVisible(menu, depth, (*items)[static_cast<size_t>(i)]))
+            continue;
+        if (seen == position)
+            return i;
+        ++seen;
+    }
+    return -1;
+}
+
+const ContextMenuItem* LevelVisibleItem(const ContextMenu& menu, int depth, int position)
+{
+    return LevelItem(menu, depth, LevelVisibleIndex(menu, depth, position));
 }
 
 // La voce ha qualcosa dentro? Vale anche per un sottomenu della shell **non
@@ -173,17 +289,21 @@ int ContextMenuVisibleCount(const AppState& app, const Layout& layout, int depth
     const float scale     = layout.scale;
     const float separator = 7.0f * scale;
     // 8 px di margine sotto, 6 px di riempimento sopra e sotto: quello che resta
-    // e' lo spazio delle voci. Il sottotitolo ce l'ha solo il primo livello.
+    // e' lo spazio delle voci. Il sottotitolo ce l'ha solo il primo livello, e la
+    // riga del campo di ricerca pure: sono spazio che le voci non hanno.
     const float footer = (depth == 0) ? 22.0f * scale : 0.0f;
+    const float search = (depth == 0) ? kContextSearchHeight * scale : 0.0f;
     const float room = static_cast<float>(app.viewportHeight) - 8.0f * scale -
-                       12.0f * scale - footer;
+                       12.0f * scale - footer - search;
 
-    const int total = LevelCount(app.contextMenu, depth);
+    // Contando le voci che si **vedono**: sotto filtro sono meno di quelle che ci
+    // sono, e il pannello si stringe su quelle.
+    const int total = LevelVisibleCount(app.contextMenu, depth);
     float used  = 0.0f;
     int   count = 0;
     for (int i = firstItem; i < total; ++i)
     {
-        const ContextMenuItem* item = LevelItem(app.contextMenu, depth, i);
+        const ContextMenuItem* item = LevelVisibleItem(app.contextMenu, depth, i);
         const float height = (item != nullptr && item->separator) ? separator : layout.rowHeight;
         // Almeno una voce si mostra sempre: un menu vuoto non si spiega.
         if (count > 0 && used + height > room)
@@ -211,14 +331,17 @@ Rect ContextMenuPanel(const AppState& app, const Layout& layout, int depth)
     float content = 0.0f;
     for (int i = first; i < first + visible; ++i)
     {
-        const ContextMenuItem* item = LevelItem(menu, depth, i);
+        const ContextMenuItem* item = LevelVisibleItem(menu, depth, i);
         content += (item != nullptr && item->separator) ? separator : layout.rowHeight;
     }
 
     const float width = ContextMenuWidth(app, layout, depth);
     // 22 px in fondo per il sottotitolo, che c'e' solo nel primo livello.
     const float footer = (depth == 0) ? 22.0f * scale : 0.0f;
-    const float height = content + padding * 2.0f + footer;
+    // La riga del campo di ricerca e' **dentro** il pannello ed e' una riga in piu':
+    // se non entrasse nell'altezza, l'ultima voce cadrebbe fuori dal fondo.
+    const float search = (depth == 0) ? kContextSearchHeight * scale : 0.0f;
+    const float height = content + padding * 2.0f + footer + search;
 
     // L'ancora: il primo livello sta dove ha cliccato il puntatore, un sottomenu
     // accanto alla voce che lo apre.
@@ -254,7 +377,7 @@ int ContextMenuLastVisible(const AppState& app, const Layout& layout, int depth)
 {
     const int first   = app.contextMenu.levels[static_cast<size_t>(depth)].firstItem;
     const int visible = ContextMenuVisibleCount(app, layout, depth, first);
-    return (std::min)(LevelCount(app.contextMenu, depth), first + visible);
+    return (std::min)(LevelVisibleCount(app.contextMenu, depth), first + visible);
 }
 
 Rect ContextMenuRowRect(const AppState& app, const Layout& layout, int depth, int index)
@@ -265,14 +388,17 @@ Rect ContextMenuRowRect(const AppState& app, const Layout& layout, int depth, in
     const float padding    = 6.0f * scale;
 
     const ContextMenu& menu = app.contextMenu;
-    float top = panel.y + padding;
+    // Il campo di ricerca sta **dentro** il pannello, sopra la prima voce: se
+    // l'elenco non cominciasse dopo di lui, il disegno e il puntatore leggerebbero
+    // due righe diverse — la prima sarebbe il campo per uno dei due.
+    float top = panel.y + padding + (depth == 0 ? kContextSearchHeight * scale : 0.0f);
     for (int i = menu.levels[static_cast<size_t>(depth)].firstItem; i < index; ++i)
     {
-        const ContextMenuItem* item = LevelItem(menu, depth, i);
+        const ContextMenuItem* item = LevelVisibleItem(menu, depth, i);
         top += (item != nullptr && item->separator) ? separator : layout.rowHeight;
     }
 
-    const ContextMenuItem* item = LevelItem(menu, depth, index);
+    const ContextMenuItem* item = LevelVisibleItem(menu, depth, index);
     const float height = (item != nullptr && item->separator) ? separator : layout.rowHeight;
     return Rect{panel.x + 4.0f * scale, top, panel.w - 8.0f * scale, height};
 }
@@ -480,11 +606,18 @@ void CloseSubmenusBelow(ContextMenu& menu, int depth)
     menu.levels.resize(static_cast<size_t>(wanted));
 }
 
-// Apre il sottomenu della voce |index| del livello |depth|. Restituisce falso se
-// quella voce un sottomenu non ce l'ha, o se e' rimasto vuoto.
-bool OpenSubmenu(AppState& app, const Layout& layout, int depth, int index)
+// Apre il sottomenu della voce che si vede in posizione |position| del livello
+// |depth|. Restituisce falso se quella voce un sottomenu non ce l'ha, o se e'
+// rimasto vuoto.
+//
+// |position| e' la posizione fra le voci **che si vedono**, quella che il cursore
+// tiene e che il clic ha sotto, mentre `openPath` indicizza le voci: le due
+// numerazioni coincidono finche' il filtro e' vuoto, e il passaggio da una
+// all'altra si fa qui, una volta sola.
+bool OpenSubmenu(AppState& app, const Layout& layout, int depth, int position)
 {
     ContextMenu& menu = app.contextMenu;
+    const int index = LevelVisibleIndex(menu, depth, position);
     ContextMenuItem* item = LevelItemMutable(menu, depth, index);
     if (item == nullptr || item->disabled || !HasSubmenu(*item))
         return false;
@@ -521,10 +654,10 @@ bool OpenSubmenu(AppState& app, const Layout& layout, int depth, int index)
     level.firstItem = 0;
 
     const int newDepth = static_cast<int>(menu.openPath.size());
-    const int count = LevelCount(menu, newDepth);
+    const int count = LevelVisibleCount(menu, newDepth);
     for (int i = 0; i < count; ++i)
     {
-        const ContextMenuItem* child = LevelItem(menu, newDepth, i);
+        const ContextMenuItem* child = LevelVisibleItem(menu, newDepth, i);
         if (child != nullptr && !child->separator && !child->disabled)
         {
             level.selected = i;
@@ -557,11 +690,38 @@ void ContextMenuDrawLevel(AppState& app, const Layout& layout, int depth)
     r.Draw(UIDraw::Fill(panel, t.panelBg, 8.0f * scale));
     r.Draw(UIDraw::Border(panel, t.panelBorder, 1.0f, 8.0f * scale));
 
+    // Il campo di ricerca, in cima e solo sul livello 0. Il suo spazio si riserva
+    // **anche col filtro vuoto**: un pannello che cambia altezza alla prima lettera
+    // digitata sposta il menu sotto il puntatore, e il bersaglio successivo non e'
+    // piu' dove lo si e' lasciato.
+    if (depth == 0)
+    {
+        const float fieldTop = panel.y + 6.0f * scale;
+        const std::string query = menu.filter.empty() ? menu.placeholder : ToUtf8(menu.filter);
+        // Centrato nella riga, non a un `y` scelto a occhio: la misura la da' il
+        // carattere, e con l'ingrandimento cambia con lui.
+        const float textY = fieldTop +
+                            (kContextSearchHeight * scale - app.font.LineHeight() * scale) * 0.5f;
+        app.font.Draw(r, panel.x + 14.0f * scale, textY, query,
+                      menu.filter.empty() ? t.textDim : t.text, scale);
+        if (!menu.filter.empty())
+        {
+            const float caretX =
+                panel.x + 14.0f * scale + app.font.Measure(query, scale) + 1.0f * scale;
+            r.FillRect(Rect{caretX, textY, 1.0f, app.font.LineHeight() * scale}, t.text);
+        }
+        // Lo stacco fra il campo e la prima voce, un pixel sopra l'inizio
+        // dell'elenco: sulla riga esatta lo coprirebbe il fondo della voce scelta,
+        // e sparirebbe proprio quando la si guarda.
+        const float ruleY = fieldTop + kContextSearchHeight * scale - 1.0f;
+        r.FillRect(Rect{panel.x + 1.0f, ruleY, panel.w - 2.0f, 1.0f}, t.separator);
+    }
+
     // Solo le voci dentro la finestra del menu: quelle fuori non si disegnano, e
     // quello che non si disegna non sborda fuori dal pannello.
     for (int i = level.firstItem; i < ContextMenuLastVisible(app, layout, depth); ++i)
     {
-        const ContextMenuItem* item = LevelItem(menu, depth, i);
+        const ContextMenuItem* item = LevelVisibleItem(menu, depth, i);
         if (item == nullptr)
             continue;
         const Rect row = ContextMenuRowRect(app, layout, depth, i);
@@ -628,13 +788,16 @@ void ContextMenuDrawLevel(AppState& app, const Layout& layout, int depth)
 
     // La barra dice che sopra o sotto c'e' dell'altro: un menu che scorre senza
     // dirlo sembra un menu a cui mancano delle voci.
-    const int total   = LevelCount(menu, depth);
+    const int total   = LevelVisibleCount(menu, depth);
     const int visible = ContextMenuLastVisible(app, layout, depth) - level.firstItem;
     if (visible < total)
     {
         const float footer = (depth == 0) ? 22.0f * scale : 0.0f;
-        const float trackY = panel.y + 6.0f * scale;
-        const float trackH = panel.h - 12.0f * scale - footer;
+        // La barra sta accanto alle voci, non accanto al campo di ricerca: la sua
+        // altezza e' quella dell'elenco, o direbbe che si puo' scorrere il campo.
+        const float header = (depth == 0) ? kContextSearchHeight * scale : 0.0f;
+        const float trackY = panel.y + 6.0f * scale + header;
+        const float trackH = panel.h - 12.0f * scale - footer - header;
         const float thumbH = trackH * static_cast<float>(visible) / static_cast<float>(total);
         const float travel = trackH - thumbH;
         const float offset = static_cast<float>(level.firstItem) /
@@ -668,7 +831,9 @@ void ContextMenuClampWindow(AppState& app, const Layout& layout, int depth,
         return;
 
     ContextMenuLevel& level = menu.levels[static_cast<size_t>(depth)];
-    const int total = LevelCount(menu, depth);
+    // Le voci che si vedono, non quelle che ci sono: sotto filtro sono le uniche
+    // che il pannello puo' mostrare, e la capacita' va misurata su quelle.
+    const int total = LevelVisibleCount(menu, depth);
     if (total == 0)
     {
         level.firstItem = 0;
@@ -723,6 +888,9 @@ void ContextMenuClose(AppState& app)
     menu.openPath.clear();
     menu.levels.assign(1, ContextMenuLevel{});
     menu.items.clear();
+    // Il filtro muore con il menu: la prossima apertura parte dall'elenco intero,
+    // non da quello che si stava cercando l'altra volta.
+    menu.filter.clear();
     menu.shellIsBackground = false;
     // Il bersaglio **non** si cancella qui: `ContextMenuActivate` chiude il menu e
     // poi esegue il comando, quindi il comando lo legge dopo la chiusura. Lo
@@ -736,6 +904,10 @@ void BuildContextMenu(AppState& app, float x, float y)
     ContextMenu& menu = app.contextMenu;
     const DWORD handlesStart = OpenHandleCount();
     menu.items.clear();
+    // Il segnaposto e il filtro vuoto: questo menu si apre mostrando tutto, e il
+    // campo dice cosa ci si puo' scrivere dentro.
+    menu.placeholder = Tr("Cerca un comando...", "Find a command...");
+    menu.filter.clear();
     menu.x = x;
     menu.y = y;
     menu.openPath.clear();
@@ -891,6 +1063,10 @@ void BuildSidebarContextMenu(AppState& app, float x, float y, const ClickTarget&
     menu.x = x;
     menu.y = y;
     menu.openPath.clear();
+    // Anche questo menu ha il campo: e' un menu contestuale come l'altro, e chi ha
+    // imparato a cercare una voce su una riga lo cerca anche su una destinazione.
+    menu.placeholder = Tr("Cerca un comando...", "Find a command...");
+    menu.filter.clear();
     menu.levels.assign(1, ContextMenuLevel{});
     menu.shellIsBackground = false;
     menu.shell   = nullptr;      // nessun verbo della shell: non e' la lista
@@ -918,7 +1094,7 @@ void ContextMenuMove(AppState& app, const Layout& layout, int delta)
     ContextMenu& menu = app.contextMenu;
     const int depth = ActiveDepth(menu);
     ContextMenuLevel& level = menu.levels[static_cast<size_t>(depth)];
-    const int count = LevelCount(menu, depth);
+    const int count = LevelVisibleCount(menu, depth);
     if (count == 0 || delta == 0)
         return;
 
@@ -933,7 +1109,7 @@ void ContextMenuMove(AppState& app, const Layout& layout, int delta)
     for (int step = 0; step < count; ++step)
     {
         index = (index + delta + count * 2) % count;
-        const ContextMenuItem* item = LevelItem(menu, depth, index);
+        const ContextMenuItem* item = LevelVisibleItem(menu, depth, index);
         if (item != nullptr && !item->separator && !item->disabled)
             break;
     }
@@ -949,7 +1125,7 @@ void ContextMenuJump(AppState& app, const Layout& layout, bool toFirst)
     ContextMenu& menu = app.contextMenu;
     const int depth = ActiveDepth(menu);
     ContextMenuLevel& level = menu.levels[static_cast<size_t>(depth)];
-    const int count = LevelCount(menu, depth);
+    const int count = LevelVisibleCount(menu, depth);
     if (count == 0)
         return;
 
@@ -958,12 +1134,49 @@ void ContextMenuJump(AppState& app, const Layout& layout, bool toFirst)
     for (int i = 0; i < count; ++i)
     {
         index = (index + step + count * 2) % count;
-        const ContextMenuItem* item = LevelItem(menu, depth, index);
+        const ContextMenuItem* item = LevelVisibleItem(menu, depth, index);
         if (item != nullptr && !item->separator && !item->disabled)
             break;
     }
     level.selected = index;
     ContextMenuClampWindow(app, layout, depth);
+}
+
+// La digitazione e il `Backspace` nel menu aperto vanno al campo di ricerca del
+// livello 0. Con un sottomenu aperto no: il filtro cambierebbe le righe del
+// livello sotto quello che si sta guardando, e il sottomenu sta appeso a una di
+// quelle — un elenco che si riordina sotto il pannello che si sta leggendo e'
+// peggio di un tasto che non fa niente.
+static void ContextMenuAfterFilter(AppState& app)
+{
+    ContextMenu& menu = app.contextMenu;
+    // Le posizioni di adesso non sono quelle di prima: una scelta ferma su un
+    // numero vecchio indicherebbe un'altra voce, o nessuna, e l'Invio eseguirebbe
+    // quello che capita. Si riparte dalla prima voce eseguibile, che e' anche
+    // quella che ci si aspetta di avere sotto l'Invio dopo aver scritto.
+    menu.levels[0].selected  = -1;
+    menu.levels[0].firstItem = 0;
+    ContextMenuJump(app, ComputeLayout(app), true);
+}
+
+void ContextMenuChar(AppState& app, wchar_t character)
+{
+    ContextMenu& menu = app.contextMenu;
+    if (!menu.open || ActiveDepth(menu) != 0)
+        return;
+    if (character < 0x20 || character == 0x7F)
+        return;
+    menu.filter.push_back(character);
+    ContextMenuAfterFilter(app);
+}
+
+void ContextMenuBackspace(AppState& app)
+{
+    ContextMenu& menu = app.contextMenu;
+    if (!menu.open || ActiveDepth(menu) != 0 || menu.filter.empty())
+        return;
+    menu.filter.pop_back();
+    ContextMenuAfterFilter(app);
 }
 
 // Apre la finestra delle proprieta' di Windows sulla selezione: la stessa che
@@ -1003,8 +1216,8 @@ void ContextMenuActivate(AppState& app)
 {
     ContextMenu& menu = app.contextMenu;
     const int depth = ActiveDepth(menu);
-    const ContextMenuItem* chosen = LevelItem(menu, depth,
-                                              menu.levels[static_cast<size_t>(depth)].selected);
+    const int selected = menu.levels[static_cast<size_t>(depth)].selected;
+    const ContextMenuItem* chosen = LevelVisibleItem(menu, depth, selected);
     if (chosen == nullptr || chosen->separator || chosen->disabled)
         return;
 
@@ -1191,9 +1404,12 @@ bool ContextMenuHover(AppState& app, const Layout& layout, float x, float y)
             continue;
 
         ContextMenuLevel& level = menu.levels[static_cast<size_t>(depth)];
+        // `i` e' una posizione fra le voci che **si vedono**: sotto filtro le due
+        // numerazioni non coincidono, e il puntatore deve cadere sulla riga che ha
+        // sotto, non sull'indice che quella riga aveva prima di filtrare.
         for (int i = level.firstItem; i < ContextMenuLastVisible(app, layout, depth); ++i)
         {
-            const ContextMenuItem* item = LevelItem(menu, depth, i);
+            const ContextMenuItem* item = LevelVisibleItem(menu, depth, i);
             if (item == nullptr || item->separator || item->disabled ||
                 !ContextMenuRowRect(app, layout, depth, i).Contains(x, y))
                 continue;

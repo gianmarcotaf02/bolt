@@ -47,6 +47,13 @@ void ContextMenuJump(AppState& app, const Layout& layout, bool toStart);
 void ContextMenuDescend(AppState& app, const Layout& layout);
 void ContextMenuRaiseLevel(AppState& app);
 
+// La digitazione e il `Backspace` nel menu aperto: il campo di ricerca in cima al
+// livello 0 si riempie come quello della palette, e le voci che non combaciano
+// spariscono. Non sono tasti del menu come le frecce — sono **testo**, e il menu li
+// prende solo perche' finche' e' aperto e' lui a ricevere la tastiera.
+void ContextMenuChar(AppState& app, wchar_t character);
+void ContextMenuBackspace(AppState& app);
+
 // Il puntatore e il clic: vero se il menu ha consumato l'evento.
 bool ContextMenuHover(AppState& app, const Layout& layout, float x, float y);
 bool ContextMenuClick(AppState& app, const Layout& layout, float x, float y);

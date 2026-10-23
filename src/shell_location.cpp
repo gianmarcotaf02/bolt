@@ -10,6 +10,9 @@
 #include <shlwapi.h>
 
 #include <propkey.h>
+// `PSGetPropertyKeyFromName`: le due proprieta' del cestino non stanno in `propkey.h` e
+// si chiedono per nome canonico (`RecycleFacts`).
+#include <propsys.h>
 #include <propvarutil.h>
 
 namespace ShellLocation
@@ -446,6 +449,97 @@ std::vector<Column> Columns(const std::vector<BYTE>& pidl)
 
     folder->Release();
     return columns;
+}
+
+// Le due cose che solo il cestino sa di una voce riciclata: quando e' stata buttata e
+// da dove veniva.
+//
+// Non sono proprieta' di **sistema** e non stanno in `propkey.h`: le conosce la cartella
+// del cestino, che le espone come colonne. Chiederle per indice di colonna vorrebbe dire
+// indovinare l'ordine di una tabella i cui **nomi** sono tradotti, e su una macchina in
+// un'altra lingua l'indovinello cambierebbe risposta. Si chiedono quindi per nome
+// canonico, che la lingua non la tocca: `System.Recycle.DateDeleted` e
+// `System.Recycle.DeletedFrom`.
+//
+// Verificato il 2026-10-21 con `PSGetPropertyKeyFromName`: quei due nomi si risolvono
+// (`9B174B33-3` e `9B174B33-2`), mentre `System.DateDeleted` e
+// `System.Recycle.OriginalLocation` **non esistono** — una funzione che li avesse usati
+// avrebbe risposto sempre «non lo so» senza dire perche'.
+//
+// Falso se la voce non e' una voce riciclata: fuori dal cestino i due campi restano
+// vuoti, e la colonna scrive `--` invece di inventare una data.
+bool RecycleFacts(const std::vector<BYTE>& pidl, FILETIME* deleted, std::string* originalLocation)
+{
+    if (deleted != nullptr)
+        *deleted = FILETIME{};
+    if (originalLocation != nullptr)
+        originalLocation->clear();
+    if (pidl.empty())
+        return false;
+
+    PCUIDLIST_ABSOLUTE absolute = reinterpret_cast<PCUIDLIST_ABSOLUTE>(pidl.data());
+    IShellFolder* folder = nullptr;
+    PCUITEMID_CHILD child = nullptr;
+    if (FAILED(SHBindToParent(absolute, IID_IShellFolder, reinterpret_cast<void**>(&folder), &child)) ||
+        folder == nullptr || child == nullptr)
+        return false;
+
+    IShellFolder2* folder2 = nullptr;
+    folder->QueryInterface(IID_IShellFolder2, reinterpret_cast<void**>(&folder2));
+    folder->Release();
+    if (folder2 == nullptr)
+        return false;
+
+    // Una proprieta' per nome canonico. `GetDetailsEx` risponde con una VARIANT vuota
+    // per una proprieta' che il folder non conosce — non e' un errore, e' «non lo so».
+    const auto fetch = [folder2, child](const wchar_t* name, VARIANT* out) -> bool
+    {
+        PROPERTYKEY key{};
+        if (FAILED(PSGetPropertyKeyFromName(name, &key)))
+            return false;
+        VariantInit(out);
+        if (FAILED(folder2->GetDetailsEx(child, &key, out)) || out->vt == VT_EMPTY)
+        {
+            VariantClear(out);
+            return false;
+        }
+        return true;
+    };
+
+    bool found = false;
+
+    VARIANT when;
+    if (fetch(L"System.Recycle.DateDeleted", &when))
+    {
+        FILETIME stamp{};
+        // In **UTC**: `FormatFileTime` converte in locale da sola, e convertirla due
+        // volte sposterebbe la data di un'ora o di un giorno a seconda dell'ora legale.
+        if (SUCCEEDED(VariantToFileTime(when, PSTF_UTC, &stamp)) && deleted != nullptr)
+        {
+            *deleted = stamp;
+            found = true;
+        }
+        VariantClear(&when);
+    }
+
+    VARIANT from;
+    if (fetch(L"System.Recycle.DeletedFrom", &from))
+    {
+        // La shell la da' come stringa, ma non c'e' un tipo solo per «stringa» in una
+        // VARIANT: `VariantToString` li copre tutti, e per un valore che non sa
+        // convertire risponde con un errore invece di scrivere niente.
+        wchar_t buffer[512] = {};
+        const bool text = SUCCEEDED(VariantToString(from, buffer, 512)) && buffer[0] != L'\0';
+        if (text && originalLocation != nullptr)
+        {
+            *originalLocation = ToUtf8(std::wstring(buffer));
+            found = true;
+        }
+        VariantClear(&from);
+    }
+
+    folder2->Release();
+    return found;
 }
 
 // La voce sta dentro il **cestino**? Il PIDL del cestino si chiede una volta sola.

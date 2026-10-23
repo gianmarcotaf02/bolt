@@ -78,8 +78,15 @@ constexpr int kTextureLayerSize = 1024;
 // Le colonne che si possono ordinare. Non e' l'ordine in cui si vedono: e' l'elenco
 // dei valori su cui `SortEntries` sa confrontare (`TotalItems` e' un derivato:
 // cartelle + file + se stessa).
+// L'ordine di questo elenco e' l'ordine delle **colonne** (`kColumns` qui sotto): ogni
+// valore e' la chiave di una colonna, e la colonna `n` e' la chiave `n`. Le ultime otto
+// sono state aggiunte in coda alla tabella delle 23 di `docs/03` senza toccare le
+// precedenti: gli indici stanno scritti in `settings.ini` (un carattere per colonna), e
+// inserirne una in mezzo avrebbe cambiato il significato delle preferenze gia' salvate.
 enum class SortColumn { Name, Type, Modified, Created, Accessed, Folders, Files, TotalItems, Size,
-                        FreeSpace, VolumeUsage, FileSystem };
+                        FreeSpace, VolumeUsage, FileSystem,
+                        PercentFull, FolderUsage, DateDeleted, OriginalLocation,
+                        Empty1, Empty2, Empty3, Empty4 };
 
 struct Entry
 {
@@ -90,6 +97,17 @@ struct Entry
     std::string  sizeText;
     std::string  modifiedText;    // compact, for the list column
     std::string  modifiedFull;    // with time, for the inspector
+    // Le due cose che solo la shell sa dire di una voce riciclata: quando e' stata
+    // buttata e da dove veniva. Si leggono quando la cartella aperta e' uno spazio dei
+    // nomi (`ShellLocation::RecycleFacts`) e restano vuote altrove, perche' un file
+    // normale non e' stato eliminato e non ha una posizione originale diversa dal
+    // percorso che gia' conosciamo. Gia' formattate, come `modifiedText`: la colonna
+    // scrive la stringa che trova.
+    std::string  deletedText;
+    std::string  originalText;
+    // Il tempo vero, oltre al testo: l'ordinamento per data di eliminazione deve essere
+    // cronologico, e `gg/mm/aaaa` confrontato come testo mette gennaio dopo febbraio.
+    FILETIME     deleted{};
     uint64_t     bytes = 0;
     bool         isDirectory = false;
     FILETIME     modified{};
@@ -474,7 +492,7 @@ struct Tab
 // Non e' un GroupMenu, ed e' una scelta e non una svista. Condividono l'idea di
 // "una lista di righe etichettate", ma differiscono in tutto il resto: questo si
 // ancora al puntatore invece di stare al centro, e' alto quanto il contenuto
-// invece di 420 px fissi, ha separatori e non bande, e non ha filtro ne' piede.
+// invece di 420 px fissi, ha separatori e non bande.
 // Forzarlo dentro GroupMenu avrebbe voluto dire un campo modalita' e due
 // impaginazioni dentro lo stesso componente.
 
@@ -551,6 +569,16 @@ struct ContextMenu
     std::vector<ContextMenuLevel> levels;
     std::string subtitle;
     std::vector<ContextMenuItem> items;      // le voci del livello 0
+    // Il filtro del campo di ricerca in cima al pannello, e il suo segnaposto.
+    //
+    // Stanno qui e non in `GroupMenu` perche' il menu contestuale **non e'** un
+    // GroupMenu (vedi sopra): la ricerca ha in comune con la palette la regola del
+    // confronto, non il componente. Il filtro e' una proprieta' dell'elenco che
+    // filtra: averlo qui vuol dire che nasce e muore con il menu che lo possiede, e
+    // che il filtro della palette non puo' finire dentro il menu contestuale, o
+    // viceversa, perche' qualcuno ha riusato un campo.
+    std::wstring filter;
+    std::string  placeholder;
 
     // La shell descrive il proprio menu in un HMENU che non mostriamo mai: serve
     // per leggere le voci, e per i sottomenu anche per farsele popolare. Va
@@ -650,8 +678,36 @@ const ColumnDef kColumns[] = {
     {"FreeSpace",   "Spazio libero", SortColumn::FreeSpace,   0.950f, true, true},
     {"VolumeUsage", "Occupazione",   SortColumn::VolumeUsage, 0.972f, true, true},
     {"FileSystem",  "File system",   SortColumn::FileSystem,  0.992f, true, true},
+    // --- le otto che mancavano alla tabella di `docs/03` -----------------------
+    //
+    // Nascono tutte spente, per la ragione delle tre sopra e per una in piu': fuori dal
+    // cestino le due date del riciclo non hanno niente da dire, e quattro colonne
+    // `Empty` accese e vuote sarebbero otto centimetri di niente in cima alla lista.
+    //
+    // `PercentFull` e `VolumeUsage` sono **due** cose e per questo sono due colonne: la
+    // percentuale e i byte. Prima erano una sola che scriveva la percentuale sotto il
+    // nome dell'altra, e chi voleva il numero di byte non lo aveva.
+    {"PercentFull", "Percentuale",   SortColumn::PercentFull,  0.978f, true, true},
+    {"FolderUsage", "Uso cartella",  SortColumn::FolderUsage,  0.980f, true, true},
+    {"DateDeleted", "Data eliminazione",   SortColumn::DateDeleted,      0.982f, true, true},
+    {"OriginalLocation", "Posizione originale", SortColumn::OriginalLocation, 0.984f, true, true},
+    // I quattro segnaposto. Il contenuto lo sceglie l'utente dal menu dell'intestazione
+    // (`AppState::emptyColumnSource`): la colonna mostra il valore di un'altra colonna
+    // senza il suo titolo, che e' quello che serve per mettersi accanto il dato che si
+    // guarda di piu'. Senza una scelta sono vuote, e il titolo lo dice.
+    {"Empty1", "Vuota 1", SortColumn::Empty1, 0.986f, true, true},
+    {"Empty2", "Vuota 2", SortColumn::Empty2, 0.988f, true, true},
+    {"Empty3", "Vuota 3", SortColumn::Empty3, 0.990f, true, true},
+    {"Empty4", "Vuota 4", SortColumn::Empty4, 0.992f, true, true},
 };
 constexpr int kColumnCount = static_cast<int>(sizeof(kColumns) / sizeof(kColumns[0]));
+
+// Il primo dei quattro segnaposto `Empty1..4`, che stanno in fondo alla tabella. Non e'
+// un `16` scritto in tre posti: e' `kColumnCount - 4`, e resta giusto finche' i quattro
+// segnaposto sono gli ultimi — che e' il motivo per cui si aggiungono sempre in coda
+// (gli indici stanno scritti in `settings.ini`).
+constexpr int kEmptyColumnFirst = kColumnCount - 4;
+constexpr int kEmptyColumnCount = 4;
 
 // Quello che una cartella puo' ricordarsi di come la si guardava (`DirHostLayout*`
 // dello spec, M9). E' un **valore**, non uno stato: si prende da `AppState` quando
@@ -912,6 +968,13 @@ struct AppState
         bool                  hidden = false;
     };
     std::array<ColumnState, kColumnCount> columns{};
+
+    // Il contenuto dei quattro segnaposto `Empty1..4`: l'indice della colonna di cui
+    // mostrano il valore, `0` per "niente". Vive con le colonne e non con le preferenze
+    // perche' e' la stessa specie di scelta — come si guarda questa cartella — e perche'
+    // il file delle preferenze salva gia' **quali** colonne si vedono, non cosa
+    // contengono. Un limite dichiarato: la scelta non sopravvive alla chiusura.
+    int          emptyColumnSource[4] = {0, 0, 0, 0};
 
     int          columnDrag = -1;          // bordo trascinato in questo momento
     float        columnDragStartX = 0.0f;

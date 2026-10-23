@@ -141,4 +141,16 @@ struct Column
 // fisso ma i nomi sono tradotti, e cercare "la seconda" sarebbe indovinare — su una
 // macchina in un'altra lingua l'indovinello cambierebbe risposta.
 std::vector<Column> Columns(const std::vector<BYTE>& pidl);
+
+// Quando una voce riciclata e' stata buttata e da dove veniva. Le chiede la colonna —
+// `Date Deleted` e `Original Location`, che `docs/03` elenca e che il file system non
+// sa — e non l'ispettore, che per quelle voci mostra gia' tutte le colonne della shell.
+//
+// Il tempo torna in **UTC**, come lo da' la shell: chi lo scrive usa `FormatFileTime`,
+// che la conversione in locale la fa li' e una volta sola.
+//
+// Falso se la voce non e' nel cestino, o se questa versione di Windows non conosce le
+// due proprieta': in tutti e due i casi i campi restano vuoti, e la colonna scrive `--`.
+bool RecycleFacts(const std::vector<BYTE>& pidl, FILETIME* deleted,
+                  std::string* originalLocation);
 } // namespace ShellLocation

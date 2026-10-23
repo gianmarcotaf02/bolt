@@ -8,7 +8,7 @@ una compattazione del contesto.
 
 Incolla questa frase:
 
-> Riprendi Bolt. Leggi `docs/05` §1 e §3 (aggiornati il 2026-10-21) e `AGENTS.md` §0,
+> Riprendi Bolt. Leggi `docs/05` §1 e §3 (aggiornati il 2026-10-23) e `AGENTS.md` §0,
 > §2 e §2-bis. Lo stato vero: M1–M13 fatte (M2 e M7 restano 🟡 per una scelta e un
 > limite dichiarato, non per lavoro mancante), registro difetti `docs/02` §7 a **74 voci,
 > zero aperte**, versione **0.1.16** pubblicata e installata, `gh` autenticato. Non serve
@@ -32,10 +32,18 @@ si rifiuta di partire finche' Bolt e' installato: prima si disinstalla.
 
 ---
 
-Ultimo aggiornamento: **2026-10-21**, dopo **il menu dell'applicazione**: il pulsante ☰
-apre il menu del riferimento — `Vai a...`, `Comandi`, i due layout, `Opzioni`,
-`Controlla aggiornamenti` e la versione in fondo — e la barra laterale ha il suo pulsante
-accanto, col riquadro pieno quando si vede (`docs/04` M6). Pubblicata la **0.1.16**.
+Ultimo aggiornamento: **2026-10-23**, dopo **le venti colonne di `docs/03` e la ricerca nel
+menu contestuale**. Le colonne che mancavano ci sono — `Percent Full` separata da `Volume
+Usage`, `Folder Usage`, `Data eliminazione` e `Posizione originale` (lette dalla shell per
+nome canonico, viste nel cestino su un file della sandbox) e i quattro `Empty` col
+contenuto scegliibile dal menu dell'intestazione — e il menu del tasto destro ha il campo
+di ricerca in cima. **Nessuna versione pubblicata**: e' lavoro nel repository, non
+installato (`docs/04` M5b e M7).
+
+Prima, il 2026-10-21: **il menu dell'applicazione** — il pulsante ☰ apre il menu del
+riferimento, con `Vai a...`, `Comandi`, i due layout, `Opzioni`, `Controlla aggiornamenti`
+e la versione in fondo, e la barra laterale ha il suo pulsante accanto (`docs/04` M6).
+Pubblicata la **0.1.16**.
 
 Prima, nello stesso giorno, **niente piu' preselezione**: entrando in una
 sezione o in una cartella non c'e' niente di scelto — prima la prima riga si selezionava
@@ -315,9 +323,9 @@ vivono.
 | M5 — filtro, ordinamento, raggruppamento, selezione | ✅ |
 | M5c — modalità di visualizzazione | ✅ quattro viste, celle **derivate** da una misura continua (icona, larghezza e altezza), raggruppamento in griglia e nell'elenco, ridimensionamento continuo con `Ctrl`+rotella, **selettori di vista e misura delle anteprime nella barra in fondo**, e **icone grandi chieste alla misura giusta** invece di ingrandite (`docs/02` §7.45) |
 | M5d — sovrappasso e comportamento del clic | ✅ evidenzia righe e celle, e le otto chiavi di interazione: `HoverToSelect`, `UnderlineOnHover`, `ShowTooltips`, `SingleClick`, `SingleClickFoldersOnly`, `ActOnPress`, `DoubleClickToParent`, `ShowCheckboxes` |
-| M5b — colonne | ✅ ridimensionabili col mouse, con filtri per valore nelle intestazioni e **filtro di testo sul nome**; **nove** colonne (Nome, Tipo, Data modifica, Data creazione, Data accesso, Cartelle, File, Totale, Dimensione), tutte ordinabili |
+| M5b — colonne | ✅ ridimensionabili col mouse, con filtri per valore nelle intestazioni e **filtro di testo sul nome**; **venti** colonne (`docs/03` §5), tutte ordinabili. Le undici che non si vedono di partenza si accendono dal menu dell'intestazione — che ha la ricerca — comprese `Percentuale`, `Uso cartella`, `Data eliminazione` e `Posizione originale` (le due del cestino, lette dalla shell per nome canonico) e i quattro `Empty`, il cui contenuto si sceglie dallo stesso menu (`docs/04` M5b). Limite dichiarato: il contenuto di un `Empty` vive nella sessione |
 | M6 — tab, barra del titolo, palette, GoTo | ✅ tab, titolo, palette, GoTo, **barra laterale a sezioni** (fissaggi, recenti, segnalibri, volumi, cartelle standard), **pulsanti di navigazione**, **albero dei tab verificato** (creazione per trascinamento, chiusura per ramo, distacco), il **fissaggio in qualunque sezione** e il **menu contestuale delle righe** della barra laterale: `Fissa in...` / `Togli da...` mettono e tolgono una cartella in accesso rapido o nei segnalibri — dalla palette (la cartella aperta) e dal tasto destro su una riga (quella riga) — con la stella che distingue le nostre righe da quelle della shell. Il limite che resta e' dichiarato in `docs/04` M6: i fissaggi sono di sessione |
-| M7 — operazioni su file | 🟡 copia, sposta, rinomina, cestino, clipboard interoperabile, **menu contestuale a più livelli** con **`Proprietà` in-app** e **`Proprietà di Windows`**, le **voci di primo livello della shell**, il **menu della cartella** sul fondo, i **sottomenu delle estensioni**, **`Nuovo file >`** (tipi dal registro, creazione con
+| M7 — operazioni su file | 🟡 copia, sposta, rinomina, cestino, clipboard interoperabile, **menu contestuale a più livelli e cercabile** (campo in cima, filtro sul livello 0: `docs/04`) con **`Proprietà` in-app** e **`Proprietà di Windows`**, le **voci di primo livello della shell**, il **menu della cartella** sul fondo, i **sottomenu delle estensioni**, **`Nuovo file >`** (tipi dal registro, creazione con
 contenuto), **`Invia a >`** (destinazioni della cartella SendTo, eseguite lasciandoci
 cadere sopra la selezione), **drag&drop dentro e fuori** con OLE, la **navigazione
 nello spazio dei nomi** col **ripristino dal cestino**, il **trascinamento sul
@@ -469,7 +477,8 @@ Ordinato per quanto morde.
   dichiarato). Tutto il resto sono limiti dichiarati, che e' un'altra cosa.
 - I **limiti dichiarati**: cose che si è scelto di non fare, scritte dove vivono con
   la ragione accanto (il tetto di 1 MB nella lettura dei testi, i modelli `ShellNew`
-  con valore `Command`, le 23 colonne della specifica contro le 6 fatte, le sei
+  con valore `Command`, le 20 colonne della specifica — tutte fatte il 2026-10-23, e
+  l'unico residuo e' che un `Empty` ricorda il suo contenuto per la sola sessione —, le sei
   opzioni che il pannello mostra spente, i fissaggi e i recenti che vivono **solo in
   memoria**, le **icone del menu contestuale** solo dove la shell le dà: le voci del menu
   moderno di Windows 11 non consegnano la bitmap a chi legge il menu classico, quindi
@@ -510,16 +519,25 @@ di quanto mordono:
 1. **Spezzare l'input di `main.cpp`** (`input_keys.*`, `input_mouse.*`). La decisione e'
    gia' scritta in §2: prima le superfici (fatte), poi i `case` di `WindowProc`; adesso
    `WM_KEYDOWN` e i messaggi del mouse non hanno piu' niente da trascinarsi dietro.
-   `main.cpp` e' a **4.914** righe.
-2. **Le 14 colonne che mancano delle 23** (`docs/03`): in buona parte `Empty1..4`,
-   `VolumeUsage`/`FolderUsage`/`PercentFull` e le due del cestino. E' una coda ordinabile,
-   non un blocco.
+   `main.cpp` e' a **5.694** righe, e la curva non si e' fermata: il menu dell'applicazione,
+   le sottocartelle nella lista, il layout, la sessione e la ricerca nel menu contestuale
+   ne hanno aggiunte altre. E' il primo della lista per una ragione misurata, non per gusto.
+2. **Gli split** (`Split Right`/`Split Bottom`, `docs/04` M7): l'unica funzione del
+   riferimento che non c'e'. Toccano il modello dei pannelli — una sessione di lavoro con
+   spazio per riverificare tutto, non una serata.
 3. **Un tetto all'atlante delle icone**: un `.lnk` costa una cella e non c'e' sfratto
    (`docs/02` §7.65). Con molte cartelle piene di collegamenti si puo' riempire.
 4. **Lo zoom ricampiona il testo** (§2): richiede una rasterizzazione a runtime per ogni
    misura, e' un altro mestiere.
 5. **Non sono lavoro da fare, sono scelte**: icone monocromatiche (deciso: no), `ShellNew`
    con `Command` (limite dichiarato), fissaggi e recenti su disco (vietato da `docs/06`).
+
+**Le colonne non sono piu' in questa lista** (2026-10-23): le venti di `docs/03` ci sono
+tutte — `Percent Full` separata da `Volume Usage`, `Folder Usage`, le due del cestino
+lette dalla shell per nome canonico e i quattro `Empty` configurabili dal menu
+dell'intestazione. Resta un limite dichiarato: la scelta del contenuto di un `Empty`
+vive nella sessione. **E la ricerca nel menu contestuale c'e'**, che era l'ultimo pezzo
+di «menu e palette cercabili»: la palette ce l'aveva gia'.
 
 Se invece si vuole una funzione **nuova**, non e' nello spec: va decisa prima con l'autore,
 e poi scritta con la solita regola — prima lo spec, poi il codice, poi la prova a schermo.

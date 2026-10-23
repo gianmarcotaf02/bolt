@@ -813,6 +813,20 @@ constexpr int kColumnOpsRightId   = -7;
 // riga sa dire **quale** colonna senza una tabella accanto.
 constexpr int kColumnOpsColumnBase = 100;
 
+// Il contenuto dei quattro segnaposto: l'id e' la base piu' l'indice della colonna da
+// mostrare, con lo zero che vuol dire "vuota".
+constexpr int kColumnOpsEmptyBase = 200;
+
+// Un segnaposto si riconosce dalla **chiave**, non dall'indice: gli indici si contano e
+// si sbagliano, le chiavi no.
+bool IsEmptyColumn(int column)
+{
+    if (column < 0 || column >= kColumnCount)
+        return false;
+    const SortColumn which = kColumns[column].sort;
+    return which >= SortColumn::Empty1 && which <= SortColumn::Empty4;
+}
+
 // La colonna sotto un punto dell'intestazione, o -1. Una colonna nascosta non ha un
 // rettangolo: la sua frazione e' quella della prossima visibile (`ColumnEdges`),
 // quindi si cerca **fra quelle visibili** invece di fidarsi dell'indice.
@@ -879,6 +893,25 @@ void BuildColumnOpsMenu(AppState& app, int column)
                      Tr("non le conosciamo", "not known here"),
                      kColumnOpsFactoryId, OptionControl::None, "", "", false, 0.0f, false});
 
+    // Il contenuto di un segnaposto `Empty`. Compare solo sul menu di una di quelle
+    // colonne, e da qualche parte bisogna pur dire cosa mostra: il posto naturale e' il
+    // menu della colonna stessa, che e' dove si va quando una colonna non va bene. Le
+    // scelte sono le colonne che una riga sa dire — il nome no, c'e' gia' ed e' quello che
+    // prende lo spazio che resta; i segnaposto no, perche' un segnaposto che punta a un
+    // altro segnaposto e' una catena che non finisce.
+    if (IsEmptyColumn(column))
+    {
+        const int chosen = app.emptyColumnSource[column - kEmptyColumnFirst];
+        items.push_back({Tr("Contenuto", "Contents"), Tr("Vuota", "Empty"), "",
+                         kColumnOpsEmptyBase});
+        for (int i = 1; i < kEmptyColumnFirst; ++i)
+        {
+            items.push_back({Tr("Contenuto", "Contents"),
+                             (i == chosen ? "[x] " : "[ ] ") + ColumnLabel(i), "",
+                             kColumnOpsEmptyBase + i});
+        }
+    }
+
     // Le spunte di visibilita'. Il nome non c'e': e' la colonna che prende lo spazio
     // che resta e chiuderla vorrebbe dire un elenco senza nomi — il perche' sta scritto
     // nella riga `Chiudi colonna`, un posto sopra.
@@ -886,11 +919,11 @@ void BuildColumnOpsMenu(AppState& app, int column)
     {
         const bool shown = ColumnVisible(app, i);
         items.push_back({Tr("Colonne", "Columns"),
-                         (shown ? "[x] " : "[ ] ") + ColumnLabel(i), "",
+                         (shown ? "[x] " : "[ ] ") + ColumnTitle(app, i), "",
                          kColumnOpsColumnBase + i});
     }
 
-    GroupMenuOpen(app.columnOps, ColumnLabel(column),
+    GroupMenuOpen(app.columnOps, ColumnTitle(app, column),
                   Tr("Cerca un'operazione...", "Find an operation..."), std::move(items));
     app.columnOps.anchored    = true;
     app.columnOps.caption     = Tr("Adatta, chiudi o riporta le colonne di partenza.",
@@ -910,6 +943,32 @@ void RunColumnOpsSelection(AppState& app)
     // Una spunta di visibilita' **non chiude** il pannello: e' una lista di caselle, e
     // se ne spuntano piu' d'una di seguito. Il segno cambia sul posto, senza ricostruire
     // l'elenco — ricostruirlo rimetterebbe il cursore in cima a ogni spunta.
+    // Il contenuto di un segnaposto. Come le spunte di visibilita' **non chiude** il
+    // pannello: dopo aver scelto si vuole vedere il risultato nella lista che resta
+    // sotto, non rimettere tutto com'era.
+    if (id >= kColumnOpsEmptyBase)
+    {
+        const int target = id - kColumnOpsEmptyBase;
+        if (target < 0 || target >= kEmptyColumnFirst || !IsEmptyColumn(column))
+            return;
+
+        app.emptyColumnSource[column - kEmptyColumnFirst] = target;
+
+        // Le spunte si aggiornano **sul posto**, come quelle di visibilita': ricostruire
+        // l'elenco rimetterebbe il cursore in cima a ogni scelta. E le larghezze si
+        // riadattano, perche' il contenuto nuovo puo' essere piu' largo di «Vuota 3».
+        for (GroupMenuItem& item : app.columnOps.items)
+        {
+            if (item.id < kColumnOpsEmptyBase)
+                continue;
+            const int which = item.id - kColumnOpsEmptyBase;
+            item.label = (which == target ? "[x] " : "[ ] ") +
+                         (which == 0 ? std::string(Tr("Vuota", "Empty")) : ColumnLabel(which));
+        }
+        FitColumns(app);
+        app.viewDirty = true;
+        return;
+    }
     if (id >= kColumnOpsColumnBase)
     {
         const int target = id - kColumnOpsColumnBase;
@@ -927,7 +986,7 @@ void RunColumnOpsSelection(AppState& app)
             if (item.id < kColumnOpsColumnBase)
                 continue;
             const int which = item.id - kColumnOpsColumnBase;
-            item.label = (ColumnVisible(app, which) ? "[x] " : "[ ] ") + ColumnLabel(which);
+            item.label = (ColumnVisible(app, which) ? "[x] " : "[ ] ") + ColumnTitle(app, which);
         }
         app.viewDirty = true;
         return;
@@ -998,7 +1057,7 @@ void BuildColumnMenu(AppState& app, int column)
     }
 
     app.columnMenu.detailed = true;
-    GroupMenuOpen(app.columnMenu, ColumnLabel(column),
+    GroupMenuOpen(app.columnMenu, ColumnTitle(app, column),
                   Tr("Scrivi per filtrare i valori...", "Type to filter values..."),
                   std::move(items));
     app.columnMenu.anchored = true;
@@ -3885,6 +3944,11 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
                         case VK_END:
                             ContextMenuJump(*app, layout, wparam == VK_HOME);
                             break;
+                        // Il campo di ricerca si cancella da qui e non da `WM_CHAR`,
+                        // che il `Backspace` non lo produce: il carattere che ne
+                        // uscirebbe e' un controllo (0x08), e un controllo non e'
+                        // testo da cercare.
+                        case VK_BACK:   ContextMenuBackspace(*app);        break;
                         default: break;
                     }
                     return 0;
@@ -4167,6 +4231,13 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
                     else if (GroupMenu* menu = OpenMenu(*app))
                     {
                         GroupMenuChar(*menu, character);
+                    }
+                    else if (app->contextMenu.open)
+                    {
+                        // Il menu contestuale e' modale come quelli a gruppi: il
+                        // carattere e' testo da cercare fra le sue voci, non l'inizio
+                        // del filtro della lista che sta sotto.
+                        ContextMenuChar(*app, character);
                     }
                     else
                     {

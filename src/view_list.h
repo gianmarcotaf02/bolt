@@ -34,6 +34,12 @@ void RebuildView(AppState& app);
 // lingua della colonna che filtra.
 std::string ColumnValueOf(const AppState& app, const Entry& entry, int column);
 
+// Il titolo di una colonna **come si legge adesso**. Per tutte tranne i quattro
+// segnaposto e' `ColumnLabel(i)`; per un `Empty` e' il titolo della colonna che sta
+// mostrando, perche' una colonna intitolata «Vuota 2» che mostra il tipo e' una
+// colonna che mente sul proprio contenuto.
+std::string ColumnTitle(const AppState& app, int column);
+
 // Il nome come si **scrive**: con `ShowFileExtension` spento, senza estensione.
 // Il nome vero resta quello della voce, e questa e' l'unica differenza fra i due.
 std::string DisplayName(const AppState& app, const Entry& entry);

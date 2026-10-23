@@ -2549,19 +2549,43 @@ nuova sarebbe stata larga e **vuota**. Adesso le colonne dopo `Size` si disegnan
 in un ciclo che chiede il valore a `ColumnValueOf`: una colonna nuova si vede senza
 toccare il disegno, che e' il modo in cui il resto della tabella funziona gia'.
 
-**Colonne dello spec ancora fuori**, con la ragione: `Date Deleted` e `Original
-Location` esistono solo nel cestino e li' arrivano dalla shell, non da
-`FindFirstFile`; `Folder Usage` non ha una definizione che possiamo verificare;
-`Empty 1..4` sono segnaposto configurabili e senza una superficie che le configuri
-sarebbero quattro colonne vuote per sempre — un campo scritto e mai letto.
+**Colonne: le otto che mancavano ci sono — *fatte il 2026-10-23*.** `Percent Full`,
+`Folder Usage`, `Date Deleted`, `Original Location` e i quattro `Empty 1..4` stanno in
+fondo a `kColumns` (`docs/03` §5), nascono **spente** come le tre del volume e si
+accendono dal menu dell'intestazione, che ha la ricerca: si scrive `eliminazione` e
+resta quella riga sola. Due cose da sapere:
+
+- **`Percent Full` e `Volume Usage` erano una colonna sola**, che scriveva la
+  percentuale sotto il nome dell'altra: adesso la percentuale sta in `Percent Full` e
+  `Volume Usage` scrive i byte usati. Due nomi per un numero solo erano un difetto
+  silenzioso, non una semplificazione.
+- **`Folder Usage` e' una ricostruzione dichiarata**: `docs/03` dice che la colonna
+  esiste e non dice cosa misura. Qui e' la parte del volume che la voce occupa —
+  i byte della voce (per una cartella, quelli delle statistiche ricorsive) divisi per
+  la capienza — che e' l'unica lettura che non fa doppione con `Size` ne' con
+  `Percent Full`. Va confrontata col riferimento appena lo si guarda.
+
+**`Date Deleted` e `Original Location` sono vere.** Una voce riciclata non e' un file
+che si legge con `FindFirstFile`: le due cose le sa la shell, e le espone come
+proprieta' che in `propkey.h` **non ci sono**. Si chiedono per nome canonico
+(`System.Recycle.DateDeleted`, `System.Recycle.DeletedFrom`) con
+`PSGetPropertyKeyFromName` + `IShellFolder2::GetDetailsEx`
+(`ShellLocation::RecycleFacts`). Verificato prima che i nomi esistano davvero su questa
+macchina — i due nomi "ovvi", `System.DateDeleted` e `System.Recycle.OriginalLocation`,
+**non esistono** — e poi a schermo: nel cestino, sul file di prova buttato li' dalla
+sandbox, la colonna scrive `23/10/2026` e il percorso da cui veniva; fuori dal cestino
+entrambe scrivono `--`.
+
+**I quattro `Empty` mostrano quello che si sceglie.** Il menu dell'intestazione di un
+segnaposto ha un gruppo `Contenuto`: si sceglie una colonna e il segnaposto ne mostra il
+valore, **col titolo di quella colonna** (`ColumnTitle`) — una colonna chiamata «Vuota
+2» che mostra il tipo sarebbe una colonna che mente. Una catena di segnaposto non si
+puo' costruire: le scelte escludono le `Empty` stesse. Limite dichiarato: la scelta
+vive nella sessione, non finisce in `settings.ini`.
 
 **Resta da fare**, con la ragione: gli split toccano il modello dei pannelli (una
-sessione di lavoro con spazio per riverificare tutto); palette e menu contestuale
-cercabili vogliono le descrizioni dei 102 comandi e la memoria dei preferiti; le
-colonne nuove vogliono i dati che oggi non leggiamo (`Date Deleted` e `Original
-Location` esistono solo nel cestino, `Volume Usage` vuole l'occupazione del volume
-per ogni voce); layout e sessione toccano la persistenza, che `docs/06` tiene a
-freno apposta.
+sessione di lavoro con spazio per riverificare tutto); layout e sessione toccano la
+persistenza, che `docs/06` tiene a freno apposta.
 
 **Un limite noto di `Toggle Subfolders`**: la selezione e' per **nome**, e due file
 con lo stesso nome in due sottocartelle diverse si selezionano insieme. E' il prezzo
@@ -2708,3 +2732,35 @@ Provata: `voce` nella sandbox → **15 voci in 6 cartelle**, i quindici `voce-*.
 
 Il passo legge 24 cartelle per giro, con due limiti dichiarati (4000 cartelle lette,
 5000 voci trovate): quando uno morde lo dice, invece di far finta di aver finito.
+
+### Il menu contestuale si cerca — *Visto il 2026-10-23*
+
+Il riferimento ha un campo di ricerca in cima al menu del tasto destro, e adesso c'e'
+anche qui. Il filtro vive in `ContextMenu` (`filter`, `placeholder`) e vale **solo per
+il livello 0**: i sottomenu non si filtrano, perche' un sottomenu e' la continuazione
+di una voce gia' scelta.
+
+La cosa che rende la modifica sicura non e' il filtro: e' che disegno, altezza del
+pannello, cursore, hover e clic leggono tutti la stessa numerazione
+(`LevelVisibleCount` / `LevelVisibleItem`), e quelle posizioni **sono** gli indici
+quando il filtro e' vuoto. La prima versione di una modifica cosi' si rompe sempre allo
+stesso modo — il pannello alto come se le voci ci fossero tutte, il cursore su una voce
+che non si vede, il clic che apre quella accanto — e questo e' il modo di non poterlo
+fare.
+
+Quando il filtro non e' vuoto i **separatori** spariscono: una riga di stacco fra due
+voci che non ci sono e' una riga vuota che non spiega niente.
+`ContextMenuWidth` continua a misurare **tutte** le voci: il pannello che si stringe
+mentre si scrive sposterebbe la colonna delle icone a ogni lettera.
+
+**Verificato**: tasto destro su una riga, `c o p i a` → restano `Copia` e `Copia come
+percorso`, i verbi della shell e i separatori spariscono; `Backspace` riporta l'elenco
+intero.
+
+**Un dettaglio del banco, non del programma.** `tools/send-keys.ps1` manda i caratteri
+con `SendMessage(WM_CHAR)` e i tasti come `Backspace` con `keybd_event`: il primo
+arriva sempre, il secondo **solo se la finestra ha davvero il primo piano** — e in
+questa sessione non ce l'aveva, quindi il `Backspace` sembrava rotto mentre il codice
+era giusto (`docs/05` §5). Per provarlo: `PostMessage(hwnd, WM_KEYDOWN, VK_BACK, 0)`.
+Morale: un tasto che "non risponde" si prova **anche** con l'altro meccanismo prima di
+dare la colpa al codice.
