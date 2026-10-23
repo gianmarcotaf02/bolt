@@ -449,20 +449,45 @@ void SaveSession(const AppState& app)
     }
 
     std::string text =
-        "# Bolt — le schede aperte l'ultima volta.\n"
-        "# Scritto solo perche' 'Riapri le schede' e' acceso; cancellabile a mano.\n";
-    text += "active=" + std::to_string(app.panes[static_cast<size_t>(app.activePane)].activeTab) + "\n";
-    // La scheda **attiva** ha la cartella nello stato vivo, non nel suo `Tab`: la
-    // struct si riempie quando si cambia scheda (`SaveActiveTab`), e quella li' non e'
-    // passata. Chiedere solo a `tab.directory` scriveva un file senza nessuna scheda —
-    // visto: `active=0` e nient'altro.
-    for (size_t i = 0; i < app.panes[static_cast<size_t>(app.activePane)].tabs.size(); ++i)
+        "# Bolt — i pannelli e le schede aperti l'ultima volta.\n"
+        "# Scritto solo perche' 'Riapri le schede' e' acceso; cancellabile a mano.\n"
+        "# Nessun altro dato: solo cartelle (che sono la sessione) e la forma della\n"
+        "# finestra. `docs/06`.\n";
+
+    const int paneCount = static_cast<int>(app.panes.size());
+    // La **forma** della finestra: l'asse e dove sta il divisore, piu' quale pannello
+    // aveva il fuoco. Sono le due cose che servono a ritrovarla com'era e non sono
+    // percorsi: niente che riguardi l'utente. Con un pannello solo non si scrivono.
+    if (paneCount >= 2)
     {
-        const std::wstring& directory =
-            (static_cast<int>(i) == app.panes[static_cast<size_t>(app.activePane)].activeTab) ? app.directory : app.panes[static_cast<size_t>(app.activePane)].tabs[i].directory;
-        if (directory.empty())
-            continue;
-        text += "tab=" + ToUtf8(directory) + "\n";
+        text += std::string("split=") + (app.splitColumn ? "column" : "row") + "\n";
+        char fraction[32] = {};
+        std::snprintf(fraction, sizeof(fraction), "splitFraction=%.3f", app.splitFraction);
+        text += std::string(fraction) + "\n";
+        text += "activePane=" + std::to_string(app.activePane) + "\n";
+    }
+
+    // Le schede si scrivono **per pannello**, con `pane=` davanti a ogni gruppo: le file
+    // sono due, e un elenco unico le rimetterebbe tutte nella prima.
+    //
+    // La scheda **attiva** di ogni pannello ha la cartella nello stato vivo, non nel suo
+    // `Tab`: la struct si riempie quando si cambia scheda (`SaveActiveTab`), e quella li'
+    // non e' passata. Chiedere solo a `tab.directory` scriveva un file senza nessuna
+    // scheda — visto: `active=0` e nient'altro. Vale per il pannello attivo; l'altro ha
+    // le voci gia' nel tab, perche' e' cosi' che si disegna.
+    for (int pane = 0; pane < paneCount; ++pane)
+    {
+        const Pane& data = app.panes[static_cast<size_t>(pane)];
+        text += "pane=" + std::to_string(pane) + "\n";
+        text += "paneActive=" + std::to_string(data.activeTab) + "\n";
+        for (size_t i = 0; i < data.tabs.size(); ++i)
+        {
+            const bool live = (pane == app.activePane && static_cast<int>(i) == data.activeTab);
+            const std::wstring& directory = live ? app.directory : data.tabs[i].directory;
+            if (directory.empty())
+                continue;
+            text += "tab=" + ToUtf8(directory) + "\n";
+        }
     }
     WriteWholeFile(path, text);
 }
@@ -476,8 +501,23 @@ bool RestoreSession(AppState& app)
     if (!ReadWholeFile(SessionPath(), &text))
         return false;
 
-    std::vector<std::wstring> paths;
-    int active = 0;
+    // Un elenco di cartelle **per pannello**, con la scheda accesa di ognuno. Le file
+    // sono due e vanno ricostruite una per una: un elenco unico non direbbe quale
+    // scheda finiva dove.
+    std::vector<std::vector<std::wstring>> paneTabs;
+    std::vector<int>                       paneActive;
+    const auto ensurePane = [&paneTabs, &paneActive](int index) {
+        while (static_cast<int>(paneTabs.size()) <= index)
+        {
+            paneTabs.push_back({});
+            paneActive.push_back(0);
+        }
+    };
+
+    int  pane        = 0;      // il gruppo di `tab=` che si sta leggendo
+    int  activePane   = 0;
+    bool splitColumn  = true;
+    float splitFraction = 0.5f;
     size_t at = 0;
     while (at < text.size())
     {
@@ -492,41 +532,79 @@ bool RestoreSession(AppState& app)
             continue;
         const std::string key   = line.substr(0, eq);
         const std::string value = line.substr(eq + 1);
-        if (key == "active")
+        if (key == "pane")
         {
-            active = std::atoi(value.c_str());
+            pane = (std::max)(0, std::atoi(value.c_str()));
+            ensurePane(pane);
+        }
+        else if (key == "paneActive")
+        {
+            ensurePane(pane);
+            paneActive[static_cast<size_t>(pane)] = std::atoi(value.c_str());
+        }
+        else if (key == "split")
+        {
+            splitColumn = (value == "column");
+        }
+        else if (key == "splitFraction")
+        {
+            splitFraction = static_cast<float>(std::atof(value.c_str()));
+        }
+        else if (key == "activePane")
+        {
+            activePane = std::atoi(value.c_str());
         }
         else if (key == "tab" && !value.empty())
         {
+            ensurePane(pane);
             const std::wstring path = Widen(value);
             // Una cartella sparita si salta: riaprire una scheda su niente non aiuta
             // nessuno. Le posizioni di spazio dei nomi non hanno attributi da leggere.
             if (ShellLocation::IsNamespace(path))
             {
-                paths.push_back(path);
+                paneTabs[static_cast<size_t>(pane)].push_back(path);
                 continue;
             }
             const DWORD attributes = GetFileAttributesW(IOPath(path, app.longPaths).c_str());
             if (attributes != INVALID_FILE_ATTRIBUTES && (attributes & FILE_ATTRIBUTE_DIRECTORY) != 0)
-                paths.push_back(path);
+                paneTabs[static_cast<size_t>(pane)].push_back(path);
         }
     }
 
-    if (paths.empty())
+    if (paneTabs.empty() || paneTabs[0].empty())
         return false;
 
     // La prima cartella va nella scheda che c'e' gia' (chi chiama ha appena creato la
     // prima tab), le altre sono schede nuove. `NewTab` carica la cartella, quindi lo
     // stato vivo finisce per essere l'ultima: alla fine si attiva quella che era
     // attiva, e la vista torna dove era rimasta.
-    LoadDirectory(app, paths[0], /*recordHistory=*/false);
-    for (size_t i = 1; i < paths.size(); ++i)
-        NewTab(app, paths[i]);
+    LoadDirectory(app, paneTabs[0][0], /*recordHistory=*/false);
+    for (size_t i = 1; i < paneTabs[0].size(); ++i)
+        NewTab(app, paneTabs[0][i]);
+    if (paneActive[0] >= 0 &&
+        paneActive[0] < static_cast<int>(app.panes[static_cast<size_t>(app.activePane)].tabs.size()))
+        ActivateTab(app, paneActive[0]);
 
-    if (active < 0)
-        active = 0;
-    if (active < static_cast<int>(app.panes[static_cast<size_t>(app.activePane)].tabs.size()))
-        ActivateTab(app, active);
+    // Il secondo pannello, se c'era: si divide **dopo** aver rimesso a posto il primo,
+    // perche' dividerlo prima vorrebbe dire ricostruire a mano quello che `SplitPane`
+    // fa gia'. `SplitPane` lascia nel pannello nuovo una copia della cartella di quello
+    // di partenza: la sua prima scheda si riporta dove era.
+    if (paneTabs.size() > 1 && !paneTabs[1].empty())
+    {
+        SplitPane(app, splitColumn);
+        LoadDirectory(app, paneTabs[1][0], /*recordHistory=*/false);
+        for (size_t i = 1; i < paneTabs[1].size(); ++i)
+            NewTab(app, paneTabs[1][i]);
+        if (paneActive.size() > 1 && paneActive[1] >= 0 &&
+            paneActive[1] < static_cast<int>(app.panes[static_cast<size_t>(app.activePane)].tabs.size()))
+            ActivateTab(app, paneActive[1]);
+
+        app.splitFraction = std::clamp(splitFraction, 0.25f, 0.75f);
+        // Il fuoco dov'era. `SplitPane` l'ha portato sul pannello nuovo, e se era sul
+        // primo si torna li' — con il suo stato, che `ActivatePane` sa salvare.
+        if (activePane == 0)
+            ActivatePane(app, 0);
+    }
     return true;
 }
 } // namespace Bolt

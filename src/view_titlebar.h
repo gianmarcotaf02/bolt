@@ -19,7 +19,19 @@
 
 namespace Bolt
 {
+// L'altezza della fila delle schede, in unita' di scala. E' la stessa della barra del
+// titolo, perche' la fila e' nata li' e deve continuare a somigliare a se stessa: due
+// misure diverse farebbero sembrare le schede di un pannello un'altra cosa.
+constexpr float kTabStripHeight = 34.0f;
+inline float TabStripHeight(float scale) { return kTabStripHeight * scale; }
+
 // Disegna la striscia dei tab, il pulsante del menu e i tre pulsanti di finestra,
-// e registra i loro bersagli per i clic.
+// e registra i loro bersagli per i clic. Con **due** pannelli la fila delle schede
+// non sta qui: ognuno ha la sua, sopra il suo riquadro (`DrawPaneTabs`).
 void DrawTitleBar(AppState& app, const Layout& layout);
+
+// La fila delle schede **di un pannello**, nella striscia che `layout.tabs` riserva
+// sopra il suo riquadro. Con un pannello solo la striscia e' vuota e questa funzione
+// non disegna niente: la fila e' quella della barra del titolo.
+void DrawPaneTabs(AppState& app, const Layout& layout, int pane);
 } // namespace Bolt

@@ -2808,3 +2808,45 @@ solo la lista, le intestazioni e il menu contestuale sono quelli di prima.
   sessione salvata ricorda solo il pannello attivo;
 - **niente annidamento**: due pannelli e basta, per scelta. Un albero di pannelli e' un
   altro mestiere e non serve all'uso vero.
+
+### I due pannelli, seconda tappa — *Visto il 2026-10-23*
+
+Chiude quello che la prima aveva lasciato aperto, tranne una cosa dichiarata in fondo.
+
+**Chiusura.** Lo stesso tasto che ha diviso richiude (`Ctrl+S` / `Ctrl+Shift+S`). Prima di
+buttare il pannello il suo stato vivo va salvato, e i suoi tab **non si perdono**: passano in
+coda a quelli del pannello che resta. Le schede sono schede; il pannello e' solo un modo di
+guardarle. Visto: dopo la chiusura la fascia sotto la barra degli strumenti torna a essere
+l'intestazione delle colonne, le schede tornano nella barra del titolo e sono **due** invece
+di una.
+
+**La divisione nella sessione.** Con `Riapri le schede` acceso, `session.ini` scrive
+`split=column|row`, `splitFraction`, `activePane` e le schede **per pannello** (`pane=0`,
+`pane=1`). Con l'interruttore spento il file viene cancellato, com'era. Visto: diviso a
+0,382, chiuso e riaperto **senza argomenti**, i due pannelli tornano divisi a 0,382 e ognuno
+con la sua fila di schede.
+
+**Una fila di schede per pannello.** Ogni pannello ha la sua, alta 34 px (`kTabStripHeight`),
+fra la barra degli strumenti e l'intestazione delle colonne; `ClickTarget::Kind::Tab` porta
+anche **il pannello**, perche' con due file di schede l'indice da solo e' ambiguo. Cliccare la
+scheda del pannello di sotto lo attiva e apre quella scheda **al primo colpo**. Con un
+pannello solo la fila resta dov'era (barra del titolo) e `layout.tabs.h` e' zero: fare posto a
+qualcosa che non c'e' avrebbe spostato l'interfaccia per niente.
+
+**Il trascinamento fra i pannelli.** `IDropTarget` riceve il punto del rilascio, quindi il
+pannello di destinazione si decide **dal punto** (`PaneAtPoint`), non dal pannello attivo: si
+puo' trascinare dal pannello che non ha il fuoco, e il fuoco non cambia. Le voci si leggono dal
+tab acceso di quel pannello, non da quello vivo. La regola copia/sposta e' quella di Windows ed
+e' **rimasta invariata**: senza tasti si sposta sullo stesso volume e si copia fra volumi
+diversi, `Ctrl` copia, `Shift` sposta. Se la sorgente e' gia' nella cartella di destinazione non
+si fa niente e lo dice la barra di stato, invece di un errore che non spiega niente.
+Le operazioni passano dalla coda che c'era gia' (`BeginOperation`, `OperationSource::Drop`).
+
+Visto: sandbox nel pannello sinistro filtrata sul file di prova, `documenti` aperto nel destro,
+trascinato da `x 300` a `x 900` — e **contro disco** il file risulta in
+`analysis\tmp\sandbox\documenti\` e non piu' nella radice: si e' spostato, non copiato.
+
+**Resta fuori, dichiarato:** trascinare una **scheda** da un pannello all'altro (il tab non
+cambia pannello), e la caduta su un pannello che mostra la Home o "Questo PC" — li' un percorso
+dove mettere i file non c'e', e il puntatore dice "niente". Un `session.ini` scritto prima di
+questa tappa si legge ancora, con tutte le schede nel pannello 0.

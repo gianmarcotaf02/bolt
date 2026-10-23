@@ -52,9 +52,22 @@ void SwapLiveWithPane(AppState& app, int pane);
 void ActivatePane(AppState& app, int pane);
 
 // `Dividi a destra` / `Dividi in basso`: il secondo pannello, sulla stessa cartella.
-// Con due pannelli gia' aperti cambia solo l'asse — chiudere un pannello e' un'altra
-// tappa, e un comando che non fa quello che dice e' peggio di un comando che manca.
+// Con due pannelli gia' aperti l'**altro** asse cambia l'asse, e lo **stesso** asse
+// chiude il pannello (`ClosePane`): un comando che non fa quello che dice e' peggio di
+// un comando che manca, e la seconda pressione di un tasto che ha diviso deve
+// disfare, come ogni interruttore.
 void SplitPane(AppState& app, bool column);
+
+// Chiude il pannello attivo. Lo stato vivo va nel suo tab prima di buttarlo, e i suoi
+// tab — uno o dieci — passano **in coda** a quelli del pannello che resta: le schede
+// sono schede, il pannello e' solo un modo di guardarle.
+void ClosePane(AppState& app);
+
+// Rilegge dal disco la cartella di un pannello **che non si sta guardando**, se mostra
+// |directory|. Serve dopo un'operazione che scrive proprio li' — una caduta sull'altro
+// pannello: un pannello inattivo tiene le sue voci nella scheda, e senza questa
+// rilettura mostrerebbe un elenco che non c'e' piu' finche' non lo si clicca.
+void ReloadPaneShowing(AppState& app, const std::wstring& directory);
 // Un tab nuovo: si apre sulla cartella data, o su quella aperta se e' vuota.
 void NewTab(AppState& app, const std::wstring& directory = std::wstring());
 void ActivateTab(AppState& app, int index);

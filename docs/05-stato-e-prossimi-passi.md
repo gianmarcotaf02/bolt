@@ -32,15 +32,16 @@ si rifiuta di partire finche' Bolt e' installato: prima si disinstalla.
 
 ---
 
-Ultimo aggiornamento: **2026-10-23**, dopo **i due pannelli, la ricerca nel menu contestuale
-e le venti colonne di `docs/03`**. I pannelli — `Ctrl+S` divide in orizzontale, `Ctrl+Shift+S`
-affianca — sono la **prima tappa** degli split: tab per pannello, divisore trascinabile,
-attivazione al clic; vista a schermo, coi limiti dichiarati in `docs/04`. Le colonne che
-mancavano ci sono — `Percent Full` separata da `Volume Usage`, `Folder Usage`, `Data
-eliminazione` e `Posizione originale` (lette dalla shell per nome canonico, viste nel cestino
-su un file della sandbox) e i quattro `Empty` col contenuto scegliibile dal menu
-dell'intestazione — e il menu del tasto destro ha il campo di ricerca in cima. **Nessuna
-versione pubblicata**: e' lavoro nel repository, non installato.
+Ultimo aggiornamento: **2026-10-23**, dopo **i due pannelli (due tappe), la ricerca nel menu
+contestuale e le venti colonne di `docs/03`**. I pannelli — `Ctrl+S` divide in orizzontale,
+`Ctrl+Shift+S` affianca — hanno le loro schede, il divisore trascinabile, la chiusura con lo
+stesso tasto e il **trascinamento di file fra i pannelli** (sposta sullo stesso volume, copia
+fra volumi); visti a schermo, coi limiti dichiarati in `docs/04`. Le colonne che mancavano ci
+sono — `Percent Full` separata da `Volume Usage`, `Folder Usage`, `Data eliminazione` e
+`Posizione originale` (lette dalla shell per nome canonico, viste nel cestino su un file della
+sandbox) e i quattro `Empty` col contenuto scegliibile dal menu dell'intestazione — e il menu
+del tasto destro ha il campo di ricerca in cima. **Nessuna versione pubblicata**: e' lavoro nel
+repository, non installato.
 
 Prima, il 2026-10-21: **il menu dell'applicazione** — il pulsante ☰ apre il menu del
 riferimento, con `Vai a...`, `Comandi`, i due layout, `Opzioni`, `Controlla aggiornamenti`
@@ -521,14 +522,16 @@ di quanto mordono:
 1. **Spezzare l'input di `main.cpp`** (`input_keys.*`, `input_mouse.*`). La decisione e'
    gia' scritta in §2: prima le superfici (fatte), poi i `case` di `WindowProc`; adesso
    `WM_KEYDOWN` e i messaggi del mouse non hanno piu' niente da trascinarsi dietro.
-   `main.cpp` e' a **5.479** righe, e la curva non si e' fermata: il menu dell'applicazione,
+   `main.cpp` e' a **5.568** righe, e la curva non si e' fermata: il menu dell'applicazione,
    le sottocartelle nella lista, il layout, la sessione e la ricerca nel menu contestuale
    ne hanno aggiunte altre. E' il primo della lista per una ragione misurata, non per gusto.
-2. **Gli split, tappa 2** (`docs/04`): la **prima tappa e' fatta e vista** — due pannelli,
-   tab per pannello, divisore trascinabile, `Ctrl+S`/`Ctrl+Shift+S`. Resta quello che li
-   rende davvero comodi: il **trascinamento di file fra i pannelli**, la **chiusura** del
-   pannello (premendo di nuovo lo stesso tasto), la **fila dei tab per pannello** invece di
-   una sola in cima, e la divisione ricordata nella sessione.
+2. **Gli split: resta il trascinamento di *schede*** (`docs/04`). Le due tappe sono fatte e
+   viste a schermo: due pannelli, divisore trascinabile, chiusura con lo stesso tasto (i tab
+   del pannello chiuso passano in coda), una fila di schede per pannello e il **trascinamento
+   di file fra i pannelli** (sposta sullo stesso volume, copia fra volumi, `Ctrl`/`Shift`
+   forzano). Quello che manca e' spostare una **scheda** da un pannello all'altro, e la caduta
+   su un pannello che mostra la Home o "Questo PC" (li' un percorso dove mettere i file non
+   c'e').
 3. **Un tetto all'atlante delle icone**: un `.lnk` costa una cella e non c'e' sfratto
    (`docs/02` §7.65). Con molte cartelle piene di collegamenti si puo' riempire.
 4. **Lo zoom ricampiona il testo** (§2): richiede una rasterizzazione a runtime per ogni

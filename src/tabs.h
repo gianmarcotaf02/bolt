@@ -19,8 +19,10 @@
 
 namespace Bolt
 {
-// L'indice nell'elenco dei tab, o -1 se quell'identita' non c'e' piu'.
-int TabById(const AppState& app, int id);
+// L'indice nell'elenco dei tab, o -1 se quell'identita' non c'e' piu'. |pane| e'
+// il pannello di cui si guarda l'albero (-1: quello attivo): con due file di schede
+// un'identita' va cercata **dentro la sua**, o si trova quella dell'altra.
+int TabById(const AppState& app, int id, int pane = -1);
 
 // L'identita' del tab in cima all'albero a cui |id| appartiene: se e' gia' una
 // radice, se stesso.
@@ -31,6 +33,7 @@ int TabRootId(const AppState& app, int id);
 // che non e' il suo.
 bool TabIsDescendantOf(const AppState& app, int id, int ancestorId);
 
-// L'albero appiattito nell'ordine in cui si vede: indice del tab e rientro.
-std::vector<std::pair<int, int>> TabOrder(const AppState& app);
+// L'albero appiattito nell'ordine in cui si vede: indice del tab e rientro. |pane|
+// come in `TabById`: ogni fila si legge dal suo pannello.
+std::vector<std::pair<int, int>> TabOrder(const AppState& app, int pane = -1);
 } // namespace Bolt

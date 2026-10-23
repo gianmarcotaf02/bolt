@@ -553,10 +553,61 @@ void ActivatePane(AppState& app, int pane)
     SwitchToPane(app, pane);
 }
 
+// Chiude il pannello **attivo**. Cio' che si stava guardando non si butta: lo stato vivo
+// va nel suo tab prima di buttarlo (`SaveActiveTab`), e i suoi tab passano in coda a
+// quelli del pannello che resta — uno o dieci che siano. Le schede sono schede, il
+// pannello e' solo un modo di guardarle: chiuderlo non deve far sparire niente.
+void ClosePane(AppState& app)
+{
+    if (app.panes.size() < 2)
+        return;
+
+    SaveActiveTab(app);
+
+    // La vista viva e' quella del pannello che sparisce: si mette da parte e si butta,
+    // perche' le sue righe non servono piu' a nessuno — le voci sono gia' nel tab.
+    // Lasciarla in vita vorrebbe dire disegnare il pannello che resta con le righe
+    // dell'altro.
+    PaneView discarded;
+    SwapLiveView(app, discarded);
+
+    const int closing = app.activePane;
+    std::vector<Tab> moving = std::move(app.panes[static_cast<size_t>(closing)].tabs);
+    app.panes.erase(app.panes.begin() + closing);
+
+    // Ne resta uno, e diventa quello attivo: zero e' l'unico indice che c'e'.
+    app.activePane = 0;
+    Pane& kept = app.panes[0];
+    // In coda, non in testa: le schede che c'erano restano dove sono, e chi stava
+    // guardando l'altro pannello le ritrova dopo le sue.
+    for (Tab& tab : moving)
+        kept.tabs.push_back(std::move(tab));
+
+    // Il divisore non c'e' piu': la sua posizione non vuol dire niente, e la prossima
+    // divisione riparte dal mezzo.
+    app.splitFraction = 0.5f;
+    app.splitDrag     = -1;
+
+    // Lo stato vivo deve diventare quello del pannello che resta: la sua scheda accesa —
+    // che gli indici non hanno toccato, perche' i tab arrivati stanno in coda — e la sua
+    // vista.
+    LoadActiveTab(app);
+    SwapLiveView(app, kept.view);
+    // Le righe rimesse in vita sono quelle dell'ultimo fotogramma in cui quel pannello
+    // si e' disegnato, e `LoadActiveTab` ha appena cambiato le voci: si rifa' la vista
+    // invece di mostrare indici che non corrispondono.
+    app.viewDirty = true;
+    app.stats.CancelQueued();
+    app.previews.CancelPending();
+    // La sorveglianza segue la cartella che resta: era su quella del pannello chiuso.
+    if (!IsHome(app.directory))
+        app.watcher.Watch(app.directory);
+}
+
 // Apre il **secondo** pannello, sulla stessa cartella di quello attivo, e ce lo porta.
-// Chiudere un pannello e trascinarci dentro dei file sono l'altra tappa: qui i pannelli
-// sono due e non si richiudono, quindi un secondo `Split` sullo stesso asse non fa
-// niente invece di promettere qualcosa.
+// Con due pannelli aperti lo **stesso** asse li richiude (`ClosePane`): la seconda
+// pressione del tasto che ha diviso disfa, che e' quello che ci si aspetta da un
+// interruttore.
 void SplitPane(AppState& app, bool column)
 {
     if (app.panes.empty())
@@ -565,7 +616,10 @@ void SplitPane(AppState& app, bool column)
     if (app.panes.size() >= 2)
     {
         if (app.splitColumn == column)
+        {
+            ClosePane(app);
             return;
+        }
         // L'altro asse: la stessa finestra divisa nel verso opposto. Il divisore torna
         // in mezzo, perche' la posizione dell'uno non vuol dire niente per l'altro.
         app.splitColumn   = column;
@@ -615,9 +669,16 @@ void UpdateTabDrop(AppState& app, float x, float y)
     const ClickTarget* hit = HitTest(app, x, y, ClickTarget::Kind::Tab);
     if (hit == nullptr)
         return;
+    // Solo le schede del pannello **da cui si e' partiti**: l'albero su cui si agisce e'
+    // quello, e un indice preso dalla fila dell'altro sposterebbe un tab che non c'entra.
+    // Trascinare una scheda nell'altro pannello e' un'altra tappa.
+    if (hit->pane >= 0 && hit->pane != app.activePane)
+        return;
+    const std::vector<Tab>& tabs = app.panes[static_cast<size_t>(app.activePane)].tabs;
     const int index = hit->index;
-    if (app.panes[static_cast<size_t>(app.activePane)].tabs[static_cast<size_t>(index)].id ==
-        app.dragTab)
+    if (index < 0 || index >= static_cast<int>(tabs.size()))
+        return;
+    if (tabs[static_cast<size_t>(index)].id == app.dragTab)
         return;   // sopra se stesso non si va da nessuna parte
 
     // Il terzo di mezzo vuol dire "dentro": e' la zona piu' stretta, cosi' i due
@@ -793,6 +854,36 @@ void CloseTabTree(AppState& app, int id, bool wholeTree)
     // valido.
     for (auto it = doomed.rbegin(); it != doomed.rend(); ++it)
         CloseTab(app, TabById(app, *it));
+}
+
+// Un pannello che non si sta guardando tiene le sue voci **nel tab**
+// (`SwapLiveWithPane` le scambia al disegno), quindi una cartella cambiata da fuori
+// resta com'era finche' non la si guarda: e' quello che si vuole per una modifica
+// qualsiasi, ed e' sbagliato per un'operazione partita da qui. Dopo una caduta
+// sull'altro pannello i file devono **arrivare** sotto gli occhi, non comparire al
+// primo clic.
+void ReloadPaneShowing(AppState& app, const std::wstring& directory)
+{
+    if (directory.empty())
+        return;
+
+    for (int pane = 0; pane < static_cast<int>(app.panes.size()); ++pane)
+    {
+        if (pane == app.activePane)
+            continue;   // quello attivo lo ricarica chi esegue l'operazione
+        Pane& data = app.panes[static_cast<size_t>(pane)];
+        if (data.activeTab < 0 || data.activeTab >= static_cast<int>(data.tabs.size()))
+            continue;
+        Tab& tab = data.tabs[static_cast<size_t>(data.activeTab)];
+        if (tab.directory.empty() || _wcsicmp(tab.directory.c_str(), directory.c_str()) != 0)
+            continue;
+
+        std::string error;
+        tab.entries = ReadDirectory(tab.directory, &error, app.longPaths);
+        // La vista si rifa' mentre quel pannello e' in vita, cioe' al prossimo
+        // fotogramma: e' il suo `viewDirty` che lo dice.
+        data.view.viewDirty = true;
+    }
 }
 
 // --- navigation, recents and bookmarks -------------------------------------- 

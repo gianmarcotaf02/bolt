@@ -170,6 +170,23 @@ bool Refuses(const std::vector<std::wstring>& sources, const std::wstring& targe
     return false;
 }
 
+// Tutte le sorgenti sono gia' nella cartella |folder|? E' il caso "non c'e' niente da
+// fare", che non e' un rifiuto: e' una destinazione dove il gesto non produce niente, e
+// va distinto dalle due cose che si possono promettere (copia e spostamento). Con una
+// voce sola bastava guardare quella, ma un trascinamento ne porta spesso piu' d'una, e
+// con la regola di prima la seconda meta' finiva **copiata dentro se stessa**.
+bool AllInFolder(const std::vector<std::wstring>& sources, const std::wstring& folder)
+{
+    if (sources.empty())
+        return false;
+    for (const std::wstring& source : sources)
+    {
+        if (!SamePath(ParentOf(source), folder))
+            return false;
+    }
+    return true;
+}
+
 // --- le due interfacce OLE --------------------------------------------------
 
 class DropTarget final : public IDropTarget
@@ -238,16 +255,6 @@ public:
         const DWORD negotiated = *effect;
         *effect = DROPEFFECT_NONE;
 
-        // Se non avevamo promesso niente — dentro se stesso, o dove i file sono
-        // gia' — non si fa niente. Senza questo controllo l'effetto "vietato"
-        // diventava una **copia**, e un gesto annullato lasciava un file in piu'.
-        if ((negotiated & (DROPEFFECT_COPY | DROPEFFECT_MOVE | DROPEFFECT_LINK)) == 0)
-        {
-            sources.clear();
-            Highlight(window, Target{});
-            return S_OK;
-        }
-
         std::vector<std::wstring> paths = sources;
         if (paths.empty())
             ReadPaths(data, &paths);
@@ -258,6 +265,21 @@ public:
         const Target target = TargetAt(window, client);
         Highlight(window, Target{});
         sources.clear();
+
+        // Se non avevamo promesso niente — dentro se stesso, o dove i file sono
+        // gia' — non si fa niente. Senza questo controllo l'effetto "vietato"
+        // diventava una **copia**, e un gesto annullato lasciava un file in piu'.
+        if ((negotiated & (DROPEFFECT_COPY | DROPEFFECT_MOVE | DROPEFFECT_LINK)) == 0)
+        {
+            // Un "niente" che si spiega: i file sono **gia'** nella cartella dove li si e'
+            // mollati. Non e' un rifiuto — quello si vede dal puntatore — ed e' l'unico
+            // caso in cui il gesto deve dire una parola, o sembra che non sia arrivato.
+            if (!paths.empty() && !target.Empty() && target.verb == DropVerb::DropInto &&
+                !Refuses(paths, target.path) && AllInFolder(paths, target.path))
+                SameFolderAlready(window);
+            return S_OK;
+        }
+
         if (paths.empty() || target.Empty())
             return S_OK;
         if (target.verb == DropVerb::Discard)
@@ -336,7 +358,7 @@ private:
 
         // Spostare dove sono gia': non c'e' niente da fare. L'effetto "niente" lo
         // dice al puntatore, che smette di promettere qualcosa.
-        if (move && sources.size() == 1 && SamePath(ParentOf(sources.front()), target.path))
+        if (AllInFolder(sources, target.path))
             return S_OK;
 
         *effect = move ? DROPEFFECT_MOVE : DROPEFFECT_COPY;

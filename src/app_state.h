@@ -220,6 +220,11 @@ struct ClickTarget
     Rect         rect;
     Kind         kind = Kind::Row;
     int          index = 0;      // column index or row index
+    // Il pannello a cui appartiene il bersaglio, per le schede: con due file di schede
+    // un indice solo non dice **quale** fila, e un clic sulla scheda 2 del pannello di
+    // sotto attiverebbe la scheda 2 di quello di sopra. `-1` per i bersagli che non
+    // appartengono a nessun pannello (le barre, il riquadro di navigazione).
+    int          pane = -1;
     std::wstring path;           // for breadcrumbs and places
     std::string  label;          // for group headers
 };
@@ -953,6 +958,9 @@ struct AppState
     float            tabPressX     = 0.0f;
     bool             sidebarVisible = true;
     int              hoveredTab = -1;
+    // La scheda sotto il puntatore sta in **una** delle due file: con una sola fila
+    // bastava l'indice, e adesso l'indice da solo illuminerebbe la scheda sbagliata.
+    int              hoveredTabPane = -1;
     int              hoveredChrome = -1;   // 0 menu, 1 new tab, 2 min, 3 max, 4 close
     int              hoveredSection = -1;  // intestazione di sezione della barra laterale
     int              hoveredNav = -1;      // 0 indietro, 1 avanti, 2 su, 3 aggiorna, 4 segnalibro
@@ -1519,6 +1527,11 @@ struct Layout
     Rect inspector;
     Rect statusBar;
     Rect filterBar;
+    // La fila delle schede del pannello, sopra il suo riquadro. Vuota con un pannello
+    // solo: li' la fila sta nella barra del titolo, dov'e' sempre stata, e spostarla
+    // per fare posto a qualcosa che non c'e' sarebbe un cambio d'interfaccia senza
+    // motivo.
+    Rect tabs;
     float rowHeight = 0.0f;
     float scale = 1.0f;
 };

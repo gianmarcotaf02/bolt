@@ -100,6 +100,12 @@ Target TargetAt(HWND window, POINT client);
 // Evidenzia la destinazione, o toglie l'evidenziazione se non ce n'e' una.
 void Highlight(HWND window, const Target& target);
 
+// La caduta non ha fatto niente perche' i file **sono gia'** nella cartella di
+// destinazione. Non e' un errore e non e' un rifiuto, ed e' l'unico "niente" che va
+// spiegato a parole: chi conosce la vista lo dice nella barra di stato, perche' un
+// rilascio che non produce niente sembra un programma che non risponde.
+void SameFolderAlready(HWND window);
+
 // Esegue la caduta di |sources| su |target|. |move| vale per DropInto.
 //
 // Restituisce vero se l'operazione e' stata **accettata**. Non e' una comodita': chi

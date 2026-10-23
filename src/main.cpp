@@ -2073,6 +2073,12 @@ void FinishOperationNow(AppState& app)
         if (StillOnScreen)
             ReloadKeeping(app, keep, landed, scroll);
 
+        // La caduta puo' aver scritto nell'**altro** pannello, se e' li' che e' stata
+        // mollata. Quel pannello tiene le sue voci nel tab e non se ne accorgerebbe:
+        // resterebbe a mostrare un elenco dove i file appena arrivati non ci sono.
+        if (!discarded)
+            ReloadPaneShowing(app, destination);
+
         DiagLog("  esito della caduta: " +
                 std::string(discarded ? "eliminazione" : (copied ? "copia" : "spostamento")) +
                 " di " + std::to_string(sources.size()) + " elementi" +
@@ -2363,55 +2369,10 @@ bool SingleClickActivates(const AppState& app, const Entry& entry)
 constexpr float kSplitterWidth = 6.0f;
 // --- i due pannelli ---------------------------------------------------------
 //
-// La testata del pannello che **non** si sta guardando, e il divisore. Sono due cose
-// piccole ma sono l'unica cosa che dice quale dei due pannelli ha il fuoco: quello
-// attivo non ha ne' bordo ne' testata.
-void DrawInactivePaneChrome(AppState& app, int pane, const Layout& layout)
-{
-    IRenderer& r = *app.renderer;
-    const Theme& t = app.theme;
-    const float scale = layout.scale;
-
-    // Il bordo attorno al riquadro: intestazione, lista e filtro sono **un** pannello, e
-    // il bordo e' quello che lo dice. Un pixel, dello stesso colore dei bordi dei
-    // pannelli che ci sono gia' (l'ispettore, le schede).
-    const Rect frame{layout.header.x - 1.0f, layout.header.y - 1.0f,
-                     layout.header.w + 2.0f,
-                     layout.filterBar.bottom() - layout.header.y + 2.0f};
-    r.BorderRect(frame, t.panelBorder, 1.0f, 0.0f);
-
-    // La testata sta dove stanno le intestazioni di colonna: sono la prima cosa che si
-    // legge in un pannello, e coprirle col percorso e' l'unico modo di scriverlo in uno
-    // spazio che c'e' gia' — aggiungerne uno nuovo vorrebbe dire togliere righe alla
-    // lista.
-    if (layout.header.h <= 0.0f)
-        return;
-
-    r.FillRect(layout.header, t.headerBg, 4.0f * scale);
-
-    const std::string path =
-        ToUtf8(LocationLabel(app, app.directory));
-    // A destra il numero di schede, quando ce n'e' piu' d'una: e' l'unica cosa che il
-    // pannello non dice da se', perche' la fila delle schede e' una sola e mostra quelle
-    // del pannello attivo.
-    const int tabCount = static_cast<int>(app.panes[static_cast<size_t>(pane)].tabs.size());
-    const std::string tabs = (tabCount > 1) ? Tr("Schede: ", "Tabs: ") + std::to_string(tabCount)
-                                            : std::string();
-    const float tabsWidth =
-        tabs.empty() ? 0.0f : app.smallFont.Measure(tabs, scale) + 14.0f * scale;
-
-    const std::string shown =
-        FitTextTail(app.smallFont, path, scale,
-                    (std::max)(20.0f, layout.header.w - 16.0f * scale - tabsWidth));
-    app.smallFont.Draw(r, layout.header.x + 8.0f * scale,
-                       TextY(layout, layout.header, app.smallFont), shown, t.textDim, scale);
-    if (!tabs.empty())
-    {
-        app.smallFont.Draw(r, layout.header.right() - 6.0f * scale -
-                                  app.smallFont.Measure(tabs, scale),
-                           TextY(layout, layout.header, app.smallFont), tabs, t.textDim, scale);
-    }
-}
+// Il divisore, e basta. La testata del pannello inattivo con il percorso non c'e'
+// piu': al suo posto c'e' la fila delle schede di **ogni** pannello
+// (`DrawPaneTabs`, in `view_titlebar.cpp`), che dice le stesse cose e in piu' si
+// clicca.
 
 // Il divisore: la striscia che si prende col mouse. Si accende sotto il puntatore e
 // mentre la si trascina — senza, e' sei pixel di sfondo e nessuno sa che ci sono.
@@ -2481,6 +2442,11 @@ void DrawFrame(AppState& app, const Layout& layout)
         const Layout paneLayout = active ? layout : PaneLayout(app, pane);
         float columnX[kColumnCount] = {};
 
+        // La fila delle schede **di questo** pannello, sopra il suo riquadro. Con un
+        // pannello solo la striscia e' vuota e la fila resta quella della barra del
+        // titolo: questa chiamata non disegna niente e l'interfaccia non si sposta.
+        DrawPaneTabs(app, paneLayout, pane);
+
         DrawHeader(app, paneLayout, columnX);
 
         // La lista disegna **solo dentro il suo rettangolo**: il ritaglio lo porta il
@@ -2518,9 +2484,9 @@ void DrawFrame(AppState& app, const Layout& layout)
 
         if (!active)
         {
-            // La testata si disegna **prima** di rimettere lo stato com'era: parla del
-            // pannello che si e' appena disegnato, e legge la sua cartella.
-            DrawInactivePaneChrome(app, pane, paneLayout);
+            // Lo stato si rimette com'era **dopo** averlo disegnato tutto: le schede
+            // leggono la cartella del pannello, e da qui in poi lo stato vivo e' di
+            // nuovo quello del pannello attivo.
             SwapLiveWithPane(app, pane);
         }
     }
@@ -3067,10 +3033,11 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
         case WM_MOUSELEAVE:
             if (app != nullptr)
             {
-                app->hovered       = -1;
-                app->hoveredPlace  = -1;
-                app->hoveredTab    = -1;
-                app->hoveredChrome = -1;
+                app->hovered        = -1;
+                app->hoveredPlace   = -1;
+                app->hoveredTab     = -1;
+                app->hoveredTabPane = -1;
+                app->hoveredChrome  = -1;
             }
             return 0;
 
@@ -3190,9 +3157,12 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
                 }
                 else
                 {
-                    const float usable =
-                        (std::max)(2.0f, frame.filterBar.bottom() - frame.header.y - gap);
-                    fraction = (y - frame.header.y) / usable;
+                    // Dalla cima della fascia delle schede, che e' dove comincia il
+                    // primo pannello: con l'intestazione il divisore si fermerebbe
+                    // trentaquattro pixel sotto il punto in cui lo si e' preso.
+                    const float top = (frame.tabs.h > 0.0f) ? frame.tabs.y : frame.header.y;
+                    const float usable = (std::max)(2.0f, frame.filterBar.bottom() - top - gap);
+                    fraction = (y - top) / usable;
                 }
                 app->splitFraction = std::clamp(fraction, 0.25f, 0.75f);
                 // `viewDirty` non serve: le righe non dipendono dalla larghezza del
@@ -3427,8 +3397,11 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
                         if (pane == app->activePane)
                             continue;
                         const Layout other = PaneLayout(*app, pane);
-                        if (other.list.Contains(x, y) || other.header.Contains(x, y) ||
-                            other.filterBar.Contains(x, y))
+                        // Anche la **fila delle schede** e' parte del pannello: passandoci
+                        // sopra si sta gia' guardando quello, e le schede devono
+                        // rispondere al sovrappasso come il resto del suo riquadro.
+                        if (other.tabs.Contains(x, y) || other.list.Contains(x, y) ||
+                            other.header.Contains(x, y) || other.filterBar.Contains(x, y))
                         {
                             ActivatePane(*app, pane);
                             break;
@@ -3438,6 +3411,7 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
                 app->hovered = -1;
                 app->hoveredPlace = -1;
                 app->hoveredTab = -1;
+                app->hoveredTabPane = -1;
                 app->hoveredChrome = -1;
                 app->hoveredSection = -1;
                 app->hoveredNav = -1;
@@ -3452,8 +3426,13 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
                 else if (HitTest(*app, x, y, ClickTarget::Kind::SidebarToggle))  app->hoveredChrome = 5;
 
                 const int wasHovered = app->hovered;
+                // L'indice da solo non basta piu': la scheda 1 c'e' in tutte e due le file,
+                // e il pannello a cui appartiene e' quello che il bersaglio porta con se'.
                 if (const ClickTarget* tab = HitTest(*app, x, y, ClickTarget::Kind::Tab))
-                    app->hoveredTab = tab->index;
+                {
+                    app->hoveredTab     = tab->index;
+                    app->hoveredTabPane = tab->pane;
+                }
                 else if (const ClickTarget* row = HitTest(*app, x, y, ClickTarget::Kind::Row))
                     app->hovered = row->index;
                 if (app->hovered != wasHovered)
@@ -3483,8 +3462,13 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
                         if (pane == app->activePane)
                             continue;
                         const Layout other = PaneLayout(*app, pane);
-                        if (other.list.Contains(x, y) || other.header.Contains(x, y) ||
-                            other.filterBar.Contains(x, y))
+                        // La fila delle schede fa parte del pannello: un clic su una sua
+                        // scheda e' un clic su di lui, e il pannello deve prendere il
+                        // fuoco **prima** che il clic venga eseguito — e' l'unico modo
+                        // perche' una scheda del pannello di sotto risponda al primo
+                        // colpo invece che al secondo.
+                        if (other.tabs.Contains(x, y) || other.list.Contains(x, y) ||
+                            other.header.Contains(x, y) || other.filterBar.Contains(x, y))
                         {
                             ActivatePane(*app, pane);
                             break;
@@ -3755,18 +3739,33 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
                 }
                 else if (const ClickTarget* closeTab = HitTest(*app, x, y, ClickTarget::Kind::TabClose))
                 {
+                    // La croce e' della scheda **di quel pannello**: se non e' quello
+                    // attivo si porta li' il fuoco, perche' chiudere una scheda in un
+                    // pannello che non si sta guardando deve lasciare lo sguardo dove
+                    // sta. `ActivatePane` non salva niente di sbagliato: i campi vivi
+                    // sono di un pannello e passano nel suo tab.
+                    if (closeTab->pane >= 0 && closeTab->pane != app->activePane)
+                        ActivatePane(*app, closeTab->pane);
                     CloseTab(*app, closeTab->index);
                 }
                 else if (const ClickTarget* tab = HitTest(*app, x, y, ClickTarget::Kind::Tab))
                 {
+                    // Il pannello della scheda prima della scheda: e' l'unico modo
+                    // perche' cliccare un tab del pannello di sotto funzioni al primo
+                    // colpo, invece di doverlo prima attivare e poi cliccare.
+                    if (tab->pane >= 0 && tab->pane != app->activePane)
+                        ActivatePane(*app, tab->pane);
                     ActivateTab(*app, tab->index);
                     // Il gesto puo' diventare un trascinamento, ma solo se il mouse
                     // si muove: un clic non deve spostare niente.
                     app->tabPress  = tab->index;
                     app->tabPressX = x;
                 }
-                else if (HitTest(*app, x, y, ClickTarget::Kind::TabNew))
+                else if (const ClickTarget* newTab = HitTest(*app, x, y, ClickTarget::Kind::TabNew))
                 {
+                    // Anche il `+` e' di un pannello: una scheda nuova si apre **li'**.
+                    if (newTab->pane >= 0 && newTab->pane != app->activePane)
+                        ActivatePane(*app, newTab->pane);
                     NewTab(*app, app->directory.empty() ? L"C:\\" : app->directory);
                 }
                 else if (HitTest(*app, x, y, ClickTarget::Kind::Menu))
@@ -4826,19 +4825,22 @@ Layout WindowLayout(const AppState& app)
     const float inspectorWidth = app.inspectorWidth * scale;
     const float titleHeight    = 34.0f * scale;
     const float toolbarHeight  = 38.0f * scale;
-    // A grid view has no columns to head, so it gives the space back to the list.
     // A grid view has no columns to head, so it gives the space back to the list. Con
-    // **due** pannelli l'intestazione c'e' sempre, anche a griglia: e' dove il pannello
-    // che non si sta guardando scrive il percorso della sua cartella
-    // (`DrawInactivePaneChrome`), e senza, i due pannelli avrebbero geometrie verticali
-    // diverse a seconda di quale dei due ha il fuoco — cioe' si sposterebbero da soli
-    // passandoci sopra col puntatore.
+    // **due** pannelli l'intestazione c'e' sempre, anche a griglia: senza, i due
+    // pannelli avrebbero geometrie verticali diverse a seconda di quale dei due ha il
+    // fuoco — cioe' si sposterebbero da soli passandoci sopra col puntatore.
     const bool gridView = app.panes.size() < 2 &&
                           (app.viewMode == ViewMode::Tiles || app.viewMode == ViewMode::Icons);
     const float headerHeight   = gridView ? 0.0f : 26.0f * scale;
     const float statusHeight   = 22.0f * scale;
     const float filterHeight   = 24.0f * scale;
     const float gap            = 6.0f * scale;
+    // La fila delle schede di **ogni** pannello: con due se ne riserva una per pannello,
+    // fra la barra degli strumenti e l'intestazione delle colonne. Con un pannello solo
+    // la riserva e' zero, perche' la fila e' quella della barra del titolo: spostarla
+    // per fare posto a qualcosa che non c'e' cambierebbe l'interfaccia a chi non ha
+    // diviso niente.
+    const float tabStripHeight = (app.panes.size() >= 2) ? TabStripHeight(scale) : 0.0f;
 
     Layout layout;
     layout.scale      = scale;
@@ -4849,15 +4851,19 @@ Layout WindowLayout(const AppState& app)
     layout.toolbar    = Rect{0.0f, titleHeight, width, toolbarHeight};
     layout.sidebar    = Rect{gap, titleHeight + toolbarHeight + gap, sidebarWidth,
                              height - titleHeight - toolbarHeight - statusHeight - gap * 3};
-    layout.header     = Rect{sidebarWidth + gap * 2, titleHeight + toolbarHeight + gap,
-                             width - sidebarWidth - inspectorWidth - gap * 4, headerHeight};
+    // La fascia delle schede, larga quanto la colonna dei pannelli: `PaneLayout` la
+    // stringe alla meta' di ognuno. Vuota (altezza zero) con un pannello solo.
+    layout.tabs       = Rect{sidebarWidth + gap * 2, titleHeight + toolbarHeight + gap,
+                             width - sidebarWidth - inspectorWidth - gap * 4, tabStripHeight};
+    layout.header     = Rect{layout.tabs.x, layout.tabs.bottom(), layout.tabs.w, headerHeight};
     layout.filterBar  = Rect{layout.header.x, height - statusHeight - gap - filterHeight,
                              layout.header.w, filterHeight};
     layout.list       = Rect{layout.header.x, layout.header.bottom(),
                              layout.header.w,
                              layout.filterBar.y - gap - layout.header.bottom()};
     layout.inspector  = Rect{width - inspectorWidth - gap, titleHeight + toolbarHeight + gap,
-                             inspectorWidth, layout.list.h + headerHeight + filterHeight + gap};
+                             inspectorWidth,
+                             layout.list.h + headerHeight + filterHeight + gap + tabStripHeight};
     layout.statusBar  = Rect{0.0f, height - statusHeight, width, statusHeight};
     return layout;
 }
@@ -4887,6 +4893,7 @@ Layout PaneLayout(const AppState& app, int pane)
         const float first  = usable * fraction;
         const float x      = (pane == 0) ? layout.header.x : layout.header.x + first + gap;
         const float w      = (pane == 0) ? first : usable - first;
+        layout.tabs      = Rect{x, layout.tabs.y, w, layout.tabs.h};
         layout.header    = Rect{x, layout.header.y, w, layout.header.h};
         layout.filterBar = Rect{x, layout.filterBar.y, w, layout.filterBar.h};
         layout.list      = Rect{x, layout.list.y, w, layout.list.h};
@@ -4898,15 +4905,20 @@ Layout PaneLayout(const AppState& app, int pane)
     // guardando, e un pannello senza sarebbe una lista di nomi senza contesto.
     const float headerHeight = layout.header.h;
     const float filterHeight = layout.filterBar.h;
-    const float top          = layout.header.y;
+    const float stripHeight  = layout.tabs.h;
+    // Il riquadro di un pannello comincia dalla **sua** fila di schede: la y di
+    // partenza e' quella della fascia, non quella dell'intestazione, o il secondo
+    // pannello si prenderebbe la fila del primo.
+    const float top          = (stripHeight > 0.0f) ? layout.tabs.y : layout.header.y;
     const float usable       = (std::max)(2.0f, layout.filterBar.bottom() - top - gap);
     const float first        = usable * fraction;
     const float y            = (pane == 0) ? top : top + first + gap;
     const float h            = (pane == 0) ? first : usable - first;
-    const float listHeight   = (std::max)(0.0f, h - headerHeight - filterHeight);
-    layout.header    = Rect{layout.header.x, y, layout.header.w, headerHeight};
-    layout.list      = Rect{layout.header.x, y + headerHeight, layout.header.w, listHeight};
-    layout.filterBar = Rect{layout.header.x, y + headerHeight + listHeight, layout.header.w,
+    const float listHeight   = (std::max)(0.0f, h - stripHeight - headerHeight - filterHeight);
+    layout.tabs      = Rect{layout.tabs.x, y, layout.tabs.w, stripHeight};
+    layout.header    = Rect{layout.tabs.x, y + stripHeight, layout.tabs.w, headerHeight};
+    layout.list      = Rect{layout.header.x, layout.header.bottom(), layout.header.w, listHeight};
+    layout.filterBar = Rect{layout.header.x, layout.header.bottom() + listHeight, layout.header.w,
                             filterHeight};
     return layout;
 }
@@ -4922,15 +4934,34 @@ Rect SplitterRect(const AppState& app)
     const float gap      = kSplitterWidth * window.scale;
     const float fraction = std::clamp(app.splitFraction, 0.25f, 0.75f);
 
+    // Il divisore arriva fino in cima alla fascia delle schede: con due pannelli la
+    // colonna comincia li', e una presa che si fermasse all'intestazione lascerebbe
+    // una striscia di sei pixel che non si prende.
+    const float top = (window.tabs.h > 0.0f) ? window.tabs.y : window.header.y;
     if (app.splitColumn)
     {
         const float usable = (std::max)(2.0f, window.header.w - gap);
-        return Rect{window.header.x + usable * fraction, window.header.y, gap,
-                    window.filterBar.bottom() - window.header.y};
+        return Rect{window.header.x + usable * fraction, top, gap,
+                    window.filterBar.bottom() - top};
     }
-    const float top    = window.header.y;
     const float usable = (std::max)(2.0f, window.filterBar.bottom() - top - gap);
     return Rect{window.header.x, top + usable * fraction, window.header.w, gap};
+}
+
+// Il pannello sotto un punto, o -1 se il punto non e' di nessuno. E' la stessa
+// geometria che decide chi prende il fuoco al clic (`PaneLayout`): due elenchi di
+// rettangoli diversi prima o poi direbbero due cose diverse, e qui il secondo sarebbe
+// una caduta che finisce nel pannello sbagliato.
+int PaneAtPoint(const AppState& app, float x, float y)
+{
+    for (int pane = 0; pane < static_cast<int>(app.panes.size()); ++pane)
+    {
+        const Layout box = PaneLayout(app, pane);
+        if (box.tabs.Contains(x, y) || box.header.Contains(x, y) || box.list.Contains(x, y) ||
+            box.filterBar.Contains(x, y))
+            return pane;
+    }
+    return -1;
 }
 
 // Il layout della **vista su cui si sta lavorando**: e' quello che serve a ogni hit
@@ -5455,6 +5486,56 @@ DragDrop::Target TargetAt(HWND window, POINT client)
         return target;
     }
 
+    // Con due pannelli la caduta arriva sempre a **questa** finestra, che e' una sola:
+    // il pannello lo decide il punto del rilascio, non il fuoco. Cambiare pannello
+    // mentre si trascina vorrebbe dire spostare la destinazione sotto le mani di chi
+    // sta mollando, e chi trascina da qui non vuole perdere il segno.
+    const int pane = PaneAtPoint(*app, x, y);
+    if (pane < 0)
+        return target;   // fuori dai pannelli non si lascia cadere niente
+
+    if (pane != app->activePane)
+    {
+        // L'**altro** pannello: la sua cartella e le sue righe stanno nel tab acceso,
+        // perche' un pannello che non si sta guardando tiene le voci li'
+        // (`SwapLiveWithPane` le scambia al disegno). Lo stato vivo e' dell'altro, e
+        // leggerlo qui vorrebbe dire prendere le righe sbagliate.
+        const Pane& other = app->panes[static_cast<size_t>(pane)];
+        if (other.activeTab < 0 || other.activeTab >= static_cast<int>(other.tabs.size()))
+            return target;
+        const Tab& tab = other.tabs[static_cast<size_t>(other.activeTab)];
+        const std::wstring& directory = tab.directory;
+
+        // Una posizione che non e' un percorso (la Home, "Questo PC") non ha dove
+        // ricevere i file: si rifiuta, invece di promettere e non fare.
+        if (directory.empty() || IsHome(directory) || ShellLocation::IsNamespace(directory))
+            return target;
+
+        if (const ClickTarget* row = HitTest(*app, x, y, ClickTarget::Kind::Row))
+        {
+            if (row->index >= 0 && row->index < static_cast<int>(tab.entries.size()))
+            {
+                const Entry& entry = tab.entries[static_cast<size_t>(row->index)];
+                // Una cartella si apre per lasciarci qualcosa dentro. Il percorso si
+                // compone qui e non con `EntryLocation`: quella attacca la coda alla
+                // cartella **viva**, che e' dell'altro pannello.
+                if (entry.isDirectory && entry.location.empty())
+                {
+                    target.path    = JoinPath(directory, entry.wideName);
+                    target.verb    = DragDrop::DropVerb::DropInto;
+                    target.ontoRow = true;
+                    return target;
+                }
+            }
+        }
+
+        // Il resto del pannello: la sua cartella. Un file sotto il puntatore vale come
+        // il fondo della lista, come nell'altro pannello.
+        target.path = directory;
+        target.verb = DragDrop::DropVerb::DropInto;
+        return target;
+    }
+
     if (const ClickTarget* row = HitTest(*app, x, y, ClickTarget::Kind::Row))
     {
         const Entry& entry = app->entries[static_cast<size_t>(row->index)];
@@ -5512,6 +5593,18 @@ void Highlight(HWND window, const DragDrop::Target& target)
     if (app->dropTarget != previous || app->dropTargetIsRow != previousRow ||
         app->dropTargetSidebarRow != previousSidebar)
         RenderFrame(*app);
+}
+
+// Un rilascio che non produce niente **si spiega**: i file erano gia' nella cartella
+// dove li si e' mollati. Non e' un errore — la barra di stato non e' un registro di
+// guasti — ma un gesto che finisce in silenzio sembra un programma che non risponde.
+void SameFolderAlready(HWND window)
+{
+    AppState* app = reinterpret_cast<AppState*>(GetWindowLongPtrW(window, GWLP_USERDATA));
+    if (app == nullptr)
+        return;
+    ReportStatus(*app, TrW(L"Sono gia' in questa cartella: non c'e' niente da spostare.",
+                           L"Already in this folder: nothing to move."));
 }
 
 bool Drop(HWND window, const std::vector<std::wstring>& sources, const DragDrop::Target& target,

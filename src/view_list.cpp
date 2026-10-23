@@ -2037,7 +2037,12 @@ void DrawList(AppState& app, const Layout& layout, const float* columnX)
     // l'area, perche' li' sotto non c'e' nessuna riga da tratteggiare. Il
     // tratteggio e' lo stesso della riga, cosi' le due destinazioni si leggono
     // come la stessa cosa detta in due punti diversi.
-    if (!app.dropTarget.empty() && !app.dropTargetIsRow && app.dropTargetSidebarRow < 0)
+    // ... e solo nella lista che la riceve davvero: con due pannelli la caduta arriva
+    // a una finestra sola, e senza `dropTarget == directory` il tratteggio comparirebbe
+    // anche sul pannello da cui i file sono partiti. Nel pannello inattivo `directory`
+    // e' la sua, perche' e' lo stato che `SwapLiveWithPane` porta in vita.
+    if (!app.dropTarget.empty() && !app.dropTargetIsRow && app.dropTargetSidebarRow < 0 &&
+        app.dropTarget == app.directory)
         r.Draw(UIDraw::DashedBorder(layout.list.Inset(1.0f, 1.0f), t.accent, 2.0f * scale,
                                     6.0f * scale, 4.0f * scale, 6.0f * scale));
 
