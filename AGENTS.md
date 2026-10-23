@@ -208,7 +208,7 @@ skill in chat — `/graphify`, o `/graphify --update` per documenti e immagini.
 
 ### Perché
 
-- `src/main.cpp` è **4.914 righe** (misurate il 2026-10-21, dopo Home, aggiornamenti e icone): scesa da 11.394 a **7.344** con lo spezzamento,
+- `src/main.cpp` è **4.277 righe** (misurate il 2026-10-23, il giorno in cui l'input è uscito): scesa da 11.394 a **7.344** con lo spezzamento,
   **risalita** a 7.895 con l'editor della mappa dei tasti e il fissaggio, e scese di
   **3.079** con il pannello delle opzioni, i verbi della shell, il menu contestuale, le impostazioni e la navigazione — la curva di un
   file unico che accoglie ogni funzione nuova. Gli ultimi pezzi usciti sono
@@ -364,7 +364,7 @@ autenticato come `gianmarcotaf02`): `gh release create v<versione> --repo
 gianmarcotaf02/bolt <setup> <zip> SHA256SUMS`. La release **deve** avere il setup e
 `SHA256SUMS`: e' quello che legge `Controlla aggiornamenti` (`src/update.*`, `docs/04`
 M13). Le release **v0.1.0**, **v0.1.1**, **v0.1.2**, **v0.1.3**, **v0.1.4**, **v0.1.5** e
-**v0.1.6**, **v0.1.7**, **v0.1.8**, **v0.1.9**, **v0.1.10**, **v0.1.11**, **v0.1.12**, **v0.1.13**, **v0.1.14**, **v0.1.15**, **v0.1.16** e **v0.1.17** sono pubblicate;
+**v0.1.6**, **v0.1.7**, **v0.1.8**, **v0.1.9**, **v0.1.10**, **v0.1.11**, **v0.1.12**, **v0.1.13**, **v0.1.14**, **v0.1.15**, **v0.1.16**, **v0.1.17**, **v0.1.18** e **v0.1.19** sono pubblicate;
 la
 0.1.1 e' la stessa base della 0.1.0 e serve alla prova dell'aggiornamento, la 0.1.2 porta
 la correzione di `docs/02` §7.64, la 0.1.3 quella di §7.65, la 0.1.4 quelle di §7.66 e
@@ -372,7 +372,12 @@ la correzione di `docs/02` §7.64, la 0.1.3 quella di §7.65, la 0.1.4 quelle di
 (`docs/04` M5b), la 0.1.11 quella di §7.75, la 0.1.12 il setup che aspetta la chiusura, la 0.1.13 quella di §7.76, la 0.1.14 il rettangolo che seleziona
 mentre si trascina (`docs/04` M5d), la 0.1.15 l'assenza di preselezione (`docs/04` M5), la 0.1.16 il menu
 dell'applicazione (`docs/04` M6), la 0.1.17 le venti colonne di `docs/03`, il menu contestuale
-cercabile e i due pannelli (schede per pannello, divisore, trascinamento di file e di schede).
+cercabile e i due pannelli (schede per pannello, divisore, trascinamento di file e di schede), e la
+**0.1.18** l'input fuori da `main.cpp` (`input_keys.*`, `input_mouse.*`), la **puntina**
+dei fissaggi nella barra laterale e la **finestra dell'aggiornamento** con la barra del
+download e la richiesta di riavvio; la **0.1.19** la cartella fissata che non compare
+due volte quando la shell ce l'ha gia' (docs/02 §7.77) e il .lnk che non mostra mai la
+sua estensione (docs/04).
 
 **`tools/make-installer.ps1` non rigenera `out/SHA256SUMS`.** Il 2026-10-23, pubblicando la
 0.1.17, il file conteneva ancora le impronte della 0.1.16: allegarlo cosi' avrebbe fatto
@@ -400,6 +405,24 @@ finestra adesso (`CW_USEDEFAULT` la sposta a ogni avvio, e le coordinate cliente
 non si indovinano); `tools/capture-rect.ps1` salva un riquadro senza toccare
 l'ordine delle finestre; `tools/explorer-side.ps1` apre Esplora risorse su una
 cartella **del progetto** e lo mette di fianco.
+
+**Verificare che uno spostamento di codice non abbia cambiato niente**, al pixel:
+`tools/pixel-sequence.ps1` fa la **stessa sequenza di gesti** (10 stati: lista, clic su una
+riga, `Ctrl`+clic, rotella, `Invio` che entra in una cartella, il tasto indietro che ne
+esce, tre frecce, il menu da tastiera, quello dal tasto destro, il filtro) su due
+eseguibili — quello di prima e quello nuovo — e confronta ogni stato con
+`tools/diff-png.ps1`:
+
+```bash
+powershell -ExecutionPolicy Bypass -File tools/pixel-sequence.ps1 \
+    -Exe build/RelWithDebInfo/Bolt.exe -Reference <eseguibile di prima>
+```
+
+Zero pixel diversi e' il risultato che conta; il numero e la posizione dei pixel diversi li
+stampa `diff-png.ps1`, e `-MaxPixels`/`-MaxDelta` servono solo per il rumore noto del bordo
+arrotondato (`docs/05` §5). Apre due finestre vere: vale §0, e si lancia a macchina ferma.
+Se il primo stato — quello senza gesti prima — e' gia' diverso, il banco era disturbato e
+lo dice: si rilancia, non si attribuisce al codice.
 
 **Contatori del motore nella barra di stato**: `BOLT_DEV_HUD=1` li rimette
 (fotogrammi, **disegni per fotogramma**, quadrilateri, icone, lavori). Di default la barra
@@ -524,6 +547,17 @@ Costano tempo, sembrano bug dell'applicazione e non lo sono. Vedi anche §5 di
   errore: **dà un clic da un'altra parte**, che è peggio, perché sembra che
   l'applicazione non risponda. Un file di prova è finito sul Desktop di chi lavora
   proprio così (vedi `docs/05`, §0).
+- **`send-keys.ps1 -Action backspace` legge da `-Text` quante volte premere.** Senza
+  `-Text` il conto è **zero**: lo script non manda nessun tasto e non lo dice. Una prova
+  che finisce con «il tasto indietro non fa niente» può essere una prova in cui il tasto
+  non è mai stato premuto — successo il 2026-10-23, e a far sospettare il difetto era il
+  fatto che due eseguibili diversi si comportassero allo stesso modo. Si scrive
+  `-Action backspace -Text 1`.
+- **`capture-window.ps1` si rifiuta di catturare una finestra che non è in primo piano**,
+  e dopo un clic sintetico la finestra può non esserlo più: se la prova deve catturare
+  dopo ogni gesto, si richiama `tools/focus-window.ps1` **prima di ogni** cattura — è quello
+  che fa `tools/pixel-sequence.ps1` — invece di sperare che il primo piano sia rimasto
+  dov'era.
 
 ### Modifiche in massa
 
@@ -741,7 +775,9 @@ percorso invece **resta** un carattere: e' punteggiatura dentro una riga di test
 
 | file | responsabilità |
 |---|---|
-| `src/main.cpp` | finestra Win32, navigazione, layout, input, disegno; sceglie e possiede il backend (`BOLT_BACKEND`, fallback). **Lo spezzamento è in corso: 4.914 righe, erano 11.394** (scesa a 7.344, risalita a 7.895, scesa di 3.079 il 2026-10-18: vedi §2-bis e `docs/05` §2) |
+| `src/main.cpp` | finestra Win32, navigazione, layout, disegno; sceglie e possiede il backend (`BOLT_BACKEND`, fallback). **Lo spezzamento è in corso: 4.277 righe, erano 11.394** (scesa a 7.344, risalita a 7.895, scesa di 3.079 il 2026-10-18, scesa di 1.327 il 2026-10-23 con l'input: vedi §2-bis e `docs/05` §2). Restano da spostare **venti superfici**, elencate in `app_actions.h` con la destinazione accanto |
+| `src/input.h`, `src/input_keys.cpp`, `src/input_mouse.cpp` | **l'input della finestra**: i quattro messaggi dei tasti e quelli del mouse (rotella, movimento, tre pulsanti, cursore), usciti il 2026-10-23. I corpi dei `case` sono passati **di peso**, non riscritti: lo `switch` è dentro `HandleKeyMessage`/`HandleMouseMessage` e `kMessageNotHandled` dice al `WindowProc` che il messaggio non era loro, al posto del `break` che portava a `DefWindowProcW` |
+| `src/view_update.*` | la **finestra dell'aggiornamento**, modale: il controllo, il download con la barra e la percentuale, la verifica, l'esito, e la richiesta di **riavvio** al posto della chiusura silenziosa (docs/04 M13) |
 | `src/theme.*` | i **ruoli di colore** che l'interfaccia legge e le **due tavolozze** (chiara e scura), piu' la preferenza del sistema (`AppsUseLightTheme`). I 35 token dello spec che hanno un lettore stanno qui; quelli che non ce l'hanno sono elencati in `theme.h`, invece di essere campi scritti e mai letti |
 | `src/app_state.h` | lo stato della finestra e i tipi che piu' moduli condividono: il **confine** che prima non esisteva (`docs/05` §2) |
 | `src/app_ui.*` | i supporti che piu' di un modulo usa: UTF-8/UTF-16, nomi di percorso, numeri in lettere, date, `FitText`, `NowSeconds` |
@@ -755,7 +791,7 @@ percorso invece **resta** un carattere: e' punteggiatura dentro una riga di test
 | `src/shell_menu.*` | i **verbi della shell**: leggere `IContextMenu` dentro le nostre voci, la banda di id riservata (`kShellCmdFirst..Last`), le etichette ridotte ad ASCII, la **soppressione dei verbi che non sono nostri** (quelli che offriamo gia', e quelli dell'applicazione originale — `OpenInFilePilot`, `FilePilotHere`: `docs/02` §7.62), la cache per non interrogare la shell a ogni tasto destro, e il rilascio degli oggetti COM. Il *disegno* del menu contestuale e l'esecuzione delle voci restano in `main.cpp` |
 | `src/view_context_menu.*` | il **menu contestuale** come superficie: i livelli, la geometria delle righe, lo scorrimento, il disegno, il puntatore, il clic, i tasti, e le azioni del menu (aprire un sottomenu, eseguire una voce, le proprietà). Due contesti: la **lista** (selezione, verbi della shell) e una **riga della barra laterale** (`BuildSidebarContextMenu`: fissare, togliere, togliere dai recenti — sul percorso della riga). I verbi della shell **non** li legge: quelli sono `shell_menu.*` |
 | `src/navigation.*` | la **navigazione** e i **tab**: leggere una cartella (`LoadDirectory`, `ReadDirectory`, e le voci di spazio dei nomi), la storia avanti/indietro, e l'albero dei tab — aprirne, attivarlo, chiuderlo, chiudere un ramo, e accogliere un tab trascinato sopra un altro |
-| `src/update.*` | gli **aggiornamenti in app** (forma B): la richiesta a `releases/latest` via `WinHTTP`, la scelta del setup e di `SHA256SUMS`, il download in `%TEMP%\Bolt-update`, lo **SHA-256** con `BCrypt` e il rifiuto con cancellazione se non torna. Su un thread, come `FileOps::Job`: la barra di stato racconta, `Esc` annulla, e il setup parte in silenzioso solo dopo la verifica. Comando esplicito, mai automatico (`docs/06`) |
+| `src/update.*` | gli **aggiornamenti in app** (forma B): la richiesta a `releases/latest` via `WinHTTP`, la scelta del setup e di `SHA256SUMS`, il download in `%TEMP%\Bolt-update`, lo **SHA-256** con `BCrypt` e il rifiuto con cancellazione se non torna. Su un thread, come `FileOps::Job`: la finestra dell'aggiornamento (`view_update.*`) racconta, `Esc` annulla, e il setup parte in silenzioso solo dopo la verifica — e su richiesta. Comando esplicito, mai automatico (`docs/06`) |
 | `src/home.*` | la **Home** (`bolt:home`), la pagina di avvio: una **posizione**, non una cartella finta. Costruisce le voci delle tre bande — **Fissaggi**, **Recenti**, **Cartelle note** — deduplicate, con `Entry::band` (0/1/2) che dice a `RebuildView` come raggruppare e `Entry::location` che porta il percorso vero. Il resto sta dove stava: la lettura in `navigation.*`, le bande in `view_list.*`, le guardie in `commands.*`, la riga in `view_sidebar.*` |
 | `src/recents.*` | il **ranking dei recenti**: i tre campi che il riferimento scrive nella sessione (`Score`, `Decay`, `Ordinal`, e l'identità del volume accanto), la formula ricostruita da REA (`docs/04` M4), i tre modi di `StoreRecents` — nessuno dei quali scrive su disco (`docs/06`) — e l'ordine di presentazione (`Score` decrescente, poi `Ordinal`) |
 | `src/input_targets.*` | il **registro dei bersagli** (`HitTest`): chi disegna registra un rettangolo e un tipo, chi riceve il clic chiede qui cosa c'è sotto il puntatore invece di ricalcolare le geometrie |
@@ -822,7 +858,7 @@ percorso invece **resta** un carattere: e' punteggiatura dentro una riga di test
   mani»: una query costa poco, una lettura costa migliaia di token che restano nel
   contesto per tutta la sessione. Vedi §2-bis.
 - **Non aprire nuove sessioni di refactoring largo** senza spazio per riverificare
-  tutto: `main.cpp` a 4.914 righe è un problema noto e in corso di soluzione, non una scoperta.
+  tutto: `main.cpp` a 4.277 righe è un problema noto e in corso di soluzione, non una scoperta.
 
 ---
 

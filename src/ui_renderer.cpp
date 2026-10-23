@@ -225,6 +225,15 @@ UIDraw UIDraw::Star(Rect rect, Color color, float thickness, bool filled)
     return d;
 }
 
+UIDraw UIDraw::Pin(Rect rect, Color color)
+{
+    UIDraw d;
+    d.rect  = rect;
+    d.color = color;
+    d.pin   = true;
+    return d;
+}
+
 // ---------------------------------------------------------------------------
 // UIRenderer
 // ---------------------------------------------------------------------------
@@ -524,7 +533,7 @@ void UIRenderer::AppendQuad(const UIDraw& p)
     // Le forme che usano `radius` come **spessore** non sono angoli: azzerare il
     // raggio su un `+`, una freccia o una stella le farebbe sparire.
     const bool radiusIsStroke = p.plus || p.cross || p.arrow || p.arrowUp || p.arrowLeft ||
-                                p.refresh || p.star;
+                                p.refresh || p.star || p.pin;
     const float cornerScale = radiusIsStroke ? 1.0f : cornerScale_;
     const float alpha       = p.color.a * opacity_;
     const float flags = (p.textured ? 1.0f : 0.0f) + (p.mono ? 2.0f : 0.0f) +
@@ -532,7 +541,7 @@ void UIRenderer::AppendQuad(const UIDraw& p)
                         (p.plus ? 16.0f : 0.0f) + (p.cross ? 32.0f : 0.0f) +
                         (p.arrow ? 64.0f : 0.0f) + (p.arrowUp ? 128.0f : 0.0f) +
                         (p.arrowLeft ? 256.0f : 0.0f) + (p.refresh ? 512.0f : 0.0f) +
-                        (p.star ? 1024.0f : 0.0f);
+                        (p.star ? 1024.0f : 0.0f) + (p.pin ? 2048.0f : 0.0f);
 
     for (size_t vertex = 0; vertex < kVerticesPerQuad; ++vertex)
     {

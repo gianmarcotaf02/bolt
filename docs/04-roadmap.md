@@ -2230,11 +2230,13 @@ verifica e installa.
       del download manuale
 - [x] il confronto di versione (`v1.2.3` contro `1.2.3`) legge il tag della release:
       se non e' piu' nuova, il messaggio e' "Bolt e' aggiornato" e non si scarica niente
-- [x] la barra di stato dice a che punto e' (controllo, impronte, download con
-      percentuale, verifica) e `Esc` annulla. Alla chiusura della finestra il thread si
-      ferma e si aspetta, prima di `CoUninitialize`
+- [x] **la finestra dell'aggiornamento** dice a che punto e' (controllo, impronte,
+      download **con la barra e la percentuale**, verifica) e `Esc` annulla; dal
+      2026-10-23 e' modale, ha una finestra sua e chiede il riavvio (vedi sotto). Alla
+      chiusura della finestra il thread si ferma e si aspetta, prima di `CoUninitialize`
 - [x] se tutto torna, il setup parte con `/VERYSILENT /SUPPRESSMSGBOXES /NORESTART`;
-      `CloseApplications=yes` e un `WM_CLOSE` chiudono Bolt mentre Inno lavora
+      `CloseApplications=yes` e un `WM_CLOSE` chiudono Bolt mentre Inno lavora — **su
+      richiesta**, con `Riavvia ora`, e alla fine Bolt si riapre dalla copia installata
 - [x] `BOLT_UPDATE_API` sposta l'indirizzo del foglio delle release: e' l'attrezzo con
       cui si prova il percorso download → impronta → rifiuto senza pubblicare niente.
       Non aggira il confronto dell'impronta
@@ -2269,6 +2271,76 @@ zip portatile e `SHA256SUMS`:
   silenzioso, e «App e funzionalita'» dice la versione nuova. Tre aggiornamenti veri, con
   tre release diverse.
 
+### La finestra dell'aggiornamento — *deciso il 2026-10-23*
+
+Chiesto dall'autore: «una progress bar del download, e che l'app non si chiuda da sola ma
+chieda un riavvio per l'installazione». Oggi l'avanzamento e' una riga nella barra di stato
+e, quando il setup e' verificato, Bolt **si chiude da solo** (`PostMessage(WM_CLOSE)`): chi lo
+guarda legge un programma che sparisce, cioe' un guasto.
+
+**Uno spec vecchio va cambiato in un punto.** M13 diceva «avanzamento nella barra di stato» e
+«poi il setup in silenzioso»: la barra di stato resta il posto di ogni *esito*, ma il
+**lavoro** dell'aggiornamento ha una finestra sua, come le proprieta' e l'operazione in corso.
+Un download da trenta megabyte non e' una riga di stato: e' un lavoro con una durata.
+
+**Cosa si vede, e dove.** Un comando solo apre una **finestra modale** centrata — `view_update.*`
+— e dentro ci succede tutto:
+
+| stato | cosa dice | pulsanti |
+|---|---|---|
+| controllo, impronte, download, verifica | la fase, e **durante il download** la barra con la percentuale e i byte (`12,4 MB / 29,1 MB (42%)`) | `Annulla` — anche `Esc` |
+| pronto | «Bolt *X* scaricato e verificato.» + «Riavvia Bolt per installarlo: si chiude, il setup installa e Bolt si riapre.» | `Piu' tardi` · `Riavvia ora` |
+| aggiornato | «Bolt e' aggiornato (*X*).» | `Chiudi` |
+| non riuscito | «Non riuscito: *motivo*» | `Chiudi` |
+| annullato | «Aggiornamento annullato.» | `Chiudi` |
+
+**Nella barra di stato non resta niente.** Il comando non scrive piu' niente in basso a sinistra — nemmeno «c'e' gia' un controllo in corso»: tutto quello che riguarda l'aggiornamento si legge nella finestra, anche il caso «sei gia' aggiornato», che e' pur sempre la risposta a una domanda che qualcuno ha fatto. Due posti che dicono la stessa cosa sono due posti da tenere allineati, e uno dei due stava in basso dove non si guarda.
+
+**Modale vuol dire modale**: clic, rotella e tasti si fermano li' — la lista sotto non si
+muove, e non si apre un menu contestuale per sbaglio. E' la stessa regola del pannello delle
+proprieta'.
+
+**`Riavvia ora`**, nell'ordine: il setup si avvia in silenzioso con due secondi di attesa (un
+programma che sta uscendo tiene il proprio eseguibile, `docs/02` §7.75), Bolt si chiude, Inno
+aspetta che sia chiuso e installa, e **alla fine riapre Bolt dal percorso installato**
+(`%LOCALAPPDATA%\Programs\Bolt\Bolt.exe`, `DefaultDirName={autopf}\Bolt`). Non si riapre
+l'eseguibile da cui si e' partiti: se si sta usando il pacchetto portatile, quello resta la
+versione vecchia e riaprirlo vorrebbe dire rimettersi davanti lo stesso avviso.
+
+**`Piu' tardi`** chiude solo la finestra: il setup verificato resta in `%TEMP%\Bolt-update\` e
+il comando, rifatto, riapre la finestra su quello stesso stato invece di riscaricare.
+
+**Visto il 2026-10-23**, con il foglio delle release in locale (`BOLT_UPDATE_API`, un server
+che manda l'asset **a blocchi lenti**, altrimenti da `localhost` arriva in un lampo e la barra
+non si vedrebbe). Tre stati, guardati al pixel — `analysis/tmp/upd-*.png`:
+
+- durante il download la barra e' **blu e a meta'**, con sotto `2,3 MB / 4,0 MB (57%)`;
+  il pulsante a destra e' `Annulla`, e sotto c'e' `Esc annulla`;
+- a fine download la finestra dice `Bolt 0.1.18 scaricato e verificato.`, poi
+  `Riavvia Bolt per installarlo.` e `Bolt si chiude, il setup installa e Bolt si riapre.`,
+  e in fondo i due pulsanti `Piu' tardi` e `Riavvia ora` (questo in accent);
+- lo stato «aggiornato» — il foglio del banco che dichiara la stessa versione — mostra una riga sola e il pulsante `Chiudi`: nessuna barra, nessun secondo pulsante, e `Esc` chiude la finestra (`upd-6-aggiornato.png` e `upd-7-chiuso.png`, 841.906 pixel diversi fra i due stati);
+- `Riavvia ora` **non chiude piu' il programma di nascosto**: il registro scrive
+  `setup avviato, Bolt si chiude per l'installazione`, Bolt si chiude, e otto secondi dopo
+  c'e' un processo `Bolt` che gira — da `%LOCALAPPDATA%\Programs\Bolt\Bolt.exe`, cioe' la
+  **copia installata**, non quella da cui si era partiti.
+
+Per provare il riavvio **senza installare niente** il setup servito dal banco era una copia
+di `where.exe`: con `/VERYSILENT` esce subito e non tocca il disco, e la prova guarda solo il
+riavvio. Il setup vero non si usa per questo giro: installerebbe davvero, e la macchina di chi
+lavora non e' il banco (`AGENTS.md` §0).
+
+**La prova vera, il 2026-10-23**: la 0.1.18 **installata** ha fatto `Controlla aggiornamenti`, trovato la 0.1.19 su GitHub, e la finestra ha detto `Bolt 0.1.19 scaricato e verificato.` con `Riavvia ora`; premuto quello, Bolt si e' chiuso, il setup ha installato, e quattro secondi dopo c'era un processo `Bolt` da `%LOCALAPPDATA%\Programs\Bolt\Bolt.exe` con «App e funzionalita'» a **0.1.19**. Catture: `analysis/tmp/agg-1..3*.png`.`r
+`r
+Una cosa da sapere: con la rete veloce il download di 2,7 MB finisce in **meno di un secondo**, quindi le due catture prese a 1,2 e 3,2 secondi sono **identiche** (0 pixel diversi) e mostrano gia' lo stato pronto — la barra in movimento si vede solo con il banco a blocchi lenti, ed e' li' che e' stata verificata.`r
+`r
+Il primo giro ha mostrato una cosa da correggere subito: la frase «Riavvia Bolt per
+installarlo: si chiude, il setup installa e Bolt si riapre» su una riga veniva **troncata** a
+meta'. Adesso sono due righe corte, e l'istruzione si legge tutta.
+**Limiti dichiarati.** La barra e' determinata solo quando la risposta dichiara la lunghezza:
+senza `Content-Length` si mostra quanto e' arrivato, che e' l'unica cosa vera che si sa. E
+l'aggiornamento resta **esplicito**: nessun timer, nessuna notifica, nessuna richiesta
+all'avvio (`docs/06`).
 **Limiti dichiarati.** Il setup scaricato resta in `%TEMP%\Bolt-update\` dopo
 l'installazione (lo sta leggendo il setup). Non c'e' un controllo periodico ne' una
 notifica: solo il comando. Il comando non ha un tasto di partenza, chi lo vuole se lo
@@ -2888,3 +2960,69 @@ sia** prima di trascinare: la via piu' sicura e' portare il pannello sulla Home 
 il percorso nella barra in alto, invece di fidarsi della coordinata della barra laterale.
 Se con la Home davvero aperta la barra resta muta, allora il difetto e' nel programma e si
 cerca in `TargetAt`: per un pannello sulla Home deve rispondere "vuoto".
+
+### La puntina dei fissaggi nella barra laterale — *Visto il 2026-10-23*
+
+Le righe **nostre** della barra laterale — le cartelle fissate in accesso rapido e nei
+segnalibri — portavano una **stella**, la stessa forma della barra strumenti. L'autore ha
+chiesto quella del riferimento: la **puntina**, in fondo alla riga come prima.
+
+La ragione non e' solo estetica: la stella sulla barra strumenti vuol dire *questa cartella
+e' nei segnalibri*, ed e' un **comando** (si preme per aggiungere o togliere); la riga della
+barra laterale dice un'altra cosa — *questa riga e' nostra, non della shell* — e con lo
+stesso segno le due si confondevano. `docs/02` §7.58 aveva gia' sostituito il carattere `★`
+con una forma; questo e' il passo dopo, e vale per i fissaggi soltanto.
+
+**Come e' fatta.** E' una forma SDF come le altre (`UIDraw::Pin`, `FLAG_PIN` = 2048): tre
+pezzi in un campo di distanza — il cappuccio, la barretta e la punta — uniti dal **minimo**,
+che e' come si uniscono le distanze. Disegnata dritta e girata di 45 gradi ruotando il
+**punto**, non la forma, esattamente come la linguetta e la freccia: tre formule dritte invece
+di tre oblique. Sta in `src/shaders/ui.frag` e, in HLSL, dentro `src/d3d11_renderer.cpp`:
+due copie della stessa formula, come per tutte le altre forme.
+
+**Cosa ha insegnato il primo giro, che non si vedeva.** La prima versione non disegnava
+niente di visibile: forma troppo sottile per tredici pixel, e il quad c'era. A trovarlo non e'
+stato l'occhio ma il **pixel**: un `FillRect` di prova della stessa misura al posto della
+forma, e la mappa dei pixel attorno. Il `FillRect` c'era, la puntina no — quindi il problema
+era nella formula, non nel codice che la chiama. Regola che ne esce: a dodici-tredici pixel
+una forma si **riempie**, non si disegna in filo, o l'antialiasing la mangia; e un dubbio sul
+disegno si scioglie mettendo un rettangolo di prova nello stesso posto.
+
+**Il doppione che si vedeva fissando una cartella che la shell ha gia'** (`docs/02` §7.77): la sezione somma i nostri fissaggi e le voci dell'accesso rapido di Windows, e nessuno confrontava i due elenchi — due righe identiche, una con la puntina e una no. Adesso la chiave della cartella e' una sola (`PathKey` in `app_ui.*`, la stessa che la Home gia' usava) e una voce della shell gia' fra le nostre non si aggiunge: `1 nostri, 8 della shell, 8 righe, saltate 1`.
+
+**Visto**, e in tutt'e due i backend: fissata la cartella della sandbox con `Ctrl+Shift+P`
+-> `Fissa questa cartella in...` -> `Accesso rapido`, la riga compare in cima a `ACCESSO RAPIDO`
+con la puntina in fondo; `--- backend: Direct3D 11` e `--- backend: OpenGL` danno la
+**stessa** mappa di pixel (13x13, testa in alto a destra, punta in basso a sinistra). Li'
+dove la forma e' stata giudicata: `analysis/tmp/pinseq-*.png`.
+
+### L'estensione di un collegamento non si vede mai — *Visto il 2026-10-23*
+
+Chiesto dall'autore: «per i file collegamento `.lnk`, nascondere sempre l'estensione».
+Non e' una preferenza: e' quello che fa Windows. Nel registro, sotto la chiave del tipo
+`.lnk`, c'e' **`NeverShowExt`**, e Esplora risorse non mostra quell'estensione nemmeno con
+«Estensioni dei nomi file» acceso — mentre `.txt`, `.csv` e tutti gli altri la mostrano.
+
+**Dove si decide.** `DisplayName` in `view_list.cpp`: e' la funzione che dava gia' il nome
+corto quando `Show File Extension` era spento. Adesso un `.lnk` passa da li' **sempre**, e
+le altre estensioni continuano a seguire l'opzione. Il confronto e' case-insensitive
+(`.LNK` e `.lnk` sono lo stesso tipo).
+
+**Cosa non cambia, ed e' voluto.** Il nome **vero** resta quello con l'estensione: aprire,
+filtrare e rinominare usano `Entry::name`. In particolare la rinomina mostra il nome
+completo e lascia fuori dalla selezione solo il prefisso prima dell'ultimo punto — se il
+campo mostrasse il nome corto, confermare la rinomina **toglierebbe** il `.lnk` e il
+collegamento diventerebbe un file qualunque. Una cosa e' come si legge un nome, un'altra
+e' come si rinomina un file.
+
+**Visto**, e con un controllo che distingue davvero i due casi: `Show File Extension`
+acceso per la prova (in `settings.ini`, che non c'era e che e' stato tolto alla fine), e la
+stessa cartella aperta due volte — con la **0.1.18 installata** e con la build di adesso.
+La lista della sandbox, ritagliata senza la barra laterale (che ha i fissaggi di chi
+lavora, `AGENTS.md` §0), differisce di **717 pixel in un solo riquadro**, `x 123..234 y
+81..93`: una riga, la colonna del nome. E' il `.lnk` che perde `nota collegata.lnk` →
+`nota collegata`, e nessun'altra riga cambia (`analysis/tmp/lnk-prima-0.1.18.png` contro
+`lnk-dopo-build.png`).
+
+La sandbox adesso contiene un collegamento creato apposta, `nota collegata.lnk`
+(`tools/make-test-sandbox.ps1`): senza, questa regola non si potrebbe provare.

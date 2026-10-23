@@ -11,16 +11,9 @@ namespace Bolt
 {
 namespace
 {
-// La stessa cartella scritta in due modi non deve comparire due volte: il percorso
-// che arriva da un pin, da un recente e da una cartella nota puo' avere la barra
-// finale di troppo o una maiuscola diversa.
-std::wstring KeyOf(const std::wstring& path)
-{
-    std::wstring key = path;
-    while (key.size() > 3 && (key.back() == L'\\' || key.back() == L'/'))
-        key.pop_back();
-    return FoldCase(key);
-}
+// La chiave della cartella sta in `app_ui.*` (`PathKey`): la usano la Home e la barra
+// laterale, che sommano elenchi diversi e non devono mostrare lo stesso posto due volte.
+using Bolt::PathKey;
 
 Entry MakeEntry(const std::wstring& path, int band)
 {
@@ -81,7 +74,7 @@ std::vector<Entry> BuildHomeEntries(const AppState& app)
         // un giro su se stessi in mezzo alle destinazioni.
         if (IsHome(path))
             return;
-        if (!seen.insert(KeyOf(path)).second)
+        if (!seen.insert(PathKey(path)).second)
             return;
         entries.push_back(MakeEntry(path, band));
     };

@@ -638,7 +638,20 @@ void DrawEntryCell(AppState& app, const Layout& layout, const ViewMetrics& metri
 // che il filtro non trova piu' sarebbe peggio di un nome lungo.
 std::string DisplayName(const AppState& app, const Entry& entry)
 {
-    if (app.showFileExtension || entry.isDirectory || entry.extension.empty())
+    if (entry.isDirectory || entry.extension.empty())
+        return entry.name;
+
+    // Un collegamento l'estensione non la mostra **mai**, nemmeno con `Show File
+    // Extension` acceso: `.lnk` e' un dettaglio del file system, non parte del nome, ed
+    // e' quello che fa Windows, che per questa estensione ha `NeverShowExt` nel
+    // registro. Le altre seguono l'opzione, e il nome vero resta quello — aprire,
+    // rinominare e filtrare continuano a usare `Entry::name` (`docs/04`, «L'estensione
+    // di un collegamento non si vede mai»).
+    const bool shortcut = entry.extension.size() == 3 &&
+                          (entry.extension[0] == 'l' || entry.extension[0] == 'L') &&
+                          (entry.extension[1] == 'n' || entry.extension[1] == 'N') &&
+                          (entry.extension[2] == 'k' || entry.extension[2] == 'K');
+    if (app.showFileExtension && !shortcut)
         return entry.name;
 
     const size_t dot = entry.name.rfind('.');
@@ -2477,4 +2490,184 @@ std::vector<const BYTE*> SelectedPidls(const AppState& app)
     return pidls;
 }
 
+
+// --- la selezione: una sola, per il disegno e per l'input ----------------------
+void SelectOnly(AppState& app, int entryIndex)
+{
+    app.selection.clear();
+    if (entryIndex < 0)
+        return;
+    const std::wstring& name = app.entries[static_cast<size_t>(entryIndex)].wideName;
+    app.selection.insert(name);
+    app.cursor          = name;
+    app.selectionAnchor = name;
+}
+
+void ToggleSelection(AppState& app, int entryIndex)
+{
+    if (entryIndex < 0)
+        return;
+    const std::wstring& name = app.entries[static_cast<size_t>(entryIndex)].wideName;
+    if (app.selection.count(name) != 0)
+        app.selection.erase(name);
+    else
+        app.selection.insert(name);
+    app.cursor          = name;
+    app.selectionAnchor = name;
+}
+
+// Row index of an entry in the current view, or -1 when the view hides it.
+int RowOfEntry(const AppState& app, int entryIndex)
+{
+    for (int i = 0; i < static_cast<int>(app.rows.size()); ++i)
+    {
+        if (!app.rows[static_cast<size_t>(i)].header && app.rows[static_cast<size_t>(i)].entry == entryIndex)
+            return i;
+    }
+    return -1;
+}
+
+// Adds every entry row between two row indices, inclusive. Group bands between
+// them are stepped over rather than treated as boundaries.
+void SelectRowRange(AppState& app, int rowFrom, int rowTo)
+{
+    if (rowFrom < 0 || rowTo < 0)
+        return;
+    const int low  = (std::min)(rowFrom, rowTo);
+    const int high = (std::max)(rowFrom, rowTo);
+    for (int i = low; i <= high && i < static_cast<int>(app.rows.size()); ++i)
+    {
+        const Row& row = app.rows[static_cast<size_t>(i)];
+        if (!row.header)
+            app.selection.insert(app.entries[static_cast<size_t>(row.entry)].wideName);
+    }
+}
+
+bool RectsIntersect(const Rect& rect, float x0, float y0, float x1, float y1)
+{
+    return !(rect.right() < x0 || rect.x > x1 || rect.bottom() < y0 || rect.y > y1);
+}
+
+// Il rettangolo applicato alla selezione, **adesso**: si chiama a ogni movimento del
+// mouse e al rilascio. La selezione si rifa' ogni volta dalla base (`rectBase`), non si
+// accumula: cosi' le righe che si vedono blu sono esattamente quelle coperte — anche
+// stringendo il rettangolo, che deseleziona.
+//
+// La verifica usa i rettangoli delle righe registrati dall'ultimo fotogramma: sono al
+// massimo uno indietro, e conta solo se si rilascia nell'istante in cui la lista scorre.
+void ApplyRectSelection(AppState& app)
+{
+    const float x0 = (std::min)(app.rectX0, app.rectX1);
+    const float x1 = (std::max)(app.rectX0, app.rectX1);
+    const float y0 = (std::min)(app.rectY0, app.rectY1);
+    const float y1 = (std::max)(app.rectY0, app.rectY1);
+
+    app.selection = app.rectBase;
+
+    std::wstring last;
+    for (const ClickTarget& target : app.clickTargets)
+    {
+        if (target.kind != ClickTarget::Kind::Row)
+            continue;
+        if (!RectsIntersect(target.rect, x0, y0, x1, y1))
+            continue;
+        const std::wstring& name = app.entries[static_cast<size_t>(target.index)].wideName;
+        app.selection.insert(name);
+        last = name;
+    }
+
+    if (!last.empty())
+    {
+        app.cursor          = last;
+        app.selectionAnchor = last;
+    }
+}
+
+// Ends a rubber band drag.
+void FinishRectSelection(AppState& app)
+{
+    if (!app.rectSelecting)
+        return;
+
+    ApplyRectSelection(app);
+    app.rectSelecting = false;
+    app.rectBase.clear();
+}
+
+void ScrollBy(AppState& app, const Layout& layout, float delta)
+{
+    const ViewMetrics metrics = ComputeViewMetrics(app, layout);
+    const float content = ViewContentHeight(app, layout);
+    const float maxScroll = (std::max)(0.0f, content - layout.list.h);
+    app.scroll = (std::min)(maxScroll, (std::max)(0.0f, app.scroll + delta));
+}
+
+// Moves the cursor by |delta| entry rows, skipping group bands. Returns without
+// moving when there is no further entry in that direction. |extend| is the Shift
+// case: the selection becomes the range from the anchor to the new cursor.
+void MoveSelection(AppState& app, int delta, bool extend)
+{
+    const int count = static_cast<int>(app.rows.size());
+    if (count == 0 || delta == 0)
+        return;
+
+    const int cursorIndex = CursorIndex(app);
+    const int position = (cursorIndex < 0) ? -1 : RowOfEntry(app, cursorIndex);
+
+    int target = (position < 0) ? (delta > 0 ? 0 : count - 1) : position + delta;
+    const int step = (delta > 0) ? 1 : -1;
+    while (target >= 0 && target < count && app.rows[static_cast<size_t>(target)].header)
+        target += step;
+
+    if (target < 0 || target >= count)
+        return;
+
+    const std::wstring name = app.entries[static_cast<size_t>(app.rows[static_cast<size_t>(target)].entry)].wideName;
+
+    if (extend && !app.selectionAnchor.empty())
+    {
+        const int anchorRow = RowOfEntry(app, FindEntryByName(app, app.selectionAnchor));
+        if (anchorRow >= 0)
+        {
+            // Rebuilt from the anchor each time, so dragging the cursor back
+            // towards the anchor shrinks the range instead of only growing it.
+            app.selection.clear();
+            SelectRowRange(app, anchorRow, target);
+        }
+        else
+        {
+            app.selection.insert(name);
+        }
+    }
+    else
+    {
+        app.selection.clear();
+        app.selection.insert(name);
+        app.selectionAnchor = name;
+    }
+
+    app.cursor = name;
+}
+
+// Keyboard navigation must not be able to walk the selection off the visible
+// area; with grouping and filtering the row index of an entry is not its index
+// in the directory any more.
+void EnsureSelectionVisible(AppState& app, const Layout& layout)
+{
+    const int cursorIndex = CursorIndex(app);
+    if (cursorIndex < 0)
+        return;
+    const int rowIndex = RowOfEntry(app, cursorIndex);
+    if (rowIndex < 0)
+        return;
+
+    // ItemRect already accounts for the grid flow and the current scroll, so the
+    // correction is just how far the item sticks out.
+    const Rect rect = ItemRect(app, layout, rowIndex, app.scroll);
+    if (rect.y < layout.list.y)
+        app.scroll -= layout.list.y - rect.y;
+    else if (rect.bottom() > layout.list.bottom())
+        app.scroll += rect.bottom() - layout.list.bottom();
+    app.scroll = (std::max)(0.0f, app.scroll);
+}
 } // namespace Bolt

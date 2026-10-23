@@ -68,6 +68,12 @@ Layout WindowLayout(const AppState& app);          // la finestra intera
 Layout PaneLayout(const AppState& app, int pane);   // un pannello: intestazione, filtro, lista
 Rect   SplitterRect(const AppState& app);           // la striscia fra i due pannelli (6 px)
 
+// La striscia fra i due pannelli: sei pixel. Un divisore di un pixel non si prende col
+// mouse, e il bordo resta invisibile finche' non ci si passa sopra. Qui e non in
+// `main.cpp` perche' lo leggono anche l'input del mouse (il verso del cursore, il
+// trascinamento) e la geometria: un numero solo, in un posto solo.
+constexpr float kSplitterWidth = 6.0f;
+
 // Il nostro pannello delle proprieta' (le stesse righe dell'ispettore, piu' grandi).
 void OpenPropertiesPanel(AppState& app);
 
@@ -78,6 +84,11 @@ void ToggleBookmark(AppState& app);
 // possono dimenticare in uno dei posti che la chiamano. Accettata vuol dire **sara'
 // fatta**: se ce n'e' gia' una in corso la richiesta va in coda, e parte quando quella
 // finisce.
+
+// L'installazione di un aggiornamento gia' verificato: si avvia il setup, Bolt si
+// chiude, e alla fine Bolt si riapre dalla copia installata (`docs/04` M13). Vive in
+// `main.cpp` perche' lancia un processo e chiude la finestra — non e' una superficie.
+void BeginInstallUpdate(AppState& app);
 bool BeginOperation(AppState& app, FileOps::Request request, OperationSource source);
 
 // Fa avanzare la coda: chiamata quando l'operazione in corso ha finito. Sta qui
@@ -89,4 +100,51 @@ void StartNextOperation(AppState& app);
 // `update.*`; qui resta il comando che lo fa partire, e l'esito che si legge quando
 // ha finito (→ `view_update.*`, quando ci sara' una superficie da disegnare).
 void CheckForUpdates(AppState& app);
+
+// --- le superfici che l'input chiama -----------------------------------------
+//
+// Uscite dal namespace anonimo di `main.cpp` il 2026-10-23, quando i `case` di
+// `WindowProc` sono diventati `input_keys.cpp` e `input_mouse.cpp`: il corpo di un
+// `case` e' l'azione della superficie che riceve l'evento, quindi l'evento non
+// poteva uscire senza che la superficie avesse un nome. La destinazione e' scritta
+// accanto a ognuna: sono superfici, e ognuna avra' il suo modulo.
+
+// Il campo di ricerca: `Ctrl+F` lo accende, i caratteri lo riempiono a passi.
+void StartSearch(AppState& app, std::wstring text);
+void StopSearch(AppState& app);
+
+// Le colonne: dove cade un punto dell'intestazione e il menu del tasto destro che
+// ci sta sopra. Destinazione `view_columns.*`.
+int ColumnAtPoint(const AppState& app, const Layout& layout, float x);
+void BuildColumnOpsMenu(AppState& app, int column);
+void BuildColumnMenu(AppState& app, int column);
+void RunColumnMenuSelection(AppState& app);
+void RunColumnOpsSelection(AppState& app);
+
+// Il pannello delle proprieta': la finestra nostra, modale. Destinazione
+// `view_properties.*`.
+Rect PropertiesPanelRect(const AppState& app, const Layout& layout);
+Rect PropertiesWindowsButton(const AppState& app, const Layout& layout, const Rect& panel);
+bool PropertiesPanelKey(AppState& app, WPARAM key);
+
+// L'editor della mappa dei tasti: la cattura di un tasto, la navigazione
+// dell'elenco, la scelta. Destinazione `view_keymap.*`.
+void BeginKeyCapture(AppState& app, int command);
+void KeyMapKeyDown(AppState& app, WPARAM key);
+void RunKeyMapSelection(AppState& app);
+
+// Il menu dei fissaggi. Destinazione `view_pins.*`.
+void RunPinMenuSelection(AppState& app);
+
+// Il pannello dell'operazione in corso: dove sta, il pulsante, l'annullamento.
+// Destinazione `view_operation.*`.
+bool OperationPanelVisible(const AppState& app);
+Rect OperationPanelRect(const AppState& app, const Layout& layout);
+Rect OperationCancelButton(const AppState& app, const Layout& layout, const Rect& panel);
+void CancelOperation(AppState& app);
+
+// La scelta dentro la palette e dentro il GoTo. Destinazione `view_palette.*` e
+// `view_goto.*`.
+void RunPaletteSelection(AppState& app);
+void RunGoToSelection(AppState& app);
 } // namespace Bolt

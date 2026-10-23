@@ -3089,3 +3089,30 @@ grande di una cartella adesso e' quella che la shell da' a **quel** percorso.
 a griglia con le loro icone — cestino, schermo, foglio, freccia, cartella, fotografia,
 nota, computer, pellicola — e la stessa griglia ritrovata tornando sulla Home dopo essere
 passati da una cartella normale.
+
+
+### 7.77 Fissando una cartella che la shell ha gia' nell'Accesso rapido compariva due volte — *chiusa il 2026-10-23*
+
+**Sintomo.** Fissando il Desktop (o una delle cartelle che Windows mette da solo in
+`ACCESSO RAPIDO`) la barra laterale mostrava **due righe identiche**, una sopra l'altra:
+la nostra con la puntina e quella della shell con lo stesso nome e la stessa icona.
+Visto dall'autore, che l'ha definito «molto brutto da vedere» — ed era la prima cosa che
+si vede aprendo il programma, perche' il Desktop e' la prima voce della sezione.
+
+**Causa.** La sezione si costruisce **sommando** due elenchi: i nostri fissaggi
+(`app.pins`, in cima) e le voci dell'accesso rapido di Windows (`app.quickAccess`). Il
+fissaggio non toglie niente alla shell — scelta giusta, la sua lista non si scrive — ma
+nessuno confrontava i due elenchi: la stessa cartella arrivava da tutt'e due le parti.
+
+**Correzione.** `PathKey` in `app_ui.*`: la cartella **come identita'** — barre finali
+tolte e maiuscole appianate, con il limite a tre caratteri che protegge le radici
+(`C:\`, `\\server\`). Una voce della shell la cui chiave e' gia' fra le nostre non viene
+aggiunta. La stessa regola la usava gia' la Home, per la stessa ragione (fissaggi,
+recenti e cartelle note si sommano anche li'), ma era scritta **dentro** `home.cpp`:
+adesso sta in `app_ui.*` e la chiamano tutti e due.
+
+**Verificato** (2026-10-23) con un registro di soli numeri — la sezione contiene fissaggi
+di chi lavora, quindi niente catture, `AGENTS.md` §0. Fissata una cartella che l'accesso
+rapido della shell mostra gia', il registro dice `1 nostri, 8 della shell, 8 righe,
+saltate 1`: le righe mostrate sono otto, la nona e' quella saltata, e prima erano nove
+con due uguali.

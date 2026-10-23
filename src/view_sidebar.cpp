@@ -1,5 +1,7 @@
 #include "view_sidebar.h"
 
+#include <set>
+
 #include "app_ui.h"
 #include "home.h"
 #include "shell_location.h"
@@ -58,6 +60,12 @@ void BuildSidebarRows(const AppState& app, std::vector<SidebarRow>* rows)
     {
         std::vector<Place> quick;
         quick.reserve(app.pins.size() + app.quickAccess.size());
+
+        // Le chiavi delle cartelle **nostre**: una cartella che la shell mostra gia' in
+        // `ACCESSO RAPIDO` non torna sotto come seconda riga. Fissando il Desktop
+        // comparivano due «Desktop» una sopra l'altra — la nostra con la puntina e la
+        // sua identica — ed era il primo doppione che si vedeva aprendo il programma.
+        std::set<std::wstring> mine;
         for (const std::wstring& path : app.pins)
         {
             // Il nome di una cartella e' la coda del percorso; una cartella di spazio
@@ -71,9 +79,14 @@ void BuildSidebarRows(const AppState& app, std::vector<SidebarRow>* rows)
             place.icon  = path;
             place.ours  = true;
             quick.push_back(std::move(place));
+            mine.insert(PathKey(path));
         }
         for (const Place& place : app.quickAccess)
+        {
+            if (mine.count(PathKey(place.path)) != 0)
+                continue;
             quick.push_back(place);
+        }
         section("QUICK ACCESS", Tr("ACCESSO RAPIDO", "QUICK ACCESS"), quick);
     }
 
@@ -209,20 +222,21 @@ void DrawSidebar(AppState& app, const Layout& layout)
         app.font.Draw(r, row.x + 30.0f * scale, row.y + 5.0f * scale, item.label,
                       active ? t.text : t.textDim, scale);
 
-        // Il segno delle righe **nostre**: la stella dei segnalibri, la stessa della
-        // barra strumenti — e' li' che si e' imparato a leggerla. Sta in fondo alla
-        // riga e non davanti al nome: davanti sposterebbe le etichette di una riga
-        // sola, e l'elenco non sarebbe piu' allineato.
+        // Il segno delle righe **nostre**: la puntina dei fissaggi. Sta in fondo alla
+        // riga e non davanti al nome — davanti sposterebbe le etichette di una riga
+        // sola, e l'elenco non sarebbe piu' allineato. E' la forma che usa anche il
+        // riferimento, ed e' disegnata, non il carattere: un glifo accanto a una forma
+        // si vede subito che e' un'altra cosa (`docs/02` §7.58).
         //
-        // Disegnata, non il carattere `★`: la barra strumenti usa la forma, e un
-        // glifo accanto a quella si vede subito che e' un'altra cosa (`docs/02`
-        // §7.58).
+        // Prima era la stella, che resta il segno dei **segnalibri** sulla barra
+        // strumenti: due cose diverse — «questa riga l'ho messa io» e «questa cartella
+        // e' nei segnalibri» — non devono portare lo stesso segno (`docs/04`, «La puntina dei fissaggi»).
         if (item.pinned)
         {
-            const float star = 11.0f * scale;
-            r.Draw(UIDraw::Star(Rect{row.right() - star - 10.0f * scale,
-                                     row.y + (row.h - star) * 0.5f, star, star},
-                                t.accent, 1.0f * scale, true));
+            const float pin = 13.0f * scale;
+            r.Draw(UIDraw::Pin(Rect{row.right() - pin - 9.0f * scale,
+                                    row.y + (row.h - pin) * 0.5f, pin, pin},
+                               t.textDim));
         }
 
         if (item.volume)

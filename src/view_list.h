@@ -143,4 +143,19 @@ std::wstring EntryLocation(const AppState& app, const Entry& entry);
 // shell risolve senza toccare il disco; per la radice di un volume dipende dal disco,
 // e allora si chiede guardandola.
 const ShellIconAtlas::IconUV* IconFor(AppState& app, const Entry& entry);
+
+// --- muovere la selezione e la vista -----------------------------------------
+//
+// La selezione la cambia chi la disegna e chi riceve il clic, e le due cose devono
+// voler dire lo stesso: stavano in main.cpp e le usavano solo il disegno e l'input.
+// Uscite con l'input, il 2026-10-23, perche' l'input ha bisogno di una selezione sola.
+void SelectOnly(AppState& app, int entryIndex);
+void ToggleSelection(AppState& app, int entryIndex);
+int  RowOfEntry(const AppState& app, int entryIndex);   // -1 se la vista la nasconde
+void SelectRowRange(AppState& app, int rowFrom, int rowTo);
+void ApplyRectSelection(AppState& app);                 // il rettangolo, adesso
+void FinishRectSelection(AppState& app);                // fine del trascinamento
+void ScrollBy(AppState& app, const Layout& layout, float delta);
+void MoveSelection(AppState& app, int delta, bool extend);
+void EnsureSelectionVisible(AppState& app, const Layout& layout);
 } // namespace Bolt

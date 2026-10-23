@@ -44,6 +44,15 @@ New-Item -ItemType Directory -Force -Path (Join-Path $sandbox 'immagini')  | Out
 Set-Content -Path (Join-Path $sandbox 'nota.txt')      -Value "nota di prova`nriga due`n"           -NoNewline
 Set-Content -Path (Join-Path $sandbox 'relazione.txt') -Value ("riga di prova`n" * 40)                -NoNewline
 Set-Content -Path (Join-Path $sandbox 'dati.csv')      -Value "colonna,due,tre`n1,2,3`n4,5,6`n"      -NoNewline
+
+# Un collegamento: serve alle prove sul nome mostrato, perche' `.lnk` e' l'unica
+# estensione che non si vede **mai** (`docs/04`, «L'estensione di un collegamento non si vede mai») — nemmeno con `Show File
+# Extension` acceso, come fa Windows, che per questa ha `NeverShowExt` nel registro.
+$shell = New-Object -ComObject WScript.Shell
+$link = $shell.CreateShortcut((Join-Path $sandbox 'nota collegata.lnk'))
+$link.TargetPath = (Join-Path $sandbox 'nota.txt')
+$link.Save()
+[System.Runtime.InteropServices.Marshal]::ReleaseComObject($shell) | Out-Null
 Set-Content -Path (Join-Path $sandbox 'documenti\contratto.txt') -Value "documento di prova`n"       -NoNewline
 Set-Content -Path (Join-Path $sandbox 'documenti\appunti.txt')   -Value "appunti di prova`n"         -NoNewline
 

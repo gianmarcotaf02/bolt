@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.20)
 
 project(Bolt
-    VERSION 0.1.17
+    VERSION 0.1.19
     DESCRIPTION "Clone of a fast native Windows file manager, reconstructed from static binary analysis"
     LANGUAGES CXX)
 
@@ -34,10 +34,15 @@ add_executable(Bolt WIN32
     src/view_menu.cpp
     src/view_menu.h
     src/view_options.cpp
+    src/view_update.cpp
+    src/view_update.h
     src/view_options.h
     src/app_actions.h
     src/commands.cpp
     src/commands.h
+    src/input.h
+    src/input_keys.cpp
+    src/input_mouse.cpp
     src/input_targets.cpp
     src/input_targets.h
     src/keymap.cpp

@@ -63,6 +63,19 @@ std::wstring NormalizePath(const std::wstring& path);
 std::wstring IOPath(const std::wstring& path, bool longPaths);
 std::wstring JoinPath(const std::wstring& directory, const std::wstring& name);
 
+// La cartella **come identita'**, per non mostrarla due volte: barre finali tolte e
+// maiuscole appianate. Lo stesso posto arriva scritto in modi diversi — da un
+// fissaggio, da un recente, dall'accesso rapido della shell — e `C:\Users\x\Desktop\` e
+// `c:\users\x\desktop` sono la stessa cartella.
+//
+// Serve dove due elenchi si **sommano**: la Home (fissaggi, recenti, cartelle note) e
+// la barra laterale (i nostri fissaggi sopra quelli della shell). Il doppione che si
+// vedeva era proprio questo: fissando il Desktop comparivano due righe «Desktop»,
+// perche' l'accesso rapido della shell il Desktop ce l'ha gia'.
+//
+// Non e' un confronto fra percorsi per l'I/O: li' vale il confronto di Windows.
+std::wstring PathKey(const std::wstring& path);
+
 // Come si scrive una grandezza a chi la legge: "1,2 MB", "13,9K". Rotte le unita'
 // si perdono i dettagli che servono; intere si perde la misura.
 std::string HumanBytes(uint64_t bytes);

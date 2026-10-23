@@ -22,11 +22,11 @@ Incolla questa frase:
 > release con `tools/make-installer.ps1` + `gh release create` (setup, zip, `SHA256SUMS`),
 > e alla fine `docs/04`, `docs/05` e `graphify update .` dalla root.
 
-**Stato della macchina**: Bolt **0.1.16** installato in `%LOCALAPPDATA%\Programs\Bolt`
-(ci e' arrivato aggiornandosi da solo dalla 0.1.14); `gh` 2.102.0 in
-`C:\Program Files\GitHub CLI`, autenticato come `gianmarcotaf02`; release `v0.1.0`,
-`v0.1.1`, `v0.1.2`, `v0.1.3`, `v0.1.4`, `v0.1.5`, `v0.1.6`, `v0.1.7`, `v0.1.8`,
-`v0.1.9`, `v0.1.10`, `v0.1.11`, `v0.1.12`, `v0.1.13`, `v0.1.14`, `v0.1.15`; sandbox pronta in `analysis/tmp/sandbox`;
+**Stato della macchina**: Bolt **0.1.19** installato in `%LOCALAPPDATA%\Programs\Bolt`
+(ci e' arrivato **aggiornandosi da solo** dalla 0.1.17 con Controlla aggiornamenti, il
+2026-10-23: download dalle release vere, impronta SHA-256 verificata, setup silenzioso, e
+«App e funzionalita'» dice 0.1.18); `gh` 2.102.0 in `C:\Program Files\GitHub CLI`,
+autenticato come `gianmarcotaf02`; release dalla `v0.1.0` alla **`v0.1.19`**; sandbox pronta in `analysis/tmp/sandbox`;
 `settings.ini` con `language=italian` e nessun `startupFolder`. `verify-installer.ps1`
 si rifiuta di partire finche' Bolt e' installato: prima si disinstalla.
 
@@ -192,7 +192,8 @@ quattro famiglie di segni con quattro spessori e quattro altezze ottiche in una 
 sola. Adesso sono tre forme SDF (freccia, aggiorna, stella) in **tutt'e due** gli
 shader, in una scatola di 12 px con spessore 1,2, centrate sulla riga dell'indirizzo
 **misurata** e non a occhio — e la stella delle righe fissate nella barra laterale,
-che era ancora `★`, è la stessa forma. `docs/02` §7.58, catture in
+che era ancora `★`, è la stessa forma (dal 2026-10-23 li' c'e' la **puntina**:
+`docs/04`, «La puntina dei fissaggi»). `docs/02` §7.58, catture in
 `analysis/tmp/nav-*.png`.
 
 Prima, in ordine: **i valori delle colonne nel carattere dei
@@ -249,7 +250,7 @@ mossa: chiuso `Vista` in italiano, in inglese la banda si chiama `View` ed e' **
 chiusa**. Vedi `docs/02` §7.56. Poi, **sempre in ordine**, il **fissaggio in qualunque
 sezione** (M6): `Fissa in...` e `Togli da...` mettono una cartella in accesso rapido o
 nei segnalibri, e nell'accesso rapido le nostre righe stanno in cima a quelle di
-Windows con la stella che le distingue — `docs/04` M6, e `docs/02` §7.57 per il difetto
+Windows con il segno che le distingue — `docs/04` M6, e `docs/02` §7.57 per il difetto
 che si e' pagato strada facendo. **Poi il trascinamento fuori dal cestino** (§7.34),
 che era il primo della lista come *diagnosi*: il difetto non c'era piu' — una voce
 riciclata trascinata in una cartella si ripristina li' — e i due giri precedenti
@@ -327,7 +328,7 @@ vivono.
 | M5c — modalità di visualizzazione | ✅ quattro viste, celle **derivate** da una misura continua (icona, larghezza e altezza), raggruppamento in griglia e nell'elenco, ridimensionamento continuo con `Ctrl`+rotella, **selettori di vista e misura delle anteprime nella barra in fondo**, e **icone grandi chieste alla misura giusta** invece di ingrandite (`docs/02` §7.45) |
 | M5d — sovrappasso e comportamento del clic | ✅ evidenzia righe e celle, e le otto chiavi di interazione: `HoverToSelect`, `UnderlineOnHover`, `ShowTooltips`, `SingleClick`, `SingleClickFoldersOnly`, `ActOnPress`, `DoubleClickToParent`, `ShowCheckboxes` |
 | M5b — colonne | ✅ ridimensionabili col mouse, con filtri per valore nelle intestazioni e **filtro di testo sul nome**; **venti** colonne (`docs/03` §5), tutte ordinabili. Le undici che non si vedono di partenza si accendono dal menu dell'intestazione — che ha la ricerca — comprese `Percentuale`, `Uso cartella`, `Data eliminazione` e `Posizione originale` (le due del cestino, lette dalla shell per nome canonico) e i quattro `Empty`, il cui contenuto si sceglie dallo stesso menu (`docs/04` M5b). Limite dichiarato: il contenuto di un `Empty` vive nella sessione |
-| M6 — tab, barra del titolo, palette, GoTo | ✅ tab, titolo, palette, GoTo, **barra laterale a sezioni** (fissaggi, recenti, segnalibri, volumi, cartelle standard), **pulsanti di navigazione**, **albero dei tab verificato** (creazione per trascinamento, chiusura per ramo, distacco), il **fissaggio in qualunque sezione** e il **menu contestuale delle righe** della barra laterale: `Fissa in...` / `Togli da...` mettono e tolgono una cartella in accesso rapido o nei segnalibri — dalla palette (la cartella aperta) e dal tasto destro su una riga (quella riga) — con la stella che distingue le nostre righe da quelle della shell. Il limite che resta e' dichiarato in `docs/04` M6: i fissaggi sono di sessione |
+| M6 — tab, barra del titolo, palette, GoTo | ✅ tab, titolo, palette, GoTo, **barra laterale a sezioni** (fissaggi, recenti, segnalibri, volumi, cartelle standard), **pulsanti di navigazione**, **albero dei tab verificato** (creazione per trascinamento, chiusura per ramo, distacco), il **fissaggio in qualunque sezione** e il **menu contestuale delle righe** della barra laterale: `Fissa in...` / `Togli da...` mettono e tolgono una cartella in accesso rapido o nei segnalibri — dalla palette (la cartella aperta) e dal tasto destro su una riga (quella riga) — con la **puntina** che distingue le nostre righe da quelle della shell (era una stella fino al 2026-10-23). Il limite che resta e' dichiarato in `docs/04` M6: i fissaggi sono di sessione |
 | M7 — operazioni su file | 🟡 copia, sposta, rinomina, cestino, clipboard interoperabile, **due pannelli** (`Split right`/`Split bottom`, `Ctrl+Shift+S`/`Ctrl+S` — tappa 1, `docs/04`: tab per pannello, divisore trascinabile, attivazione al clic), **menu contestuale a più livelli e cercabile** (campo in cima, filtro sul livello 0: `docs/04`) con **`Proprietà` in-app** e **`Proprietà di Windows`**, le **voci di primo livello della shell**, il **menu della cartella** sul fondo, i **sottomenu delle estensioni**, **`Nuovo file >`** (tipi dal registro, creazione con
 contenuto), **`Invia a >`** (destinazioni della cartella SendTo, eseguite lasciandoci
 cadere sopra la selezione), **drag&drop dentro e fuori** con OLE, la **navigazione
@@ -344,7 +345,7 @@ PIDL codificato, `shell:pidl:`). Restano i modelli `ShellNew` con `Command` |
 | M10 — backend D3D11 | ✅ `IRenderer` dietro cui stanno **OpenGL** e **Direct3D 11** (stessi shader in HLSL, stesso batcher di quadrilateri), scelta all'avvio (`BOLT_BACKEND`) e fallback all'OpenGL. Lo shader HLSL incorporato non compilava — `point` e' una parola riservata — e il fallback faceva sembrare tutto a posto; **corretto e verificato il 2026-10-18** (`p` al posto di `point`), con le catture delle otto superfici e `--- backend: Direct3D 11` nel registro. Ora **disegna lui**. `docs/02` §7.52 |
 | M11 — installazione | ✅ l'installer **Inno Setup 6** (`installer/bolt.iss`, compilato in `out/Bolt-<versione>-win64-setup.exe` da `tools/make-installer.ps1`): installazione per utente senza amministratore, collegamento nel menu Start, voce in «App e funzionalita'» con versione e comando di disinstallazione, `AppId` stabile quindi una versione nuova **aggiorna**; wizard in italiano e inglese; in disinstallazione chiede se togliere le preferenze e in silenzioso non le tocca. Piu' lo zip portatile. `tools/verify-installer.ps1`: **24 controlli** con installazione vera, avvio in OpenGL, cattura, disinstallazione e pulizia garantita da `finally`. Impacchettando e' emerso un difetto vero — l'exe portava il percorso degli shader della macchina di compilazione (`docs/02` §7.63). Limiti: eseguibile non firmato (SmartScreen), niente MSIX, Inno Setup come dipendenza **di build** (`docs/04` M11) |
 | M12 — la Home | ✅ la pagina di avvio e' una **posizione** (`bolt:home`, non una cartella finta): tre bande — **Fissaggi** (i pin di sessione), **Recenti** (il ranking di M4), **Cartelle note** (i `places`) —, deduplicate, con `Entry::band` e un raggruppamento che sulla Home non si sceglie. Aprire, filtrare e `F5` funzionano; **copia, elimina, rinomina e proprieta' si rifiutano** (le righe nominano cartelle vere), e non partono ne' la sorveglianza ne' le statistiche ricorsive. Riga `Home` in cima alla barra laterale; `startupFolder` vuota = Home. `docs/04` M12 |
-| M13 — aggiornamenti in app | ✅ la **forma B**: comando **esplicito** `Controlla aggiornamenti` (nessun timer, nessuna richiesta all'avvio), `releases/latest` della repo, download del setup, **SHA-256** confrontato con quello pubblicato e rifiuto con cancellazione se non torna, poi setup in silenzioso. Lavoro su un thread, avanzamento nella barra di stato, `Esc` che annulla. **Visto tutto**, incluso il caso riuscito: con `v0.1.0` e `v0.1.1` pubblicate, la 0.1.0 installata si e' aggiornata da sola alla 0.1.1 e «App e funzionalita'» lo dice. `docs/04` M13 |
+| M13 — aggiornamenti in app | ✅ la **forma B**: comando **esplicito** `Controlla aggiornamenti` (nessun timer, nessuna richiesta all'avvio), `releases/latest` della repo, download del setup, **SHA-256** confrontato con quello pubblicato e rifiuto con cancellazione se non torna, poi setup in silenzioso. Lavoro su un thread, e dal 2026-10-23 una **finestra dell'aggiornamento** con la **barra del download** e la percentuale che chiede il **riavvio** invece di chiudere il programma da solo (`docs/04` M13). **Visto tutto**, incluso il caso riuscito: con `v0.1.0` e `v0.1.1` pubblicate, la 0.1.0 installata si e' aggiornata da sola alla 0.1.1 e «App e funzionalita'» lo dice. `docs/04` M13 |
 
 L'applicazione è **usabile**: si naviga, si filtra, si raggruppa, si seleziona, si
 aprono tab, si salta con GoTo, si guardano anteprime e statistiche ricorsive, e si
@@ -363,9 +364,8 @@ Ordinato per quanto morde.
    l'ordine di prima la caduta torna (6 su 120 avvii), togliendolo sparisce (0 su
    515). Resta dichiarata, e non riprodotta, una **seconda famiglia** di dump caduti
    dentro il nostro eseguibile (cinque, tutti prima del 2026-10-16): vedi la voce.
-1. **`src/main.cpp` e' a 4.914 righe** (misurate il 2026-10-21, dopo Home, aggiornamenti e icone; erano 4.348 quando e'
-   uscito `src/commands.*`, e le due superfici dei giorni dopo ne hanno aggiunte un
-   paio di centinaio), **ed erano 11.394** — scesa a 7.344 con lo
+1. **`src/main.cpp` e' a 4.277 righe** (misurate il 2026-10-23, dopo che l'input e' uscito),
+   **ed erano 11.394** — scesa a 7.344 con lo
    spezzamento, risalita a 7.895 con l'editor dei tasti e il fissaggio, scesa di
    **3.079** il 2026-10-18 in cinque tagli (`view_options`, `shell_menu`,
    `view_context_menu`, `settings`, `navigation`, `input_targets`) e di altre **536**
@@ -435,17 +435,60 @@ Ordinato per quanto morde.
    `src/navigation.*` — i due casi in cui la cucitura funzionava come previsto, un pezzo
    che trova il suo modulo e sparisce dall'elenco.
 
-   Restano dentro **i comandi e l'input**: i **comandi** (`RunCommand` e i `Do*`, piu' le
-   azioni che il menu chiama) e i `case` di `WindowProc`. Le superfici sono fuori tutte,
-   quindi il passo 2 della decisione e' **sbloccato**: `WM_KEYDOWN` e i messaggi del
-   mouse possono diventare `input_keys.*` e `input_mouse.*` senza trascinarsi niente
-   dietro. I confini dei componenti ci sono (`GroupMenu`,
-   `ContextMenu`, `file_ops`, `dir_stats`, `shell_*`, `drag_drop`) ma quelli della vista
-   vivono ancora nello stesso file. Spostarli e' un lavoro meccanico ma largo, e va
-   fatto quando c'e' spazio per riverificare tutto: il numero era **risalito** due volte
-   — 156 righe col tema, 302 col dialogo di progressione, 200 col contenuto della
-   cartella — ed e' il prezzo di scrivere un pezzo nuovo dove c'e' ancora il collo di
-   bottiglia. Spostarne uno subito dopo costa meno che aspettare.
+   **Il 2026-10-23 e' uscito anche l'input**, che era il passo 2 di quella decisione:
+   `src/input_keys.cpp` (542 righe) e `src/input_mouse.cpp` (1.235), con `src/input.h` a
+   dichiarare le due funzioni. I `case` si sono spostati **di peso**: lo `switch` che li
+   conteneva e' dentro una funzione per famiglia di messaggi, il testo non e' cambiato
+   di una riga (verificato confrontando i blocchi con l'originale), e un `break` che
+   prima usciva dallo `switch` e arrivava a `DefWindowProcW` adesso esce da questo
+   `switch` e arriva a `kMessageNotHandled`, che e' la stessa cosa detta al chiamante.
+   Con l'input sono usciti tre pezzi che erano suoi e non avevano un posto migliore:
+   la **selezione** — `SelectOnly`, `ToggleSelection`, `SelectRowRange`,
+   `ApplyRectSelection`, `FinishRectSelection`, `ScrollBy`, `MoveSelection`,
+   `EnsureSelectionVisible`, `RowOfEntry` — e' andata in `view_list.*`, perche' la
+   selezione e' della lista e la cambia chi la disegna e chi riceve il clic;
+   `OpenContextMenuAtCursor` e' andato in `view_context_menu.*`, che e' il menu che
+   apre; `SingleClickActivates` e `GroupMenuClick` sono rimaste nel modulo del mouse,
+   che e' l'unico a chiamarle.
+
+   **La cucitura, dopo il taglio, e' lunga di venti righe e va detta.** Le superfici che
+   l'input chiama — il campo di ricerca (`StartSearch`, `StopSearch`), le colonne
+   (`ColumnAtPoint`, `BuildColumnOpsMenu`, `BuildColumnMenu`, `RunColumnMenuSelection`,
+   `RunColumnOpsSelection`), il pannello delle proprieta' (`PropertiesPanelRect`,
+   `PropertiesWindowsButton`, `PropertiesPanelKey`), l'editor dei tasti
+   (`BeginKeyCapture`, `KeyMapKeyDown`, `RunKeyMapSelection`), i fissaggi
+   (`RunPinMenuSelection`), il pannello dell'operazione (`OperationPanelVisible`,
+   `OperationPanelRect`, `OperationCancelButton`, `CancelOperation`) e la scelta nella
+   palette e nel GoTo (`RunPaletteSelection`, `RunGoToSelection`) — sono uscite dal
+   namespace anonimo e stanno in fondo a `main.cpp`, in `namespace Bolt`, dichiarate in
+   `app_actions.h` **con la destinazione accanto** (`view_columns.*`, `view_properties.*`,
+   `view_keymap.*`, `view_pins.*`, `view_operation.*`, `view_palette.*`, `view_goto.*`,
+   `search.*`). Sono le stesse funzioni, non riscritte: quando ognuna avra' il suo
+   modulo, il corpo si sposta di peso e la riga sparisce da quell'elenco. E' la regola
+   della cucitura, applicata al contrario: qui e' cresciuta perche' un modulo nuovo ha
+   avuto bisogno di un nome, ed e' il caso che `app_actions.h` prevede.
+
+   Restano dentro **i comandi e le superfici di cui sopra**; i confini dei componenti ci
+   sono (`GroupMenu`, `ContextMenu`, `file_ops`, `dir_stats`, `shell_*`, `drag_drop`), e
+   il file che li contiene non e' piu' il collo di bottiglia che era: 11.394 righe erano
+   un problema, 4.277 sono un file di plumbing con venti funzioni da spostare.
+
+   **Come e' stato verificato** (`AGENTS.md` §2): il confronto al pixel, con lo stesso
+   eseguibile di prima e quello nuovo e **la stessa sequenza di gesti** su ognuno —
+   dieci stati (lista, clic su una riga, `Ctrl`+clic, rotella, `Invio` che entra in una
+   cartella, il tasto indietro che ne riesce, tre frecce, il menu da tastiera, quello
+   dal tasto destro, il filtro) e **0 pixel diversi su 1240x760 in tutti e dieci**.
+   La sequenza e' uno strumento, non un gesto improvvisato:
+   `tools/pixel-sequence.ps1 -Exe build/RelWithDebInfo/Bolt.exe -Reference <vecchio>`
+   la rifa' da solo e `tools/diff-png.ps1` confronta le catture, dicendo anche **dove**
+   stanno i pixel diversi (il numero da solo non distingue un testo cambiato dal bordo
+   arrotondato che mostra il desktop dietro). Il primo giro, fatto a mano e col
+   puntatore fermo sopra la barra laterale, lasciava 41 pixel con uno scarto di 3
+   livelli su un angolo di una riga: sotto il rumore fra due avvii dello **stesso**
+   eseguibile, che e' di 490-625 pixel con lo stesso tipo di scarto. Per questo la
+   sequenza sposta il puntatore fuori dalla finestra prima di ogni cattura: due
+   catture si confrontano solo a parita' di stato.
+
 2. **Nessun controllo di versione locale.** Il repository è su GitHub
    (`gianmarcotaf02/bolt`) e il sistema salva con commit automatici a ogni turno,
    ma non c'è una convenzione di branch: si lavora su `main`.
@@ -519,11 +562,16 @@ Non c'e' lavoro funzionale mancante: le milestone sono chiuse e il registro dei 
 a zero. Quello che resta e' **debito** e **limiti**, e questi sono i candidati, in ordine
 di quanto mordono:
 
-1. **Spezzare l'input di `main.cpp`** (`input_keys.*`, `input_mouse.*`). La decisione e'
-   gia' scritta in §2: prima le superfici (fatte), poi i `case` di `WindowProc`; adesso
-   `WM_KEYDOWN` e i messaggi del mouse non hanno piu' niente da trascinarsi dietro.
-   `main.cpp` e' a **5.604** righe, e la curva non si e' fermata: il menu dell'applicazione,
-   le sottocartelle nella lista, il layout, la sessione e la ricerca nel menu contestuale
+1. ~~**Spezzare l'input di `main.cpp`** (`input_keys.*`, `input_mouse.*`)~~ — **fatto il
+   2026-10-23.** `main.cpp` e' sceso da **5.604 a 4.277** righe, i `case` dei tasti e del
+   mouse sono in `input_keys.cpp` (542) e `input_mouse.cpp` (1.235) con il testo intatto,
+   e la selezione e' andata in `view_list.*`. Il racconto, i venti nomi rimasti nella
+   cucitura e le prove al pixel stanno in §2. **Il primo candidato adesso e' il
+   seguito naturale**: spostare quelle venti superfici nei moduli che hanno gia' scritto
+   accanto (`view_columns.*`, `view_properties.*`, `view_keymap.*`, `view_pins.*`,
+   `view_operation.*`, `view_palette.*`, `view_goto.*`, `search.*`). I corpi sono gia'
+   raggruppati in fondo a `main.cpp`, quindi il taglio e' meccanico e si fa un modulo per
+   volta, con la solita regola: le stesse schermate di prima, al pixel.
 2. **Il messaggio della caduta senza percorso non e' visto** (`docs/04`). Le due tappe degli
    split sono fatte e viste, e ora anche il **trascinamento di una scheda** da un pannello
    all'altro (col ramo che viaggia intero e il rifiuto di svuotare il pannello di partenza).
@@ -568,7 +616,7 @@ decisioni che andavano prese prima di scrivere sono applicate: i fissaggi sono
 **nostri** (la lista della shell non si tocca) e vivono **in memoria**, per la
 sessione. `Fissa in...` e `Togli da...`, dalla palette e dal menu contestuale, mettono
 una cartella in **accesso rapido** o nei **segnalibri**; nell'accesso rapido le nostre
-righe stanno in cima a quelle della shell, con la stella che le distingue. Verificato a
+righe stanno in cima a quelle della shell, con un segno che le distingue. Verificato a
 schermo: quattro cartelle fissate, la stella della barra strumenti che si accende
 fissando nei segnalibri, una riga tolta con `Togli da...` e sparita dalla barra
 laterale, la riga fissata che porta alla cartella cliccandola, le due voci presenti sul
@@ -730,13 +778,13 @@ sull'installazione: ogni volta `Controlla aggiornamenti` → download, impronta,
 silenzioso → «App e funzionalita'» dice la versione nuova. Il caso riuscito e' stato visto
 **cinque volte**, con cinque release diverse.
 
-**Stato della macchina, da sapere prima di lanciare le prove.** Bolt **0.1.5 e' installato**
+**Stato della macchina, da sapere prima di lanciare le prove.** Bolt **0.1.19 e' installato**
 davvero (`%LOCALAPPDATA%\Programs\Bolt`, collegamento nel menu Start, voce in «App e
-funzionalita'»), e ci e' arrivato **aggiornandosi da solo** dalla 0.1.4 durante la prova di
-M13. `tools/verify-installer.ps1` **si rifiuta di partire** se trova un'installazione:
+funzionalita'»), e ci e' arrivato **aggiornandosi da solo** dalle release vere il 2026-10-23
+(era la 0.1.17, passando per la 0.1.18). `tools/verify-installer.ps1` **si rifiuta di partire** se trova un'installazione:
 prima si disinstalla (App e funzionalita' -> Bolt), poi si prova. Se il codice cambia, il
 setup va ricostruito (`tools/make-installer.ps1`) e reinstallato: l'installato resta la
-0.1.5 finche' non lo si sostituisce. `gh` e' installato (`C:\Program Files\GitHub CLI`),
+versione pubblicata finche' non lo si sostituisce. `gh` e' installato (`C:\Program Files\GitHub CLI`),
 autenticato come `gianmarcotaf02`.
 
 ### La decisione presa il 2026-10-20: il ritaglio per-quad
@@ -857,6 +905,21 @@ powershell -ExecutionPolicy Bypass -File tools/capture-window.ps1 `
     -ProcessName Bolt -OutputPath analysis/tmp/shot.png
 ```
 
+**Uno spostamento di codice si verifica al pixel, non a occhio.** `tools/pixel-sequence.ps1`
+fa la stessa sequenza di dieci gesti su due eseguibili — quello di prima e quello nuovo — e
+`tools/diff-png.ps1` confronta ogni stato, dicendo quanti pixel cambiano, di quanto e
+**dove**:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File tools/pixel-sequence.ps1 `
+    -Exe build/RelWithDebInfo/Bolt.exe -Reference <eseguibile di prima> [-MaxPixels n -MaxDelta n]
+```
+
+Zero pixel diversi e' il risultato che conta; le tolleranze servono solo al rumore noto del
+bordo (`docs/05` §5). Apre due finestre vere, una dopo l'altra: vale `AGENTS.md` §0, e si
+lancia a macchina ferma. Se il **primo** stato — quello senza gesti prima — e' gia' diverso,
+il banco era disturbato: si rilancia.
+
 Le **shader** si leggono dalla sorgente (`REA_SHADER_DIR`), quindi una modifica a
 `src/shaders/*` non richiede ricompilare.
 
@@ -961,6 +1024,15 @@ invisibile il secondo. Dopo aver corretto qualcosa, rimisurare — il bordo
   `SendMessage` con `WM_KEYDOWN`/`WM_CHAR` è più affidabile.
 - Un blocco C# in `Add-Type` con una direttiva `using` malformata fallisce in
   silenzio e i tasti non partono mai: sembra che l'app ignori l'input.
+- `send-keys.ps1 -Action backspace` prende **quante volte** da `-Text`: senza, il conto
+  è zero e lo script non manda niente. Il 2026-10-23 una prova ha concluso «il tasto
+  indietro non fa niente» per due eseguibili diversi, e la causa era che nessuno dei due
+  aveva ricevuto il tasto: si scrive `-Action backspace -Text 1`. Il segnale che avrebbe
+  dovuto insospettire è che il difetto era **identico** su due binari diversi.
+- `capture-window.ps1` **si rifiuta** di catturare una finestra che non è in primo
+  piano, e dopo un clic sintetico il primo piano può essere cambiato: prima di ogni
+  cattura si richiama `tools/focus-window.ps1`, invece di dare per scontato che la
+  finestra sia ancora davanti.
 
 **`Alt`+`←`/`→` arrivano come `WM_SYSKEYDOWN`**, non `WM_KEYDOWN`, perché la
 finestra ha un menu di sistema.

@@ -1432,4 +1432,19 @@ bool ContextMenuHover(AppState& app, const Layout& layout, float x, float y)
     // deve cadere perche' il puntatore e' andato altrove.
     return true;
 }
+
+// Apre il menu contestuale da tastiera, ancorato alla riga del cursore. Il tasto
+// Menu — o Shift+F10, come in Esplora risorse — deve fare la stessa cosa del
+// tasto destro sul file scelto: senza mouse il menu resterebbe irraggiungibile.
+// Nel binario originale questa chiave esiste, `HK_ContextMenuOpen`.
+void OpenContextMenuAtCursor(AppState& app, const Layout& layout)
+{
+    const int cursorIndex = CursorIndex(app);
+    const int rowIndex    = (cursorIndex < 0) ? -1 : RowOfEntry(app, cursorIndex);
+    if (rowIndex < 0)
+        return;
+
+    const Rect item = ItemRect(app, layout, rowIndex, app.scroll);
+    BuildContextMenu(app, item.x + 40.0f * layout.scale, item.y + item.h * 0.5f);
+}
 } // namespace Bolt

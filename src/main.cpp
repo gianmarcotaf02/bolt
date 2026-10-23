@@ -85,6 +85,8 @@ constexpr UINT kDirectoryChanged = WM_APP + 1;
 #include "view_options.h"
 #include "shell_menu.h"
 #include "view_context_menu.h"
+#include "view_update.h"
+#include "input.h"
 #include "app_actions.h"
 #include "commands.h"
 
@@ -292,7 +294,7 @@ constexpr size_t kSearchResultCap      = 5000;
 std::wstring MatchParent(const std::wstring& root, const std::wstring& folder)
 {
     // Il genitore **relativo alla radice**, che e' quello che si scrive accanto al
-    // nome: `immaginiecchie`. E' la stessa forma di `Toggle Subfolders`.
+    // nome: `immagini_vecchie`. E' la stessa forma di `Toggle Subfolders`.
     if (folder.size() <= root.size())
         return std::wstring();
     std::wstring relative = folder.substr(root.size());
@@ -301,38 +303,6 @@ std::wstring MatchParent(const std::wstring& root, const std::wstring& folder)
     return relative;
 }
 
-// |text| **per valore**: la funzione comincia azzerando `app.searchText`, e quel testo
-// e' proprio `app.searchText` quando arriva da `Invio`. Passato per riferimento, il
-// primo `clear()` lo svuotava, e la ricerca partiva con la query vuota — che il
-// controllo qui sotto respingeva, senza dire niente. Il registro l'ha detto in una riga.
-void StartSearch(AppState& app, std::wstring text)
-{
-    // La ricerca si azzera **prima** di riempire: il testo che si cerca arriva come
-    // argomento e non dallo stato, perche' azzerare lo stato dopo averlo letto vuol dire
-    // cercare la stringa vuota — che trova tutto. Visto: 31 voci invece delle 15 `voce`.
-    app.search = AppState::SearchJob{};
-    app.searchText.clear();
-    app.search.query = FoldCase(text);
-    DiagLog("--- ricerca: avvio, query '" + ToUtf8(app.search.query) + "' da " +
-            ToUtf8(app.directory));
-
-    if (app.search.query.empty())
-        return;
-
-    // Dal campo si cerca: la cartella aperta **e sotto**. Da una cartella di spazio dei
-    // nomi non c'e' un albero da camminare, e lo si dice invece di cercare a vuoto.
-    if (ShellLocation::IsNamespace(app.directory) || IsHome(app.directory))
-    {
-        ReportStatus(app, TrW(L"Da qui non c'e' un albero di cartelle da cercare",
-                              L"There is no folder tree to search from here"));
-        return;
-    }
-
-    app.search.active = true;
-    app.search.root   = app.directory;
-    app.search.pending.push_back(app.directory);
-    ReportStatus(app, TrW(L"Cerco...", L"Searching..."));
-}
 
 // Il passo: legge |kSearchFoldersPerStep| cartelle e accumula. Quando la coda e' vuota
 // i risultati diventano la lista.
@@ -416,15 +386,6 @@ void AdvanceSearch(AppState& app)
                               L"Search stopped at a limit: narrow it or use a name"));
 }
 
-// Fermare la ricerca e tornare alla cartella: i risultati non sono una cartella, e
-// lasciarli li' dopo aver premuto Esc confonderebbe chi guarda.
-void StopSearch(AppState& app)
-{
-    app.search = AppState::SearchJob{};
-    app.searchText.clear();
-    app.searchFieldActive = false;
-    LoadDirectory(app, app.directory, /*recordHistory=*/false);
-}
 
 void DrawToolbar(AppState& app, const Layout& layout, const std::wstring& displayPath)
 {
@@ -829,247 +790,6 @@ bool IsEmptyColumn(int column)
     return which >= SortColumn::Empty1 && which <= SortColumn::Empty4;
 }
 
-// La colonna sotto un punto dell'intestazione, o -1. Una colonna nascosta non ha un
-// rettangolo: la sua frazione e' quella della prossima visibile (`ColumnEdges`),
-// quindi si cerca **fra quelle visibili** invece di fidarsi dell'indice.
-int ColumnAtPoint(const AppState& app, const Layout& layout, float x)
-{
-    if (layout.header.w <= 0.0f)
-        return -1;
-    const float fraction = (x - layout.header.x) / layout.header.w;
-    float edges[kColumnCount + 1];
-    ColumnEdges(app, edges);
-    for (int i = 0; i < kColumnCount; ++i)
-    {
-        if (!ColumnVisible(app, i))
-            continue;
-        // Il bordo destro e' quello della prossima **visibile a destra**, non di
-        // `i + 1`: dopo uno spostamento i due non coincidono.
-        const int   next  = NextVisibleColumn(app, i);
-        const float right = next < kColumnCount ? edges[next] : 1.0f;
-        if (fraction >= edges[i] && fraction < right)
-            return i;
-    }
-    return -1;
-}
-
-// Il menu del **tasto destro sull'intestazione**: le operazioni sulla colonna. Non ha
-// le spunte di visibilita' che il riferimento mette in fondo allo stesso pannello: da
-// noi le colonne si accendono e si spengono dalle opzioni e dalla palette, e due posti
-// che fanno la stessa cosa sono due posti da tenere allineati.
-void BuildColumnOpsMenu(AppState& app, int column)
-{
-    const Layout layout = ComputeLayout(app);
-    float edges[kColumnCount + 1];
-    ColumnEdges(app, edges);
-
-    app.columnOpsIndex = column;
-    app.columnOps.anchor = Rect{layout.header.x + layout.header.w * edges[column],
-                                layout.header.y, 0.0f, layout.header.h};
-
-    const bool closable = column > 0;
-    std::vector<GroupMenuItem> items;
-    // Sposta a sinistra o a destra: si accende solo dove c'e' dove andare — il nome non
-    // si sposta (e' la colonna che prende lo spazio che resta) e la prima e l'ultima
-    // non hanno una vicina da quel lato.
-    const bool canLeft  = column > 0 && PrevVisibleColumn(app, column) > 0;
-    const bool canRight = column > 0 && NextVisibleColumn(app, column) < kColumnCount;
-    items.push_back({"", Tr("Sposta a sinistra", "Shift Column Left"), "",
-                     kColumnOpsLeftId, OptionControl::None, "", "", false, 0.0f, canLeft});
-    items.push_back({"", Tr("Sposta a destra", "Shift Column Right"), "",
-                     kColumnOpsRightId, OptionControl::None, "", "", false, 0.0f, canRight});
-    items.push_back({"", Tr("Adatta questa colonna", "Size Column To Fit"), "",
-                     kColumnOpsFitId});
-    items.push_back({"", Tr("Adatta tutte le colonne", "Size All Columns To Fit"), "",
-                     kColumnOpsFitAllId});
-    items.push_back({"", Tr("Chiudi colonna", "Close Column"),
-                     closable ? std::string() : Tr("il nome resta", "Name stays"),
-                     kColumnOpsCloseId});
-    items.push_back({"", Tr("Ripristina le colonne", "Restore Default Columns"), "",
-                     kColumnOpsResetId});
-    // Le colonne "di fabbrica" ci sono e si vedono **spente**, con la ragione accanto:
-    // e' la stessa regola del riferimento, dove `System Light / Dark Scheme` sta li' e
-    // non si tocca invece di sparire. Le "di fabbrica" sarebbero quelle del prodotto
-    // originale, che non conosciamo: dichiararlo e' meglio che inventarle.
-    items.push_back({"", Tr("Colonne di fabbrica", "Restore Factory Columns"),
-                     Tr("non le conosciamo", "not known here"),
-                     kColumnOpsFactoryId, OptionControl::None, "", "", false, 0.0f, false});
-
-    // Il contenuto di un segnaposto `Empty`. Compare solo sul menu di una di quelle
-    // colonne, e da qualche parte bisogna pur dire cosa mostra: il posto naturale e' il
-    // menu della colonna stessa, che e' dove si va quando una colonna non va bene. Le
-    // scelte sono le colonne che una riga sa dire — il nome no, c'e' gia' ed e' quello che
-    // prende lo spazio che resta; i segnaposto no, perche' un segnaposto che punta a un
-    // altro segnaposto e' una catena che non finisce.
-    if (IsEmptyColumn(column))
-    {
-        const int chosen = app.emptyColumnSource[column - kEmptyColumnFirst];
-        items.push_back({Tr("Contenuto", "Contents"), Tr("Vuota", "Empty"), "",
-                         kColumnOpsEmptyBase});
-        for (int i = 1; i < kEmptyColumnFirst; ++i)
-        {
-            items.push_back({Tr("Contenuto", "Contents"),
-                             (i == chosen ? "[x] " : "[ ] ") + ColumnLabel(i), "",
-                             kColumnOpsEmptyBase + i});
-        }
-    }
-
-    // Le spunte di visibilita'. Il nome non c'e': e' la colonna che prende lo spazio
-    // che resta e chiuderla vorrebbe dire un elenco senza nomi — il perche' sta scritto
-    // nella riga `Chiudi colonna`, un posto sopra.
-    for (int i = 1; i < kColumnCount; ++i)
-    {
-        const bool shown = ColumnVisible(app, i);
-        items.push_back({Tr("Colonne", "Columns"),
-                         (shown ? "[x] " : "[ ] ") + ColumnTitle(app, i), "",
-                         kColumnOpsColumnBase + i});
-    }
-
-    GroupMenuOpen(app.columnOps, ColumnTitle(app, column),
-                  Tr("Cerca un'operazione...", "Find an operation..."), std::move(items));
-    app.columnOps.anchored    = true;
-    app.columnOps.caption     = Tr("Adatta, chiudi o riporta le colonne di partenza.",
-                                   "Size, close or restore the columns.");
-    app.columnOps.command     = Tr("Opzioni della colonna", "Show Column Options");
-    app.columnOps.commandKeys = {Tr("Tasto destro", "MouseRight")};
-}
-
-// Cosa fa l'Invio, o un clic, in quel menu.
-void RunColumnOpsSelection(AppState& app)
-{
-    if (app.columnOpsIndex < 0)
-        return;
-    const int id     = GroupMenuSelectedId(app.columnOps);
-    const int column = app.columnOpsIndex;
-
-    // Una spunta di visibilita' **non chiude** il pannello: e' una lista di caselle, e
-    // se ne spuntano piu' d'una di seguito. Il segno cambia sul posto, senza ricostruire
-    // l'elenco — ricostruirlo rimetterebbe il cursore in cima a ogni spunta.
-    // Il contenuto di un segnaposto. Come le spunte di visibilita' **non chiude** il
-    // pannello: dopo aver scelto si vuole vedere il risultato nella lista che resta
-    // sotto, non rimettere tutto com'era.
-    if (id >= kColumnOpsEmptyBase)
-    {
-        const int target = id - kColumnOpsEmptyBase;
-        if (target < 0 || target >= kEmptyColumnFirst || !IsEmptyColumn(column))
-            return;
-
-        app.emptyColumnSource[column - kEmptyColumnFirst] = target;
-
-        // Le spunte si aggiornano **sul posto**, come quelle di visibilita': ricostruire
-        // l'elenco rimetterebbe il cursore in cima a ogni scelta. E le larghezze si
-        // riadattano, perche' il contenuto nuovo puo' essere piu' largo di «Vuota 3».
-        for (GroupMenuItem& item : app.columnOps.items)
-        {
-            if (item.id < kColumnOpsEmptyBase)
-                continue;
-            const int which = item.id - kColumnOpsEmptyBase;
-            item.label = (which == target ? "[x] " : "[ ] ") +
-                         (which == 0 ? std::string(Tr("Vuota", "Empty")) : ColumnLabel(which));
-        }
-        FitColumns(app);
-        app.viewDirty = true;
-        return;
-    }
-    if (id >= kColumnOpsColumnBase)
-    {
-        const int target = id - kColumnOpsColumnBase;
-        if (target <= 0 || target >= kColumnCount)
-            return;
-        SetColumnVisible(app, target, !ColumnVisible(app, target));
-        // Accendere una colonna che non c'era vuol dire che le altre si erano prese il
-        // suo spazio: senza riadattare, la nuova nasce larga venti pixel e si legge
-        // `36 E` invece di `36 B`. Le larghezze tornano "adattate al contenuto", che
-        // e' il valore di partenza di una colonna appena comparsa.
-        if (ColumnVisible(app, target))
-            FitColumns(app);
-        for (GroupMenuItem& item : app.columnOps.items)
-        {
-            if (item.id < kColumnOpsColumnBase)
-                continue;
-            const int which = item.id - kColumnOpsColumnBase;
-            item.label = (ColumnVisible(app, which) ? "[x] " : "[ ] ") + ColumnTitle(app, which);
-        }
-        app.viewDirty = true;
-        return;
-    }
-
-    app.columnOps.open = false;
-    app.columnOpsIndex = -1;
-
-    switch (id)
-    {
-        case kColumnOpsLeftId:   ShiftColumn(app, column, -1); break;
-        case kColumnOpsRightId:  ShiftColumn(app, column, 1); break;
-        case kColumnOpsFitId:    FitColumn(app, column); break;
-        case kColumnOpsFitAllId: app.autoFitColumns = false; FitColumns(app); break;
-        case kColumnOpsCloseId:  SetColumnVisible(app, column, false); break;
-        case kColumnOpsResetId:  ResetColumns(app); break;
-        default:                 return;   // spenta: la voce non si sceglie
-    }
-    app.viewDirty = true;
-}
-
-void BuildColumnMenu(AppState& app, int column)
-{
-    // Il pannello si appoggia al bordo sinistro della sua colonna: e' cosi' che si
-    // vede a quale intestazione appartiene, senza doverlo scrivere.
-    const Layout layout = ComputeLayout(app);
-    app.columnMenu.anchor = Rect{layout.header.x + layout.header.w *
-                                     app.columns[static_cast<size_t>(column)].fraction,
-                                 layout.header.y, 0.0f, layout.header.h};
-
-    std::vector<std::pair<std::string, int>> counts;
-    std::unordered_map<std::string, int> index;
-    for (const Entry& entry : app.entries)
-    {
-        const std::string value = ColumnValueOf(app, entry, column);
-        if (value.empty())
-            continue;
-        auto found = index.find(value);
-        if (found == index.end())
-        {
-            index[value] = static_cast<int>(counts.size());
-            counts.push_back({value, 0});
-        }
-        counts[static_cast<size_t>(index[value])].second += 1;
-    }
-
-    std::sort(counts.begin(), counts.end(),
-              [](const std::pair<std::string, int>& a, const std::pair<std::string, int>& b) {
-                  if (a.second != b.second)
-                      return a.second > b.second;
-                  return a.first < b.first;
-              });
-    if (counts.size() > 40)
-        counts.resize(40);   // dichiarato: oltre, l'elenco non si legge piu'
-
-    app.columnPanelValues = std::move(counts);
-    app.columnPanel       = column;
-
-    std::vector<GroupMenuItem> items;
-    items.push_back({"", Tr("Tutti", "All"), "", kFilterAllId});
-    items.push_back({"", Tr("Nessuno", "None"), "", kFilterNoneId});
-    for (int i = 0; i < static_cast<int>(app.columnPanelValues.size()); ++i)
-    {
-        const std::pair<std::string, int>& value = app.columnPanelValues[static_cast<size_t>(i)];
-        const bool kept = app.columns[static_cast<size_t>(column)].excluded.count(value.first) == 0;
-        items.push_back({"", (kept ? "[x] " : "[ ] ") + value.first,
-                         std::to_string(value.second), i});
-    }
-
-    app.columnMenu.detailed = true;
-    GroupMenuOpen(app.columnMenu, ColumnTitle(app, column),
-                  Tr("Scrivi per filtrare i valori...", "Type to filter values..."),
-                  std::move(items));
-    app.columnMenu.anchored = true;
-    // La testata del comando: che cosa fa questo pannello e da dove si apre anche da
-    // tastiera. E' quello che il riferimento scrive in cima al menu dei valori.
-    app.columnMenu.caption = Tr("Scegli quali valori tenere in questa colonna.",
-                                "Choose which values to keep in this column.");
-    app.columnMenu.command = Tr("Apri l'elenco dei valori", "Open Values Dropdown");
-}
-
 // Rimette le caselle al loro posto dopo una spunta, senza ricontare e senza
 // riordinare: cambia solo il segno, e i valori restano quelli di quando il
 // pannello si e' aperto.
@@ -1209,29 +929,6 @@ void DrawTooltip(AppState& app, const Layout& layout)
     }
 }
 
-Rect PropertiesPanelRect(const AppState& app, const Layout& layout)
-{
-    const float scale = layout.scale;
-    const float width = (std::min)(620.0f * scale,
-                                   static_cast<float>(app.viewportWidth) - 80.0f * scale);
-    const float height = (std::min)(520.0f * scale,
-                                    static_cast<float>(app.viewportHeight) - 100.0f * scale);
-    return Rect{(static_cast<float>(app.viewportWidth) - width) * 0.5f, 70.0f * scale,
-                width, height};
-}
-
-// Il pulsante in fondo al pannello: riapre la finestra di Windows. E' l'unica cosa
-// del pannello su cui si clicca, e dice a parole cosa apre, perche' non e' un
-// comando che si indovina.
-Rect PropertiesWindowsButton(const AppState& app, const Layout& layout, const Rect& panel)
-{
-    const float scale = layout.scale;
-    const std::string label = Tr("Proprietà di Windows...", "Windows properties...");
-    const float width = app.smallFont.Measure(label, scale) + 20.0f * scale;
-    return Rect{panel.right() - width - 14.0f * scale, panel.bottom() - 28.0f * scale,
-                width, 20.0f * scale};
-}
-
 void DrawPropertiesPanel(AppState& app, const Layout& layout)
 {
     if (!app.propertiesOpen)
@@ -1310,22 +1007,6 @@ void DrawPropertiesPanel(AppState& app, const Layout& layout)
                        TextY(layout, windowsButton, app.smallFont),
                        Tr("Proprietà di Windows...", "Windows properties..."), t.text, scale);
 }
-
-bool PropertiesPanelKey(AppState& app, WPARAM key)
-{
-    switch (key)
-    {
-        case VK_ESCAPE: app.propertiesOpen = false; return true;
-        case VK_UP:     app.propertiesScroll -= 22.0f; return true;
-        case VK_DOWN:   app.propertiesScroll += 22.0f; return true;
-        case VK_PRIOR:  app.propertiesScroll -= 200.0f; return true;
-        case VK_NEXT:   app.propertiesScroll += 200.0f; return true;
-        case VK_HOME:   app.propertiesScroll = 0.0f; return true;
-        case VK_END:    app.propertiesScroll = 1e9f; return true;
-        default:        return true;   // modale: non passa niente alla lista
-    }
-}
-
 
 // --- command palette: registry ----------------------------------------------
 struct CommandDef
@@ -1531,137 +1212,11 @@ bool OpensThisList(int command)
     return command == CmdOpenOptions || command == CmdPalette || command == CmdEditKeyMap;
 }
 
-// La cattura del tasto. Il campo di ricerca diventa il **messaggio** — «premi un tasto
-// per Rinomina» — invece di un secondo riquadro: e' il posto in cui si sta gia'
-// guardando, avendo appena premuto Invio su quella riga.
-void BeginKeyCapture(AppState& app, int command)
-{
-    app.keyCaptureCommand = command;
-
-    // Ogni id che arriva qui viene dalla tabella, quindi il comando si trova sempre:
-    // l'elenco non ha altre righe.
-    std::string label;
-    for (const CommandDef& candidate : kCommandTable)
-    {
-        if (candidate.id == command)
-        {
-            label = CommandLabel(candidate);
-            break;
-        }
-    }
-
-    // Il filtro si **svuota**: con un termine dentro, al posto del messaggio si
-    // leggerebbe il termine, e chi aspetta leggerebbe la cosa sbagliata. L'elenco si
-    // rifa' subito e il cursore va sul comando che si sta per rimappare.
-    app.keyMap.filter.clear();
-    GroupMenuRebuild(app.keyMap);
-    SelectKeyMapCommand(app, command);
-    app.keyMap.placeholder = std::string(Tr("Premi un tasto per ", "Press a key for ")) + label;
-    // La riga in fondo dice anche **perche'** un tasto puo' non bastare: un rifiuto
-    // muto sembrerebbe un tasto che non arriva. E lo dice **prima**, quando il tasto
-    // che si sta spostando e' quello che riapre questo elenco.
-    app.keyMap.hint =
-        OpensThisList(command)
-            ? Tr("Attenzione: e' il tasto che apre questo elenco   Esc annulla   Canc toglie",
-                 "Careful: this key opens this list   Esc cancels   Del removes")
-            : Tr("Ctrl, Alt o un tasto funzione   Esc annulla   Canc toglie",
-                 "Ctrl, Alt or a function key   Esc cancels   Del removes");
-}
 
 void EndKeyCapture(AppState& app, int command)
 {
     app.keyCaptureCommand = -1;
     BuildKeyMapMenu(app, command);
-}
-
-// Un tasto mentre si aspetta il tasto nuovo. Non e' un comando da eseguire: e' il
-// **dato** che si sta scrivendo, ed e' per questo che viene chiamata prima di ogni
-// altra lettura della tastiera.
-void KeyMapKeyDown(AppState& app, WPARAM key)
-{
-    const int command = app.keyCaptureCommand;
-    if (key == VK_ESCAPE)
-    {
-        EndKeyCapture(app, command);
-        return;
-    }
-    // `Canc` toglie il tasto invece di diventarlo: e' il gesto di tutti gli editor di
-    // scorciatoie, ed e' per questo che non si puo' assegnare a niente.
-    if (key == VK_DELETE)
-    {
-        app.keys.Clear(command);
-        EndKeyCapture(app, command);
-        return;
-    }
-
-    // I modificatori si leggono dallo **stato**, non dal messaggio: `GetKeyState` e'
-    // l'unico che li vede, e li vede anche quando il tasto arriva iniettato — un
-    // modificatore dentro `SendMessage` per la finestra non esiste.
-    const Shortcut pressed{static_cast<unsigned>(key),
-                           (GetKeyState(VK_CONTROL) & 0x8000) != 0,
-                           (GetKeyState(VK_SHIFT) & 0x8000) != 0,
-                           (GetKeyState(VK_MENU) & 0x8000) != 0};
-    // Un modificatore da solo, o un tasto che serve a scrivere, non e' una risposta:
-    // si **resta in attesa** invece di assegnare qualcosa di muto o di rompere il
-    // filtro. L'altra via d'uscita e' `Esc`, e la riga in fondo lo dice.
-    if (!KeyMap::Assignable(pressed))
-        return;
-
-    app.keys.Rebind(command, pressed);
-    EndKeyCapture(app, command);
-}
-
-// Cosa fa l'Invio (o un clic) su una riga: comincia la cattura. **Non** esegue il
-// comando — eseguirlo sarebbe il contrario di quello che si sta chiedendo — e non
-// chiude l'elenco: si rimappano piu' comandi di seguito, ed e' l'unica cosa che si
-// viene a fare qui.
-void RunKeyMapSelection(AppState& app)
-{
-    const int id = GroupMenuSelectedId(app.keyMap);
-    if (id == kKeyMapResetId)
-    {
-        app.keys.Reset();
-        BuildKeyMapMenu(app, kKeyMapResetId);
-        ReportStatus(app, TrW(L"Tasti riportati a quelli di partenza",
-                              L"Key map restored to its defaults"));
-        return;
-    }
-    if (id < 0)
-        return;
-    BeginKeyCapture(app, id);
-}
-
-// Cosa fa l'Invio, o un clic, dentro il pannello dei valori. Non lo chiude: una
-// lista di caselle si spunta **a piu' riprese**, ed e' tutto il motivo per cui e'
-// una lista e non un singolo interruttore.
-void RunColumnMenuSelection(AppState& app)
-{
-    if (app.columnPanel < 0)
-        return;
-    const int id = GroupMenuSelectedId(app.columnMenu);
-    auto& column = app.columns[static_cast<size_t>(app.columnPanel)];
-
-    if (id == kFilterAllId)
-    {
-        column.excluded.clear();
-    }
-    else if (id == kFilterNoneId)
-    {
-        for (const std::pair<std::string, int>& value : app.columnPanelValues)
-            column.excluded.insert(value.first);
-    }
-    else if (id >= 0 && id < static_cast<int>(app.columnPanelValues.size()))
-    {
-        const std::string& value = app.columnPanelValues[static_cast<size_t>(id)].first;
-        if (column.excluded.count(value) != 0)
-            column.excluded.erase(value);
-        else
-            column.excluded.insert(value);
-    }
-
-    RefreshColumnMenuChecks(app);
-    app.viewDirty = true;
-    app.scroll    = 0.0f;
 }
 
 bool IsBookmarked(const AppState& app)
@@ -1722,60 +1277,6 @@ bool PinnedIn(const AppState& app, PinTarget target, const std::wstring& path)
     return std::find(list.begin(), list.end(), path) != list.end();
 }
 
-
-
-// Cosa fa la riga scelta: la stessa funzione per le due domande, perche' sono la
-// stessa lista vista al contrario.
-void RunPinMenuSelection(AppState& app)
-{
-    const int id = GroupMenuSelectedId(app.pinMenu);
-    app.pinMenu.open = false;
-    if (id < 0 || id >= kPinTargetCount)
-        return;
-
-    const PinTarget target = PinTargetAt(id);
-    const std::wstring path = app.pinMenuTarget;
-    std::vector<std::wstring>& list = PinList(app, target);
-    const bool already = PinnedIn(app, target, path);
-
-    std::wstring message;
-    if (app.pinMenuRemoving)
-    {
-        if (!already)
-        {
-            message = std::wstring(TrW(L"Non era fissata in ", L"Was not pinned to ")) +
-                      Widen(PinTargetLabel(target));
-        }
-        else
-        {
-            list.erase(std::find(list.begin(), list.end(), path));
-            message = std::wstring(TrW(L"Tolta da ", L"Unpinned from ")) +
-                      Widen(PinTargetLabel(target));
-        }
-    }
-    else if (already)
-    {
-        message = std::wstring(TrW(L"Era gia' fissata in ", L"Was already pinned to ")) +
-                  Widen(PinTargetLabel(target));
-    }
-    else
-    {
-        list.push_back(path);
-        message = std::wstring(TrW(L"Fissata in ", L"Pinned to ")) +
-                  Widen(PinTargetLabel(target));
-    }
-
-    ReportStatus(app, message);
-
-    // La Home elenca i fissaggi in una banda: se e' aperta, la banda adesso e'
-    // cambiata. Rifarla subito, invece di aspettare che l'utente prema F5.
-    if (IsHome(app.directory))
-        LoadDirectory(app, app.directory, /*recordHistory=*/false);
-}
-
-
-
-
 // --- il pannello dell'operazione in corso ------------------------------------
 //
 // Una copia da 5 GB non e' un'attesa: e' qualcosa che si guarda e che si puo'
@@ -1789,31 +1290,6 @@ void RunPinMenuSelection(AppState& app)
 // fotogrammi e' peggio di nessun pannello. La soglia e' quella che usa anche Esplora
 // risorse per la sua finestra di stato.
 constexpr double kOperationPanelDelay = 0.35;
-
-bool OperationPanelVisible(const AppState& app)
-{
-    return app.operation != nullptr && NowSeconds() - app.operationStart >= kOperationPanelDelay;
-}
-
-
-Rect OperationPanelRect(const AppState& app, const Layout& layout)
-{
-    const float scale = layout.scale;
-    const float width  = (std::min)(520.0f * scale,
-                                    static_cast<float>(app.viewportWidth) - 80.0f * scale);
-    const float height = 172.0f * scale;
-    return Rect{(static_cast<float>(app.viewportWidth) - width) * 0.5f,
-                (static_cast<float>(app.viewportHeight) - height) * 0.5f, width, height};
-}
-
-Rect OperationCancelButton(const AppState& app, const Layout& layout, const Rect& panel)
-{
-    const float scale = layout.scale;
-    const std::string label = Tr("Annulla", "Cancel");
-    const float width = app.smallFont.Measure(label, scale) + 24.0f * scale;
-    return Rect{panel.right() - width - 16.0f * scale, panel.bottom() - 32.0f * scale, width,
-                22.0f * scale};
-}
 
 // Come si chiama l'operazione in corso.
 std::wstring OperationTitle(FileOps::Action action)
@@ -1957,22 +1433,6 @@ void DrawOperationPanel(AppState& app, const Layout& layout)
                        progress.cancelRequested ? t.accent : t.textDim, scale);
 }
 
-// Annulla l'operazione in corso, e con lei quello che aspetta: chi ferma una copia non
-// si aspetta che ne parta un'altra appena quella e' morta. Il numero delle richieste
-// buttate via si ricorda (`operationQueueDropped`) perche' l'esito lo racconta dopo
-// `FinishOperation`, che non le ha viste.
-//
-// Lo chiamano le due cose che possono fermare un'operazione: `Esc` e il pulsante.
-void CancelOperation(AppState& app)
-{
-    if (app.operation == nullptr)
-        return;
-
-    app.operation->Cancel();
-    app.operationQueueDropped = static_cast<int>(app.operationQueue.size());
-    app.operationQueue.clear();
-    ReportStatus(app, TrW(L"Annullamento...", L"Cancelling..."));
-}
 
 // L'operazione e' finita: si raccoglie l'esito, si aggiorna la vista e si dice com'e'
 // andata. E' l'unico posto in cui si legge il risultato, ed e' il motivo per cui le
@@ -2151,40 +1611,8 @@ void FinishOperation(AppState& app)
 //
 // L'unica cosa che questa applicazione manda in rete, e parte **solo** dal comando
 // esplicito `Controlla aggiornamenti` (`docs/06`): nessun timer, nessun controllo
-// all'avvio. Mentre lavora, la barra di stato dice a che punto e' — e' l'unico posto
-// che si guarda mentre si aspetta — e quando ha finito l'esito si legge una volta
-// sola, qui.
-std::wstring UpdateProgressText(const Update::Snapshot& snapshot)
-{
-    switch (snapshot.phase)
-    {
-        case Update::Phase::Checking:
-            return TrW(L"Controllo gli aggiornamenti...", L"Checking for updates...");
-        case Update::Phase::Checksums:
-            return TrW(L"Scarico le impronte SHA-256...", L"Downloading SHA-256 checksums...");
-        case Update::Phase::Verifying:
-            return TrW(L"Verifico l'impronta SHA-256...", L"Verifying the SHA-256 checksum...");
-        case Update::Phase::Downloading:
-        default:
-        {
-            std::wstring text = TrW(L"Scarico l'aggiornamento: ", L"Downloading update: ");
-            if (snapshot.total > 0)
-            {
-                const uint64_t percent = (std::min)(
-                    static_cast<uint64_t>(100), snapshot.received * 100 / snapshot.total);
-                text += std::to_wstring(percent) + L"%";
-            }
-            else
-            {
-                // La risposta non dichiara la lunghezza: si dice quanto e' arrivato,
-                // che e' l'unica cosa vera che si sa.
-                text += std::to_wstring(snapshot.received / (1024u * 1024u)) + L" MB";
-            }
-            return text;
-        }
-    }
-}
-
+// all'avvio. Il lavoro si guarda nella sua finestra (`view_update.*`), che legge
+// `Progress()` mentre disegna; qui resta l'esito, che si legge **una volta sola**.
 void FinishUpdate(AppState& app)
 {
     std::unique_ptr<Update::Job> job = std::move(app.updateJob);
@@ -2193,61 +1621,34 @@ void FinishUpdate(AppState& app)
 
     Update::ReleaseInfo release;
     std::wstring error;
-    const Update::Result result = job->Finish(&release, &error);
+    app.updateResult = job->Finish(&release, &error);
     job.reset();
 
-    switch (result)
+    app.updateDone       = true;
+    app.updateVersion    = release.version;
+    app.updateSetupPath  = release.setupPath;
+    app.updateError      = error;
+    app.updateInstalling = false;
+
+    // La finestra resta aperta: e' il posto dove l'esito si legge e dove si sceglie se
+    // installarlo adesso. Prima si chiudeva il programma da solo, e chi lo guardava
+    // leggeva un guasto (`docs/04` M13).
+    app.updateDialogOpen = true;
+
+    switch (app.updateResult)
     {
-        case Update::Result::UpToDate:
-            ReportStatus(app, TrW(L"Bolt e' aggiornato (", L"Bolt is up to date (") +
-                                   Update::CurrentVersion() + L").");
+        case Update::Result::Ready:
+            DiagLog("--- aggiornamenti: setup verificato, in attesa del riavvio");
             break;
-
-        case Update::Result::Cancelled:
-            ReportStatus(app, TrW(L"Controllo degli aggiornamenti annullato.",
-                                  L"Update check cancelled."));
-            break;
-
         case Update::Result::Failed:
-            ReportStatus(app, TrW(L"Aggiornamento non riuscito: ", L"Update failed: ") + error);
             DiagLog("--- aggiornamenti: " + ToUtf8(error));
             break;
-
-        case Update::Result::Ready:
-        {
-            // Il setup e' stato scaricato **e** verificato: solo adesso si esegue.
-            // Inno riconosce l'installazione dall'`AppId` e con `CloseApplications=yes`
-            // chiude questa finestra da solo; il `WM_CLOSE` e' la stessa cosa detta una
-            // volta di piu', per non lasciare il setup fermo ad aspettare.
-            // Il setup si avvia **quando questa finestra e' chiusa**, non prima: un
-            // programma che sta ancora uscendo tiene il proprio eseguibile, e
-            // l'installer in silenzioso, invece di aspettare, rinuncia — senza dirlo,
-            // perche' i messaggi sono soppressi (`docs/02` §7.75). Due secondi di
-            // attesa coprono la chiusura anche quando c'e' lavoro da abbandonare.
-            const std::wstring command = L"/c ping -n 3 127.0.0.1 >nul & \"" +
-                                         release.setupPath +
-                                         L"\" /VERYSILENT /SUPPRESSMSGBOXES /NORESTART";
-            HINSTANCE started = ShellExecuteW(nullptr, L"open", L"cmd.exe", command.c_str(),
-                                              nullptr, SW_HIDE);
-            if (reinterpret_cast<INT_PTR>(started) > 32)
-            {
-                ReportStatus(app, TrW(L"Aggiornamento ", L"Update ") + release.version +
-                                       TrW(L" verificato: avvio il setup",
-                                           L" verified: starting the setup"));
-                DiagLog("--- aggiornamenti: setup verificato e avviato");
-                if (app.window != nullptr)
-                    PostMessageW(app.window, WM_CLOSE, 0, 0);
-            }
-            else
-            {
-                ReportStatus(app, TrW(L"Il setup verificato non si avvia (errore ",
-                                      L"The verified setup cannot be started (error ") +
-                                   std::to_wstring(GetLastError()) + L").");
-            }
+        default:
             break;
-        }
     }
 }
+
+
 
 // Un cambiamento visto da fuori: la cartella aperta toccata da un altro programma.
 //
@@ -2279,94 +1680,6 @@ void ApplyExternalChange(AppState& app)
         ReloadKeeping(app, app.selection, app.cursor, app.scroll);
 }
 
-
-
-
-
-
-
-
-
-
-// --- menu execution ---------------------------------------------------------
-// `RunCommand` e `ShowProperties` arrivano dagli header (`app_actions.h`,
-// `view_context_menu.h`).
-
-void RunPaletteSelection(AppState& app)
-{
-    const int id = GroupMenuSelectedId(app.palette);
-    if (id < 0)
-        return;
-
-    if (id >= kPalettePlaceBase)
-    {
-        const int place = id - kPalettePlaceBase;
-        if (place < static_cast<int>(app.places.size()))
-            LoadDirectory(app, app.places[static_cast<size_t>(place)].path);
-        app.palette.open = false;
-        return;
-    }
-
-    RunCommand(app, id);
-    if (id != CmdToggleDetails)
-        app.palette.open = false;
-}
-
-void RunGoToSelection(AppState& app)
-{
-    const int id = GroupMenuSelectedId(app.goTo);
-    if (id < 0 || id >= static_cast<int>(app.goToTargets.size()))
-        return;
-
-    // Una voce del gruppo dei recenti puo' essere un **comando** invece di un
-    // percorso: e' cosi' che «Cancella i recenti» sta li' senza essere un percorso
-    // che non esiste.
-    const int command = (id < static_cast<int>(app.goToCommands.size()))
-                            ? app.goToCommands[static_cast<size_t>(id)]
-                            : -1;
-    app.goTo.open = false;
-    if (command >= 0)
-    {
-        RunCommand(app, command);
-        return;
-    }
-
-    const std::wstring& target = app.goToTargets[static_cast<size_t>(id)];
-    // Un **file** aperto di recente si apre, non si naviga: `LoadDirectory` su un
-    // file non avrebbe niente da leggere.
-    if (!PathIsDirectoryW(target.c_str()))
-        ShellExecuteW(nullptr, L"open", target.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
-    else
-        LoadDirectory(app, target);
-}
-
-
-// --- menu contestuale: geometria, disegno, interazione ----------------------
-// Il menu contestuale e' un modulo (`view_context_menu.*`): qui resta il clic che lo
-// apre e la regola di quando un clic solo attiva.
-
-// Un clic solo attiva? Dipende da due chiavi, e la regola sta in un posto solo
-// perche' i tre gesti che la usano (pressione, rilascio, doppio clic) non possano
-// rispondere in modo diverso.
-bool SingleClickActivates(const AppState& app, const Entry& entry)
-{
-    if (!app.singleClick)
-        return false;
-    if (app.singleClickFoldersOnly && !entry.isDirectory)
-        return false;   // sui file serve ancora il doppio clic
-    return true;
-}
-
-// --- i livelli del menu contestuale ----------------------------------------
-//
-// Un menu non e' una lista: e' un albero di liste. Lo chiamiamo *livello*: 0 e'
-// il primo, 1 il sottomenu aperto, e cosi' via. `openPath` tiene gli indici delle
-// voci aperte, uno per livello, e `levels` la scelta e la finestra di ogni
-// livello. Il livello piu' profondo aperto e' quello su cui si agisce.
-
-// La striscia fra i due pannelli: sei pixel. Un divisore di un pixel non si prende col
-// mouse, e il bordo resta invisibile finche' non ci si passa sopra.
-constexpr float kSplitterWidth = 6.0f;
 // --- i due pannelli ---------------------------------------------------------
 //
 // Il divisore, e basta. La testata del pannello inattivo con il percorso non c'e'
@@ -2529,6 +1842,10 @@ void DrawFrame(AppState& app, const Layout& layout)
     // sta muovendo, e l'unica su cui si puo' agire.
     DrawOperationPanel(app, layout);
 
+    // La finestra dell'aggiornamento e' modale e sta sopra a tutto: se e' aperta, e' la
+    // sola cosa su cui si puo' agire.
+    DrawUpdateDialog(app, layout);
+
     // Il suggerimento viene dopo tutto, ma non prende clic: non e' un menu.
     DrawTooltip(app, layout);
 }
@@ -2593,247 +1910,6 @@ void RenderFrame(AppState& app)
     }
 }
 
-
-// A click inside an open group menu. The caller turns the action into whatever
-// the menu means: running a command, or going to a location.
-MenuAction GroupMenuClick(const AppState& app, const Layout& layout, GroupMenu& menu, float x, float y)
-{
-    if (!menu.open)
-        return MenuAction::None;
-
-    if (const ClickTarget* header = HitTest(app, x, y, ClickTarget::Kind::MenuHeader))
-    {
-        if (menu.collapsed.count(header->label) != 0)
-            menu.collapsed.erase(header->label);
-        else
-            menu.collapsed.insert(header->label);
-        menu.dirty = true;
-        return MenuAction::None;
-    }
-
-    if (const ClickTarget* row = HitTest(app, x, y, ClickTarget::Kind::MenuRow))
-    {
-        // Una voce spenta non fa niente, e non lo fa **in silenzio**: il clic cade su
-        // una riga che si vede spenta, e il menu resta aperto. Chiuderlo e' la
-        // risposta giusta a una scelta, e qui non c'e' stata nessuna scelta.
-        //
-        // E il cursore **non si sposta**: posarlo su una voce morta la farebbe
-        // sembrare scelta, e chi preme `Invio` subito dopo non otterrebbe niente da
-        // una riga che si vede accesa.
-        if (GroupMenuItemEnabled(menu, row->index))
-        {
-            for (int i = 0; i < static_cast<int>(menu.rows.size()); ++i)
-            {
-                const GroupMenuRow& candidate = menu.rows[static_cast<size_t>(i)];
-                if (!candidate.header && candidate.item == row->index)
-                {
-                    menu.selected = i;
-                    break;
-                }
-            }
-            return MenuAction::Activate;
-        }
-        return MenuAction::None;
-    }
-
-    // Inside the panel but not on a row: swallow the click. Outside it, close.
-    return MenuPanel(app, layout, menu).Contains(x, y) ? MenuAction::None : MenuAction::Close;
-}
-
-void SelectOnly(AppState& app, int entryIndex)
-{
-    app.selection.clear();
-    if (entryIndex < 0)
-        return;
-    const std::wstring& name = app.entries[static_cast<size_t>(entryIndex)].wideName;
-    app.selection.insert(name);
-    app.cursor          = name;
-    app.selectionAnchor = name;
-}
-
-void ToggleSelection(AppState& app, int entryIndex)
-{
-    if (entryIndex < 0)
-        return;
-    const std::wstring& name = app.entries[static_cast<size_t>(entryIndex)].wideName;
-    if (app.selection.count(name) != 0)
-        app.selection.erase(name);
-    else
-        app.selection.insert(name);
-    app.cursor          = name;
-    app.selectionAnchor = name;
-}
-
-// Row index of an entry in the current view, or -1 when the view hides it.
-int RowOfEntry(const AppState& app, int entryIndex)
-{
-    for (int i = 0; i < static_cast<int>(app.rows.size()); ++i)
-    {
-        if (!app.rows[static_cast<size_t>(i)].header && app.rows[static_cast<size_t>(i)].entry == entryIndex)
-            return i;
-    }
-    return -1;
-}
-
-// Adds every entry row between two row indices, inclusive. Group bands between
-// them are stepped over rather than treated as boundaries.
-void SelectRowRange(AppState& app, int rowFrom, int rowTo)
-{
-    if (rowFrom < 0 || rowTo < 0)
-        return;
-    const int low  = (std::min)(rowFrom, rowTo);
-    const int high = (std::max)(rowFrom, rowTo);
-    for (int i = low; i <= high && i < static_cast<int>(app.rows.size()); ++i)
-    {
-        const Row& row = app.rows[static_cast<size_t>(i)];
-        if (!row.header)
-            app.selection.insert(app.entries[static_cast<size_t>(row.entry)].wideName);
-    }
-}
-
-bool RectsIntersect(const Rect& rect, float x0, float y0, float x1, float y1)
-{
-    return !(rect.right() < x0 || rect.x > x1 || rect.bottom() < y0 || rect.y > y1);
-}
-
-// Il rettangolo applicato alla selezione, **adesso**: si chiama a ogni movimento del
-// mouse e al rilascio. La selezione si rifa' ogni volta dalla base (`rectBase`), non si
-// accumula: cosi' le righe che si vedono blu sono esattamente quelle coperte — anche
-// stringendo il rettangolo, che deseleziona.
-//
-// La verifica usa i rettangoli delle righe registrati dall'ultimo fotogramma: sono al
-// massimo uno indietro, e conta solo se si rilascia nell'istante in cui la lista scorre.
-void ApplyRectSelection(AppState& app)
-{
-    const float x0 = (std::min)(app.rectX0, app.rectX1);
-    const float x1 = (std::max)(app.rectX0, app.rectX1);
-    const float y0 = (std::min)(app.rectY0, app.rectY1);
-    const float y1 = (std::max)(app.rectY0, app.rectY1);
-
-    app.selection = app.rectBase;
-
-    std::wstring last;
-    for (const ClickTarget& target : app.clickTargets)
-    {
-        if (target.kind != ClickTarget::Kind::Row)
-            continue;
-        if (!RectsIntersect(target.rect, x0, y0, x1, y1))
-            continue;
-        const std::wstring& name = app.entries[static_cast<size_t>(target.index)].wideName;
-        app.selection.insert(name);
-        last = name;
-    }
-
-    if (!last.empty())
-    {
-        app.cursor          = last;
-        app.selectionAnchor = last;
-    }
-}
-
-// Ends a rubber band drag.
-void FinishRectSelection(AppState& app)
-{
-    if (!app.rectSelecting)
-        return;
-
-    ApplyRectSelection(app);
-    app.rectSelecting = false;
-    app.rectBase.clear();
-}
-
-void ScrollBy(AppState& app, const Layout& layout, float delta)
-{
-    const ViewMetrics metrics = ComputeViewMetrics(app, layout);
-    const float content = ViewContentHeight(app, layout);
-    const float maxScroll = (std::max)(0.0f, content - layout.list.h);
-    app.scroll = (std::min)(maxScroll, (std::max)(0.0f, app.scroll + delta));
-}
-
-// Moves the cursor by |delta| entry rows, skipping group bands. Returns without
-// moving when there is no further entry in that direction. |extend| is the Shift
-// case: the selection becomes the range from the anchor to the new cursor.
-void MoveSelection(AppState& app, int delta, bool extend)
-{
-    const int count = static_cast<int>(app.rows.size());
-    if (count == 0 || delta == 0)
-        return;
-
-    const int cursorIndex = CursorIndex(app);
-    const int position = (cursorIndex < 0) ? -1 : RowOfEntry(app, cursorIndex);
-
-    int target = (position < 0) ? (delta > 0 ? 0 : count - 1) : position + delta;
-    const int step = (delta > 0) ? 1 : -1;
-    while (target >= 0 && target < count && app.rows[static_cast<size_t>(target)].header)
-        target += step;
-
-    if (target < 0 || target >= count)
-        return;
-
-    const std::wstring name = app.entries[static_cast<size_t>(app.rows[static_cast<size_t>(target)].entry)].wideName;
-
-    if (extend && !app.selectionAnchor.empty())
-    {
-        const int anchorRow = RowOfEntry(app, FindEntryByName(app, app.selectionAnchor));
-        if (anchorRow >= 0)
-        {
-            // Rebuilt from the anchor each time, so dragging the cursor back
-            // towards the anchor shrinks the range instead of only growing it.
-            app.selection.clear();
-            SelectRowRange(app, anchorRow, target);
-        }
-        else
-        {
-            app.selection.insert(name);
-        }
-    }
-    else
-    {
-        app.selection.clear();
-        app.selection.insert(name);
-        app.selectionAnchor = name;
-    }
-
-    app.cursor = name;
-}
-
-// Keyboard navigation must not be able to walk the selection off the visible
-// area; with grouping and filtering the row index of an entry is not its index
-// in the directory any more.
-void EnsureSelectionVisible(AppState& app, const Layout& layout)
-{
-    const int cursorIndex = CursorIndex(app);
-    if (cursorIndex < 0)
-        return;
-    const int rowIndex = RowOfEntry(app, cursorIndex);
-    if (rowIndex < 0)
-        return;
-
-    // ItemRect already accounts for the grid flow and the current scroll, so the
-    // correction is just how far the item sticks out.
-    const Rect rect = ItemRect(app, layout, rowIndex, app.scroll);
-    if (rect.y < layout.list.y)
-        app.scroll -= layout.list.y - rect.y;
-    else if (rect.bottom() > layout.list.bottom())
-        app.scroll += rect.bottom() - layout.list.bottom();
-    app.scroll = (std::max)(0.0f, app.scroll);
-}
-
-// Apre il menu contestuale da tastiera, ancorato alla riga del cursore. Il tasto
-// Menu — o Shift+F10, come in Esplora risorse — deve fare la stessa cosa del
-// tasto destro sul file scelto: senza mouse il menu resterebbe irraggiungibile.
-// Nel binario originale questa chiave esiste, `HK_ContextMenuOpen`.
-void OpenContextMenuAtCursor(AppState& app, const Layout& layout)
-{
-    const int cursorIndex = CursorIndex(app);
-    const int rowIndex    = (cursorIndex < 0) ? -1 : RowOfEntry(app, cursorIndex);
-    if (rowIndex < 0)
-        return;
-
-    const Rect item = ItemRect(app, layout, rowIndex, app.scroll);
-    BuildContextMenu(app, item.x + 40.0f * layout.scale, item.y + item.h * 0.5f);
-}
-
 // --- window plumbing -------------------------------------------------------
 AppState* StateFromWindow(HWND window)
 {
@@ -2843,6 +1919,18 @@ AppState* StateFromWindow(HWND window)
 LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lparam)
 {
     AppState* app = StateFromWindow(window);
+
+    // I messaggi dell'input stanno nei loro moduli — la tastiera in `input_keys.cpp`,
+    // il mouse in `input_mouse.cpp` — e qui si smista soltanto. Un messaggio che
+    // nessuno dei due riconosce torna `kMessageNotHandled` e prosegue di sotto, dove
+    // sono rimasti i messaggi della **finestra** (`docs/05` §2): `WM_NCCALCSIZE`,
+    // `WM_NCHITTEST`, `WM_SIZE`, `WM_SETTINGCHANGE`, `WM_DESTROY`.
+    const LRESULT keyResult = HandleKeyMessage(window, app, message, wparam, lparam);
+    if (keyResult != kMessageNotHandled)
+        return keyResult;
+    const LRESULT mouseResult = HandleMouseMessage(window, app, message, wparam, lparam);
+    if (mouseResult != kMessageNotHandled)
+        return mouseResult;
 
     switch (message)
     {
@@ -2929,1626 +2017,6 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
             }
             return HTCLIENT;
         }
-
-        case WM_MOUSEWHEEL:
-            if (app != nullptr)
-            {
-                const Layout layout = ComputeLayout(*app);
-
-                // Il pannello dell'operazione sta sopra a tutto ma non e' piu' un
-                // muro: la rotella **sopra di lui** non scorre l'elenco che gli sta
-                // dietro (sembrerebbe che non risponda), fuori da lui la finestra
-                // funziona come sempre.
-                if (OperationPanelVisible(*app))
-                {
-                    POINT wheel{GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam)};
-                    ScreenToClient(window, &wheel);
-                    if (OperationPanelRect(*app, layout)
-                            .Contains(static_cast<float>(wheel.x), static_cast<float>(wheel.y)))
-                        return 0;
-                }
-
-                // Il pannello delle proprieta' e' modale: la rotella lo scorre e
-                // basta.
-                if (app->propertiesOpen)
-                {
-                    const int steps = static_cast<int>(GET_WHEEL_DELTA_WPARAM(wparam)) / WHEEL_DELTA;
-                    app->propertiesScroll -= static_cast<float>(steps) * 44.0f;
-                    if (app->propertiesScroll < 0.0f)
-                        app->propertiesScroll = 0.0f;
-                    InvalidateRect(window, nullptr, FALSE);
-                    return 0;
-                }
-
-                // Con il menu aperto la rotella scorre il menu: e' l'unica cosa
-                // su cui si sta agendo, e la lista sotto e' coperta. Scorre il
-                // livello su cui si sta agendo, che e' il piu' profondo aperto.
-                if (app->contextMenu.open)
-                {
-                    const int depth = ActiveDepth(app->contextMenu);
-                    const int steps = static_cast<int>(GET_WHEEL_DELTA_WPARAM(wparam)) / WHEEL_DELTA;
-                    app->contextMenu.levels[static_cast<size_t>(depth)].firstItem -= steps;
-                    ContextMenuClampWindow(*app, layout, depth, /*followSelection=*/false);
-                    return 0;
-                }
-
-                // La stessa cosa per una lista a gruppi: la rotella muove il
-                // cursore invece di scorrere la lista sotto, che e' coperta.
-                if (GroupMenu* menu = OpenMenu(*app))
-                {
-                    // Rotella in su (delta positivo) muove il cursore in su.
-                    const int steps = static_cast<int>(GET_WHEEL_DELTA_WPARAM(wparam)) / WHEEL_DELTA;
-                    GroupMenuMove(*menu, -steps);
-                    InvalidateRect(window, nullptr, FALSE);
-                    return 0;
-                }
-
-                const float steps = static_cast<float>(GET_WHEEL_DELTA_WPARAM(wparam)) / WHEEL_DELTA;
-
-                // Sopra il testo la rotella scorre il testo, e con Ctrl lo ingrandisce:
-                // e' il gesto di chi sta leggendo, ed e' l'unico modo di arrivare in
-                // fondo a un file lungo senza toccare la lista sotto.
-                POINT pointer{GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam)};
-                ScreenToClient(window, &pointer);
-                if (app->textDocument.isText &&
-                    app->textViewerRect.Contains(static_cast<float>(pointer.x), static_cast<float>(pointer.y)))
-                {
-                    if ((GetKeyState(VK_CONTROL) & 0x8000) != 0)
-                        RunCommand(*app, steps > 0.0f ? CmdTextZoomIn : CmdTextZoomOut);
-                    else
-                    {
-                        const float lineHeight = (app->monoFontOk ? app->monoFont : app->smallFont)
-                                                     .LineHeight() * layout.scale * app->textZoom;
-                        app->textScroll -= steps * 3.0f * lineHeight;
-                    }
-                    return 0;
-                }
-
-                const ViewMetrics metrics = ComputeViewMetrics(*app, layout);
-
-                // Ctrl+rotella sopra la griglia: la cella si ingrandisce e si
-                // stringe di continuo. Il nome della vista segue la misura, cosi'
-                // il pie' di pagina e la palette dicono quello che si sta guardando
-                // invece di quello che si e' chiuso l'ultima volta.
-                if (metrics.grid && (GetKeyState(VK_CONTROL) & 0x8000) != 0)
-                {
-                    const float wanted = (std::max)(AppState::kGridIconMin,
-                                                    (std::min)(AppState::kGridIconMax,
-                                                               app->gridIconSize + steps * 16.0f));
-                    if (wanted != app->gridIconSize)
-                    {
-                        app->gridIconSize = wanted;
-                        app->viewMode = wanted <= AppState::kGridIconSplit ? ViewMode::Icons
-                                                                          : ViewMode::Tiles;
-                        app->viewDirty = true;
-                    }
-                    return 0;
-                }
-
-                const float stride = metrics.grid ? metrics.cellHeight : metrics.rowHeight;
-                ScrollBy(*app, layout, -steps * 3.0f * stride);
-            }
-            return 0;
-
-        case WM_MOUSELEAVE:
-            if (app != nullptr)
-            {
-                app->hovered        = -1;
-                app->hoveredPlace   = -1;
-                app->hoveredTab     = -1;
-                app->hoveredTabPane = -1;
-                app->hoveredChrome  = -1;
-            }
-            return 0;
-
-        case WM_RBUTTONUP:
-        {
-            if (app == nullptr)
-                break;
-
-            // Con un pannello a gruppi aperto il tasto destro non apre niente: la
-            // finestra sotto e' coperta, e un menu contestuale dietro un pannello
-            // non si potrebbe ne' vedere ne' usare.
-            if (OpenMenu(*app) != nullptr)
-                return 0;
-
-            const float x = static_cast<float>(GET_X_LPARAM(lparam));
-            const float y = static_cast<float>(GET_Y_LPARAM(lparam));
-
-            // Sull'**intestazione** il tasto destro apre le operazioni della colonna
-            // sotto il puntatore — adattala, chiudila, riporta quelle di partenza. Il
-            // filtro per valori resta sull'imbuto: sono due gesti, e prima erano lo
-            // stesso — il tasto destro faceva il mestiere dell'imbuto.
-            {
-                const Layout layout = ComputeLayout(*app);
-                if (layout.header.Contains(x, y))
-                {
-                    const int column = ColumnAtPoint(*app, layout, x);
-                    if (column >= 0)
-                    {
-                        BuildColumnOpsMenu(*app, column);
-                        return 0;
-                    }
-                }
-            }
-
-            // Sulla **barra laterale** il menu e' quello della riga: le voci che
-            // agiscono su un percorso — fissare, togliere, togliere dai recenti —
-            // prendono quella riga, non la cartella aperta. E' il gesto che prima
-            // mancava: per fissare un recente bisognava aprirlo.
-            if (const ClickTarget* place = HitTest(*app, x, y, ClickTarget::Kind::Place))
-            {
-                BuildSidebarContextMenu(*app, x, y, *place);
-                return 0;
-            }
-
-            // Aprire il menu su una riga non selezionata sposta prima la
-            // selezione li': il menu descrive cio' su cui si e' cliccato, non
-            // quello che era selezionato prima.
-            if (const ClickTarget* row = HitTest(*app, x, y, ClickTarget::Kind::Row))
-            {
-                if (app->selection.count(app->entries[static_cast<size_t>(row->index)].wideName) == 0)
-                    SelectOnly(*app, row->index);
-            }
-            // Sul fondo della lista non c'e' niente su cui agire, quindi la
-            // selezione cade e il menu diventa quello della **cartella** — come
-            // in Esplora risorse. Il cursore resta: e' il fuoco della tastiera,
-            // non una scelta, e cosi' `Menu` continua a funzionare anche qui.
-            // Fuori dalla lista (barra laterale, inspector) non si tocca niente:
-            // li' un "fondo" non esiste.
-            else if (ComputeLayout(*app).list.Contains(x, y))
-            {
-                app->selection.clear();
-            }
-
-            BuildContextMenu(*app, x, y);
-            return 0;
-        }
-
-        case WM_MOUSEMOVE:
-            // Il trascinamento di un tab: si arma al primo movimento oltre la
-            // soglia, e da li' in poi ogni movimento aggiorna dove finirebbe.
-            if (app != nullptr)
-            {
-                const float tx = static_cast<float>(GET_X_LPARAM(lparam));
-                const float ty = static_cast<float>(GET_Y_LPARAM(lparam));
-                if (app->tabPress >= 0 && app->dragTab < 0 &&
-                    std::fabs(tx - app->tabPressX) > 6.0f &&
-                    app->tabPress < static_cast<int>(
-                                        app->panes[static_cast<size_t>(app->activePane)].tabs.size()))
-                {
-                    app->dragTab =
-                        app->panes[static_cast<size_t>(app->activePane)]
-                            .tabs[static_cast<size_t>(app->tabPress)]
-                            .id;
-                    app->tabPress = -1;
-                }
-                if (app->dragTab >= 0)
-                {
-                    UpdateTabDrop(*app, tx, ty);
-                    InvalidateRect(window, nullptr, FALSE);
-                    return 0;
-                }
-            }
-
-            // Il **divisore** dei pannelli: mentre lo si trascina la sua posizione e' il
-            // puntatore, con i limiti del modello — un pannello piu' stretto di un quarto
-            // non mostra nemmeno i nomi. Il valore resta al rilascio e vive quanto la
-            // sessione, come la larghezza dell'ispettore: e' una forma della finestra,
-            // non una preferenza da scrivere in un file.
-            if (app != nullptr && app->splitDrag >= 0)
-            {
-                if ((wparam & MK_LBUTTON) == 0)
-                {
-                    app->splitDrag = -1;
-                    ReleaseCapture();
-                    return 0;
-                }
-                const Layout frame = WindowLayout(*app);
-                const float scale = frame.scale;
-                const float x = static_cast<float>(GET_X_LPARAM(lparam));
-                const float y = static_cast<float>(GET_Y_LPARAM(lparam));
-                const float gap = kSplitterWidth * scale;
-                float fraction = app->splitFraction;
-                if (app->splitColumn)
-                {
-                    const float usable = (std::max)(2.0f, frame.header.w - gap);
-                    fraction = (x - frame.header.x) / usable;
-                }
-                else
-                {
-                    // Dalla cima della fascia delle schede, che e' dove comincia il
-                    // primo pannello: con l'intestazione il divisore si fermerebbe
-                    // trentaquattro pixel sotto il punto in cui lo si e' preso.
-                    const float top = (frame.tabs.h > 0.0f) ? frame.tabs.y : frame.header.y;
-                    const float usable = (std::max)(2.0f, frame.filterBar.bottom() - top - gap);
-                    fraction = (y - top) / usable;
-                }
-                app->splitFraction = std::clamp(fraction, 0.25f, 0.75f);
-                // `viewDirty` non serve: le righe non dipendono dalla larghezza del
-                // pannello, e la griglia si accorge da se' che la misura e' cambiata.
-                InvalidateRect(window, nullptr, FALSE);
-                return 0;
-            }
-
-            // Il trascinamento di uno slider delle opzioni: finche' il pulsante e'
-            // giu', la posizione del puntatore e' il valore. Se il pulsante e' stato
-            // lasciato fuori dalla finestra, il trascinamento finisce qui invece di
-            // riprendere al movimento successivo.
-            if (app != nullptr && app->optionSliderDrag >= 0)
-            {
-                if ((wparam & MK_LBUTTON) == 0)
-                {
-                    app->optionSliderDrag = -1;
-                }
-                else
-                {
-                    const Layout layout = ComputeLayout(*app);
-                    const float x = static_cast<float>(GET_X_LPARAM(lparam));
-                    const Rect panel = MenuPanel(*app, layout, app->options);
-                    for (GroupMenuItem& item : app->options.items)
-                    {
-                        if (item.id != app->optionSliderDrag || item.control != OptionControl::Slider)
-                            continue;
-                        const float scale  = layout.scale;
-                        const float width  = OptionControlWidth(item, scale);
-                        const float height = 22.0f * scale;
-                        const float left   = panel.right() - 6.0f * scale - width - 14.0f * scale;
-                        const float knob   = height * 0.5f;
-                        const float track  = (std::max)(1.0f, width - knob * 2.0f);
-                        float fraction = (x - (left + knob)) / track;
-                        fraction = (fraction < 0.0f) ? 0.0f : (fraction > 1.0f ? 1.0f : fraction);
-                        item.fraction = fraction;
-                        ApplyOptionFromItem(*app, item);
-                        break;
-                    }
-                    InvalidateRect(window, nullptr, FALSE);
-                    return 0;
-                }
-            }
-
-            // Il tempo del sovrappasso riparte quando il puntatore si muove: fermo
-            // sulla stessa riga, il conto scorre; in movimento, no.
-            if (app != nullptr)
-            {
-                const float mx = static_cast<float>(GET_X_LPARAM(lparam));
-                const float my = static_cast<float>(GET_Y_LPARAM(lparam));
-                if (std::fabs(mx - app->pointerX) > 2.0f || std::fabs(my - app->pointerY) > 2.0f)
-                {
-                    app->hoverStart = NowSeconds();
-                    app->pointerX   = mx;
-                    app->pointerY   = my;
-                }
-            }
-
-            // Il trascinamento di un bordo: la colonna cresce e la vicina si
-            // stringe, e nessuna delle due scende sotto la larghezza leggibile.
-            // Il bordo sinistro dell'ispettore si prende e si trascina come il bordo di
-            // una colonna: la finestra non si sposta, il pannello si allarga.
-            if (app != nullptr && app->inspectorDrag >= 0)
-            {
-                if ((wparam & MK_LBUTTON) == 0)
-                {
-                    app->inspectorDrag = -1;
-                    RememberSettings(*app);
-                }
-                else
-                {
-                    const float x = static_cast<float>(GET_X_LPARAM(lparam));
-                    const float scale = app->zoom;
-                    // Il pannello non si stringe sotto i 200 px e non si prende piu' di
-                    // meta' finestra: sotto, i valori non si leggono; sopra, la lista
-                    // sparisce.
-                    const float sidebar = app->sidebarVisible ? 186.0f * scale : 0.0f;
-                    const float least   = 200.0f;
-                    const float most    = (static_cast<float>(app->viewportWidth) - sidebar - 260.0f * scale) / scale;
-                    app->inspectorWidth = std::clamp(app->inspectorDragStartWidth -
-                                                         (x - app->inspectorDragStartX) / scale,
-                                                     least, (std::max)(least, most));
-                    app->viewDirty = true;
-                    InvalidateRect(window, nullptr, FALSE);
-                    return 0;
-                }
-            }
-
-            if (app != nullptr && app->columnDrag > 0)
-            {
-                const Layout layout = ComputeLayout(*app);
-                const float x = static_cast<float>(GET_X_LPARAM(lparam));
-                const int index = app->columnDrag;
-                const float moved = app->columnDragStartFraction +
-                                    (x - app->columnDragStartX) / (std::max)(1.0f, layout.header.w);
-                const float minimum = kMinColumnWidth * layout.scale /
-                                      (std::max)(1.0f, layout.header.w);
-                // I limiti sono i bordi **visibili**: con una colonna spenta in mezzo,
-                // i suoi due bordi coincidono e il trascinamento deve poter arrivare
-                // fino alla colonna prima, o non potrebbe riprendersi lo spazio.
-                float edges[kColumnCount + 1] = {};
-                ColumnEdges(*app, edges);
-                const int prev = PrevVisibleColumn(*app, index);
-                const int next = NextVisibleColumn(*app, index);
-                const float left  = (prev >= 0 ? edges[prev] : 0.0f) + minimum;
-                const float right = (next < kColumnCount ? edges[next] : 1.0f) - minimum;
-                app->columns[index].fraction = (std::min)(right, (std::max)(left, moved));
-                InvalidateRect(window, nullptr, FALSE);
-                return 0;
-            }
-            if (app != nullptr)
-            {
-                const float x = static_cast<float>(GET_X_LPARAM(lparam));
-                const float y = static_cast<float>(GET_Y_LPARAM(lparam));
-
-                // Uscendo dalla finestra il mouse non manda altri WM_MOUSEMOVE,
-                // quindi il riquadro di sovrappasso resterebbe appeso sull'ultima
-                // riga toccata. TrackMouseEvent fa arrivare un WM_MOUSELEAVE, e va
-                // richiesto a ogni movimento perche' la richiesta vale una volta
-                // sola.
-                TRACKMOUSEEVENT track{};
-                track.cbSize    = sizeof(track);
-                track.dwFlags   = TME_LEAVE;
-                track.hwndTrack = window;
-                TrackMouseEvent(&track);
-
-                if (app->rectSelecting)
-                {
-                    app->rectX1 = x;
-                    app->rectY1 = y;
-                    // La selezione si vede **mentre** si trascina, che e' l'unico modo di
-                    // sapere cosa si sta per prendere prima di lasciare il tasto.
-                    ApplyRectSelection(*app);
-                    InvalidateRect(window, nullptr, FALSE);
-                    return 0;
-                }
-
-                // Trascinamento armato e mouse che si allontana: si parte. La
-                // soglia e' quella di sistema (`SM_CXDRAG`), perche' una mano che
-                // trema su un clic non deve spostare dei file.
-                if (app->dragArmed && (GetKeyState(VK_LBUTTON) & 0x8000) != 0)
-                {
-                    const float farX = std::fabs(x - app->dragStartX);
-                    const float farY = std::fabs(y - app->dragStartY);
-                    const float thresholdX = static_cast<float>(GetSystemMetrics(SM_CXDRAG));
-                    const float thresholdY = static_cast<float>(GetSystemMetrics(SM_CYDRAG));
-                    if (farX > thresholdX || farY > thresholdY)
-                    {
-                        app->dragArmed = false;   // si parte una volta sola
-
-                        const std::vector<std::wstring> paths = SelectedPaths(*app);
-                        DWORD effect = DROPEFFECT_NONE;
-                        size_t dragged = paths.size();
-                        app->dropReported = false;
-
-                        // Da una cartella che non e' un percorso si trascina
-                        // **l'oggetto della shell**, non un nome: il nome di una voce
-                        // del cestino e' il percorso del file dentro `$Recycle.Bin`, e
-                        // trascinare quello significherebbe trascinare un altro file.
-                        if (ShellLocation::IsNamespace(app->directory))
-                        {
-                            const std::vector<const BYTE*> pidls = SelectedPidls(*app);
-                            dragged = pidls.size();
-                            app->draggingNamespaceItems = true;
-                            if (IDataObject* data = DragDrop::DataObjectForPidls(window, pidls))
-                            {
-                                DragDrop::DragOutData(window, data, pidls.size(), &effect);
-                                data->Release();
-                            }
-                            else
-                            {
-                                ReportStatus(*app, TrW(L"La shell non sa preparare queste voci per il "
-                                                       L"trascinamento: si gestiscono col menu "
-                                                       L"contestuale.",
-                                                       L"The shell cannot prepare these items for "
-                                                       L"dragging: use the context menu."));
-                            }
-                            app->draggingNamespaceItems = false;
-                        }
-                        else
-                        {
-                            DragDrop::DragOut(window, paths, &effect);
-                        }
-
-                        // Spostati davvero: gli originali non ci sono piu' e la
-                        // vista li sta ancora mostrando.
-                        if ((effect & DROPEFFECT_MOVE) != 0 && dragged > 0)
-                        {
-                            // Il messaggio lo da' chi ha eseguito la caduta, se e'
-                            // stato uno di noi: sa dove sono finiti i file, e
-                            // "Spostati 3 elementi" senza dire dove e' meno di
-                            // "Buttati via 3 elementi nel cestino". Qui si parla
-                            // solo se la destinazione era un'altra applicazione,
-                            // che non ha modo di dirlo.
-                            //
-                            // Se l'ha eseguita questa finestra l'operazione sta
-                            // ancora girando e la vista si rifa' quando finisce:
-                            // rifarla adesso la svuoterebbe per poi rimetterla, che
-                            // e' un lampo e non un'informazione.
-                            if (!app->dropReported)
-                            {
-                                ReloadKeeping(*app, /*keep=*/{}, /*preferCursor=*/{}, app->scroll);
-                                ReportStatus(*app, VerbItems(dragged, L"Spostato ", L"Spostati ",
-                                                             L"Moved "));
-                            }
-                        }
-                        return 0;
-                    }
-                }
-
-                // Con il menu contestuale aperto il puntatore sceglie la voce, non
-                // la riga sotto: la lista e' coperta, e sovrappassarla sarebbe un
-                // secondo stato che l'utente non vede.
-                if (app->contextMenu.open)
-                {
-                    const Layout layout = ComputeLayout(*app);
-                    ContextMenuHover(*app, layout, x, y);
-                    app->hovered = -1;
-                    return 0;
-                }
-
-                // Il pannello **sotto il puntatore** prende il fuoco, come ogni finestra
-                // che si divide: si guarda quello che si sta per toccare, e i tasti vanno
-                // li'. Solo quando non c'e' un gesto in corso — durante un rettangolo o
-                // un trascinamento il pannello non deve cambiare sotto le mani — e mai
-                // con un menu aperto, che copre quello che c'e' sotto.
-                if (app->panes.size() > 1 && OpenMenu(*app) == nullptr && !app->rectSelecting &&
-                    app->dragTab < 0 && !app->dragArmed)
-                {
-                    for (int pane = 0; pane < static_cast<int>(app->panes.size()); ++pane)
-                    {
-                        if (pane == app->activePane)
-                            continue;
-                        const Layout other = PaneLayout(*app, pane);
-                        // Anche la **fila delle schede** e' parte del pannello: passandoci
-                        // sopra si sta gia' guardando quello, e le schede devono
-                        // rispondere al sovrappasso come il resto del suo riquadro.
-                        if (other.tabs.Contains(x, y) || other.list.Contains(x, y) ||
-                            other.header.Contains(x, y) || other.filterBar.Contains(x, y))
-                        {
-                            ActivatePane(*app, pane);
-                            break;
-                        }
-                    }
-                }
-                app->hovered = -1;
-                app->hoveredPlace = -1;
-                app->hoveredTab = -1;
-                app->hoveredTabPane = -1;
-                app->hoveredChrome = -1;
-                app->hoveredSection = -1;
-                app->hoveredNav = -1;
-
-                if (const ClickTarget* nav = HitTest(*app, x, y, ClickTarget::Kind::NavButton))
-                    app->hoveredNav = nav->index;
-                if (HitTest(*app, x, y, ClickTarget::Kind::Menu))              app->hoveredChrome = 0;
-                else if (HitTest(*app, x, y, ClickTarget::Kind::TabNew))       app->hoveredChrome = 1;
-                else if (HitTest(*app, x, y, ClickTarget::Kind::WindowMinimize)) app->hoveredChrome = 2;
-                else if (HitTest(*app, x, y, ClickTarget::Kind::WindowMaximize)) app->hoveredChrome = 3;
-                else if (HitTest(*app, x, y, ClickTarget::Kind::WindowClose))    app->hoveredChrome = 4;
-                else if (HitTest(*app, x, y, ClickTarget::Kind::SidebarToggle))  app->hoveredChrome = 5;
-
-                const int wasHovered = app->hovered;
-                // L'indice da solo non basta piu': la scheda 1 c'e' in tutte e due le file,
-                // e il pannello a cui appartiene e' quello che il bersaglio porta con se'.
-                if (const ClickTarget* tab = HitTest(*app, x, y, ClickTarget::Kind::Tab))
-                {
-                    app->hoveredTab     = tab->index;
-                    app->hoveredTabPane = tab->pane;
-                }
-                else if (const ClickTarget* row = HitTest(*app, x, y, ClickTarget::Kind::Row))
-                    app->hovered = row->index;
-                if (app->hovered != wasHovered)
-                    app->hoverStart = NowSeconds();
-                else if (const ClickTarget* place = HitTest(*app, x, y, ClickTarget::Kind::Place))
-                    app->hoveredPlace = place->index;
-                else if (const ClickTarget* header = HitTest(*app, x, y, ClickTarget::Kind::SidebarHeader))
-                    app->hoveredSection = static_cast<int>(header->rect.y);
-            }
-            return 0;
-
-        case WM_LBUTTONDOWN:
-            if (app != nullptr)
-            {
-                const float x = static_cast<float>(GET_X_LPARAM(lparam));
-                const float y = static_cast<float>(GET_Y_LPARAM(lparam));
-
-                // Il pannello **sotto il puntatore** diventa quello attivo, e il gesto
-                // prosegue li'. Le coordinate non si traducono: sono le stesse, e cambia
-                // il layout — che da qui in poi e' quello del pannello appena attivato,
-                // perche' `ComputeLayout` e' il suo. E' il motivo per cui ogni hit test
-                // sotto questa riga continua a funzionare senza saperne niente.
-                if (app->panes.size() > 1)
-                {
-                    for (int pane = 0; pane < static_cast<int>(app->panes.size()); ++pane)
-                    {
-                        if (pane == app->activePane)
-                            continue;
-                        const Layout other = PaneLayout(*app, pane);
-                        // La fila delle schede fa parte del pannello: un clic su una sua
-                        // scheda e' un clic su di lui, e il pannello deve prendere il
-                        // fuoco **prima** che il clic venga eseguito — e' l'unico modo
-                        // perche' una scheda del pannello di sotto risponda al primo
-                        // colpo invece che al secondo.
-                        if (other.tabs.Contains(x, y) || other.list.Contains(x, y) ||
-                            other.header.Contains(x, y) || other.filterBar.Contains(x, y))
-                        {
-                            ActivatePane(*app, pane);
-                            break;
-                        }
-                    }
-                }
-
-
-                // Il pannello su cui si e' cliccato prende il fuoco: e' l'unica cosa
-                // che `InactivePanelContentOpacity` deve sapere, e la si aggiorna qui
-                // perche' qui si sa **dove** si e' cliccato.
-                {
-                    const Layout probe = ComputeLayout(*app);
-                    if (probe.sidebar.Contains(x, y))
-                        app->focusArea = AppState::FocusArea::Sidebar;
-                    else if (probe.inspector.Contains(x, y))
-                        app->focusArea = AppState::FocusArea::Inspector;
-                    else if (probe.list.Contains(x, y))
-                        app->focusArea = AppState::FocusArea::List;
-                }
-
-                // Il pannello dell'operazione non e' piu' modale: sopra di lui un clic
-                // o preme `Annulla`, o non fa niente (il puntatore e' sopra un
-                // pannello, e quello che c'e' sotto non deve ricevere il clic); fuori
-                // da lui la finestra si usa come sempre — navigare, selezionare,
-                // copiare — e le operazioni che ne nascono vanno in coda.
-                if (OperationPanelVisible(*app))
-                {
-                    const Layout layout = ComputeLayout(*app);
-                    const Rect panel = OperationPanelRect(*app, layout);
-                    if (panel.Contains(x, y))
-                    {
-                        if (OperationCancelButton(*app, layout, panel).Contains(x, y))
-                            CancelOperation(*app);
-                        return 0;
-                    }
-                }
-
-                // Il pannello delle proprieta' e' modale: il clic o cade sul suo
-                // pulsante, o lo chiude, o non fa altro.
-                if (app->propertiesOpen)
-                {
-                    const Layout layout = ComputeLayout(*app);
-                    const Rect panel = PropertiesPanelRect(*app, layout);
-                    if (PropertiesWindowsButton(*app, layout, panel).Contains(x, y))
-                    {
-                        app->propertiesOpen = false;
-                        const std::vector<std::wstring> paths = SelectedPaths(*app);
-                        if (paths.empty() || ShowProperties(app->window, paths) == 0)
-                            ReportStatus(*app,
-                                         TrW(L"Proprietà non disponibili per la selezione.",
-                                             L"Properties unavailable for the selection."));
-                    }
-                    else if (!panel.Contains(x, y))
-                    {
-                        app->propertiesOpen = false;
-                    }
-                    return 0;
-                }
-
-                // Un bordo d'intestazione si prende e si trascina. La presa viene
-                // prima di tutto il resto: mentre si trascina, la lista sotto non
-                // deve rispondere ai clic.
-                // Il bordo sinistro dell'ispettore si prende da una striscia di sei pixel:
-                // un bordo di un pixel non si prende col mouse, e il pannello resterebbe
-                // largo quello che e' per sempre.
-                {
-                    const Layout layout = ComputeLayout(*app);
-                    const Rect grip{layout.inspector.x - 3.0f * layout.scale, layout.inspector.y,
-                                    6.0f * layout.scale, layout.inspector.h};
-                    if (grip.Contains(x, y))
-                    {
-                        app->inspectorDrag           = 0;
-                        app->inspectorDragStartX     = x;
-                        app->inspectorDragStartWidth = app->inspectorWidth;
-                        SetCapture(window);
-                        return 0;
-                    }
-                }
-
-                // Il **divisore** fra i due pannelli, con la stessa idea: sei pixel di
-                // presa, e mentre lo si trascina si prende tutto (la cattura fa arrivare
-                // i movimenti anche fuori dalla finestra).
-                {
-                    const Rect splitter = SplitterRect(*app);
-                    if (splitter.Contains(x, y))
-                    {
-                        app->splitDrag = 0;
-                        SetCapture(window);
-                        return 0;
-                    }
-                }
-
-                if (const ClickTarget* edge = HitTest(*app, x, y, ClickTarget::Kind::ColumnEdge))
-                {
-                    app->columnDrag = edge->index;
-                    app->columnDragStartX = x;
-                    app->columnDragStartFraction = app->columns[edge->index].fraction;
-                    // Da qui in poi la larghezza e' quella scelta a mano: "adatta" era il
-                    // valore di partenza, e chi trascina la sta cambiando.
-                    app->autoFitColumns = false;
-                    SetCapture(window);
-                    return 0;
-                }
-
-                const bool ctrl  = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
-                const bool shift = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
-
-                // Il menu contestuale e' modale quanto la palette: finche' e'
-                // aperto prende il puntatore e la tastiera, e la lista sotto non
-                // risponde.
-                if (app->contextMenu.open)
-                {
-                    const Layout layout = ComputeLayout(*app);
-                    if (ContextMenuClick(*app, layout, x, y))
-                        return 0;
-                }
-
-                // An open menu is modal: its clicks are handled first and nothing
-                // underneath is reachable.
-                if (GroupMenu* menu = OpenMenu(*app))
-                {
-                    // Le due pastiglie della palette si prendono il clic prima della
-                    // riga: sono sopra di lei, e `HitTest` legge al contrario.
-                    if (menu == &app->palette)
-                    {
-                        if (const ClickTarget* hit =
-                                HitTest(*app, x, y, ClickTarget::Kind::PaletteStar))
-                        {
-                            const int command =
-                                app->palette.items[static_cast<size_t>(hit->index)].id;
-                            if (app->favoriteCommands.count(command) != 0)
-                                app->favoriteCommands.erase(command);
-                            else
-                                app->favoriteCommands.insert(command);
-                            RememberSettings(*app);
-                            BuildPaletteMenu(*app);
-                            return 0;
-                        }
-                        if (const ClickTarget* hit =
-                                HitTest(*app, x, y, ClickTarget::Kind::PaletteAssign))
-                        {
-                            // Assegnare un tasto **da qui**: si apre la mappa gia'
-                            // posata su quel comando e la cattura del tasto comincia.
-                            const int command =
-                                app->palette.items[static_cast<size_t>(hit->index)].id;
-                            app->palette.open = false;
-                            BuildKeyMapMenu(*app, command);
-                            BeginKeyCapture(*app, command);
-                            return 0;
-                        }
-                    }
-
-                    const Layout layout = ComputeLayout(*app);
-                    // Il pannello delle opzioni calcola da se' la riga e il
-                    // controllo sotto il puntatore: non lascia bersagli nella
-                    // lista, perche' la geometria ha una sola definizione.
-                    MenuAction action = (menu == &app->options)
-                                            ? OptionsClick(*app, layout, *menu, x, y)
-                                            : GroupMenuClick(*app, layout, *menu, x, y);
-                    if (action == MenuAction::Close)
-                    {
-                        // Chiudere il pannello mentre si scrive in un campo non deve
-                        // lasciare la scrittura appesa: senza questo, il primo
-                        // carattere digitato dopo sarebbe finito in un campo chiuso.
-                        if (menu == &app->options)
-                            CancelOptionEdit(*app);
-                        // E chiudere l'editor dei tasti non deve lasciare appesa una
-                        // cattura: un clic fuori dal pannello mentre si aspetta il
-                        // tasto nuovo e' un modo normale di ripensarci.
-                        if (menu == &app->keyMap)
-                            CloseKeyMap(*app);
-                        else
-                            menu->open = false;
-                    }
-                    else if (action == MenuAction::Activate)
-                    {
-                        if (menu == &app->palette)
-                            RunPaletteSelection(*app);
-                        else if (menu == &app->goTo)
-                            RunGoToSelection(*app);
-                        else if (menu == &app->optionsChoice)
-                            RunOptionsChoiceSelection(*app);
-                        else if (menu == &app->keyMap)
-                            RunKeyMapSelection(*app);
-                        else if (menu == &app->pinMenu)
-                            RunPinMenuSelection(*app);
-                        else if (menu == &app->columnOps)
-                            RunColumnOpsSelection(*app);
-                        else
-                            RunColumnMenuSelection(*app);
-                    }
-                    return 0;
-                }
-
-                // La linguetta del filtro: apre l'elenco dei valori di quella
-                // colonna, o richiude quello che c'e' gia'.
-                if (const ClickTarget* tab = HitTest(*app, x, y, ClickTarget::Kind::ColumnFilter))
-                {
-                    // Il nome e' la prima colonna, e il suo filtro non e' un elenco di
-                    // valori: la linguetta accende la casella di testo in fondo, che
-                    // e' il filtro del nome che serve davvero.
-                    if (tab->index == 0)
-                    {
-                        app->columnMenu.open = false;
-                        app->columnPanel     = -1;
-                        app->filterActive    = true;
-                    }
-                    else if (app->columnPanel == tab->index && app->columnMenu.open)
-                    {
-                        app->columnMenu.open = false;
-                        app->columnPanel     = -1;
-                    }
-                    else
-                    {
-                        BuildColumnMenu(*app, tab->index);
-                    }
-                    return 0;
-                }
-
-                // I selettori di vista e lo stepper delle anteprime, nella barra in
-                // fondo. Cambiare vista da qui e' l'unico gesto col puntatore: prima
-                // c'era solo la palette.
-                // Il campo della ricerca: il clic lo accende. Un secondo clic dentro lo
-                // lascia com'e' — la tastiera e' gia' sua.
-                if (HitTest(*app, x, y, ClickTarget::Kind::SearchField))
-                {
-                    app->searchFieldActive = true;
-                    app->filterActive      = false;
-                    return 0;
-                }
-
-                if (const ClickTarget* v = HitTest(*app, x, y, ClickTarget::Kind::ViewSelect))
-                {
-                    app->viewMode  = static_cast<ViewMode>(v->index);
-                    app->viewDirty = true;
-                    return 0;
-                }
-                if (HitTest(*app, x, y, ClickTarget::Kind::NewFolder))
-                {
-                    RunCommand(*app, CmdNewFolder);
-                    return 0;
-                }
-                if (HitTest(*app, x, y, ClickTarget::Kind::PreviewDown))
-                {
-                    if (app->previewStep > 0)
-                        --app->previewStep;
-                    RememberSettings(*app);
-                    return 0;
-                }
-                if (HitTest(*app, x, y, ClickTarget::Kind::PreviewUp))
-                {
-                    if (app->previewStep + 1 < AppState::kPreviewStepCount)
-                        ++app->previewStep;
-                    RememberSettings(*app);
-                    return 0;
-                }
-
-                if (const ClickTarget* nav = HitTest(*app, x, y, ClickTarget::Kind::NavButton))
-                {
-                    // I pulsanti non fanno niente di nuovo: eseguono i comandi che
-                    // esistono gia', quelli della tastiera e della palette. Una sola
-                    // implementazione per ogni azione, o prima o poi divergono.
-                    static const int kNavCommands[5] = {CmdBack, CmdForward, CmdGoUp, CmdRefresh,
-                                                        CmdToggleBookmark};
-                    if (nav->index >= 0 && nav->index < 5)
-                        RunCommand(*app, kNavCommands[nav->index]);
-                }
-                else if (const ClickTarget* closeTab = HitTest(*app, x, y, ClickTarget::Kind::TabClose))
-                {
-                    // La croce e' della scheda **di quel pannello**: se non e' quello
-                    // attivo si porta li' il fuoco, perche' chiudere una scheda in un
-                    // pannello che non si sta guardando deve lasciare lo sguardo dove
-                    // sta. `ActivatePane` non salva niente di sbagliato: i campi vivi
-                    // sono di un pannello e passano nel suo tab.
-                    if (closeTab->pane >= 0 && closeTab->pane != app->activePane)
-                        ActivatePane(*app, closeTab->pane);
-                    CloseTab(*app, closeTab->index);
-                }
-                else if (const ClickTarget* tab = HitTest(*app, x, y, ClickTarget::Kind::Tab))
-                {
-                    // Il pannello della scheda prima della scheda: e' l'unico modo
-                    // perche' cliccare un tab del pannello di sotto funzioni al primo
-                    // colpo, invece di doverlo prima attivare e poi cliccare.
-                    if (tab->pane >= 0 && tab->pane != app->activePane)
-                        ActivatePane(*app, tab->pane);
-                    ActivateTab(*app, tab->index);
-                    // Il gesto puo' diventare un trascinamento, ma solo se il mouse
-                    // si muove: un clic non deve spostare niente.
-                    app->tabPress  = tab->index;
-                    app->tabPressX = x;
-                }
-                else if (const ClickTarget* newTab = HitTest(*app, x, y, ClickTarget::Kind::TabNew))
-                {
-                    // Anche il `+` e' di un pannello: una scheda nuova si apre **li'**.
-                    if (newTab->pane >= 0 && newTab->pane != app->activePane)
-                        ActivatePane(*app, newTab->pane);
-                    NewTab(*app, app->directory.empty() ? L"C:\\" : app->directory);
-                }
-                else if (HitTest(*app, x, y, ClickTarget::Kind::Menu))
-                {
-                    const Layout layout = ComputeLayout(*app);
-                    const Rect button{layout.titleBar.x + 6.0f * layout.scale,
-                                      layout.titleBar.y + 7.0f * layout.scale,
-                                      30.0f * layout.scale, layout.titleBar.h - 14.0f * layout.scale};
-                    BuildAppMenu(*app, button.x, button.bottom() + 2.0f * layout.scale);
-                }
-                else if (HitTest(*app, x, y, ClickTarget::Kind::SidebarToggle))
-                {
-                    app->sidebarVisible = !app->sidebarVisible;
-                }
-                else if (HitTest(*app, x, y, ClickTarget::Kind::WindowMinimize))
-                {
-                    SendMessageW(window, WM_SYSCOMMAND, SC_MINIMIZE, 0);
-                }
-                else if (HitTest(*app, x, y, ClickTarget::Kind::WindowMaximize))
-                {
-                    SendMessageW(window, WM_SYSCOMMAND, IsZoomed(window) ? SC_RESTORE : SC_MAXIMIZE, 0);
-                }
-                else if (HitTest(*app, x, y, ClickTarget::Kind::WindowClose))
-                {
-                    PostMessageW(window, WM_CLOSE, 0, 0);
-                }
-                else if (const ClickTarget* box = HitTest(*app, x, y, ClickTarget::Kind::Checkbox))
-                {
-                    // Sceglie e basta: non apre, non arma un trascinamento, e non
-                    // tocca il cursore. E' tutto quello che serve a una casella.
-                    ToggleSelection(*app, box->index);
-                    return 0;
-                }
-                else if (const ClickTarget* row = HitTest(*app, x, y, ClickTarget::Kind::Row))
-                {
-                    // La pressione su una riga arma un trascinamento: partira' solo
-                    // se il mouse si muove oltre la soglia, e fino ad allora resta
-                    // il clic che e' sempre stato.
-                    app->dragArmed  = true;
-                    app->dragStartX = x;
-                    app->dragStartY = y;
-
-                    if (ctrl)
-                    {
-                        ToggleSelection(*app, row->index);
-                    }
-                    else if (shift)
-                    {
-                        // Extend from the anchor to the clicked row, across group
-                        // bands, matching what the keyboard does.
-                        const int anchorEntry = FindEntryByName(*app, app->selectionAnchor);
-                        SelectRowRange(*app, RowOfEntry(*app, anchorEntry), RowOfEntry(*app, row->index));
-                        app->cursor = app->entries[static_cast<size_t>(row->index)].wideName;
-                    }
-                    else
-                    {
-                        SelectOnly(*app, row->index);
-                    }
-
-                    // `ActOnPress`: con il clic singolo acceso, agire *premendo*
-                    // invece che mollando. E' l'unica differenza fra le due chiavi.
-                    if (app->actOnPress &&
-                        SingleClickActivates(*app, app->entries[static_cast<size_t>(row->index)]))
-                    {
-                        app->dragArmed = false;   // il gesto e' finito qui: non parte un trascinamento
-                        ActivateSelection(*app);
-                    }
-                }
-                else if (const ClickTarget* group = HitTest(*app, x, y, ClickTarget::Kind::GroupHeader))
-                {
-                    // Fold state is keyed by label, so it survives a rebuild of
-                    // the view when the statistics change.
-                    if (app->collapsedGroups.count(group->label) != 0)
-                        app->collapsedGroups.erase(group->label);
-                    else
-                        app->collapsedGroups.insert(group->label);
-                    app->viewDirty = true;
-                }
-                else if (HitTest(*app, x, y, ClickTarget::Kind::GroupMode) != nullptr)
-                {
-                    // La Home ha tre bande e non si raggruppa: il controllo lo
-                    // dice, invece di ciclare un valore che la lista non legge.
-                    if (IsHome(app->directory))
-                    {
-                        ReportStatus(*app, TrW(L"La Home raggruppa per banda",
-                                               L"Home groups by band"));
-                    }
-                    else
-                    {
-                        app->groupMode = static_cast<GroupMode>((static_cast<int>(app->groupMode) + 1) % 6);
-                        app->viewDirty = true;
-                    }
-                }
-                else if (const ClickTarget* header = HitTest(*app, x, y, ClickTarget::Kind::Column))
-                {
-                    const SortColumn column = kColumns[header->index].sort;
-                    if (column == app->sortColumn)
-                        app->sortAscending = !app->sortAscending;
-                    else
-                    {
-                        app->sortColumn = column;
-                        app->sortAscending = true;
-                    }
-                    SortEntries(*app);
-                    app->viewDirty = true;
-                }
-                else if (const ClickTarget* crumb = HitTest(*app, x, y, ClickTarget::Kind::Breadcrumb))
-                {
-                    LoadDirectory(*app, crumb->path);
-                }
-                else if (const ClickTarget* section = HitTest(*app, x, y,
-                                                             ClickTarget::Kind::SidebarHeader))
-                {
-                    // Ricordare la sezione chiusa per nome e non per posizione: le
-                    // righe si spostano quando i segnalibri cambiano, e una sezione
-                    // chiusa non deve riaprirsi da sola perche' ne e' arrivata
-                    // un'altra sopra.
-                    if (app->collapsedSections.count(section->label) != 0)
-                        app->collapsedSections.erase(section->label);
-                    else
-                        app->collapsedSections.insert(section->label);
-                }
-                else if (const ClickTarget* place = HitTest(*app, x, y, ClickTarget::Kind::Place))
-                {
-                    LoadDirectory(*app, place->path);
-                }
-                else
-                {
-                    // Nothing under the cursor: an empty area of the list starts a
-                    // rubber band. Everywhere else the press is simply ignored.
-                    const Layout layout = ComputeLayout(*app);
-                    if (layout.list.Contains(x, y))
-                    {
-                        app->rectSelecting = true;
-                        // Shift adds to the selection here too, the way it does on a
-                        // click: a band is a range gesture, and Shift is the range
-                        // modifier.
-                        app->rectAdditive  = ctrl || shift;
-                        app->rectX0 = app->rectX1 = x;
-                        app->rectY0 = app->rectY1 = y;
-                        if (!ctrl)
-                        {
-                            app->selection.clear();
-                            app->cursor.clear();
-                            app->selectionAnchor.clear();
-                        }
-                        // La base su cui il rettangolo lavora: quello che l'utente ha
-                        // gia' scelto con `Ctrl`, o niente quando il rettangolo
-                        // sostituisce la selezione.
-                        app->rectBase = app->selection;
-                    }
-                }
-            }
-            return 0;
-
-        case WM_LBUTTONUP:
-            // Il divisore: al rilascio il valore resta dov'e' — non e' una preferenza, e
-            // non si scrive da nessuna parte.
-            if (app != nullptr && app->splitDrag >= 0)
-            {
-                app->splitDrag = -1;
-                ReleaseCapture();
-                InvalidateRect(window, nullptr, FALSE);
-                return 0;
-            }
-            // Lasciando il bordo dell'ispettore si chiude il trascinamento **e** si
-            // ricorda la larghezza: aspettare il primo movimento del mouse dopo il
-            // rilascio lasciava il pannello largo e la preferenza vecchia.
-            if (app != nullptr && app->inspectorDrag >= 0)
-            {
-                app->inspectorDrag = -1;
-                ReleaseCapture();
-                RememberSettings(*app);
-                return 0;
-            }
-            if (app != nullptr && app->optionSliderDrag >= 0)
-            {
-                // Fine del trascinamento di uno slider: il valore e' gia' stato
-                // applicato a ogni movimento, qui si lascia solo la presa.
-                app->optionSliderDrag = -1;
-                return 0;
-            }
-            if (app != nullptr && app->dragTab >= 0)
-            {
-                ApplyTabDrop(*app);
-                InvalidateRect(window, nullptr, FALSE);
-                return 0;
-            }
-            if (app != nullptr)
-                app->tabPress = -1;
-            if (app != nullptr && app->columnDrag > 0)
-            {
-                app->columnDrag = -1;
-                ReleaseCapture();
-                return 0;
-            }
-            if (app != nullptr)
-            {
-                // `SingleClick`: mollare su una riga la apre, se non e' partito un
-                // trascinamento. `dragArmed` e' ancora vero solo se il mouse non si
-                // e' mosso abbastanza da armarlo — e allora il gesto era un clic,
-                // non un trascinamento.
-                const bool wasClick = app->dragArmed;
-                app->dragArmed = false;
-
-                if (wasClick && app->singleClick && !app->actOnPress)
-                {
-                    const float x = static_cast<float>(GET_X_LPARAM(lparam));
-                    const float y = static_cast<float>(GET_Y_LPARAM(lparam));
-                    if (const ClickTarget* row = HitTest(*app, x, y, ClickTarget::Kind::Row))
-                    {
-                        const Entry& entry = app->entries[static_cast<size_t>(row->index)];
-                        if (SingleClickActivates(*app, entry))
-                            ActivateSelection(*app);
-                    }
-                }
-
-                FinishRectSelection(*app);
-            }
-            return 0;
-
-        case WM_LBUTTONDBLCLK:
-            // Doppio clic su un bordo: la colonna torna come era nata. E' il modo di
-            // disfare un trascinamento senza doverlo indovinare a rovescio.
-            if (app != nullptr)
-            {
-                const float x = static_cast<float>(GET_X_LPARAM(lparam));
-                const float y = static_cast<float>(GET_Y_LPARAM(lparam));
-                if (HitTest(*app, x, y, ClickTarget::Kind::ColumnEdge) != nullptr)
-                {
-                    // Doppio clic su un bordo: torna **ad adattare**, che e' il valore di
-                    // partenza. Prima riportava la colonna alla frazione scritta nella
-                    // tabella, che era lo stesso gesto ma con un numero indovinato a mano.
-                    app->autoFitColumns = true;
-                    FitColumns(*app);
-                    InvalidateRect(window, nullptr, FALSE);
-                    return 0;
-                }
-            }
-            if (app != nullptr)
-            {
-                const float x = static_cast<float>(GET_X_LPARAM(lparam));
-                const float y = static_cast<float>(GET_Y_LPARAM(lparam));
-                if (const ClickTarget* row = HitTest(*app, x, y, ClickTarget::Kind::Row))
-                {
-                    SelectOnly(*app, row->index);
-                    ActivateSelection(*app);
-                }
-                else if (app->doubleClickToParent &&
-                         ComputeLayout(*app).list.Contains(x, y))
-                {
-                    // `DoubleClickToParent`: il doppio clic sul fondo va su di un
-                    // livello. E' il gesto che Windows chiama "doppio clic per
-                    // salire", e vale solo sul fondo: su una riga il doppio clic
-                    // apre, che e' un'altra cosa.
-                    RunCommand(*app, CmdGoUp);
-                }
-            }
-            return 0;
-
-        case WM_KEYDOWN:
-            if (app != nullptr)
-            {
-                // Il pannello dell'operazione non prende piu' la tastiera: prende
-                // `Esc`, che e' l'annullamento, e nient'altro. Il resto va dove
-                // andrebbe sempre — e se un comando avvia un'operazione, quella va in
-                // coda.
-                if (OperationPanelVisible(*app) && wparam == VK_ESCAPE)
-                {
-                    CancelOperation(*app);
-                    return 0;
-                }
-
-                // Il pannello delle proprieta' e' modale come un menu: prende la
-                // tastiera prima di tutto il resto, e non lascia passare niente.
-                if (app->propertiesOpen)
-                {
-                    PropertiesPanelKey(*app, wparam);
-                    return 0;
-                }
-
-                const Layout layout = ComputeLayout(*app);
-
-                // An open menu is modal, so it takes the keyboard first. Returning
-                // here does not stop TranslateMessage from producing WM_CHAR, which
-                // is where printable characters are routed to the menu filter.
-                if (GroupMenu* menu = OpenMenu(*app))
-                {
-                    const bool control = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
-                    const bool shift   = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
-
-                    // Il campo di testo di un'opzione, mentre si scrive, prende la
-                    // tastiera come la rinomina: Backspace cancella una lettera del
-                    // nome, non del filtro.
-                    if (app->optionEditActive)
-                    {
-                        switch (wparam)
-                        {
-                            case VK_RETURN: CommitOptionEdit(*app); break;
-                            case VK_ESCAPE: CancelOptionEdit(*app); break;
-                            case VK_BACK:
-                                if (!app->optionEditText.empty())
-                                    app->optionEditText.pop_back();
-                                break;
-                            default: break;
-                        }
-                        return 0;
-                    }
-
-                    // La cattura del tasto sta **prima** di ogni altra lettura: mentre
-                    // e' aperta il tasto premuto e' il dato che si sta scrivendo, non
-                    // un comando — altrimenti `Ctrl+P` aprirebbe il GoTo invece di
-                    // diventare il tasto di un comando.
-                    if (app->keyCaptureCommand >= 0)
-                    {
-                        KeyMapKeyDown(*app, wparam);
-                        return 0;
-                    }
-
-                    // Ogni menu si richiude col suo tasto. Le scorciatoie sono
-                    // quelle del riferimento: Ctrl+P e F4 al GoTo, Ctrl+Maiusc+P ai
-                    // comandi, Ctrl+, alle opzioni.
-                    const bool toggling = control &&
-                        ((menu == &app->goTo    && wparam == 'P' && !shift) ||
-                         (menu == &app->palette && wparam == 'P' && shift)  ||
-                         ((menu == &app->options || menu == &app->keyMap) &&
-                          wparam == VK_OEM_COMMA));
-                    if (toggling)
-                    {
-                        if (menu == &app->options)
-                            CancelOptionEdit(*app);
-                        // Dall'editor si **torna alle opzioni**, perche' e' da li' che si
-                        // e' aperto: il tasto che le apre le riapre, invece di
-                        // chiudere tutto e lasciare il posto dov'era.
-                        const bool backToOptions = (menu == &app->keyMap);
-                        menu->open = false;
-                        if (backToOptions)
-                            BuildOptionsMenu(*app);
-                        return 0;
-                    }
-
-                    // I tasti del **controllo** di una riga di opzione: Invio,
-                    // Spazio e frecce. Su/Giu'/Home/Fine/Esc restano al componente.
-                    if (menu == &app->options && OptionsKeyDown(*app, *menu, wparam))
-                        return 0;
-
-                    const MenuAction action = GroupMenuKeyDown(*menu, wparam);
-                    if (action == MenuAction::Close)
-                    {
-                        if (menu == &app->options)
-                            CancelOptionEdit(*app);
-                        if (menu == &app->keyMap)
-                            CloseKeyMap(*app);
-                        else
-                            menu->open = false;
-                    }
-                    else if (action == MenuAction::Activate)
-                    {
-                        if (menu == &app->palette)
-                            RunPaletteSelection(*app);
-                        else if (menu == &app->goTo)
-                            RunGoToSelection(*app);
-                        else if (menu == &app->optionsChoice)
-                            RunOptionsChoiceSelection(*app);
-                        else if (menu == &app->keyMap)
-                            RunKeyMapSelection(*app);
-                        else if (menu == &app->pinMenu)
-                            RunPinMenuSelection(*app);
-                        else if (menu == &app->columnOps)
-                            RunColumnOpsSelection(*app);
-                        else
-                            RunColumnMenuSelection(*app);
-                    }
-                    return 0;
-                }
-
-                // Il menu contestuale prende la tastiera prima di tutto il resto,
-                // rinomina compresa: finche' e' aperto e' lui la cosa su cui si
-                // sta agendo.
-                if (app->contextMenu.open)
-                {
-                    switch (wparam)
-                    {
-                        // Esc e freccia sinistra risalgono di un livello: dal
-                        // primo livello chiudono il menu. E' l'unico modo di
-                        // uscire da un sottomenu senza eseguire niente.
-                        case VK_ESCAPE:
-                        case VK_LEFT:   ContextMenuRaiseLevel(*app);       break;
-                        case VK_RIGHT:  ContextMenuDescend(*app, layout);    break;
-                        case VK_RETURN: ContextMenuActivate(*app); break;
-                        case VK_UP:     ContextMenuMove(*app, layout, -1); break;
-                        case VK_DOWN:   ContextMenuMove(*app, layout, 1);  break;
-                        // In un menu che scorre, PagSu e PagGiu' scorrono di una
-                        // schermata e Home/Fine vanno agli estremi: e' quello che
-                        // fanno in ogni menu, e con venti voci la differenza si
-                        // sente.
-                        case VK_NEXT:   ContextMenuMove(*app, layout, 5);  break;
-                        case VK_PRIOR:  ContextMenuMove(*app, layout, -5); break;
-                        case VK_HOME:
-                        case VK_END:
-                            ContextMenuJump(*app, layout, wparam == VK_HOME);
-                            break;
-                        // Il campo di ricerca si cancella da qui e non da `WM_CHAR`,
-                        // che il `Backspace` non lo produce: il carattere che ne
-                        // uscirebbe e' un controllo (0x08), e un controllo non e'
-                        // testo da cercare.
-                        case VK_BACK:   ContextMenuBackspace(*app);        break;
-                        default: break;
-                    }
-                    return 0;
-                }
-
-                // La rinomina sul posto prende la tastiera prima di tutto il
-                // resto. Deve stare qui e non dentro lo switch: con la rinomina
-                // attiva, Backspace deve cancellare una lettera del nome e non del
-                // filtro, ed Esc deve annullare il nome e non svuotare il filtro.
-                if (app->renameActive)
-                {
-                    switch (wparam)
-                    {
-                        case VK_RETURN: CommitRename(*app); break;
-                        case VK_ESCAPE: CancelRename(*app); break;
-                        // (il campo della ricerca ha il suo `Backspace` piu' sotto)
-                        case VK_BACK:
-                            // Con una selezione, `Backspace` la cancella tutta: e' il
-                            // gesto che ci si aspetta da un campo di testo, e qui la
-                            // selezione e' l'unica cosa che si puo' cancellare in blocco.
-                            if (app->renameSelectEnd > 0)
-                            {
-                                app->renameText.erase(0, app->renameSelectEnd);
-                                app->renameSelectEnd = 0;
-                                app->renameCaret     = 0;
-                            }
-                            else if (app->renameCaret > 0)
-                            {
-                                // Indietro di **un carattere**, non di un byte: un
-                                // nome con un accento occupa due byte, e cancellarne
-                                // uno solo lascerebbe un mezzo carattere nel nome.
-                                size_t from = app->renameCaret - 1;
-                                while (from > 0 &&
-                                       (static_cast<unsigned char>(app->renameText[from]) & 0xC0) == 0x80)
-                                    --from;
-                                app->renameText.erase(from, app->renameCaret - from);
-                                app->renameCaret = from;
-                            }
-                            break;
-                        default:
-                            break;
-                    }
-                    return 0;
-                }
-
-                // Prima di tutto il resto: **che comando e' questo tasto**? La
-                // risposta la da' la mappa (un dato, che si puo' cambiare); i tasti
-                // che non sono comandi — le frecce, l'Invio, `Ctrl+A` che seleziona
-                // tutto, `Ctrl+rotella` — restano qui sotto, perche' sono
-                // comportamenti dell'input e non voci di un menu.
-                {
-                    const bool ctrl  = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
-                    const bool shift = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
-                    const bool alt   = (GetKeyState(VK_MENU) & 0x8000) != 0;
-                    const int command = app->keys.CommandFor(static_cast<unsigned>(wparam), ctrl, shift, alt);
-                    if (command >= 0)
-                    {
-                        // **Lo stesso esecutore della palette e dei menu.** Prima il
-                        // tasto e il comando erano due strade con lo stesso corpo
-                        // scritto due volte — `case 'C': DoCopyToClipboard(...)` qui e
-                        // `case CmdCopy:` la' — e due copie divergono sempre.
-                        RunCommand(*app, command);
-                        return 0;
-                    }
-                }
-
-                switch (wparam)
-                {
-                    case VK_ESCAPE:
-                        // Escape unwinds the filter and stops there. Closing the
-                        // window is the ✕ button or Alt+F4: an application that
-                        // exits on a bare Escape is a trap, and this one did.
-                        //
-                        // Prima del filtro c'e' l'aggiornamento: se e' in corso, Esc
-                        // e' l'unica cosa che lo puo' fermare.
-                        if (app->updateJob != nullptr && app->updateJob->Running())
-                        {
-                            app->updateJob->Cancel();
-                            ReportStatus(*app, TrW(L"Annullamento...", L"Cancelling..."));
-                            break;
-                        }
-                        // Il campo della ricerca, prima del filtro: `Esc` ferma la
-                        // ricerca e riporta la cartella, che e' quello che ci si aspetta
-                        // da un campo in cui si e' appena scritto.
-                        if (app->search.active || app->search.finished ||
-                            app->searchFieldActive || !app->searchText.empty())
-                        {
-                            StopSearch(*app);
-                            break;
-                        }
-                        if (!app->filter.empty() || app->filterActive)
-                        {
-                            app->filter.clear();
-                            app->filterActive = false;
-                            app->viewDirty = true;
-                        }
-                        break;
-
-                    case VK_DOWN:
-                    case VK_UP:
-                    case VK_NEXT:
-                    case VK_PRIOR:
-                    {
-                        const bool extend = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
-                        const ViewMetrics metrics = ComputeViewMetrics(*app, layout);
-                        const float stride = metrics.grid ? metrics.cellHeight : metrics.rowHeight;
-                        const int step = metrics.grid ? metrics.columns : 1;
-                        const int page = (std::max)(1, static_cast<int>(layout.list.h / stride)) * step;
-
-                        int delta = step;
-                        if (wparam == VK_UP)         delta = -step;
-                        else if (wparam == VK_NEXT)  delta = page;
-                        else if (wparam == VK_PRIOR) delta = -page;
-
-                        MoveSelection(*app, delta, extend);
-                        EnsureSelectionVisible(*app, layout);
-                        break;
-                    }
-                    case VK_LEFT:
-                    case VK_RIGHT:
-                    {
-                        // Only a grid has a horizontal neighbour to move to.
-                        const ViewMetrics metrics = ComputeViewMetrics(*app, layout);
-                        if (!metrics.grid)
-                            break;
-                        const bool extend = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
-                        MoveSelection(*app, wparam == VK_LEFT ? -1 : 1, extend);
-                        EnsureSelectionVisible(*app, layout);
-                        break;
-                    }
-                    case VK_RETURN:
-                        // Nel campo della ricerca `Invio` fa partire la ricerca; ovunque
-                        // altrove apre la voce scelta.
-                        if (app->searchFieldActive && !app->searchText.empty())
-                        {
-                            StartSearch(*app, app->searchText);
-                            app->searchFieldActive = false;
-                            break;
-                        }
-                        ActivateSelection(*app);
-                        break;
-                    case VK_BACK:
-                        // Il campo della ricerca si cancella come un campo di testo, e
-                        // non fa salire di livello: chi sta scrivendo non sta navigando.
-                        if (app->searchFieldActive)
-                        {
-                            if (!app->searchText.empty())
-                                app->searchText.pop_back();
-                            break;
-                        }
-                        // Backspace edits the filter while it is active, and only
-                        // navigates to the parent when there is nothing to erase.
-                        if (app->filterActive && !app->filter.empty())
-                        {
-                            app->filter.pop_back();
-                            app->viewDirty = true;
-                        }
-                        else
-                        {
-                            // Sale di un livello, e da una radice di volume va a
-                            // "This PC": la stessa strada del comando, non una
-                            // seconda che puo' divergere.
-                            RunCommand(*app, CmdGoUp);
-                        }
-                        break;
-                    case VK_APPS:
-                        // Il tasto Menu: aprire il menu contestuale e' l'unica
-                        // cosa che possa significare.
-                        OpenContextMenuAtCursor(*app, layout);
-                        break;
-                    case VK_HOME:
-                    {
-                        app->scroll = 0.0f;
-                        for (const Row& row : app->rows)
-                        {
-                            if (!row.header)
-                            {
-                                SelectOnly(*app, row.entry);
-                                break;
-                            }
-                        }
-                        break;
-                    }
-                    case 'A':
-                        if ((GetKeyState(VK_CONTROL) & 0x8000) != 0)
-                        {
-                            // Selects what is on screen: the filter is part of the
-                            // question, so it is part of the answer.
-                            app->selection.clear();
-                            for (const Row& row : app->rows)
-                            {
-                                if (!row.header)
-                                    app->selection.insert(app->entries[static_cast<size_t>(row.entry)].wideName);
-                            }
-                        }
-                        break;
-                    case 'G':
-                        // GoTo ha preso Ctrl+P e F4, come il riferimento. Ctrl+G
-                        // resta libero: ciclare il raggruppamento sta su
-                        // Ctrl+Maiusc+G, che e' l'unico uso rimasto.
-                        if ((GetKeyState(VK_CONTROL) & 0x8000) != 0 &&
-                            (GetKeyState(VK_SHIFT) & 0x8000) != 0)
-                        {
-                            if (IsHome(app->directory))
-                            {
-                                ReportStatus(*app, TrW(L"La Home raggruppa per banda",
-                                                       L"Home groups by band"));
-                            }
-                            else
-                            {
-                                app->groupMode = static_cast<GroupMode>((static_cast<int>(app->groupMode) + 1) % 6);
-                                app->viewDirty = true;
-                            }
-                        }
-                        break;
-                    default:
-                        break;
-                }
-            }
-            return 0;
-
-        case WM_CHAR:
-            if (app != nullptr)
-            {
-                // La cattura di un tasto vuole **il tasto**, non il carattere che ne
-                // esce: senza questo, premendo `C` per rimappare Copia il `c`
-                // finirebbe nel filtro dell'elenco sotto.
-                if (app->keyCaptureCommand >= 0)
-                    return 0;
-
-                // Il pannello delle proprieta' e' modale, e i suoi tasti li ha gia'
-                // presi `WM_KEYDOWN`: senza questo, un carattere digitato andrebbe
-                // nel filtro della lista **sotto** il pannello.
-                if (app->propertiesOpen)
-                    return 0;
-
-                // CharacterKeyAction defaults to typing into the filter rather
-                // than triggering a command, so a printable character over the
-                // list starts filtering. Backspace is handled in WM_KEYDOWN: not
-                // handling it here avoids erasing two characters per press.
-                const wchar_t character = static_cast<wchar_t>(wparam);
-                if (character >= 0x20 && character != 0x7F)
-                {
-                    if (app->renameActive)
-                    {
-                        // Il primo carattere **sostituisce** la selezione (il nome
-                        // senza estensione): e' quello che rende `F2` + scrivere una
-                        // rinomina e non un'aggiunta. I caratteri non validi in un nome
-                        // di file li rifiuta `IFileOperation` con un messaggio: meglio
-                        // non anticiparli, cosi' l'errore lo spiega il sistema.
-                        const std::wstring wide(1, character);
-                        const std::string  utf8 = ToUtf8(wide);
-                        if (app->renameSelectEnd > 0)
-                        {
-                            // La selezione e' un **prefisso**: si sostituisce lei, e
-                            // quello che segue (l'estensione) resta dov'e'.
-                            app->renameText = utf8 + app->renameText.substr(app->renameSelectEnd);
-                            app->renameSelectEnd = 0;
-                            app->renameCaret     = utf8.size();
-                        }
-                        else
-                        {
-                            app->renameText.insert(app->renameCaret, utf8);
-                            app->renameCaret += utf8.size();
-                        }
-                    }
-                    else if (app->optionEditActive)
-                    {
-                        // Il campo di testo di un'opzione: il carattere va nel
-                        // nome, non nel filtro del pannello che lo contiene.
-                        const std::wstring wide(1, character);
-                        app->optionEditText += ToUtf8(wide);
-                    }
-                    else if (app->searchFieldActive)
-                    {
-                        // Il campo della ricerca prende i caratteri prima del filtro: e'
-                        // un campo di testo, e chi l'ha acceso sta scrivendo li'.
-                        app->searchText.push_back(character);
-                    }
-                    else if (GroupMenu* menu = OpenMenu(*app))
-                    {
-                        GroupMenuChar(*menu, character);
-                    }
-                    else if (app->contextMenu.open)
-                    {
-                        // Il menu contestuale e' modale come quelli a gruppi: il
-                        // carattere e' testo da cercare fra le sue voci, non l'inizio
-                        // del filtro della lista che sta sotto.
-                        ContextMenuChar(*app, character);
-                    }
-                    else
-                    {
-                        app->filter.push_back(character);
-                        app->filterActive = true;
-                        app->viewDirty = true;
-                        app->scroll = 0.0f;
-                    }
-                }
-            }
-            return 0;
-
-        case WM_SYSKEYDOWN:
-            // La cattura prende anche i tasti di sistema: `Alt` li rende tali, e senza
-            // questo `Alt+qualcosa` non si potrebbe assegnare — e `Alt+F4` chiuderebbe
-            // la finestra mentre si sta scegliendo un tasto.
-            if (app != nullptr && app->keyCaptureCommand >= 0)
-            {
-                KeyMapKeyDown(*app, wparam);
-                return 0;
-            }
-
-            // Shift+F10 e' un tasto di sistema come Alt+freccia: F10 da solo
-            // attiva il menu della finestra, quindi non passa da WM_KEYDOWN.
-            if (app != nullptr && wparam == VK_F10 && (GetKeyState(VK_SHIFT) & 0x8000) != 0)
-            {
-                OpenContextMenuAtCursor(*app, ComputeLayout(*app));
-                return 0;
-            }
-
-            // Alt+Left and Alt+Right arrive as system keys, not as ordinary ones,
-            // because the window has a system menu.
-            if (app != nullptr && wparam == VK_LEFT)
-            {
-                NavigateBack(*app);
-                return 0;
-            }
-            if (app != nullptr && wparam == VK_RIGHT)
-            {
-                NavigateForward(*app);
-                return 0;
-            }
-            // Alt+Su sale di un livello, e da una radice di volume porta a "This
-            // PC". Arriva come tasto di sistema come Alt+freccia laterale.
-            if (app != nullptr && wparam == VK_UP)
-            {
-                RunCommand(*app, CmdGoUp);
-                return 0;
-            }
-            break;
-
-        case WM_SYSCHAR:
-            // `Alt`+lettera produce anche questo, oltre a `WM_SYSKEYDOWN`: senza
-            // rispondere, la cattura di un tasto con `Alt` suonerebbe.
-            if (app != nullptr && app->keyCaptureCommand >= 0)
-                return 0;
-            break;
-
-        case WM_SETCURSOR:
-            // Su un bordo d'intestazione il puntatore dice che li' si trascina: senza
-            // questo, la striscia di presa esiste e non si vede.
-            if (app != nullptr && LOWORD(lparam) == HTCLIENT)
-            {
-                POINT point{};
-                GetCursorPos(&point);
-                ScreenToClient(window, &point);
-                const Layout layout = ComputeLayout(*app);
-                if (layout.header.Contains(static_cast<float>(point.x), static_cast<float>(point.y)) &&
-                    HitTest(*app, static_cast<float>(point.x), static_cast<float>(point.y),
-                            ClickTarget::Kind::ColumnEdge) != nullptr)
-                {
-                    SetCursor(LoadCursorW(nullptr, IDC_SIZEWE));
-                    return TRUE;
-                }
-                // Il **divisore** dei pannelli: una freccia a due punte, nel verso in cui
-                // si sposta. Il verso lo dice l'asse, non la posizione del puntatore —
-                // cosi' il cursore non cambia mentre lo si trascina.
-                if (app->panes.size() > 1 &&
-                    SplitterRect(*app).Contains(static_cast<float>(point.x),
-                                                static_cast<float>(point.y)))
-                {
-                    SetCursor(LoadCursorW(nullptr, app->splitColumn ? IDC_SIZEWE : IDC_SIZENS));
-                    return TRUE;
-                }
-            }
-            SetCursor(LoadCursorW(nullptr, IDC_ARROW));
-            return TRUE;
 
         // Il tema del sistema puo' cambiare mentre l'applicazione e' aperta, ed e'
         // esattamente quello che `SystemColorScheme` promette di seguire. Il messaggio
@@ -4729,20 +2197,41 @@ void CloseKeyMap(AppState& app)
 }
 
 // L'aggiornamento e' un comando esplicito: qui si fa partire e non si aspetta. Il
-// lavoro sta su un thread (`update.*`) e la barra di stato lo racconta; l'esito lo
-// legge `FinishUpdate`, quando il ciclo principale vede che ha finito.
+// lavoro sta su un thread (`update.*`) e lo racconta la sua finestra (`view_update.*`);
+// `FinishUpdate` raccoglie l'esito quando il ciclo principale vede che ha finito.
+//
+// Se un aggiornamento e' gia' stato scaricato e verificato — `Piu' tardi` chiude la
+// finestra ma non butta il setup — il comando **riapre quello stato** invece di
+// riscaricare trenta megabyte per niente.
 void CheckForUpdates(AppState& app)
 {
+    // Tutto quello che riguarda l'aggiornamento si legge **nella sua finestra**: la
+    // barra di stato in basso non dice piu' niente, nemmeno «c'e' gia' un controllo in
+    // corso». Due posti che dicono la stessa cosa sono due posti da tenere allineati, e
+    // uno dei due era in basso a sinistra dove non si guarda.
     if (app.updateJob != nullptr)
     {
-        ReportStatus(app, TrW(L"C'e' gia' un controllo degli aggiornamenti in corso.",
-                              L"An update check is already running."));
+        app.updateDialogOpen = true;
         return;
     }
 
+    if (app.updateDone && app.updateResult == Update::Result::Ready &&
+        !app.updateSetupPath.empty())
+    {
+        app.updateDialogOpen = true;
+        DiagLog("--- aggiornamenti: riaperta la finestra sul setup gia' verificato");
+        return;
+    }
+
+    app.updateDone       = false;
+    app.updateInstalling = false;
+    app.updateResult     = Update::Result::UpToDate;
+    app.updateVersion.clear();
+    app.updateSetupPath.clear();
+    app.updateError.clear();
+    app.updateDialogOpen = true;
     app.updateJob = Update::Job::Start();
     DiagLog("--- aggiornamenti: controllo chiesto dall'utente");
-    ReportStatus(app, TrW(L"Controllo gli aggiornamenti...", L"Checking for updates..."));
 }
 
 // Dichiarato qui perche' la testata della mappa dei tasti lo usa, e la definizione sta
@@ -5442,6 +2931,651 @@ void StartNextOperation(AppState& app)
     app.operationOrigin = app.directory;
     app.operationStart  = NowSeconds();
 }
+
+// ---------------------------------------------------------------------------
+// Le superfici che l'input chiama.
+//
+// Sono le stesse funzioni di prima, non riscritte: escono dal namespace anonimo ed
+// entrano qui perche' `input_keys.cpp` e `input_mouse.cpp` sono altri file, e un
+// simbolo interno a `main.cpp` non attraversa un confine di compilazione. La loro
+// casa vera e' quella scritta accanto alla dichiarazione in `app_actions.h`
+// (`view_keymap.*`, `view_columns.*`, `view_properties.*`, `view_operation.*`,
+// `view_pins.*`, `search.*`): quando arrivera', il corpo si spostera' di peso e la
+// riga sparira' da quell'elenco — che e' la regola di quella cucitura.
+// ---------------------------------------------------------------------------
+
+// |text| **per valore**: la funzione comincia azzerando `app.searchText`, e quel testo
+// e' proprio `app.searchText` quando arriva da `Invio`. Passato per riferimento, il
+// primo `clear()` lo svuotava, e la ricerca partiva con la query vuota — che il
+// controllo qui sotto respingeva, senza dire niente. Il registro l'ha detto in una riga.
+void StartSearch(AppState& app, std::wstring text)
+{
+    // La ricerca si azzera **prima** di riempire: il testo che si cerca arriva come
+    // argomento e non dallo stato, perche' azzerare lo stato dopo averlo letto vuol dire
+    // cercare la stringa vuota — che trova tutto. Visto: 31 voci invece delle 15 `voce`.
+    app.search = AppState::SearchJob{};
+    app.searchText.clear();
+    app.search.query = FoldCase(text);
+    DiagLog("--- ricerca: avvio, query '" + ToUtf8(app.search.query) + "' da " +
+            ToUtf8(app.directory));
+
+    if (app.search.query.empty())
+        return;
+
+    // Dal campo si cerca: la cartella aperta **e sotto**. Da una cartella di spazio dei
+    // nomi non c'e' un albero da camminare, e lo si dice invece di cercare a vuoto.
+    if (ShellLocation::IsNamespace(app.directory) || IsHome(app.directory))
+    {
+        ReportStatus(app, TrW(L"Da qui non c'e' un albero di cartelle da cercare",
+                              L"There is no folder tree to search from here"));
+        return;
+    }
+
+    app.search.active = true;
+    app.search.root   = app.directory;
+    app.search.pending.push_back(app.directory);
+    ReportStatus(app, TrW(L"Cerco...", L"Searching..."));
+}
+
+// Fermare la ricerca e tornare alla cartella: i risultati non sono una cartella, e
+// lasciarli li' dopo aver premuto Esc confonderebbe chi guarda.
+void StopSearch(AppState& app)
+{
+    app.search = AppState::SearchJob{};
+    app.searchText.clear();
+    app.searchFieldActive = false;
+    LoadDirectory(app, app.directory, /*recordHistory=*/false);
+}
+
+// La colonna sotto un punto dell'intestazione, o -1. Una colonna nascosta non ha un
+// rettangolo: la sua frazione e' quella della prossima visibile (`ColumnEdges`),
+// quindi si cerca **fra quelle visibili** invece di fidarsi dell'indice.
+int ColumnAtPoint(const AppState& app, const Layout& layout, float x)
+{
+    if (layout.header.w <= 0.0f)
+        return -1;
+    const float fraction = (x - layout.header.x) / layout.header.w;
+    float edges[kColumnCount + 1];
+    ColumnEdges(app, edges);
+    for (int i = 0; i < kColumnCount; ++i)
+    {
+        if (!ColumnVisible(app, i))
+            continue;
+        // Il bordo destro e' quello della prossima **visibile a destra**, non di
+        // `i + 1`: dopo uno spostamento i due non coincidono.
+        const int   next  = NextVisibleColumn(app, i);
+        const float right = next < kColumnCount ? edges[next] : 1.0f;
+        if (fraction >= edges[i] && fraction < right)
+            return i;
+    }
+    return -1;
+}
+
+// Il menu del **tasto destro sull'intestazione**: le operazioni sulla colonna. Non ha
+// le spunte di visibilita' che il riferimento mette in fondo allo stesso pannello: da
+// noi le colonne si accendono e si spengono dalle opzioni e dalla palette, e due posti
+// che fanno la stessa cosa sono due posti da tenere allineati.
+void BuildColumnOpsMenu(AppState& app, int column)
+{
+    const Layout layout = ComputeLayout(app);
+    float edges[kColumnCount + 1];
+    ColumnEdges(app, edges);
+
+    app.columnOpsIndex = column;
+    app.columnOps.anchor = Rect{layout.header.x + layout.header.w * edges[column],
+                                layout.header.y, 0.0f, layout.header.h};
+
+    const bool closable = column > 0;
+    std::vector<GroupMenuItem> items;
+    // Sposta a sinistra o a destra: si accende solo dove c'e' dove andare — il nome non
+    // si sposta (e' la colonna che prende lo spazio che resta) e la prima e l'ultima
+    // non hanno una vicina da quel lato.
+    const bool canLeft  = column > 0 && PrevVisibleColumn(app, column) > 0;
+    const bool canRight = column > 0 && NextVisibleColumn(app, column) < kColumnCount;
+    items.push_back({"", Tr("Sposta a sinistra", "Shift Column Left"), "",
+                     kColumnOpsLeftId, OptionControl::None, "", "", false, 0.0f, canLeft});
+    items.push_back({"", Tr("Sposta a destra", "Shift Column Right"), "",
+                     kColumnOpsRightId, OptionControl::None, "", "", false, 0.0f, canRight});
+    items.push_back({"", Tr("Adatta questa colonna", "Size Column To Fit"), "",
+                     kColumnOpsFitId});
+    items.push_back({"", Tr("Adatta tutte le colonne", "Size All Columns To Fit"), "",
+                     kColumnOpsFitAllId});
+    items.push_back({"", Tr("Chiudi colonna", "Close Column"),
+                     closable ? std::string() : Tr("il nome resta", "Name stays"),
+                     kColumnOpsCloseId});
+    items.push_back({"", Tr("Ripristina le colonne", "Restore Default Columns"), "",
+                     kColumnOpsResetId});
+    // Le colonne "di fabbrica" ci sono e si vedono **spente**, con la ragione accanto:
+    // e' la stessa regola del riferimento, dove `System Light / Dark Scheme` sta li' e
+    // non si tocca invece di sparire. Le "di fabbrica" sarebbero quelle del prodotto
+    // originale, che non conosciamo: dichiararlo e' meglio che inventarle.
+    items.push_back({"", Tr("Colonne di fabbrica", "Restore Factory Columns"),
+                     Tr("non le conosciamo", "not known here"),
+                     kColumnOpsFactoryId, OptionControl::None, "", "", false, 0.0f, false});
+
+    // Il contenuto di un segnaposto `Empty`. Compare solo sul menu di una di quelle
+    // colonne, e da qualche parte bisogna pur dire cosa mostra: il posto naturale e' il
+    // menu della colonna stessa, che e' dove si va quando una colonna non va bene. Le
+    // scelte sono le colonne che una riga sa dire — il nome no, c'e' gia' ed e' quello che
+    // prende lo spazio che resta; i segnaposto no, perche' un segnaposto che punta a un
+    // altro segnaposto e' una catena che non finisce.
+    if (IsEmptyColumn(column))
+    {
+        const int chosen = app.emptyColumnSource[column - kEmptyColumnFirst];
+        items.push_back({Tr("Contenuto", "Contents"), Tr("Vuota", "Empty"), "",
+                         kColumnOpsEmptyBase});
+        for (int i = 1; i < kEmptyColumnFirst; ++i)
+        {
+            items.push_back({Tr("Contenuto", "Contents"),
+                             (i == chosen ? "[x] " : "[ ] ") + ColumnLabel(i), "",
+                             kColumnOpsEmptyBase + i});
+        }
+    }
+
+    // Le spunte di visibilita'. Il nome non c'e': e' la colonna che prende lo spazio
+    // che resta e chiuderla vorrebbe dire un elenco senza nomi — il perche' sta scritto
+    // nella riga `Chiudi colonna`, un posto sopra.
+    for (int i = 1; i < kColumnCount; ++i)
+    {
+        const bool shown = ColumnVisible(app, i);
+        items.push_back({Tr("Colonne", "Columns"),
+                         (shown ? "[x] " : "[ ] ") + ColumnTitle(app, i), "",
+                         kColumnOpsColumnBase + i});
+    }
+
+    GroupMenuOpen(app.columnOps, ColumnTitle(app, column),
+                  Tr("Cerca un'operazione...", "Find an operation..."), std::move(items));
+    app.columnOps.anchored    = true;
+    app.columnOps.caption     = Tr("Adatta, chiudi o riporta le colonne di partenza.",
+                                   "Size, close or restore the columns.");
+    app.columnOps.command     = Tr("Opzioni della colonna", "Show Column Options");
+    app.columnOps.commandKeys = {Tr("Tasto destro", "MouseRight")};
+}
+
+// Cosa fa l'Invio, o un clic, in quel menu.
+void RunColumnOpsSelection(AppState& app)
+{
+    if (app.columnOpsIndex < 0)
+        return;
+    const int id     = GroupMenuSelectedId(app.columnOps);
+    const int column = app.columnOpsIndex;
+
+    // Una spunta di visibilita' **non chiude** il pannello: e' una lista di caselle, e
+    // se ne spuntano piu' d'una di seguito. Il segno cambia sul posto, senza ricostruire
+    // l'elenco — ricostruirlo rimetterebbe il cursore in cima a ogni spunta.
+    // Il contenuto di un segnaposto. Come le spunte di visibilita' **non chiude** il
+    // pannello: dopo aver scelto si vuole vedere il risultato nella lista che resta
+    // sotto, non rimettere tutto com'era.
+    if (id >= kColumnOpsEmptyBase)
+    {
+        const int target = id - kColumnOpsEmptyBase;
+        if (target < 0 || target >= kEmptyColumnFirst || !IsEmptyColumn(column))
+            return;
+
+        app.emptyColumnSource[column - kEmptyColumnFirst] = target;
+
+        // Le spunte si aggiornano **sul posto**, come quelle di visibilita': ricostruire
+        // l'elenco rimetterebbe il cursore in cima a ogni scelta. E le larghezze si
+        // riadattano, perche' il contenuto nuovo puo' essere piu' largo di «Vuota 3».
+        for (GroupMenuItem& item : app.columnOps.items)
+        {
+            if (item.id < kColumnOpsEmptyBase)
+                continue;
+            const int which = item.id - kColumnOpsEmptyBase;
+            item.label = (which == target ? "[x] " : "[ ] ") +
+                         (which == 0 ? std::string(Tr("Vuota", "Empty")) : ColumnLabel(which));
+        }
+        FitColumns(app);
+        app.viewDirty = true;
+        return;
+    }
+    if (id >= kColumnOpsColumnBase)
+    {
+        const int target = id - kColumnOpsColumnBase;
+        if (target <= 0 || target >= kColumnCount)
+            return;
+        SetColumnVisible(app, target, !ColumnVisible(app, target));
+        // Accendere una colonna che non c'era vuol dire che le altre si erano prese il
+        // suo spazio: senza riadattare, la nuova nasce larga venti pixel e si legge
+        // `36 E` invece di `36 B`. Le larghezze tornano "adattate al contenuto", che
+        // e' il valore di partenza di una colonna appena comparsa.
+        if (ColumnVisible(app, target))
+            FitColumns(app);
+        for (GroupMenuItem& item : app.columnOps.items)
+        {
+            if (item.id < kColumnOpsColumnBase)
+                continue;
+            const int which = item.id - kColumnOpsColumnBase;
+            item.label = (ColumnVisible(app, which) ? "[x] " : "[ ] ") + ColumnTitle(app, which);
+        }
+        app.viewDirty = true;
+        return;
+    }
+
+    app.columnOps.open = false;
+    app.columnOpsIndex = -1;
+
+    switch (id)
+    {
+        case kColumnOpsLeftId:   ShiftColumn(app, column, -1); break;
+        case kColumnOpsRightId:  ShiftColumn(app, column, 1); break;
+        case kColumnOpsFitId:    FitColumn(app, column); break;
+        case kColumnOpsFitAllId: app.autoFitColumns = false; FitColumns(app); break;
+        case kColumnOpsCloseId:  SetColumnVisible(app, column, false); break;
+        case kColumnOpsResetId:  ResetColumns(app); break;
+        default:                 return;   // spenta: la voce non si sceglie
+    }
+    app.viewDirty = true;
+}
+
+void BuildColumnMenu(AppState& app, int column)
+{
+    // Il pannello si appoggia al bordo sinistro della sua colonna: e' cosi' che si
+    // vede a quale intestazione appartiene, senza doverlo scrivere.
+    const Layout layout = ComputeLayout(app);
+    app.columnMenu.anchor = Rect{layout.header.x + layout.header.w *
+                                     app.columns[static_cast<size_t>(column)].fraction,
+                                 layout.header.y, 0.0f, layout.header.h};
+
+    std::vector<std::pair<std::string, int>> counts;
+    std::unordered_map<std::string, int> index;
+    for (const Entry& entry : app.entries)
+    {
+        const std::string value = ColumnValueOf(app, entry, column);
+        if (value.empty())
+            continue;
+        auto found = index.find(value);
+        if (found == index.end())
+        {
+            index[value] = static_cast<int>(counts.size());
+            counts.push_back({value, 0});
+        }
+        counts[static_cast<size_t>(index[value])].second += 1;
+    }
+
+    std::sort(counts.begin(), counts.end(),
+              [](const std::pair<std::string, int>& a, const std::pair<std::string, int>& b) {
+                  if (a.second != b.second)
+                      return a.second > b.second;
+                  return a.first < b.first;
+              });
+    if (counts.size() > 40)
+        counts.resize(40);   // dichiarato: oltre, l'elenco non si legge piu'
+
+    app.columnPanelValues = std::move(counts);
+    app.columnPanel       = column;
+
+    std::vector<GroupMenuItem> items;
+    items.push_back({"", Tr("Tutti", "All"), "", kFilterAllId});
+    items.push_back({"", Tr("Nessuno", "None"), "", kFilterNoneId});
+    for (int i = 0; i < static_cast<int>(app.columnPanelValues.size()); ++i)
+    {
+        const std::pair<std::string, int>& value = app.columnPanelValues[static_cast<size_t>(i)];
+        const bool kept = app.columns[static_cast<size_t>(column)].excluded.count(value.first) == 0;
+        items.push_back({"", (kept ? "[x] " : "[ ] ") + value.first,
+                         std::to_string(value.second), i});
+    }
+
+    app.columnMenu.detailed = true;
+    GroupMenuOpen(app.columnMenu, ColumnTitle(app, column),
+                  Tr("Scrivi per filtrare i valori...", "Type to filter values..."),
+                  std::move(items));
+    app.columnMenu.anchored = true;
+    // La testata del comando: che cosa fa questo pannello e da dove si apre anche da
+    // tastiera. E' quello che il riferimento scrive in cima al menu dei valori.
+    app.columnMenu.caption = Tr("Scegli quali valori tenere in questa colonna.",
+                                "Choose which values to keep in this column.");
+    app.columnMenu.command = Tr("Apri l'elenco dei valori", "Open Values Dropdown");
+}
+
+// Cosa fa l'Invio, o un clic, dentro il pannello dei valori. Non lo chiude: una
+// lista di caselle si spunta **a piu' riprese**, ed e' tutto il motivo per cui e'
+// una lista e non un singolo interruttore.
+void RunColumnMenuSelection(AppState& app)
+{
+    if (app.columnPanel < 0)
+        return;
+    const int id = GroupMenuSelectedId(app.columnMenu);
+    auto& column = app.columns[static_cast<size_t>(app.columnPanel)];
+
+    if (id == kFilterAllId)
+    {
+        column.excluded.clear();
+    }
+    else if (id == kFilterNoneId)
+    {
+        for (const std::pair<std::string, int>& value : app.columnPanelValues)
+            column.excluded.insert(value.first);
+    }
+    else if (id >= 0 && id < static_cast<int>(app.columnPanelValues.size()))
+    {
+        const std::string& value = app.columnPanelValues[static_cast<size_t>(id)].first;
+        if (column.excluded.count(value) != 0)
+            column.excluded.erase(value);
+        else
+            column.excluded.insert(value);
+    }
+
+    RefreshColumnMenuChecks(app);
+    app.viewDirty = true;
+    app.scroll    = 0.0f;
+}
+
+Rect PropertiesPanelRect(const AppState& app, const Layout& layout)
+{
+    const float scale = layout.scale;
+    const float width = (std::min)(620.0f * scale,
+                                   static_cast<float>(app.viewportWidth) - 80.0f * scale);
+    const float height = (std::min)(520.0f * scale,
+                                    static_cast<float>(app.viewportHeight) - 100.0f * scale);
+    return Rect{(static_cast<float>(app.viewportWidth) - width) * 0.5f, 70.0f * scale,
+                width, height};
+}
+
+// Il pulsante in fondo al pannello: riapre la finestra di Windows. E' l'unica cosa
+// del pannello su cui si clicca, e dice a parole cosa apre, perche' non e' un
+// comando che si indovina.
+Rect PropertiesWindowsButton(const AppState& app, const Layout& layout, const Rect& panel)
+{
+    const float scale = layout.scale;
+    const std::string label = Tr("Proprietà di Windows...", "Windows properties...");
+    const float width = app.smallFont.Measure(label, scale) + 20.0f * scale;
+    return Rect{panel.right() - width - 14.0f * scale, panel.bottom() - 28.0f * scale,
+                width, 20.0f * scale};
+}
+
+bool PropertiesPanelKey(AppState& app, WPARAM key)
+{
+    switch (key)
+    {
+        case VK_ESCAPE: app.propertiesOpen = false; return true;
+        case VK_UP:     app.propertiesScroll -= 22.0f; return true;
+        case VK_DOWN:   app.propertiesScroll += 22.0f; return true;
+        case VK_PRIOR:  app.propertiesScroll -= 200.0f; return true;
+        case VK_NEXT:   app.propertiesScroll += 200.0f; return true;
+        case VK_HOME:   app.propertiesScroll = 0.0f; return true;
+        case VK_END:    app.propertiesScroll = 1e9f; return true;
+        default:        return true;   // modale: non passa niente alla lista
+    }
+}
+
+// La cattura del tasto. Il campo di ricerca diventa il **messaggio** — «premi un tasto
+// per Rinomina» — invece di un secondo riquadro: e' il posto in cui si sta gia'
+// guardando, avendo appena premuto Invio su quella riga.
+void BeginKeyCapture(AppState& app, int command)
+{
+    app.keyCaptureCommand = command;
+
+    // Ogni id che arriva qui viene dalla tabella, quindi il comando si trova sempre:
+    // l'elenco non ha altre righe.
+    std::string label;
+    for (const CommandDef& candidate : kCommandTable)
+    {
+        if (candidate.id == command)
+        {
+            label = CommandLabel(candidate);
+            break;
+        }
+    }
+
+    // Il filtro si **svuota**: con un termine dentro, al posto del messaggio si
+    // leggerebbe il termine, e chi aspetta leggerebbe la cosa sbagliata. L'elenco si
+    // rifa' subito e il cursore va sul comando che si sta per rimappare.
+    app.keyMap.filter.clear();
+    GroupMenuRebuild(app.keyMap);
+    SelectKeyMapCommand(app, command);
+    app.keyMap.placeholder = std::string(Tr("Premi un tasto per ", "Press a key for ")) + label;
+    // La riga in fondo dice anche **perche'** un tasto puo' non bastare: un rifiuto
+    // muto sembrerebbe un tasto che non arriva. E lo dice **prima**, quando il tasto
+    // che si sta spostando e' quello che riapre questo elenco.
+    app.keyMap.hint =
+        OpensThisList(command)
+            ? Tr("Attenzione: e' il tasto che apre questo elenco   Esc annulla   Canc toglie",
+                 "Careful: this key opens this list   Esc cancels   Del removes")
+            : Tr("Ctrl, Alt o un tasto funzione   Esc annulla   Canc toglie",
+                 "Ctrl, Alt or a function key   Esc cancels   Del removes");
+}
+
+// Un tasto mentre si aspetta il tasto nuovo. Non e' un comando da eseguire: e' il
+// **dato** che si sta scrivendo, ed e' per questo che viene chiamata prima di ogni
+// altra lettura della tastiera.
+void KeyMapKeyDown(AppState& app, WPARAM key)
+{
+    const int command = app.keyCaptureCommand;
+    if (key == VK_ESCAPE)
+    {
+        EndKeyCapture(app, command);
+        return;
+    }
+    // `Canc` toglie il tasto invece di diventarlo: e' il gesto di tutti gli editor di
+    // scorciatoie, ed e' per questo che non si puo' assegnare a niente.
+    if (key == VK_DELETE)
+    {
+        app.keys.Clear(command);
+        EndKeyCapture(app, command);
+        return;
+    }
+
+    // I modificatori si leggono dallo **stato**, non dal messaggio: `GetKeyState` e'
+    // l'unico che li vede, e li vede anche quando il tasto arriva iniettato — un
+    // modificatore dentro `SendMessage` per la finestra non esiste.
+    const Shortcut pressed{static_cast<unsigned>(key),
+                           (GetKeyState(VK_CONTROL) & 0x8000) != 0,
+                           (GetKeyState(VK_SHIFT) & 0x8000) != 0,
+                           (GetKeyState(VK_MENU) & 0x8000) != 0};
+    // Un modificatore da solo, o un tasto che serve a scrivere, non e' una risposta:
+    // si **resta in attesa** invece di assegnare qualcosa di muto o di rompere il
+    // filtro. L'altra via d'uscita e' `Esc`, e la riga in fondo lo dice.
+    if (!KeyMap::Assignable(pressed))
+        return;
+
+    app.keys.Rebind(command, pressed);
+    EndKeyCapture(app, command);
+}
+
+// Cosa fa l'Invio (o un clic) su una riga: comincia la cattura. **Non** esegue il
+// comando — eseguirlo sarebbe il contrario di quello che si sta chiedendo — e non
+// chiude l'elenco: si rimappano piu' comandi di seguito, ed e' l'unica cosa che si
+// viene a fare qui.
+void RunKeyMapSelection(AppState& app)
+{
+    const int id = GroupMenuSelectedId(app.keyMap);
+    if (id == kKeyMapResetId)
+    {
+        app.keys.Reset();
+        BuildKeyMapMenu(app, kKeyMapResetId);
+        ReportStatus(app, TrW(L"Tasti riportati a quelli di partenza",
+                              L"Key map restored to its defaults"));
+        return;
+    }
+    if (id < 0)
+        return;
+    BeginKeyCapture(app, id);
+}
+
+// Cosa fa la riga scelta: la stessa funzione per le due domande, perche' sono la
+// stessa lista vista al contrario.
+void RunPinMenuSelection(AppState& app)
+{
+    const int id = GroupMenuSelectedId(app.pinMenu);
+    app.pinMenu.open = false;
+    if (id < 0 || id >= kPinTargetCount)
+        return;
+
+    const PinTarget target = PinTargetAt(id);
+    const std::wstring path = app.pinMenuTarget;
+    std::vector<std::wstring>& list = PinList(app, target);
+    const bool already = PinnedIn(app, target, path);
+
+    std::wstring message;
+    if (app.pinMenuRemoving)
+    {
+        if (!already)
+        {
+            message = std::wstring(TrW(L"Non era fissata in ", L"Was not pinned to ")) +
+                      Widen(PinTargetLabel(target));
+        }
+        else
+        {
+            list.erase(std::find(list.begin(), list.end(), path));
+            message = std::wstring(TrW(L"Tolta da ", L"Unpinned from ")) +
+                      Widen(PinTargetLabel(target));
+        }
+    }
+    else if (already)
+    {
+        message = std::wstring(TrW(L"Era gia' fissata in ", L"Was already pinned to ")) +
+                  Widen(PinTargetLabel(target));
+    }
+    else
+    {
+        list.push_back(path);
+        message = std::wstring(TrW(L"Fissata in ", L"Pinned to ")) +
+                  Widen(PinTargetLabel(target));
+    }
+
+    ReportStatus(app, message);
+
+    // La Home elenca i fissaggi in una banda: se e' aperta, la banda adesso e'
+    // cambiata. Rifarla subito, invece di aspettare che l'utente prema F5.
+    if (IsHome(app.directory))
+        LoadDirectory(app, app.directory, /*recordHistory=*/false);
+}
+
+bool OperationPanelVisible(const AppState& app)
+{
+    return app.operation != nullptr && NowSeconds() - app.operationStart >= kOperationPanelDelay;
+}
+
+Rect OperationPanelRect(const AppState& app, const Layout& layout)
+{
+    const float scale = layout.scale;
+    const float width  = (std::min)(520.0f * scale,
+                                    static_cast<float>(app.viewportWidth) - 80.0f * scale);
+    const float height = 172.0f * scale;
+    return Rect{(static_cast<float>(app.viewportWidth) - width) * 0.5f,
+                (static_cast<float>(app.viewportHeight) - height) * 0.5f, width, height};
+}
+
+Rect OperationCancelButton(const AppState& app, const Layout& layout, const Rect& panel)
+{
+    const float scale = layout.scale;
+    const std::string label = Tr("Annulla", "Cancel");
+    const float width = app.smallFont.Measure(label, scale) + 24.0f * scale;
+    return Rect{panel.right() - width - 16.0f * scale, panel.bottom() - 32.0f * scale, width,
+                22.0f * scale};
+}
+
+// Annulla l'operazione in corso, e con lei quello che aspetta: chi ferma una copia non
+// si aspetta che ne parta un'altra appena quella e' morta. Il numero delle richieste
+// buttate via si ricorda (`operationQueueDropped`) perche' l'esito lo racconta dopo
+// `FinishOperation`, che non le ha viste.
+//
+// Lo chiamano le due cose che possono fermare un'operazione: `Esc` e il pulsante.
+void CancelOperation(AppState& app)
+{
+    if (app.operation == nullptr)
+        return;
+
+    app.operation->Cancel();
+    app.operationQueueDropped = static_cast<int>(app.operationQueue.size());
+    app.operationQueue.clear();
+    ReportStatus(app, TrW(L"Annullamento...", L"Cancelling..."));
+}
+
+void RunPaletteSelection(AppState& app)
+{
+    const int id = GroupMenuSelectedId(app.palette);
+    if (id < 0)
+        return;
+
+    if (id >= kPalettePlaceBase)
+    {
+        const int place = id - kPalettePlaceBase;
+        if (place < static_cast<int>(app.places.size()))
+            LoadDirectory(app, app.places[static_cast<size_t>(place)].path);
+        app.palette.open = false;
+        return;
+    }
+
+    RunCommand(app, id);
+    if (id != CmdToggleDetails)
+        app.palette.open = false;
+}
+
+void RunGoToSelection(AppState& app)
+{
+    const int id = GroupMenuSelectedId(app.goTo);
+    if (id < 0 || id >= static_cast<int>(app.goToTargets.size()))
+        return;
+
+    // Una voce del gruppo dei recenti puo' essere un **comando** invece di un
+    // percorso: e' cosi' che «Cancella i recenti» sta li' senza essere un percorso
+    // che non esiste.
+    const int command = (id < static_cast<int>(app.goToCommands.size()))
+                            ? app.goToCommands[static_cast<size_t>(id)]
+                            : -1;
+    app.goTo.open = false;
+    if (command >= 0)
+    {
+        RunCommand(app, command);
+        return;
+    }
+
+    const std::wstring& target = app.goToTargets[static_cast<size_t>(id)];
+    // Un **file** aperto di recente si apre, non si naviga: `LoadDirectory` su un
+    // file non avrebbe niente da leggere.
+    if (!PathIsDirectoryW(target.c_str()))
+        ShellExecuteW(nullptr, L"open", target.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+    else
+        LoadDirectory(app, target);
+}
+
+// `Riavvia ora`: il setup e' gia' sul disco e verificato. Si avvia **adesso** con due
+// secondi di attesa — un programma che sta uscendo tiene il proprio eseguibile, e
+// l'installer in silenzioso, invece di aspettare, rinuncia senza dirlo (`docs/02`
+// §7.75) — poi questa finestra si chiude, Inno aspetta che sia chiusa, installa, e
+// **riapre Bolt** dal percorso installato.
+//
+// Non si riapre l'eseguibile da cui si e' partiti: con il pacchetto portatile quello
+// resta la versione vecchia, e riaprirlo vorrebbe dire rimettersi davanti lo stesso
+// avviso.
+void BeginInstallUpdate(AppState& app)
+{
+    if (app.updateSetupPath.empty() || app.window == nullptr)
+        return;
+
+    app.updateInstalling = true;
+
+    // Dove finisce un'installazione per utente: `DefaultDirName={autopf}\Bolt` in
+    // `installer/bolt.iss`, cioe' `%LOCALAPPDATA%\Programs\Bolt`.
+    wchar_t localAppData[MAX_PATH] = {};
+    std::wstring installed;
+    if (GetEnvironmentVariableW(L"LOCALAPPDATA", localAppData, MAX_PATH) > 0)
+        installed = std::wstring(localAppData) + L"\\Programs\\Bolt\\Bolt.exe";
+
+    std::wstring command = L"/c ping -n 3 127.0.0.1 >nul & \"" + app.updateSetupPath +
+                           L"\" /VERYSILENT /SUPPRESSMSGBOXES /NORESTART";
+    if (!installed.empty())
+        command += L" & start \"\" \"" + installed + L"\"";
+
+    const HINSTANCE started = ShellExecuteW(nullptr, L"open", L"cmd.exe", command.c_str(),
+                                            nullptr, SW_HIDE);
+    if (reinterpret_cast<INT_PTR>(started) > 32)
+    {
+        DiagLog("--- aggiornamenti: setup avviato, Bolt si chiude per l'installazione");
+        PostMessageW(app.window, WM_CLOSE, 0, 0);
+        return;
+    }
+
+    app.updateInstalling = false;
+    app.updateError = TrW(L"il setup non si avvia (errore ", L"the setup cannot be started (error ") +
+                      std::to_wstring(GetLastError()) + L").";
+    app.updateResult = Update::Result::Failed;
+    DiagLog("--- aggiornamenti: setup non avviato, errore " +
+            std::to_string(GetLastError()));
+}
+
 } // namespace Bolt
 
 // --- trascinamento: la parte che sa la vista -------------------------------
@@ -6078,16 +4212,17 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, LPWSTR, int)
         // arrivava mai. Un giro che c'e' gia' non puo' non arrivare.
         if (app.search.active)
             AdvanceSearch(app);
-
-        // Il controllo degli aggiornamenti: mentre gira la barra di stato dice a che
+        // Il controllo degli aggiornamenti lo racconta la sua finestra, che legge
+        // `Progress()` mentre disegna; qui si raccoglie l'esito **una volta sola**,
+        // quando il thread ha finito. La barra di stato non dice piu' niente: era il
+        // posto sbagliato per un lavoro con una durata (`docs/04` M13).
         // punto e', e quando ha finito l'esito si legge qui, una volta sola.
-        if (app.updateJob != nullptr)
-        {
-            if (app.updateJob->Running())
-                ReportStatus(app, UpdateProgressText(app.updateJob->Progress()));
-            else
-                FinishUpdate(app);
-        }
+        // Il lavoro lo racconta la sua finestra, che legge `Progress()` mentre disegna;
+        // qui si raccoglie l'esito **una volta sola**, quando il thread ha finito. La
+        // barra di stato non dice piu' niente: era il posto sbagliato per un lavoro con
+        // una durata (`docs/04` M13).
+        if (app.updateJob != nullptr && !app.updateJob->Running())
+            FinishUpdate(app);
 
         // `HoverToSelect`: fermandosi su una riga la si seleziona, dopo una pausa
         // breve. Non mentre si trascina e non con un menu aperto: sono gesti che

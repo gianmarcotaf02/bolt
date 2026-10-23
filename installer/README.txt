@@ -1,4 +1,4 @@
-Bolt 0.1.0 - file manager per Windows (clone didattico di File Pilot)
+Bolt - file manager per Windows (clone didattico di File Pilot)
 =====================================================================
 
 Cosa hai installato

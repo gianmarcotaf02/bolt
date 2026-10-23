@@ -68,4 +68,8 @@ void ContextMenuDraw(AppState& app, const Layout& layout);
 // La finestra delle proprieta' di Windows, per i percorsi dati. Zero se l'utente
 // l'ha chiusa: serve a chi lo chiama per decidere se mostrare le nostre.
 int ShowProperties(HWND owner, const std::vector<std::wstring>& paths);
+
+// Il menu contestuale della riga del cursore: e' quello che aprono il tasto Menu e
+// `Shift+F10`, e deve cadere dove cade il tasto destro sul file scelto.
+void OpenContextMenuAtCursor(AppState& app, const Layout& layout);
 } // namespace Bolt

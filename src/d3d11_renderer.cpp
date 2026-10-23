@@ -141,6 +141,7 @@ static const float FLAG_ARROW_UP    = 128.0;
 static const float FLAG_ARROW_LEFT  = 256.0;
 static const float FLAG_REFRESH     = 512.0;
 static const float FLAG_STAR        = 1024.0;
+static const float FLAG_PIN         = 2048.0;
 
 // Il triangolo della linguetta: la stessa formula dell'OpenGL, detta in HLSL.
 // Per farlo puntare in giu' si ruota il punto, non si scrive una seconda formula.
@@ -315,6 +316,23 @@ float starDistance(float2 p, float2 halfSize)
     return inside ? -edge : edge;
 }
 
+// La puntina delle cartelle fissate: la stessa forma di `ui.frag`, detta in HLSL.
+// Testa, piatto e punta, disegnati dritti e poi girati di 45 gradi ruotando il punto.
+float pinDistance(float2 p, float2 halfSize)
+{
+    float unit = max(min(halfSize.x, halfSize.y), 1.0);
+    float2 q = p / unit;
+
+    float c = 0.70710678;
+    q = float2(c * q.x - c * q.y, c * q.x + c * q.y);
+
+    float head   = roundedBoxDistance(q - float2(0.0,  0.40), float2(0.34, 0.24), float4(0.12, 0.12, 0.12, 0.12));
+    float flange = roundedBoxDistance(q - float2(0.0,  0.08), float2(0.66, 0.11), float4(0.06, 0.06, 0.06, 0.06));
+    float needle = segmentDistance(q, float2(0.0, 0.08), float2(0.0, -0.98), 0.085);
+
+    return min(min(head, flange), needle) * unit;
+}
+
 bool isOnDash(float2 frag, float2 shapeMin, float2 shapeSize, float strokeWidth,
               float dashOn, float dashOff)
 {
@@ -416,6 +434,11 @@ float4 main(VSOutput input) : SV_Target
     else if (fmod(input.flags, 2.0 * FLAG_STAR) >= FLAG_STAR)
     {
         distance = starDistance(local, innerHalf);
+    }
+    else if (fmod(input.flags, 2.0 * FLAG_PIN) >= FLAG_PIN)
+    {
+        float2 upright = float2(-local.x, local.y);
+        distance = pinDistance(upright, innerHalf);
     }
     else
     {
@@ -855,7 +878,7 @@ void D3D11Renderer::AppendQuad(const UIDraw& p)
 
     // Vedi `UIRenderer::AppendQuad`: stesse regole, stesso formato di vertice.
     const bool radiusIsStroke = p.plus || p.cross || p.arrow || p.arrowUp || p.arrowLeft ||
-                                p.refresh || p.star;
+                                p.refresh || p.star || p.pin;
     const float cornerScale = radiusIsStroke ? 1.0f : cornerScale_;
     const float alpha       = p.color.a * opacity_;
     const float flags = (p.textured ? 1.0f : 0.0f) + (p.mono ? 2.0f : 0.0f) +
@@ -863,7 +886,7 @@ void D3D11Renderer::AppendQuad(const UIDraw& p)
                         (p.plus ? 16.0f : 0.0f) + (p.cross ? 32.0f : 0.0f) +
                         (p.arrow ? 64.0f : 0.0f) + (p.arrowUp ? 128.0f : 0.0f) +
                         (p.arrowLeft ? 256.0f : 0.0f) + (p.refresh ? 512.0f : 0.0f) +
-                        (p.star ? 1024.0f : 0.0f);
+                        (p.star ? 1024.0f : 0.0f) + (p.pin ? 2048.0f : 0.0f);
 
     for (size_t vertex = 0; vertex < kVerticesPerQuad; ++vertex)
     {

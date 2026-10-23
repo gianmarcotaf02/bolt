@@ -74,6 +74,20 @@ std::wstring JoinPath(const std::wstring& directory, const std::wstring& name)
     return directory + L"\\" + name;
 }
 
+std::wstring PathKey(const std::wstring& path)
+{
+    std::wstring key = path;
+    // La barra finale: `C:\una\cartella\` e `C:\una\cartella` sono la stessa. Il
+    // limite a tre caratteri protegge le radici (`C:\`, `\\server\`), dove la barra
+    // **e'** il percorso.
+    while (key.size() > 3 && (key.back() == L'\\' || key.back() == L'/'))
+        key.pop_back();
+    // Le maiuscole: su Windows il confronto fra percorsi non le distingue.
+    if (!key.empty())
+        CharLowerBuffW(key.data(), static_cast<DWORD>(key.size()));
+    return key;
+}
+
 
 std::string HumanBytes(uint64_t bytes)
 {

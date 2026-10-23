@@ -53,6 +53,10 @@ const float FLAG_ARROW_UP    = 128.0;   // con LEFT forma le quattro direzioni
 const float FLAG_ARROW_LEFT  = 256.0;
 const float FLAG_REFRESH     = 512.0;
 const float FLAG_STAR        = 1024.0;
+// La puntina delle cartelle **fissate** (`docs/04`, «La puntina dei fissaggi»): la stella resta il
+// segno dei segnalibri nella barra strumenti, ma nella barra laterale una cartella
+// fissata si legge come nell'originale, con la puntina in fondo alla riga.
+const float FLAG_PIN         = 2048.0;
 
 // Distanza da un segmento con le punte tonde: e' la forma di una barra.
 float segmentDistance(vec2 point, vec2 a, vec2 b, float radius)
@@ -267,6 +271,41 @@ float starDistance(vec2 point, vec2 halfSize)
     return inside ? -edge : edge;
 }
 
+// La puntina: il segno delle cartelle **fissate**, al posto della stella nella barra
+// laterale. E' la forma del riferimento — testa, piatto e punta — e si legge a undici
+// pixel perche' e' fatta di tre pezzi soli.
+//
+// Disegnata **dritta** e poi girata di 45 gradi: obliqua nel campo di distanza
+// avrebbe voluto dire tre formule storte invece di tre dritte, e lo stesso ragionamento
+// della linguetta e della freccia — si ruota il **punto**, non la forma.
+//
+// Il piatto e la testa sono due rettangoli arrotondati e la punta un segmento: la
+// distanza e' la **minima** delle tre, che e' come si unisce in un campo di distanza
+// (l'unione e' il minimo, l'intersezione il massimo).
+float pinDistance(vec2 point, vec2 halfSize)
+{
+    // Un'unita' sola: il lato minore della scatola. La diagonale e' piu' lunga, ed e'
+    // li' che una puntina storta sta comoda — senza normalizzare, a undici pixel
+    // sarebbe un grumo.
+    float unit = max(min(halfSize.x, halfSize.y), 1.0);
+    vec2  q    = point / unit;
+
+    // Un quarto di giro in meno di mezzo: 45 gradi, che e' anche l'angolo del
+    // riferimento.
+    float c = 0.70710678;
+    q = vec2(c * q.x - c * q.y, c * q.x + c * q.y);
+
+    // I tre pezzi, generosi: a undici-tredici pixel la forma va **riempita**, non
+    // disegnata in filo — una punta da un pixel e mezzo sparisce nell'antialiasing.
+    // La barretta e' la testa vista di taglio: e' quella che rende la forma una
+    // puntina e non un sasso, quindi e' la piu' larga delle tre.
+    float head   = roundedBoxDistance(q - vec2(0.0,  0.40), vec2(0.34, 0.24), vec4(0.12));
+    float flange = roundedBoxDistance(q - vec2(0.0,  0.08), vec2(0.66, 0.11), vec4(0.06));
+    float needle = segmentDistance(q, vec2(0.0, 0.08), vec2(0.0, -0.98), 0.085);
+
+    return min(min(head, flange), needle) * unit;
+}
+
 // Walks the rectangle outline clockwise from the bottom-left corner and reports
 // whether the given fragment lands on an "on" segment of the dash pattern.
 bool isOnDash(vec2 frag)
@@ -380,6 +419,13 @@ void main()
     else if (mod(vFlags, 2.0 * FLAG_STAR) >= FLAG_STAR)
     {
         distance = starDistance(point, innerHalf);
+    }
+    else if (mod(vFlags, 2.0 * FLAG_PIN) >= FLAG_PIN)
+    {
+        // `point` ha gli assi girati: la puntina non e' simmetrica, quindi qui il
+        // punto torna in uno spazio leggibile prima di ruotarlo — come la freccia.
+        vec2 upright = vec2(-point.x, point.y);
+        distance = pinDistance(upright, innerHalf);
     }
     else
     {

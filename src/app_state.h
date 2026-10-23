@@ -1488,9 +1488,21 @@ struct AppState
 
     // Il controllo degli aggiornamenti in corso. E' **esplicito**: parte solo dal
     // comando `Controlla aggiornamenti` e non da un timer, perche' una richiesta a
-    // GitHub e' telemetria di fatto (`docs/06`). La barra di stato mostra a che punto
-    // e'; l'esito si legge una volta sola, quando `Running()` diventa falso.
+    // GitHub e' telemetria di fatto (`docs/06`). Il lavoro lo racconta la finestra
+    // dell'aggiornamento (`view_update.*`), che legge `Progress()` a ogni fotogramma.
     std::unique_ptr<Update::Job> updateJob;
+
+    // La finestra dell'aggiornamento: aperta mentre si aspetta e finche' c'e' un esito
+    // da leggere. `updateDone` dice che il lavoro e' finito; `updateVersion` e
+    // `updateSetupPath` ci sono quando l'esito e' `Ready`, cioe' quando il setup e'
+    // stato scaricato **e** verificato.
+    bool           updateDialogOpen = false;
+    bool           updateDone       = false;
+    bool           updateInstalling = false;
+    Update::Result updateResult     = Update::Result::UpToDate;
+    std::wstring   updateVersion;
+    std::wstring   updateSetupPath;
+    std::wstring   updateError;
 
     // La mappa dei tasti: quale tasto fa quale comando. E' **stato della sessione** —
     // `docs/04` dice cosi' per M9 — quindi vive qui e non in un file: si rimappa, si

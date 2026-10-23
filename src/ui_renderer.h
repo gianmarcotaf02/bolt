@@ -119,6 +119,10 @@ struct UIDraw
     bool  arrowLeft = false;
     bool  refresh   = false;
     bool  star      = false;
+    // La puntina delle cartelle fissate nella barra laterale: la stella resta il segno
+    // dei segnalibri sulla barra strumenti, ma li' una cartella fissata si legge come
+    // nell'originale (`docs/04`, «La puntina dei fissaggi»).
+    bool  pin       = false;
 
     static UIDraw Fill(Rect rect, Color color, float radius = 0.0f);
     static UIDraw Fill(Rect rect, Color color, Corners radius);
@@ -132,6 +136,9 @@ struct UIDraw
     static UIDraw Arrow(Rect rect, Color color, float thickness, ArrowDirection direction);
     static UIDraw Refresh(Rect rect, Color color, float thickness);
     static UIDraw Star(Rect rect, Color color, float thickness, bool filled);
+    // La puntina dei fissaggi: piena, senza spessore. Il contorno non serve — una
+    // puntina vuota non vuol dire niente, e a undici pixel sarebbe illeggibile.
+    static UIDraw Pin(Rect rect, Color color);
 };
 
 // ---------------------------------------------------------------------------
