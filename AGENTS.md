@@ -364,14 +364,21 @@ autenticato come `gianmarcotaf02`): `gh release create v<versione> --repo
 gianmarcotaf02/bolt <setup> <zip> SHA256SUMS`. La release **deve** avere il setup e
 `SHA256SUMS`: e' quello che legge `Controlla aggiornamenti` (`src/update.*`, `docs/04`
 M13). Le release **v0.1.0**, **v0.1.1**, **v0.1.2**, **v0.1.3**, **v0.1.4**, **v0.1.5** e
-**v0.1.6**, **v0.1.7**, **v0.1.8**, **v0.1.9**, **v0.1.10**, **v0.1.11**, **v0.1.12**, **v0.1.13**, **v0.1.14**, **v0.1.15** e **v0.1.16** sono pubblicate;
+**v0.1.6**, **v0.1.7**, **v0.1.8**, **v0.1.9**, **v0.1.10**, **v0.1.11**, **v0.1.12**, **v0.1.13**, **v0.1.14**, **v0.1.15**, **v0.1.16** e **v0.1.17** sono pubblicate;
 la
 0.1.1 e' la stessa base della 0.1.0 e serve alla prova dell'aggiornamento, la 0.1.2 porta
 la correzione di `docs/02` §7.64, la 0.1.3 quella di §7.65, la 0.1.4 quelle di §7.66 e
 §7.67, la 0.1.5 quelle di §7.68, la 0.1.6 quelle di §7.69, §7.70 e §7.71, la 0.1.7 quella di §7.72, la 0.1.8 quella di §7.73, la 0.1.9 quella di §7.74, la 0.1.10 le colonne che si adattano
 (`docs/04` M5b), la 0.1.11 quella di §7.75, la 0.1.12 il setup che aspetta la chiusura, la 0.1.13 quella di §7.76, la 0.1.14 il rettangolo che seleziona
 mentre si trascina (`docs/04` M5d), la 0.1.15 l'assenza di preselezione (`docs/04` M5), la 0.1.16 il menu
-dell'applicazione (`docs/04` M6).
+dell'applicazione (`docs/04` M6), la 0.1.17 le venti colonne di `docs/03`, il menu contestuale
+cercabile e i due pannelli (schede per pannello, divisore, trascinamento di file e di schede).
+
+**`tools/make-installer.ps1` non rigenera `out/SHA256SUMS`.** Il 2026-10-23, pubblicando la
+0.1.17, il file conteneva ancora le impronte della 0.1.16: allegarlo cosi' avrebbe fatto
+rifiutare il setup a `Controlla aggiornamenti`, perche' l'impronta cercata non c'e'. Dopo lo
+script si rifa' il file a mano con le due impronte vere (`Get-FileHash -Algorithm SHA256`),
+nel formato `impronta *nomefile`, setup prima e zip poi.
 
 `tools/verify-installer.ps1` installa il pacchetto **davvero**, con `/VERYSILENT`, in
 `analysis/tmp/install-prova`: controlla file, collegamento, voce di registro, avvia il Bolt

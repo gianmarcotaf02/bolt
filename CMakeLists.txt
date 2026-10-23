@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.20)
 
 project(Bolt
-    VERSION 0.1.16
+    VERSION 0.1.17
     DESCRIPTION "Clone of a fast native Windows file manager, reconstructed from static binary analysis"
     LANGUAGES CXX)
 

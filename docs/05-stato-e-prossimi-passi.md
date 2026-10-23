@@ -11,7 +11,7 @@ Incolla questa frase:
 > Riprendi Bolt. Leggi `docs/05` §1 e §3 (aggiornati il 2026-10-23) e `AGENTS.md` §0,
 > §2 e §2-bis. Lo stato vero: M1–M13 fatte (M2 e M7 restano 🟡 per una scelta e un
 > limite dichiarato, non per lavoro mancante), registro difetti `docs/02` §7 a **74 voci,
-> zero aperte**, versione **0.1.16** pubblicata e installata, `gh` autenticato. Non serve
+> zero aperte**, versione **0.1.17** pubblicata (la 0.1.16 e' quella installata), `gh` autenticato. Non serve
 > ricostruire niente. Non resta lavoro **funzionale**: le uniche due caselle di `docs/04`
 > sono una scelta gia' presa (icone monocromatiche: non si fa) e un limite dichiarato
 > (`ShellNew` con `Command`). Il debito e' in `docs/05` §2; i prossimi passi candidati
@@ -40,8 +40,8 @@ fra volumi); visti a schermo, coi limiti dichiarati in `docs/04`. Le colonne che
 sono — `Percent Full` separata da `Volume Usage`, `Folder Usage`, `Data eliminazione` e
 `Posizione originale` (lette dalla shell per nome canonico, viste nel cestino su un file della
 sandbox) e i quattro `Empty` col contenuto scegliibile dal menu dell'intestazione — e il menu
-del tasto destro ha il campo di ricerca in cima. **Nessuna versione pubblicata**: e' lavoro nel
-repository, non installato.
+del tasto destro ha il campo di ricerca in cima. **Pubblicata la 0.1.17** (`v0.1.17` con setup,
+zip portatile e `SHA256SUMS`); la 0.1.16 resta quella **installata** finche' non la si aggiorna.
 
 Prima, il 2026-10-21: **il menu dell'applicazione** — il pulsante ☰ apre il menu del
 riferimento, con `Vai a...`, `Comandi`, i due layout, `Opzioni`, `Controlla aggiornamenti`
