@@ -2870,10 +2870,21 @@ fila sinistra resta con una, la destra ne ha due, e `bolt-diag.log` scrive
 `tab drop: 2 e i suoi 0 figli dal pannello 0 al 1 (dopo 0)`.
 
 **Resta da vedere**: il messaggio «Qui non c'e' una cartella dove mettere i file.» quando si
-rilascia un file su un pannello che mostra la Home o "Questo PC". Il codice c'e'
-(`NoFolderHere`, `drag_drop.h`), ma la prova non l'ha prodotto: il rilascio e' stato
-rifiutato — che e' il comportamento giusto — e la barra di stato e' rimasta vuota, quindi o
-il pannello di destinazione non era finito sulla Home come credevo, o il messaggio non parte
-da quel percorso. **Non e' fatto finche' non si vede** (`AGENTS.md` §2): la traccia per
-riprenderlo e' questa, e il primo gesto e' portare *davvero* la Home in un pannello
-(clic sulla riga `Home` della barra laterale) e riprovare guardando la barra di stato.
+rilascia un file su un pannello che mostra la Home o "Questo PC".
+
+**Cosa la prova ha escluso** (2026-10-23, due tentativi): il codice **non e' morto per
+costruzione**, che era il sospetto. Il registro dice
+`trascinamento in entrata` / `trascinamento in uscita: 1 voci, effetto restituito 0, esito
+dichiarato 0`, e la riga "in uscita" e' il **`Drop`** (`drag_drop.cpp:526`, con
+`PerformedEffect`): quindi il rilascio arriva anche quando l'effetto negoziato e' NIENTE, il
+ramo `(negotiated & (COPY|MOVE|LINK)) == 0` viene percorso, e `NoFolderHere` viene chiamata
+solo se `target.Empty()`. La barra di stato e' rimasta a **0 px d'inchiostro**, quindi quella
+condizione era falsa: la destinazione **aveva** una cartella.
+
+**La conclusione e' sul banco, non sul programma**: il clic sulla riga `Home` della barra
+laterale, con due pannelli aperti, non ha portato la Home nel pannello attivo (o l'ha portata
+nel pannello sbagliato). Il primo gesto da rifare, quindi, e' **verificare che la Home ci
+sia** prima di trascinare: la via piu' sicura e' portare il pannello sulla Home e controllare
+il percorso nella barra in alto, invece di fidarsi della coordinata della barra laterale.
+Se con la Home davvero aperta la barra resta muta, allora il difetto e' nel programma e si
+cerca in `TargetAt`: per un pannello sulla Home deve rispondere "vuoto".
