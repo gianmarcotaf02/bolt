@@ -271,12 +271,25 @@ public:
         // diventava una **copia**, e un gesto annullato lasciava un file in piu'.
         if ((negotiated & (DROPEFFECT_COPY | DROPEFFECT_MOVE | DROPEFFECT_LINK)) == 0)
         {
-            // Un "niente" che si spiega: i file sono **gia'** nella cartella dove li si e'
-            // mollati. Non e' un rifiuto — quello si vede dal puntatore — ed e' l'unico
-            // caso in cui il gesto deve dire una parola, o sembra che non sia arrivato.
+            // Due "niente" si spiegano, e sono i due in cui chi molla non ha sbagliato
+            // niente: i file sono **gia'** nella cartella dove li si e' mollati, oppure li'
+            // una cartella non c'e' (la Home, "Questo PC"). Non e' un rifiuto — quello si
+            // vede dal puntatore — e un gesto che finisce in silenzio sembra un programma
+            // che non risponde.
             if (!paths.empty() && !target.Empty() && target.verb == DropVerb::DropInto &&
                 !Refuses(paths, target.path) && AllInFolder(paths, target.path))
+            {
                 SameFolderAlready(window);
+            }
+            else if (!paths.empty() && target.Empty())
+            {
+                // L'altro "niente": li' non c'e' una cartella dove mettere i file (la Home,
+                // "Questo PC"). Il puntatore ha gia' detto di no, e continua a non
+                // promettere niente; la barra di stato dice **perche'**. Se il punto non
+                // e' sopra un pannello — o se il pannello una cartella ce l'ha — quella
+                // funzione non dice niente.
+                NoFolderHere(window, client);
+            }
             return S_OK;
         }
 

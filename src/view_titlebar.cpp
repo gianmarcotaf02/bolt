@@ -30,6 +30,9 @@ void DrawTabRow(AppState& app, const Layout& layout, const Rect& strip, int pane
     const Pane& data = app.panes[static_cast<size_t>(pane)];
 
     float x = left;
+    // La fila che riceverebbe la scheda trascinata: quella attiva quando si riordina
+    // dentro lo stesso pannello, l'altra quando il ramo trasloca (`tabDropPane`).
+    const int dropPane = (app.tabDropPane >= 0) ? app.tabDropPane : app.activePane;
     // La fila si ricava dall'albero: un figlio si disegna subito dopo il genitore,
     // rientrato. L'ordine di nascita non conta piu'.
     for (const std::pair<int, int>& node : TabOrder(app, pane))
@@ -168,9 +171,10 @@ void DrawTabRow(AppState& app, const Layout& layout, const Rect& strip, int pane
         // spostando. La riga dice "prima o dopo", il tab intero dice "dentro" — e
         // non promette niente che il rilascio rifiuterebbe: dentro se stesso o
         // dentro un proprio discendente non si va, o l'albero prende un anello.
-        // Solo nella fila da cui il gesto e' partito: un tab non si trascina ancora
-        // nell'altro pannello, e un marcatore li' prometterebbe quello che non c'e'.
-        if (paneActive && app.dragTab >= 0 && app.tabDropTarget == i)
+        // Si disegna sulla fila che **riceve**, che con due pannelli e' l'altra
+        // quando il ramo trasloca: `-1` vuol dire "quella attiva", cioe' il caso di
+        // sempre, in cui il marcatore non si sposta di un pixel.
+        if (pane == dropPane && app.dragTab >= 0 && app.tabDropTarget == i)
         {
             const bool refused = TabIsDescendantOf(app, tab.id, app.dragTab);
             if (app.tabDropInto)
@@ -195,6 +199,14 @@ void DrawTabRow(AppState& app, const Layout& layout, const Rect& strip, int pane
 
         x += width + 3.0f * scale;
     }
+
+    // "In coda": il rilascio nel vuoto dell'altro pannello non ha una scheda sotto il
+    // puntatore, quindi la riga si disegna dove il ramo finirebbe davvero — alla fine
+    // della fila di chi riceve, appena prima del `+`.
+    if (app.dragTab >= 0 && app.tabDropPane == pane && app.tabDropTarget < 0)
+        r.FillRect(
+            Rect{x - 2.0f * scale, strip.y + 5.0f * scale, 2.0f * scale, strip.h - 5.0f * scale},
+            t.accent, 1.0f * scale);
 
     const Rect add{x, strip.y + 5.0f * scale, 30.0f * scale, strip.h - 5.0f * scale};
     if (add.right() <= right)

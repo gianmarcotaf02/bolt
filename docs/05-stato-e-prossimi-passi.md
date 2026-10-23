@@ -524,14 +524,13 @@ di quanto mordono:
    `WM_KEYDOWN` e i messaggi del mouse non hanno piu' niente da trascinarsi dietro.
    `main.cpp` e' a **5.568** righe, e la curva non si e' fermata: il menu dell'applicazione,
    le sottocartelle nella lista, il layout, la sessione e la ricerca nel menu contestuale
-   ne hanno aggiunte altre. E' il primo della lista per una ragione misurata, non per gusto.
-2. **Gli split: resta il trascinamento di *schede*** (`docs/04`). Le due tappe sono fatte e
-   viste a schermo: due pannelli, divisore trascinabile, chiusura con lo stesso tasto (i tab
-   del pannello chiuso passano in coda), una fila di schede per pannello e il **trascinamento
-   di file fra i pannelli** (sposta sullo stesso volume, copia fra volumi, `Ctrl`/`Shift`
-   forzano). Quello che manca e' spostare una **scheda** da un pannello all'altro, e la caduta
-   su un pannello che mostra la Home o "Questo PC" (li' un percorso dove mettere i file non
-   c'e').
+2. **Il messaggio della caduta senza percorso non e' visto** (`docs/04`). Le due tappe degli
+   split sono fatte e viste, e ora anche il **trascinamento di una scheda** da un pannello
+   all'altro (col ramo che viaggia intero e il rifiuto di svuotare il pannello di partenza).
+   Resta da verificare una sola cosa: «Qui non c'e' una cartella dove mettere i file.»
+   quando si rilascia su un pannello che mostra la Home o "Questo PC" — il codice c'e', ma
+   la prova non l'ha prodotto: il rilascio e' stato rifiutato (giusto) e la barra di stato e'
+   rimasta vuota. Riprendere da `docs/04`, che ha la traccia.
 3. **Un tetto all'atlante delle icone**: un `.lnk` costa una cella e non c'e' sfratto
    (`docs/02` §7.65). Con molte cartelle piene di collegamenti si puo' riempire.
 4. **Lo zoom ricampiona il testo** (§2): richiede una rasterizzazione a runtime per ogni

@@ -5607,6 +5607,46 @@ void SameFolderAlready(HWND window)
                            L"Already in this folder: nothing to move."));
 }
 
+// L'altro "niente" che va detto: il pannello sotto il puntatore non mostra una
+// cartella — la Home, "Questo PC", un posto dello spazio dei nomi. Il puntatore lo ha
+// gia' detto restando "vietato", e questo non cambia cosa si puo' fare; dice solo
+// perche', perche' un rilascio che non fa niente sembra un programma che non risponde.
+//
+// La domanda e' della **vista**: che cartella mostra un pannello lo sa solo lei, e la
+// risposta cambia col fuoco e con la scheda accesa.
+void NoFolderHere(HWND window, POINT client)
+{
+    AppState* app = reinterpret_cast<AppState*>(GetWindowLongPtrW(window, GWLP_USERDATA));
+    if (app == nullptr)
+        return;
+
+    const float x = static_cast<float>(client.x);
+    const float y = static_cast<float>(client.y);
+    const int pane = PaneAtPoint(*app, x, y);
+    if (pane < 0)
+        return;   // fuori dai pannelli non c'e' nessuna vista da spiegare
+
+    // La cartella del pannello sotto il puntatore: quello attivo la tiene in vita, gli
+    // altri nella scheda accesa — un pannello che non si sta guardando non ha campi vivi.
+    std::wstring shown;
+    if (pane == app->activePane)
+    {
+        shown = app->directory;
+    }
+    else
+    {
+        const Pane& other = app->panes[static_cast<size_t>(pane)];
+        if (other.activeTab >= 0 && other.activeTab < static_cast<int>(other.tabs.size()))
+            shown = other.tabs[static_cast<size_t>(other.activeTab)].directory;
+    }
+    // Una cartella c'e': il "niente" aveva un'altra ragione, e non e' questa da dire.
+    if (!shown.empty() && !IsHome(shown) && !ShellLocation::IsNamespace(shown))
+        return;
+
+    ReportStatus(*app, TrW(L"Qui non c'e' una cartella dove mettere i file.",
+                           L"There is no folder here to put files in."));
+}
+
 bool Drop(HWND window, const std::vector<std::wstring>& sources, const DragDrop::Target& target,
           bool move)
 {

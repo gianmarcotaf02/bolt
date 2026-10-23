@@ -75,7 +75,8 @@ void CloseTab(AppState& app, int index);
 // Chiude il ramo di |id| (il tab e i suoi figli); con |wholeTree| chiude la radice.
 void CloseTabTree(AppState& app, int id, bool wholeTree);
 
-// Il trascinamento di un tab: dove finirebbe, e cosa succede al rilascio.
+// Il trascinamento di un tab: dove finirebbe (una scheda dell'una o dell'altra fila, o
+// il vuoto dell'altro pannello, che vuol dire "in coda"), e cosa succede al rilascio.
 void UpdateTabDrop(AppState& app, float x, float y);
 void ApplyTabDrop(AppState& app);
 

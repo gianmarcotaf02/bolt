@@ -952,6 +952,12 @@ struct AppState
     int              tabDropTarget = -1;
     bool             tabDropInto   = false;
     bool             tabDropAfter  = false;
+    // Il pannello che **riceve** la scheda: `-1` quello attivo, cioe' il caso di
+    // sempre (riordino e annidamento dentro la stessa fila), altrimenti l'altro. Un
+    // indice da solo non basta: la scheda 2 c'e' in tutte e due le file, e il rilascio
+    // deve sapere in **quale** vettore infilare il ramo. Con `tabDropTarget` a -1 e
+    // questo campo a un pannello, il rilascio vuol dire "in coda a quello".
+    int              tabDropPane   = -1;
     // Il tab premuto, prima che il gesto diventi un trascinamento: come per la
     // lista, un clic non deve spostare niente finche' il mouse non si muove.
     int              tabPress      = -1;

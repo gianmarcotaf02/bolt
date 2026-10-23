@@ -20,6 +20,7 @@
 #include <string>
 #include <vector>
 
+#include "app_actions.h"   // `PaneLayout`: il vuoto dell'altro pannello e' un bersaglio
 #include "app_ui.h"
 #include "diag.h"
 #include "home.h"
@@ -660,21 +661,79 @@ void SplitPane(AppState& app, bool column)
     // non sono due passi da ricordare.
     LoadDirectory(app, directory, /*recordHistory=*/false);
 }
+namespace
+{
+// Il ramo di una scheda **dentro il vettore di un pannello**: lei, i figli, i figli dei
+// figli. Si legge dal `parentId` come `TabOrder`, e un tab gia' preso non si riprende:
+// un albero con un anello, se un giorno ce ne fosse uno, si disegna male ma non blocca
+// la finestra.
+//
+// Serve al trasloco fra pannelli: una scheda che cambia fila e lascia i figli dietro
+// spezza un albero in due, e i figli restano agganciati a un `parentId` che nel loro
+// vettore non esiste piu' — cioe' spariscono dalla fila, perche' `TabOrder` parte
+// dalle radici.
+std::vector<int> TabBranch(const std::vector<Tab>& tabs, int id)
+{
+    std::vector<int> branch;
+    for (int i = 0; i < static_cast<int>(tabs.size()); ++i)
+    {
+        if (tabs[static_cast<size_t>(i)].id == id)
+        {
+            branch.push_back(i);
+            break;
+        }
+    }
+    // La coda cresce mentre la si scorre: il figlio appena entrato cerca i suoi.
+    for (size_t k = 0; k < branch.size(); ++k)
+    {
+        const int parent = tabs[static_cast<size_t>(branch[k])].id;
+        for (int i = 0; i < static_cast<int>(tabs.size()); ++i)
+        {
+            if (tabs[static_cast<size_t>(i)].parentId != parent)
+                continue;
+            if (std::find(branch.begin(), branch.end(), i) != branch.end())
+                continue;
+            branch.push_back(i);
+        }
+    }
+    return branch;
+}
+} // namespace
+
 // Dove finirebbe il tab trascinato, dato il punto del puntatore. Sta qui e non nel
 // gestore del mouse perche' il marcatore disegnato e il rilascio devono leggere la
 // stessa risposta: due calcoli che devono coincidere prima o poi non coincidono.
 void UpdateTabDrop(AppState& app, float x, float y)
 {
     app.tabDropTarget = -1;
+    app.tabDropPane   = -1;
+
     const ClickTarget* hit = HitTest(app, x, y, ClickTarget::Kind::Tab);
     if (hit == nullptr)
+    {
+        // Il **vuoto** dell'altro pannello — la sua fila, la sua intestazione, la sua
+        // lista — vuol dire "in coda a lui": li' non c'e' una scheda sotto il puntatore,
+        // quindi il bersaglio e' la fila intera. Il vuoto del pannello da cui si e'
+        // partiti no: la' il gesto ha sempre voluto dire "niente", e non comincia ad
+        // avere un senso adesso.
+        if (app.panes.size() < 2)
+            return;
+        const int other = (app.activePane == 0) ? 1 : 0;
+        const Layout box = PaneLayout(app, other);
+        if (!box.tabs.Contains(x, y) && !box.header.Contains(x, y) &&
+            !box.list.Contains(x, y) && !box.filterBar.Contains(x, y))
+            return;
+        app.tabDropPane = other;
+        DiagLog("  tab drop: in coda al pannello " + std::to_string(other));
         return;
-    // Solo le schede del pannello **da cui si e' partiti**: l'albero su cui si agisce e'
-    // quello, e un indice preso dalla fila dell'altro sposterebbe un tab che non c'entra.
-    // Trascinare una scheda nell'altro pannello e' un'altra tappa.
-    if (hit->pane >= 0 && hit->pane != app.activePane)
+    }
+
+    // Una scheda: di questo pannello (riordino e annidamento di sempre) o dell'altro
+    // (il ramo trasloca). `hit->pane` lo dice; `-1` vuol dire "quello attivo".
+    const int pane = (hit->pane >= 0) ? hit->pane : app.activePane;
+    if (pane < 0 || pane >= static_cast<int>(app.panes.size()))
         return;
-    const std::vector<Tab>& tabs = app.panes[static_cast<size_t>(app.activePane)].tabs;
+    const std::vector<Tab>& tabs = app.panes[static_cast<size_t>(pane)].tabs;
     const int index = hit->index;
     if (index < 0 || index >= static_cast<int>(tabs.size()))
         return;
@@ -686,19 +745,20 @@ void UpdateTabDrop(AppState& app, float x, float y)
     const float third = hit->rect.w / 3.0f;
     const float left  = hit->rect.x;
     app.tabDropTarget = index;
+    app.tabDropPane   = (pane == app.activePane) ? -1 : pane;
     if (x >= left + third && x <= left + third * 2.0f)
     {
         app.tabDropInto = true;
-        DiagLog("  tab drop: DENTRO tab " + std::to_string(index) + " (x " +
-                std::to_string(x) + ")");
+        DiagLog("  tab drop: DENTRO tab " + std::to_string(index) + " di " +
+                std::to_string(pane) + " (x " + std::to_string(x) + ")");
         return;
     }
     app.tabDropInto  = false;
     app.tabDropAfter = (x > left + third);
     DiagLog("  trascinamento di un tab: x " + std::to_string(x) + ", tab " +
-            std::to_string(index) + " da " + std::to_string(left) + " a " +
-            std::to_string(left + hit->rect.w) + ", terzo " + std::to_string(third) +
-            ", esito " + (app.tabDropAfter ? "dopo" : "prima"));
+            std::to_string(index) + " di " + std::to_string(pane) + " da " +
+            std::to_string(left) + " a " + std::to_string(left + hit->rect.w) + ", terzo " +
+            std::to_string(third) + ", esito " + (app.tabDropAfter ? "dopo" : "prima"));
 }
 
 void NewTab(AppState& app, const std::wstring& directory)
@@ -769,21 +829,160 @@ void CloseTab(AppState& app, int index)
     }
 }
 
-// Sposta il tab trascinato dove il marcatore dice. L'albero e' quello del pannello
-// attivo: il trascinamento di un tab fra pannelli e' un'altra tappa.
+namespace
+{
+// Il trasloco di un ramo nell'**altro** pannello. Sta in una funzione sua perche' e'
+// l'unico caso in cui il vettore che riceve non e' quello attivo, e perche' il
+// riordino dentro la stessa fila deve restare quello di prima, riga per riga.
+void MoveTabBranchToPane(AppState& app, int receiver, int draggedId, int target, bool into,
+                         bool after)
+{
+    const int from     = app.activePane;
+    Pane&     fromPane = app.panes[static_cast<size_t>(from)];
+    Pane&     toPane   = app.panes[static_cast<size_t>(receiver)];
+
+    // Lo stato vivo e' della scheda accesa del pannello di partenza: se e' proprio
+    // quella che parte, la sua cartella deve viaggiare con lei. Senza questo
+    // salvataggio il tab porterebbe la copia di quando lo si e' lasciato l'ultima
+    // volta, e il pannello che perde la scheda perderebbe la cartella che mostrava.
+    SaveActiveTab(app);
+
+    const int dragged = TabById(app, draggedId, from);
+    if (dragged < 0)
+        return;
+
+    const std::vector<int> branch = TabBranch(fromPane.tabs, draggedId);
+    if (branch.empty())
+        return;
+    // Un pannello senza schede non esiste — si chiude solo con l'ultima — e il ramo e'
+    // tutto quello che il pannello di partenza ha quando la scheda trascinata e' la sua
+    // unica: il trasloco lascerebbe un pannello vuoto. Meglio non fare niente, come
+    // sopra se stessa.
+    if (branch.size() == fromPane.tabs.size())
+    {
+        DiagLog("  tab drop: rifiutato (il pannello di partenza resterebbe vuoto)");
+        return;
+    }
+
+    // Il bersaglio e' un indice nella fila che **riceve**. Con `target` a -1 il rilascio
+    // e' caduto nel vuoto di quel pannello, cioe' "in coda": nessuno sotto cui stare.
+    int insertAt  = static_cast<int>(toPane.tabs.size());
+    int newParent = -1;
+    if (target >= 0 && target < static_cast<int>(toPane.tabs.size()))
+    {
+        const Tab& onto = toPane.tabs[static_cast<size_t>(target)];
+        if (into)
+        {
+            newParent = onto.id;   // il ramo si appende a lui, e va in coda
+        }
+        else
+        {
+            newParent = onto.parentId;
+            insertAt  = target + (after ? 1 : 0);
+        }
+    }
+    else if (target >= 0)
+    {
+        // La fila che riceve e' cambiata sotto il gesto: non si tira a indovinare.
+        DiagLog("  tab drop: rifiutato (bersaglio sparito)");
+        return;
+    }
+
+    const int fromActiveIndex = fromPane.activeTab;
+    const int fromActiveId =
+        (fromActiveIndex >= 0 && fromActiveIndex < static_cast<int>(fromPane.tabs.size()))
+            ? fromPane.tabs[static_cast<size_t>(fromActiveIndex)].id
+            : -1;
+
+    // Il ramo si porta via **intero**, il padre con i figli: prima si copia, poi si
+    // toglie, e si toglie dal fondo perche' ogni cancellazione fa scivolare gli indici
+    // che restano. I figli seguono il padre per `parentId`, che viaggia con loro.
+    std::vector<Tab> moving;
+    moving.reserve(branch.size());
+    for (int index : branch)
+        moving.push_back(fromPane.tabs[static_cast<size_t>(index)]);
+    for (auto it = branch.rbegin(); it != branch.rend(); ++it)
+        fromPane.tabs.erase(fromPane.tabs.begin() + *it);
+
+    // La riga che tiene insieme il ramo: il padre si aggancia alla sua nuova fila, o
+    // torna radice se e' arrivato dove non c'e' nessuno sotto cui stare.
+    moving[0].parentId = newParent;
+    const int arrivedId = moving[0].id;
+    insertAt = (std::max)(0, (std::min)(insertAt, static_cast<int>(toPane.tabs.size())));
+    for (Tab& tab : moving)
+        toPane.tabs.insert(toPane.tabs.begin() + insertAt++, std::move(tab));
+
+    // La scheda accesa del pannello che riceve diventa quella arrivata: chi ci si
+    // sposta la trova davanti invece di doverla cercare in fondo alla fila.
+    const int arrived = TabById(app, arrivedId, receiver);
+    toPane.activeTab  = (arrived >= 0) ? arrived : 0;
+
+    // Il pannello che perde una scheda: la sua accesa segue la **scheda**, non la
+    // posizione. Se era proprio quella partita, si resta sulla piu' vicina.
+    const int still = (fromActiveId >= 0) ? TabById(app, fromActiveId, from) : -1;
+    if (still >= 0)
+    {
+        fromPane.activeTab = still;
+    }
+    else
+    {
+        fromPane.activeTab = (std::min)(fromActiveIndex, static_cast<int>(fromPane.tabs.size()) - 1);
+        fromPane.activeTab = (std::max)(0, fromPane.activeTab);
+    }
+
+    // Lo stato vivo va riletto: se la scheda accesa e' partita, in vita ci sono ancora
+    // la sua cartella e le sue voci, che adesso sono di un'altra fila. E le righe sono
+    // quelle del tab partito, quindi si rifanno invece di mostrarne gli indici.
+    LoadActiveTab(app);
+    app.stats.CancelQueued();
+    app.previews.CancelPending();
+    app.viewDirty = true;
+    // Anche il pannello che riceve ha la sua vista ferma alla scheda di prima: la
+    // scheda accesa e' cambiata, e le righe vanno rifatte quando lo si disegna.
+    toPane.view.viewDirty = true;
+
+    DiagLog("  tab drop: " + std::to_string(draggedId) + " e i suoi " +
+            std::to_string(branch.size() - 1) + " figli dal pannello " + std::to_string(from) +
+            " al " + std::to_string(receiver) + (into ? " (dentro " : (after ? " (dopo " : " (prima ")) +
+            std::to_string(target) + ")");
+}
+} // namespace
+
+// Sposta il tab trascinato dove il marcatore dice. Dentro lo stesso pannello e'
+// riordino o annidamento; verso l'altro e' un trasloco, e il ramo viaggia intero.
 void ApplyTabDrop(AppState& app)
 {
-    std::vector<Tab>& tabs = app.panes[static_cast<size_t>(app.activePane)].tabs;
-    int& activeTab = app.panes[static_cast<size_t>(app.activePane)].activeTab;
-
-    const int activeId = tabs[static_cast<size_t>(activeTab)].id;
-    const int dragged  = TabById(app, app.dragTab);
-    const int target   = app.tabDropTarget;
-    const bool into    = app.tabDropInto;
-    const bool after   = app.tabDropAfter;
+    const int  draggedId = app.dragTab;
+    const int  receiver  = app.tabDropPane;
+    const int  target    = app.tabDropTarget;
+    const bool into      = app.tabDropInto;
+    const bool after     = app.tabDropAfter;
     app.dragTab       = -1;
     app.tabPress      = -1;
     app.tabDropTarget = -1;
+    app.tabDropPane   = -1;
+
+    if (draggedId < 0)
+        return;
+
+    // Verso **l'altro** pannello: la fila che riceve non e' quella attiva, e la scheda
+    // si sposta con i suoi figli.
+    if (receiver >= 0 && receiver < static_cast<int>(app.panes.size()) &&
+        receiver != app.activePane)
+    {
+        MoveTabBranchToPane(app, receiver, draggedId, target, into, after);
+        return;
+    }
+
+    // Dentro il pannello attivo: com'era prima dei due pannelli.
+    Pane& pane             = app.panes[static_cast<size_t>(app.activePane)];
+    std::vector<Tab>& tabs = pane.tabs;
+    int& activeTab         = pane.activeTab;
+    if (activeTab < 0 || activeTab >= static_cast<int>(tabs.size()))
+        return;
+
+    const int activeId = tabs[static_cast<size_t>(activeTab)].id;
+    const int dragged  = TabById(app, draggedId);
 
     if (dragged < 0 || target < 0 || target >= static_cast<int>(tabs.size()) ||
         target == dragged)

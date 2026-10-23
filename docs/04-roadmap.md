@@ -2850,3 +2850,30 @@ trascinato da `x 300` a `x 900` — e **contro disco** il file risulta in
 cambia pannello), e la caduta su un pannello che mostra la Home o "Questo PC" — li' un percorso
 dove mettere i file non c'e', e il puntatore dice "niente". Un `session.ini` scritto prima di
 questa tappa si legge ancora, con tutte le schede nel pannello 0.
+
+### Le schede fra i pannelli — *Visto il 2026-10-23*
+
+Una scheda si trascina da un pannello all'altro: sulla fila dell'altro pannello vale il
+terzo di scheda di sempre (prima / dentro / dopo), e il **vuoto** di quell'altro pannello
+— la sua fila o la sua lista — vuol dire «in coda». `AppState::tabDropPane` dice chi riceve
+(-1 = il pannello attivo, cioe' il caso di sempre); il marcatore in `view_titlebar.cpp` si
+disegna sulla fila che **riceve**, non su quella attiva.
+
+Il ramo viaggia **intero**: le schede figlie si raccolgono per `parentId` prima di toccare
+il vettore (`TabBranch`), si cancellano dal fondo e si reinseriscono nella fila che riceve
+cambiando solo il `parentId` della radice — cosi' un padre non resta mai in un pannello
+diverso dai suoi figli. Il pannello di partenza **non si svuota**: se il ramo trascinato e'
+tutto quello che ha, il rilascio e' rifiutato e il registro lo dice.
+
+**Visto**: sandbox a sinistra con due schede, trascinata la seconda sulla fila destra -> la
+fila sinistra resta con una, la destra ne ha due, e `bolt-diag.log` scrive
+`tab drop: 2 e i suoi 0 figli dal pannello 0 al 1 (dopo 0)`.
+
+**Resta da vedere**: il messaggio «Qui non c'e' una cartella dove mettere i file.» quando si
+rilascia un file su un pannello che mostra la Home o "Questo PC". Il codice c'e'
+(`NoFolderHere`, `drag_drop.h`), ma la prova non l'ha prodotto: il rilascio e' stato
+rifiutato — che e' il comportamento giusto — e la barra di stato e' rimasta vuota, quindi o
+il pannello di destinazione non era finito sulla Home come credevo, o il messaggio non parte
+da quel percorso. **Non e' fatto finche' non si vede** (`AGENTS.md` §2): la traccia per
+riprenderlo e' questa, e il primo gesto e' portare *davvero* la Home in un pannello
+(clic sulla riga `Home` della barra laterale) e riprovare guardando la barra di stato.

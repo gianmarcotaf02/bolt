@@ -106,6 +106,13 @@ void Highlight(HWND window, const Target& target);
 // rilascio che non produce niente sembra un programma che non risponde.
 void SameFolderAlready(HWND window);
 
+// La caduta e' finita su un pannello che non mostra una cartella — la Home, "Questo
+// PC", un posto dello spazio dei nomi: li' non c'e' dove mettere i file, e il puntatore
+// lo dice gia' restando "vietato". Manca la parola, perche' un rilascio che non produce
+// niente sembra un programma che non risponde. Non cambia cosa si puo' fare: cambia
+// solo che chi molla lo viene a sapere.
+void NoFolderHere(HWND window, POINT client);
+
 // Esegue la caduta di |sources| su |target|. |move| vale per DropInto.
 //
 // Restituisce vero se l'operazione e' stata **accettata**. Non e' una comodita': chi
