@@ -289,6 +289,10 @@ struct Group
 enum CommandId
 {
     CmdNewTab, CmdCloseTab, CmdNextTab, CmdPrevTab,
+    // I pannelli: due viste della stessa finestra. Non c'e' il comando inverso —
+    // chiudere un pannello e' la tappa dopo, e un comando che sparisce quando non
+    // serve e' meglio di uno che si puo' premere e non fa niente.
+    CmdSplitRight, CmdSplitBottom,
     CmdGoUp, CmdBack, CmdForward, CmdRefresh, CmdOpenExplorer, CmdOpenConsole, CmdRecalcStats,
     CmdGoTo,
     CmdToggleSidebar, CmdZoomIn, CmdZoomOut, CmdZoomReset, CmdToggleDetails,
@@ -485,6 +489,47 @@ struct Tab
     // Per-tab navigation history, walked by Alt+Left and Alt+Right.
     std::vector<std::wstring> history;
     int                       historyIndex = -1;
+};
+
+// La **vista** che un pannello mostra: le righe, i gruppi, la griglia. Non sta nel
+// `Tab` perche' e' una derivazione delle voci, non una cosa che si ricorda: le voci
+// di un tab si rileggono dal disco quando ci si torna, mentre questa e' il risultato
+// di ordinarle e filtrarle — e rifarla a ogni fotogramma sarebbe il lavoro che
+// `viewDirty` esiste per evitare.
+//
+// Sta **per pannello** e non nella finestra perche' due pannelli mostrano due
+// cartelle: le righe dell'uno non sono quelle dell'altro, e chi disegna il pannello
+// che non si sta guardando prende in prestito queste, non quelle dell'altro
+// (`SwapLiveWithPane` in `navigation.h`).
+struct PaneView
+{
+    std::vector<Row>   rows;
+    std::vector<Group> groups;
+    int                matchCount = 0;      // voci che sopravvivono al filtro
+    bool               viewDirty  = true;   // le righe vanno rifatte
+    // La geometria della griglia, con le chiavi da cui dipende: si rifa' solo quando
+    // una di quelle cambia. Anche questa e' del pannello, perche' dipende dalla
+    // **larghezza** della sua lista.
+    std::vector<Rect>  gridRects;
+    size_t             gridRectsRows  = static_cast<size_t>(-1);
+    float              gridRectsWidth = -1.0f;
+    float              gridRectsScale = -1.0f;
+    int                gridRectsView  = -1;
+    int                gridRectsGroup = -1;
+    float              gridRectsIcon  = -1.0f;
+    // La voce sotto il puntatore: e' un indice nelle voci **di questo pannello**, e un
+    // indice dell'altro illumina un file che non c'entra.
+    int                hovered = -1;
+};
+
+// Un **pannello**: i suoi tab, quale e' acceso, e la vista che mostra. E' cio' che
+// prima era `AppState::tabs` piu' lo stato vivo — la stessa cosa, chiusa in un
+// oggetto perche' due pannelli ne vogliono due.
+struct Pane
+{
+    std::vector<Tab> tabs;
+    int              activeTab = 0;
+    PaneView         view;
 };
 
 // --- menu contestuale: strutture --------------------------------------------
@@ -877,9 +922,23 @@ struct AppState
     bool                   peekReadable = false;   // la cartella si e' potuta aprire
     bool                   peekMore = false;   // ce n'erano altre oltre quelle lette
 
-    std::vector<Tab> tabs;
-    int              activeTab = 0;
-    int              nextTabId = 1;
+    // --- i pannelli -----------------------------------------------------------
+    //
+    // I pannelli sono **uno o due**, mai zero: chiusura e annidamento sono un'altra
+    // tappa. Con uno solo il pannello *e'* la finestra, e ogni funzione che prima
+    // leggeva `app.tabs` legge `app.panes[app.activePane]`: il resto del programma
+    // continua a lavorare sullo stato vivo e non deve sapere che i pannelli esistono.
+    std::vector<Pane> panes;
+    int               activePane = 0;
+    // La posizione del divisore: frazione della fascia dei pannelli, con i limiti
+    // 0.25..0.75 (un pannello piu' stretto di un quarto non mostra nemmeno i nomi).
+    float             splitFraction = 0.5f;
+    // L'asse: affiancati, o uno sopra l'altro.
+    bool              splitColumn = true;
+    // Il divisore preso col mouse: -1 quando no. Vale 0 mentre lo si trascina, come
+    // `inspectorDrag` e `columnDrag`.
+    int               splitDrag = -1;
+    int               nextTabId = 1;
 
     // Il trascinamento di un tab: quale, e dove finirebbe. `tabDropTarget` e' un
     // indice nella fila disegnata, `tabDropInto` dice se ci finisce **dentro**

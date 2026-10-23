@@ -37,6 +37,24 @@ void UpdateWindowTitle(AppState& app);
 // Il tab e la sua pila di cartelle.
 void SaveActiveTab(AppState& app);
 void LoadActiveTab(AppState& app);
+
+// Lo **scambio puro** con il pannello |pane|: i campi del suo tab attivo e la vista
+// che ne deriva passano in vita, e quelli vivi vanno li'. Non aggiorna il titolo, non
+// annulla code di lavoro, non alza `viewDirty`: chi lo chiama non sta cambiando
+// pannello, sta solo **guardando** l'altro. Chiamarlo due volte riporta tutto com'e' —
+// e' la sua propria inversa — e chi disegna un pannello inattivo lo chiama due volte
+// per fotogramma: per questo e' un `swap` di campi, non una copia.
+void SwapLiveWithPane(AppState& app, int pane);
+
+// Il pannello che prende il fuoco: lo stato vivo va nel pannello che si lascia, quello
+// del pannello nuovo viene in vita. Non e' `SwapLiveWithPane`: quello scambia con un
+// pannello e basta, e chi cambia pannello ne ha due da mettere a posto.
+void ActivatePane(AppState& app, int pane);
+
+// `Dividi a destra` / `Dividi in basso`: il secondo pannello, sulla stessa cartella.
+// Con due pannelli gia' aperti cambia solo l'asse — chiudere un pannello e' un'altra
+// tappa, e un comando che non fa quello che dice e' peggio di un comando che manca.
+void SplitPane(AppState& app, bool column);
 // Un tab nuovo: si apre sulla cartella data, o su quella aperta se e' vuota.
 void NewTab(AppState& app, const std::wstring& directory = std::wstring());
 void ActivateTab(AppState& app, int index);

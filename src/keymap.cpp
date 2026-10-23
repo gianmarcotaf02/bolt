@@ -180,6 +180,11 @@ void KeyMap::Reset()
         // Schede.
         {CmdNewTab,          Ctrl('T')},
         {CmdCloseTab,        Ctrl('W')},
+        // I due pannelli: `Ctrl+S` affianca, `Ctrl+Shift+S` divide in orizzontale. Il
+        // tasto piu' comodo va a quello che si usa di piu' — affiancare due cartelle e'
+        // il gesto di tutti i giorni.
+        {CmdSplitRight,      CtrlShift('S')},
+        {CmdSplitBottom,     Ctrl('S')},
 
         // Le sottocartelle dentro la lista: `Ctrl+E` e' il tasto che il riferimento
         // da' a `Toggle Subfolders`.

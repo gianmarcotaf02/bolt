@@ -4,11 +4,23 @@
 
 namespace Bolt
 {
+namespace
+{
+// L'albero e' quello del **pannello attivo**: la fila dei tab si disegna una volta
+// sola, in cima alla finestra, e mostra la scheda della vista su cui si sta
+// lavorando. Un albero per pannello, con due file disegnate, e' la tappa dopo.
+const std::vector<Tab>& Tabs(const AppState& app)
+{
+    return app.panes[static_cast<size_t>(app.activePane)].tabs;
+}
+} // namespace
+
 int TabById(const AppState& app, int id)
 {
-    for (int i = 0; i < static_cast<int>(app.tabs.size()); ++i)
+    const std::vector<Tab>& tabs = Tabs(app);
+    for (int i = 0; i < static_cast<int>(tabs.size()); ++i)
     {
-        if (app.tabs[static_cast<size_t>(i)].id == id)
+        if (tabs[static_cast<size_t>(i)].id == id)
             return i;
     }
     return -1;
@@ -23,7 +35,7 @@ int TabRootId(const AppState& app, int id)
         const int index = TabById(app, id);
         if (index < 0)
             return id;
-        const int parent = app.tabs[static_cast<size_t>(index)].parentId;
+        const int parent = Tabs(app)[static_cast<size_t>(index)].parentId;
         if (parent < 0)
             return id;
         id = parent;
@@ -40,19 +52,20 @@ bool TabIsDescendantOf(const AppState& app, int id, int ancestorId)
 
 std::vector<std::pair<int, int>> TabOrder(const AppState& app)
 {
+    const std::vector<Tab>& tabs = Tabs(app);
     std::vector<std::pair<int, int>> out;
-    out.reserve(app.tabs.size());
+    out.reserve(tabs.size());
 
     // I figli si mettono subito dopo il genitore, ricorsivamente: un ramo alla
     // volta, nell'ordine di nascita. Le radici in fondo.
     std::function<void(int, int)> walk = [&](int parentId, int depth)
     {
-        for (int i = 0; i < static_cast<int>(app.tabs.size()); ++i)
+        for (int i = 0; i < static_cast<int>(tabs.size()); ++i)
         {
-            if (app.tabs[static_cast<size_t>(i)].parentId != parentId)
+            if (tabs[static_cast<size_t>(i)].parentId != parentId)
                 continue;
             out.push_back({i, depth});
-            walk(app.tabs[static_cast<size_t>(i)].id, depth + 1);
+            walk(tabs[static_cast<size_t>(i)].id, depth + 1);
         }
     };
     walk(-1, 0);

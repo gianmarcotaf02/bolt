@@ -57,8 +57,16 @@ void BuildAppMenu(AppState& app, float x, float y);
 void ClosePinMenu(AppState& app);
 
 // La geometria della finestra: barre, lista, ispettore. Una sola funzione decide, e
-// il disegno e l'input leggono la stessa.
+// il disegno e l'input leggono la stessa. Con due pannelli e' il layout di quello
+// attivo, e chi la chiama non deve sapere che l'altro esista.
 Layout ComputeLayout(const AppState& app);
+
+// Le tre funzioni da cui `ComputeLayout` e' fatta, per i due pannelli. Con un pannello
+// solo `ComputeLayout` e `WindowLayout` sono la stessa cosa, ed e' quello che permette
+// a hit test e comandi di continuare a leggere un layout solo.
+Layout WindowLayout(const AppState& app);          // la finestra intera
+Layout PaneLayout(const AppState& app, int pane);   // un pannello: intestazione, filtro, lista
+Rect   SplitterRect(const AppState& app);           // la striscia fra i due pannelli (6 px)
 
 // Il nostro pannello delle proprieta' (le stesse righe dell'ispettore, piu' grandi).
 void OpenPropertiesPanel(AppState& app);

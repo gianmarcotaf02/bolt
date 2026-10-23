@@ -396,12 +396,71 @@ void LoadDirectory(AppState& app, const std::wstring& directory, bool recordHist
 }
 
 // --- tabs -------------------------------------------------------------------
+namespace
+{
+// Il pannello attivo, sempre. `panes` e' dichiarato "mai vuoto" ma un vettore vuoto
+// e' a un `clear` di distanza, e un indice fuori dalla fine qui sarebbe una lettura
+// di memoria che sembra valida: meglio un pannello vuoto, che si vede.
+Pane& ActivePane(AppState& app)
+{
+    if (app.panes.empty())
+        app.panes.push_back(Pane{});
+    if (app.activePane < 0 || app.activePane >= static_cast<int>(app.panes.size()))
+        app.activePane = 0;
+    return app.panes[static_cast<size_t>(app.activePane)];
+}
+
+// Lo scambio vero e proprio, con il tab: i campi vivi vanno nel tab e quelli del tab
+// vengono in vita. Usato da `Save`/`Load` e dallo scambio puro, cosi' le tre strade
+// non possono divergere su **quali** campi appartengono a un tab.
+void SwapLiveTab(AppState& app, Tab& tab)
+{
+    std::swap(app.directory, tab.directory);
+    app.entries.swap(tab.entries);
+    std::swap(app.cursor, tab.cursor);
+    std::swap(app.selectionAnchor, tab.selectionAnchor);
+    app.selection.swap(tab.selection);
+    std::swap(app.filter, tab.filter);
+    std::swap(app.errorText, tab.errorText);
+    std::swap(app.scroll, tab.scroll);
+    std::swap(app.filterActive, tab.filterActive);
+    std::swap(app.sortColumn, tab.sortColumn);
+    std::swap(app.sortAscending, tab.sortAscending);
+    std::swap(app.groupMode, tab.groupMode);
+    std::swap(app.viewMode, tab.viewMode);
+    app.history.swap(tab.history);
+    std::swap(app.historyIndex, tab.historyIndex);
+}
+
+// La vista che **deriva** quei campi: righe, gruppi, griglia, riga sotto il puntatore.
+// Viaggia con lo stato e non e' una comodita': un pannello disegnato con le righe
+// dell'altro mostrerebbe i file di un'altra cartella, e un indice di sovrappasso
+// preso in prestito illumina una riga che non c'entra. Sono tutti `swap`: nessun
+// vettore si copia.
+void SwapLiveView(AppState& app, PaneView& view)
+{
+    app.rows.swap(view.rows);
+    app.groups.swap(view.groups);
+    std::swap(app.matchCount, view.matchCount);
+    std::swap(app.viewDirty, view.viewDirty);
+    app.gridRects.swap(view.gridRects);
+    std::swap(app.gridRectsRows, view.gridRectsRows);
+    std::swap(app.gridRectsWidth, view.gridRectsWidth);
+    std::swap(app.gridRectsScale, view.gridRectsScale);
+    std::swap(app.gridRectsView, view.gridRectsView);
+    std::swap(app.gridRectsGroup, view.gridRectsGroup);
+    std::swap(app.gridRectsIcon, view.gridRectsIcon);
+    std::swap(app.hovered, view.hovered);
+}
+} // namespace
+
 void SaveActiveTab(AppState& app)
 {
-    if (app.activeTab < 0 || app.activeTab >= static_cast<int>(app.tabs.size()))
+    Pane& pane = ActivePane(app);
+    if (pane.activeTab < 0 || pane.activeTab >= static_cast<int>(pane.tabs.size()))
         return;
 
-    Tab& tab = app.tabs[static_cast<size_t>(app.activeTab)];
+    Tab& tab = pane.tabs[static_cast<size_t>(pane.activeTab)];
     tab.directory       = app.directory;
     tab.entries         = std::move(app.entries);
     tab.cursor          = app.cursor;
@@ -421,10 +480,11 @@ void SaveActiveTab(AppState& app)
 
 void LoadActiveTab(AppState& app)
 {
-    if (app.activeTab < 0 || app.activeTab >= static_cast<int>(app.tabs.size()))
+    Pane& pane = ActivePane(app);
+    if (pane.activeTab < 0 || pane.activeTab >= static_cast<int>(pane.tabs.size()))
         return;
 
-    Tab& tab = app.tabs[static_cast<size_t>(app.activeTab)];
+    Tab& tab = pane.tabs[static_cast<size_t>(pane.activeTab)];
     app.directory       = tab.directory;
     app.entries         = std::move(tab.entries);
     app.cursor          = tab.cursor;
@@ -446,6 +506,106 @@ void LoadActiveTab(AppState& app)
     UpdateWindowTitle(app);
 }
 
+void SwapLiveWithPane(AppState& app, int pane)
+{
+    if (pane < 0 || pane >= static_cast<int>(app.panes.size()))
+        return;
+    Pane& target = app.panes[static_cast<size_t>(pane)];
+    if (target.activeTab < 0 || target.activeTab >= static_cast<int>(target.tabs.size()))
+        return;
+
+    SwapLiveTab(app, target.tabs[static_cast<size_t>(target.activeTab)]);
+    SwapLiveView(app, target.view);
+}
+
+namespace
+{
+// I campi vivi tornano nel pannello che si lascia e quelli del pannello nuovo vengono
+// in vita. Non basta `SwapLiveWithPane`: quello scambia con **un** pannello, e qui i
+// pannelli sono due — la vista di quello che si lascia deve andare al suo posto, e
+// quella dell'altro deve arrivare in vita, senza mescolarsi.
+//
+// Non salva: chi chiama ha gia' messo lo stato vivo al suo posto. E' separato perche'
+// `SplitPane` salva e poi passa di qui — un secondo `SaveActiveTab` salverebbe un
+// elenco che il primo ha gia' spostato nel tab, cioe' il vuoto.
+void SwitchToPane(AppState& app, int pane)
+{
+    // Lo scambio sul pannello che si lascia mette la vista viva al suo posto; in vita
+    // resta la vista **vecchia** di quel pannello, che il secondo scambio — sul
+    // pannello nuovo — porta a destinazione. Li' e' quello che ci si aspetta: la vista
+    // di un pannello inattivo e' la sua ultima, e viene riscritta appena lo si lascia.
+    SwapLiveView(app, app.panes[static_cast<size_t>(app.activePane)].view);
+
+    app.activePane = pane;
+    LoadActiveTab(app);
+
+    SwapLiveView(app, app.panes[static_cast<size_t>(app.activePane)].view);
+    app.stats.CancelQueued();
+    app.previews.CancelPending();
+}
+} // namespace
+
+void ActivatePane(AppState& app, int pane)
+{
+    if (pane < 0 || pane >= static_cast<int>(app.panes.size()) || pane == app.activePane)
+        return;
+    SaveActiveTab(app);
+    SwitchToPane(app, pane);
+}
+
+// Apre il **secondo** pannello, sulla stessa cartella di quello attivo, e ce lo porta.
+// Chiudere un pannello e trascinarci dentro dei file sono l'altra tappa: qui i pannelli
+// sono due e non si richiudono, quindi un secondo `Split` sullo stesso asse non fa
+// niente invece di promettere qualcosa.
+void SplitPane(AppState& app, bool column)
+{
+    if (app.panes.empty())
+        return;
+
+    if (app.panes.size() >= 2)
+    {
+        if (app.splitColumn == column)
+            return;
+        // L'altro asse: la stessa finestra divisa nel verso opposto. Il divisore torna
+        // in mezzo, perche' la posizione dell'uno non vuol dire niente per l'altro.
+        app.splitColumn   = column;
+        app.splitFraction = 0.5f;
+        app.viewDirty     = true;
+        return;
+    }
+
+    // Cio' che il pannello nuovo eredita: la cartella, e **come** la si sta guardando.
+    // Una seconda vista della stessa cartella ordinata in un altro modo sarebbe una
+    // domanda, non una risposta: chi divide vuole vedere lo stesso elenco due volte.
+    const std::wstring directory   = app.directory;
+    const SortColumn   sortColumn  = app.sortColumn;
+    const bool         sortAscending = app.sortAscending;
+    const GroupMode    groupMode   = app.groupMode;
+    const ViewMode     viewMode    = app.viewMode;
+
+    SaveActiveTab(app);   // la cartella aperta va nel tab del pannello che c'e' gia'
+
+    Pane pane;
+    Tab  tab;
+    tab.id            = app.nextTabId++;
+    tab.directory     = directory;
+    tab.sortColumn    = sortColumn;
+    tab.sortAscending = sortAscending;
+    tab.groupMode     = groupMode;
+    tab.viewMode      = viewMode;
+    pane.tabs.push_back(std::move(tab));
+    app.panes.push_back(std::move(pane));
+
+    app.splitColumn   = column;
+    app.splitFraction = 0.5f;
+
+    // `ActivatePane` salverebbe di nuovo, e salverebbe il vuoto: si passa di qui.
+    SwitchToPane(app, static_cast<int>(app.panes.size()) - 1);
+    // Il tab del pannello nuovo non ha le voci — un tab appena aperto non le ha mai —
+    // e si leggono adesso. `recordHistory` falso: due pannelli sulla stessa cartella
+    // non sono due passi da ricordare.
+    LoadDirectory(app, directory, /*recordHistory=*/false);
+}
 // Dove finirebbe il tab trascinato, dato il punto del puntatore. Sta qui e non nel
 // gestore del mouse perche' il marcatore disegnato e il rilascio devono leggere la
 // stessa risposta: due calcoli che devono coincidere prima o poi non coincidono.
@@ -456,7 +616,8 @@ void UpdateTabDrop(AppState& app, float x, float y)
     if (hit == nullptr)
         return;
     const int index = hit->index;
-    if (app.tabs[static_cast<size_t>(index)].id == app.dragTab)
+    if (app.panes[static_cast<size_t>(app.activePane)].tabs[static_cast<size_t>(index)].id ==
+        app.dragTab)
         return;   // sopra se stesso non si va da nessuna parte
 
     // Il terzo di mezzo vuol dire "dentro": e' la zona piu' stretta, cosi' i due
@@ -479,7 +640,6 @@ void UpdateTabDrop(AppState& app, float x, float y)
             ", esito " + (app.tabDropAfter ? "dopo" : "prima"));
 }
 
-// La fila come si vede: ogni coppia e' (indice del tab, quanto e' profondo).
 void NewTab(AppState& app, const std::wstring& directory)
 {
     SaveActiveTab(app);
@@ -493,8 +653,9 @@ void NewTab(AppState& app, const std::wstring& directory)
     tab.groupMode     = app.groupMode;
     tab.directory     = directory;
 
-    app.tabs.push_back(std::move(tab));
-    app.activeTab = static_cast<int>(app.tabs.size()) - 1;
+    Pane& pane = app.panes[static_cast<size_t>(app.activePane)];
+    pane.tabs.push_back(std::move(tab));
+    pane.activeTab = static_cast<int>(pane.tabs.size()) - 1;
 
     app.entries.clear();
     app.selection.clear();
@@ -508,11 +669,12 @@ void NewTab(AppState& app, const std::wstring& directory)
 
 void ActivateTab(AppState& app, int index)
 {
-    if (index < 0 || index >= static_cast<int>(app.tabs.size()) || index == app.activeTab)
+    Pane& pane = app.panes[static_cast<size_t>(app.activePane)];
+    if (index < 0 || index >= static_cast<int>(pane.tabs.size()) || index == pane.activeTab)
         return;
 
     SaveActiveTab(app);
-    app.activeTab = index;
+    pane.activeTab = index;
     LoadActiveTab(app);
     app.stats.CancelQueued();
     app.previews.CancelPending();
@@ -520,35 +682,40 @@ void ActivateTab(AppState& app, int index)
 
 void CloseTab(AppState& app, int index)
 {
-    if (index < 0 || index >= static_cast<int>(app.tabs.size()))
+    Pane& pane = app.panes[static_cast<size_t>(app.activePane)];
+    if (index < 0 || index >= static_cast<int>(pane.tabs.size()))
         return;
-    if (app.tabs.size() == 1)
+    if (pane.tabs.size() == 1)
         return;   // the last tab is not closable: use the window button instead
 
-    const bool closingActive = (index == app.activeTab);
-    app.tabs.erase(app.tabs.begin() + index);
+    const bool closingActive = (index == pane.activeTab);
+    pane.tabs.erase(pane.tabs.begin() + index);
 
-    if (index < app.activeTab)
+    if (index < pane.activeTab)
     {
         // The active tab merely shifted down; the live state still matches it.
-        --app.activeTab;
+        --pane.activeTab;
         return;
     }
 
     if (closingActive)
     {
-        if (app.activeTab >= static_cast<int>(app.tabs.size()))
-            app.activeTab = static_cast<int>(app.tabs.size()) - 1;
+        if (pane.activeTab >= static_cast<int>(pane.tabs.size()))
+            pane.activeTab = static_cast<int>(pane.tabs.size()) - 1;
         LoadActiveTab(app);
         app.stats.CancelQueued();
         app.previews.CancelPending();
     }
 }
 
-// Sposta il tab trascinato dove il marcatore dice.
+// Sposta il tab trascinato dove il marcatore dice. L'albero e' quello del pannello
+// attivo: il trascinamento di un tab fra pannelli e' un'altra tappa.
 void ApplyTabDrop(AppState& app)
 {
-    const int activeId = app.tabs[static_cast<size_t>(app.activeTab)].id;
+    std::vector<Tab>& tabs = app.panes[static_cast<size_t>(app.activePane)].tabs;
+    int& activeTab = app.panes[static_cast<size_t>(app.activePane)].activeTab;
+
+    const int activeId = tabs[static_cast<size_t>(activeTab)].id;
     const int dragged  = TabById(app, app.dragTab);
     const int target   = app.tabDropTarget;
     const bool into    = app.tabDropInto;
@@ -557,7 +724,7 @@ void ApplyTabDrop(AppState& app)
     app.tabPress      = -1;
     app.tabDropTarget = -1;
 
-    if (dragged < 0 || target < 0 || target >= static_cast<int>(app.tabs.size()) ||
+    if (dragged < 0 || target < 0 || target >= static_cast<int>(tabs.size()) ||
         target == dragged)
         return;
 
@@ -566,35 +733,34 @@ void ApplyTabDrop(AppState& app)
         // Dentro un altro tab: si diventa suoi figli. Un tab non puo' finire dentro
         // un proprio discendente — sarebbe un anello, e un albero con un anello non
         // e' piu' un albero.
-        if (TabIsDescendantOf(app, app.tabs[static_cast<size_t>(target)].id,
-                              app.tabs[static_cast<size_t>(dragged)].id))
+        if (TabIsDescendantOf(app, tabs[static_cast<size_t>(target)].id,
+                              tabs[static_cast<size_t>(dragged)].id))
         {
             DiagLog("  tab drop: rifiutato (discendente)");
             return;
         }
-        app.tabs[static_cast<size_t>(dragged)].parentId =
-            app.tabs[static_cast<size_t>(target)].id;
-        DiagLog("  tab drop: " + std::to_string(app.tabs[static_cast<size_t>(dragged)].id) +
-                " figlio di " + std::to_string(app.tabs[static_cast<size_t>(target)].id));
+        tabs[static_cast<size_t>(dragged)].parentId = tabs[static_cast<size_t>(target)].id;
+        DiagLog("  tab drop: " + std::to_string(tabs[static_cast<size_t>(dragged)].id) +
+                " figlio di " + std::to_string(tabs[static_cast<size_t>(target)].id));
         return;
     }
 
     // Prima o dopo: si diventa **fratelli** del bersaglio. Fra fratelli l'ordine e'
     // l'ordine nel vettore, quindi qui il tab si sposta davvero nel vettore — con
     // l'identita' che resta, che e' quello che tiene in piedi i legami.
-    Tab moved = app.tabs[static_cast<size_t>(dragged)];
-    moved.parentId = app.tabs[static_cast<size_t>(target)].parentId;
-    app.tabs.erase(app.tabs.begin() + dragged);
+    Tab moved = tabs[static_cast<size_t>(dragged)];
+    moved.parentId = tabs[static_cast<size_t>(target)].parentId;
+    tabs.erase(tabs.begin() + dragged);
     int at = (target > dragged) ? target - 1 : target;
     if (after)
         ++at;
-    at = (std::max)(0, (std::min)(at, static_cast<int>(app.tabs.size())));
-    app.tabs.insert(app.tabs.begin() + at, moved);
+    at = (std::max)(0, (std::min)(at, static_cast<int>(tabs.size())));
+    tabs.insert(tabs.begin() + at, moved);
 
     // L'indice attivo segue il **tab** che era attivo, non la sua posizione.
     const int stillActive = TabById(app, activeId);
     if (stillActive >= 0)
-        app.activeTab = stillActive;
+        activeTab = stillActive;
 }
 
 // Le due chiusure dell'albero. `CloseInTree` chiude il tab **e i suoi figli**;
@@ -609,16 +775,17 @@ void CloseTabTree(AppState& app, int id, bool wholeTree)
     if (TabById(app, id) < 0)
         return;
     const int root = wholeTree ? TabRootId(app, id) : id;
+    const std::vector<Tab>& tabs = app.panes[static_cast<size_t>(app.activePane)].tabs;
 
     std::vector<int> doomed;
-    for (const Tab& tab : app.tabs)
+    for (const Tab& tab : tabs)
     {
         if (TabIsDescendantOf(app, tab.id, root))
             doomed.push_back(tab.id);
     }
     // L'ultimo tab non si chiude: resterebbe una finestra senza niente dentro.
     // Si chiude tutto tranne uno, e si dice invece di far finta.
-    const bool all = (doomed.size() == app.tabs.size());
+    const bool all = (doomed.size() == tabs.size());
     if (all)
         doomed.pop_back();
 

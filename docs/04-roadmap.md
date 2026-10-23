@@ -2764,3 +2764,47 @@ questa sessione non ce l'aveva, quindi il `Backspace` sembrava rotto mentre il c
 era giusto (`docs/05` §5). Per provarlo: `PostMessage(hwnd, WM_KEYDOWN, VK_BACK, 0)`.
 Morale: un tasto che "non risponde" si prova **anche** con l'altro meccanismo prima di
 dare la colpa al codice.
+
+### I due pannelli, prima tappa — *Visto il 2026-10-23*
+
+`Split Right` (`Ctrl+Shift+S`) e `Split Bottom` (`Ctrl+S`) — i due tasti del riferimento —
+dividono la finestra in **due pannelli**, ognuno coi suoi tab, con un divisore di 6 px
+trascinabile fra 25% e 75%.
+
+**Il modello era già mezzo fatto, e questo ha deciso il costo.** `Tab` conteneva gia' lo
+stato completo di un pannello e `SaveActiveTab`/`LoadActiveTab` lo scambiavano col mucchio
+di campi vivi di `AppState` a costo O(1): uno split sono **due elenchi di tab**
+(`struct Pane`) invece di uno, e il kernel continua a contenere il pannello **attivo**.
+Per questo i ~400 punti che leggono `app.entries`, `app.directory`, `app.selection` non
+sono stati toccati: il pannello attivo e' il kernel, come lo era il tab attivo.
+
+**Tre cose che rendono la modifica sicura invece che fortunata:**
+
+- `AppState::tabs`/`activeTab` sono stati **rimossi**, non affiancati da un alias: cosi' il
+  compilatore ha elencato tutte e 60 le occorrenze invece di lasciarne qualcuna a leggere
+  il pannello sbagliato in silenzio.
+- `ComputeLayout` restituisce il layout del **pannello attivo** (header, lista e barra del
+  filtro ristretti), e `WindowLayout` quello della finestra. Percio' ogni hit test, ogni
+  comando e ogni gesto esistente continuano a funzionare senza sapere che i pannelli sono
+  due — e `DrawList`/`DrawHeader`/`DrawFilterBar` **non sono state toccate**: erano gia'
+  parametriche sul rettangolo che ricevono.
+- Il pannello inattivo si disegna **scambiando** lo stato col suo tab attivo, disegnando e
+  riscambiando. Non e' una copia: e' un `move` di vettori, due volte per fotogramma.
+
+**Visto a schermo** (finestra 1560x900, sandbox del progetto): `Ctrl+S` -> due liste una
+sopra l'altra con la striscia a `y` 471..477; `Ctrl+Shift+S` -> affiancate, striscia a
+`x` 724..730 (misurata dai cambi di colore lungo una riga, non a occhio); trascinata da
+`x` 727 a `x` 900 resta a 900 e si schiarisce sotto il puntatore; un doppio clic nella
+lista in basso **naviga solo quel pannello** e quello sopra resta dov'era; con un pannello
+solo la lista, le intestazioni e il menu contestuale sono quelli di prima.
+
+**Limiti dichiarati di questa tappa** (la seconda li chiude, tranne l'ultimo):
+
+- la fila dei tab in cima e' **una sola** e mostra quelli del pannello attivo: il pannello
+  inattivo porta una testata col percorso e, se ne ha piu' d'uno, il numero di tab;
+- `ColumnState` non sta in `Tab`, quindi **larghezze e filtri per valore delle colonne sono
+  condivisi** fra i pannelli (le colonne accese, invece, sono per tab);
+- niente chiusura del pannello, niente trascinamento di file **fra** i pannelli, e la
+  sessione salvata ricorda solo il pannello attivo;
+- **niente annidamento**: due pannelli e basta, per scelta. Un albero di pannelli e' un
+  altro mestiere e non serve all'uso vero.

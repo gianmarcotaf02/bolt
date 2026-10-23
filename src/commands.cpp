@@ -419,17 +419,34 @@ void RunCommand(AppState& app, int command)
     switch (static_cast<CommandId>(command))
     {
         case CmdNewTab:  NewTab(app, app.directory.empty() ? L"C:\\" : app.directory); break;
-        case CmdCloseTab: CloseTab(app, app.activeTab); break;
+        case CmdCloseTab: CloseTab(app, app.panes[static_cast<size_t>(app.activePane)].activeTab); break;
         case CmdNextTab:
-            if (app.tabs.size() > 1) ActivateTab(app, (app.activeTab + 1) % static_cast<int>(app.tabs.size()));
+        {
+            // I tab sono quelli del **pannello attivo**: la fila in cima alla finestra
+            // e' una sola, e mostra la scheda della vista su cui si sta lavorando.
+            const std::vector<Tab>& tabs = app.panes[static_cast<size_t>(app.activePane)].tabs;
+            const int active = app.panes[static_cast<size_t>(app.activePane)].activeTab;
+            if (tabs.size() > 1)
+                ActivateTab(app, (active + 1) % static_cast<int>(tabs.size()));
             break;
+        }
         case CmdPrevTab:
-            if (app.tabs.size() > 1)
+        {
+            const std::vector<Tab>& tabs = app.panes[static_cast<size_t>(app.activePane)].tabs;
+            const int active = app.panes[static_cast<size_t>(app.activePane)].activeTab;
+            if (tabs.size() > 1)
             {
-                const int count = static_cast<int>(app.tabs.size());
-                ActivateTab(app, (app.activeTab + count - 1) % count);
+                const int count = static_cast<int>(tabs.size());
+                ActivateTab(app, (active + count - 1) % count);
             }
             break;
+        }
+
+        // I pannelli: due viste della stessa finestra. Il secondo si apre sulla
+        // cartella che si sta guardando, perche' dividere serve a **confrontare** — due
+        // cartelle diverse si aprono navigando, dopo.
+        case CmdSplitRight:  SplitPane(app, /*column=*/true); break;
+        case CmdSplitBottom: SplitPane(app, /*column=*/false); break;
 
         // In una cartella dello spazio dei nomi il genitore lo sa la shell: sopra
         // il cestino c'e' il desktop, e `ParentOf` su "::{...}" non troverebbe
@@ -751,17 +768,26 @@ void RunCommand(AppState& app, int command)
             break;
         }
         case CmdCloseInTree:
-            CloseTabTree(app, app.tabs[static_cast<size_t>(app.activeTab)].id, /*wholeTree=*/false);
-            break;
         case CmdCloseAllInTree:
-            CloseTabTree(app, app.tabs[static_cast<size_t>(app.activeTab)].id, /*wholeTree=*/true);
+        {
+            // L'albero e' quello del pannello attivo. L'id si legge **adesso**: la
+            // chiusura sposta gli indici, e cercarlo dopo vorrebbe dire chiudere il
+            // ramo di un altro tab.
+            const std::vector<Tab>& tabs = app.panes[static_cast<size_t>(app.activePane)].tabs;
+            const int active = app.panes[static_cast<size_t>(app.activePane)].activeTab;
+            const int id = tabs[static_cast<size_t>(active)].id;
+            CloseTabTree(app, id, /*wholeTree=*/command == CmdCloseAllInTree);
             break;
+        }
         case CmdDetachTab:
         {
             // "Stacca" riporta il tab alla radice: e' l'unico modo di disfare un
             // annidamento senza cercarne un altro con il mouse.
-            Tab& tab = app.tabs[static_cast<size_t>(app.activeTab)];
-            tab.parentId = -1;
+            // Il tab del pannello attivo, per indice: e' l'indice vivo, e il tab che
+            // punta e' quello che si sta guardando.
+            std::vector<Tab>& tabs = app.panes[static_cast<size_t>(app.activePane)].tabs;
+            const int active = app.panes[static_cast<size_t>(app.activePane)].activeTab;
+            tabs[static_cast<size_t>(active)].parentId = -1;
             break;
         }
         case CmdZoomIn:    app.zoom = (std::min)(2.0f, app.zoom + 0.1f); break;

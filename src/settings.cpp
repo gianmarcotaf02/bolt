@@ -451,15 +451,15 @@ void SaveSession(const AppState& app)
     std::string text =
         "# Bolt — le schede aperte l'ultima volta.\n"
         "# Scritto solo perche' 'Riapri le schede' e' acceso; cancellabile a mano.\n";
-    text += "active=" + std::to_string(app.activeTab) + "\n";
+    text += "active=" + std::to_string(app.panes[static_cast<size_t>(app.activePane)].activeTab) + "\n";
     // La scheda **attiva** ha la cartella nello stato vivo, non nel suo `Tab`: la
     // struct si riempie quando si cambia scheda (`SaveActiveTab`), e quella li' non e'
     // passata. Chiedere solo a `tab.directory` scriveva un file senza nessuna scheda —
     // visto: `active=0` e nient'altro.
-    for (size_t i = 0; i < app.tabs.size(); ++i)
+    for (size_t i = 0; i < app.panes[static_cast<size_t>(app.activePane)].tabs.size(); ++i)
     {
         const std::wstring& directory =
-            (static_cast<int>(i) == app.activeTab) ? app.directory : app.tabs[i].directory;
+            (static_cast<int>(i) == app.panes[static_cast<size_t>(app.activePane)].activeTab) ? app.directory : app.panes[static_cast<size_t>(app.activePane)].tabs[i].directory;
         if (directory.empty())
             continue;
         text += "tab=" + ToUtf8(directory) + "\n";
@@ -525,7 +525,7 @@ bool RestoreSession(AppState& app)
 
     if (active < 0)
         active = 0;
-    if (active < static_cast<int>(app.tabs.size()))
+    if (active < static_cast<int>(app.panes[static_cast<size_t>(app.activePane)].tabs.size()))
         ActivateTab(app, active);
     return true;
 }

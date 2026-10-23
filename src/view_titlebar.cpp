@@ -64,11 +64,11 @@ void DrawTitleBar(AppState& app, const Layout& layout)
     {
         const int i     = node.first;
         const int depth = node.second;
-        const Tab& tab = app.tabs[static_cast<size_t>(i)];
+        const Tab& tab = app.panes[static_cast<size_t>(app.activePane)].tabs[static_cast<size_t>(i)];
         // The active tab's snapshot is empty while it is live: its entries were
         // moved out and only the live fields are current, so the title has to come
         // from there.
-        const std::wstring& source = (i == app.activeTab) ? app.directory : tab.directory;
+        const std::wstring& source = (i == app.panes[static_cast<size_t>(app.activePane)].activeTab) ? app.directory : tab.directory;
         const bool named = ShellLocation::IsNamespace(source) || IsHome(source);
         // Il tab mostra il **nome della cartella**, non tutto il percorso: un
         // percorso lungo non ci sta e diventa illeggibile proprio nella parte che
@@ -81,7 +81,7 @@ void DrawTitleBar(AppState& app, const Layout& layout)
         // che la cartella contiene, con lo stesso segno del riferimento (`sandbox
         // [...]`). Solo per la scheda attiva: le altre sono ferme com'erano quando le
         // si e' lasciate, e il segno lo porta il loro stato salvato quando ci si torna.
-        if (i == app.activeTab && app.showSubfolders && !named)
+        if (i == app.panes[static_cast<size_t>(app.activePane)].activeTab && app.showSubfolders && !named)
             leafW += L" [...]";
         std::wstring parentW;
         if (!named)
@@ -105,7 +105,7 @@ void DrawTitleBar(AppState& app, const Layout& layout)
             break;   // no overflow menu yet: extra tabs are simply not drawn
 
         const Rect tabRect{x, bar.y + 5.0f * scale, width, bar.h - 5.0f * scale};
-        const bool active = (i == app.activeTab);
+        const bool active = (i == app.panes[static_cast<size_t>(app.activePane)].activeTab);
 
         if (active)
         {

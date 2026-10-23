@@ -32,13 +32,15 @@ si rifiuta di partire finche' Bolt e' installato: prima si disinstalla.
 
 ---
 
-Ultimo aggiornamento: **2026-10-23**, dopo **le venti colonne di `docs/03` e la ricerca nel
-menu contestuale**. Le colonne che mancavano ci sono — `Percent Full` separata da `Volume
-Usage`, `Folder Usage`, `Data eliminazione` e `Posizione originale` (lette dalla shell per
-nome canonico, viste nel cestino su un file della sandbox) e i quattro `Empty` col
-contenuto scegliibile dal menu dell'intestazione — e il menu del tasto destro ha il campo
-di ricerca in cima. **Nessuna versione pubblicata**: e' lavoro nel repository, non
-installato (`docs/04` M5b e M7).
+Ultimo aggiornamento: **2026-10-23**, dopo **i due pannelli, la ricerca nel menu contestuale
+e le venti colonne di `docs/03`**. I pannelli — `Ctrl+S` divide in orizzontale, `Ctrl+Shift+S`
+affianca — sono la **prima tappa** degli split: tab per pannello, divisore trascinabile,
+attivazione al clic; vista a schermo, coi limiti dichiarati in `docs/04`. Le colonne che
+mancavano ci sono — `Percent Full` separata da `Volume Usage`, `Folder Usage`, `Data
+eliminazione` e `Posizione originale` (lette dalla shell per nome canonico, viste nel cestino
+su un file della sandbox) e i quattro `Empty` col contenuto scegliibile dal menu
+dell'intestazione — e il menu del tasto destro ha il campo di ricerca in cima. **Nessuna
+versione pubblicata**: e' lavoro nel repository, non installato.
 
 Prima, il 2026-10-21: **il menu dell'applicazione** — il pulsante ☰ apre il menu del
 riferimento, con `Vai a...`, `Comandi`, i due layout, `Opzioni`, `Controlla aggiornamenti`
@@ -325,7 +327,7 @@ vivono.
 | M5d — sovrappasso e comportamento del clic | ✅ evidenzia righe e celle, e le otto chiavi di interazione: `HoverToSelect`, `UnderlineOnHover`, `ShowTooltips`, `SingleClick`, `SingleClickFoldersOnly`, `ActOnPress`, `DoubleClickToParent`, `ShowCheckboxes` |
 | M5b — colonne | ✅ ridimensionabili col mouse, con filtri per valore nelle intestazioni e **filtro di testo sul nome**; **venti** colonne (`docs/03` §5), tutte ordinabili. Le undici che non si vedono di partenza si accendono dal menu dell'intestazione — che ha la ricerca — comprese `Percentuale`, `Uso cartella`, `Data eliminazione` e `Posizione originale` (le due del cestino, lette dalla shell per nome canonico) e i quattro `Empty`, il cui contenuto si sceglie dallo stesso menu (`docs/04` M5b). Limite dichiarato: il contenuto di un `Empty` vive nella sessione |
 | M6 — tab, barra del titolo, palette, GoTo | ✅ tab, titolo, palette, GoTo, **barra laterale a sezioni** (fissaggi, recenti, segnalibri, volumi, cartelle standard), **pulsanti di navigazione**, **albero dei tab verificato** (creazione per trascinamento, chiusura per ramo, distacco), il **fissaggio in qualunque sezione** e il **menu contestuale delle righe** della barra laterale: `Fissa in...` / `Togli da...` mettono e tolgono una cartella in accesso rapido o nei segnalibri — dalla palette (la cartella aperta) e dal tasto destro su una riga (quella riga) — con la stella che distingue le nostre righe da quelle della shell. Il limite che resta e' dichiarato in `docs/04` M6: i fissaggi sono di sessione |
-| M7 — operazioni su file | 🟡 copia, sposta, rinomina, cestino, clipboard interoperabile, **menu contestuale a più livelli e cercabile** (campo in cima, filtro sul livello 0: `docs/04`) con **`Proprietà` in-app** e **`Proprietà di Windows`**, le **voci di primo livello della shell**, il **menu della cartella** sul fondo, i **sottomenu delle estensioni**, **`Nuovo file >`** (tipi dal registro, creazione con
+| M7 — operazioni su file | 🟡 copia, sposta, rinomina, cestino, clipboard interoperabile, **due pannelli** (`Split right`/`Split bottom`, `Ctrl+Shift+S`/`Ctrl+S` — tappa 1, `docs/04`: tab per pannello, divisore trascinabile, attivazione al clic), **menu contestuale a più livelli e cercabile** (campo in cima, filtro sul livello 0: `docs/04`) con **`Proprietà` in-app** e **`Proprietà di Windows`**, le **voci di primo livello della shell**, il **menu della cartella** sul fondo, i **sottomenu delle estensioni**, **`Nuovo file >`** (tipi dal registro, creazione con
 contenuto), **`Invia a >`** (destinazioni della cartella SendTo, eseguite lasciandoci
 cadere sopra la selezione), **drag&drop dentro e fuori** con OLE, la **navigazione
 nello spazio dei nomi** col **ripristino dal cestino**, il **trascinamento sul
@@ -519,12 +521,14 @@ di quanto mordono:
 1. **Spezzare l'input di `main.cpp`** (`input_keys.*`, `input_mouse.*`). La decisione e'
    gia' scritta in §2: prima le superfici (fatte), poi i `case` di `WindowProc`; adesso
    `WM_KEYDOWN` e i messaggi del mouse non hanno piu' niente da trascinarsi dietro.
-   `main.cpp` e' a **5.694** righe, e la curva non si e' fermata: il menu dell'applicazione,
+   `main.cpp` e' a **5.479** righe, e la curva non si e' fermata: il menu dell'applicazione,
    le sottocartelle nella lista, il layout, la sessione e la ricerca nel menu contestuale
    ne hanno aggiunte altre. E' il primo della lista per una ragione misurata, non per gusto.
-2. **Gli split** (`Split Right`/`Split Bottom`, `docs/04` M7): l'unica funzione del
-   riferimento che non c'e'. Toccano il modello dei pannelli — una sessione di lavoro con
-   spazio per riverificare tutto, non una serata.
+2. **Gli split, tappa 2** (`docs/04`): la **prima tappa e' fatta e vista** — due pannelli,
+   tab per pannello, divisore trascinabile, `Ctrl+S`/`Ctrl+Shift+S`. Resta quello che li
+   rende davvero comodi: il **trascinamento di file fra i pannelli**, la **chiusura** del
+   pannello (premendo di nuovo lo stesso tasto), la **fila dei tab per pannello** invece di
+   una sola in cima, e la divisione ricordata nella sessione.
 3. **Un tetto all'atlante delle icone**: un `.lnk` costa una cella e non c'e' sfratto
    (`docs/02` §7.65). Con molte cartelle piene di collegamenti si puo' riempire.
 4. **Lo zoom ricampiona il testo** (§2): richiede una rasterizzazione a runtime per ogni
