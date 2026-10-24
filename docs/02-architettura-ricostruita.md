@@ -3116,3 +3116,50 @@ di chi lavora, quindi niente catture, `AGENTS.md` §0. Fissata una cartella che 
 rapido della shell mostra gia', il registro dice `1 nostri, 8 della shell, 8 righe,
 saltate 1`: le righe mostrate sono otto, la nona e' quella saltata, e prima erano nove
 con due uguali.
+
+
+### 7.78 La rotella sulle opzioni accendeva una voce dopo l'altra invece di scorrere l'elenco — *chiusa il 2026-10-24*
+
+**Sintomo.** Nel pannello delle opzioni la rotella **spostava il cursore**: ogni tacca
+portava l'evidenziazione tre righe piu' giu', e scorrendo un elenco di trentatre' voci
+la selezione passava su tutte. Chi voleva solo leggere piu' in basso si trovava con
+un'altra preferenza selezionata addosso, pronta a essere attivata da un `Invio`.
+Chiesto dall'autore il 2026-10-24: «voglio scroll fluido, non meccanico che seleziona
+tutte le voci».
+
+**Causa.** Non era un difetto del pannello: era il comportamento **giusto** del
+componente a gruppi applicato a un caso che non gli somiglia. In `input_mouse.cpp` la
+rotella su un menu aperto chiama `GroupMenuMove`, che muove il cursore — dentro la
+palette o nel menu contestuale il cursore **e'** la scelta, e la rotella che lo sposta
+e' il gesto che ci si aspetta. Ma `GroupMenuFirstVisible` ricavava la prima riga
+visibile **dal cursore**, quindi non esisteva un modo di scorrere l'elenco senza
+spostarlo: lo scorrimento e il cursore erano la stessa variabile.
+
+**Correzione.** Uno scorrimento in **pixel** per i soli menu a righe ricche
+(`GroupMenu::scrollPx`, `scrollTargetPx`, `scrollFromPx`, `scrollStartedAt`):
+
+- `GroupMenuScrollViewOf` in `view_menu.*` restituisce la prima riga visibile **e**
+  di quanto e' gia' salita. La leggono il disegno, `OptionRowAt` e `OptionRowRect`,
+  cosi' il clic cade sulla riga che si vede anche a meta' scorrimento.
+- `GroupMenuScrollBy` accumula il passo sul bersaglio, fermato ai due capi da
+  `GroupMenuMaxScroll`; `GroupMenuAdvanceScroll` lo insegue con un'uscita cubica di
+  160 ms, e con `Animations` spenta salta — la preferenza dice proprio che i pannelli
+  si muovono solo se la si vuole.
+- La rotella in `input_mouse.cpp` passa un delta **frazionario** (`GET_WHEEL_DELTA` /
+  `WHEEL_DELTA`): la rotella di un touchpad manda valori piccoli, e troncati a un
+  intero non scorrevano affatto.
+- Il cursore resta dov'e'. Quando lo muove chi legge — frecce, `Home`/`Fine`, un
+  clic — `revealSelection` riporta l'elenco su di lui, animato; la rotella **non**
+  alza quel segnale, o scorrere riporterebbe indietro l'elenco appena mosso.
+- Le righe a meta' del bordo si ritagliano con `SetClip` sull'area dell'elenco, e la
+  barra di scorrimento segue `scrollPx` invece della prima riga intera.
+
+**Verificato** (2026-10-24) sulla sandbox, due istanze distinte per non confondere le
+finestre (`analysis/tmp/BoltTest.exe`, cosi' `capture-window.ps1` non prende quella di
+chi lavora): con `Ctrl+,` aperto, due tacche di rotella in giu' portano la prima riga
+da `Carattere` ad `Animazioni` — sei righe, tre per tacca — e **nessuna riga appare
+selezionata**, cioe' il cursore non si e' mosso. Una cattura 45 ms dopo il passo mostra
+la riga di confine tagliata a meta' sopra la prima intera: lo scorrimento e' animato e
+il ritaglio tiene. Un clic sull'etichetta di `Righe alternate` a elenco scorso evidenzia
+**quella** riga, quindi la mappa punto-riga segue lo scorrimento. Dodici frecce in su
+riportano l'elenco in cima con `Carattere` selezionata.

@@ -152,8 +152,29 @@ LRESULT HandleMouseMessage(HWND window, AppState* app, UINT message, WPARAM wpar
 
                 // La stessa cosa per una lista a gruppi: la rotella muove il
                 // cursore invece di scorrere la lista sotto, che e' coperta.
+                // In un menu il cursore **e'** la scelta, quindi e' giusto cosi'.
                 if (GroupMenu* menu = OpenMenu(*app))
                 {
+                    // Il pannello delle opzioni e' l'eccezione, e non e' un
+                    // dettaglio: li' le voci si leggono, e muovere il cursore
+                    // accenderebbe una riga dopo l'altra portandosi via la
+                    // selezione a chi stava solo scorrendo. Scorre l'elenco, di
+                    // tre righe per tacca, e il cursore resta dov'e'. Il delta e'
+                    // frazionario apposta: la rotella di un touchpad manda valori
+                    // piccoli, e troncati a un intero non scorrono affatto.
+                    if (menu->richRows)
+                    {
+                        const float rowHeight = MenuRowHeight(layout, *menu);
+                        const Rect  panel     = MenuPanel(*app, layout, *menu);
+                        const float room      = MenuListBottom(layout, panel) -
+                                                MenuListTop(layout, panel, *menu);
+                        const float wheelSteps =
+                            static_cast<float>(GET_WHEEL_DELTA_WPARAM(wparam)) / WHEEL_DELTA;
+                        GroupMenuScrollBy(*menu, -wheelSteps * 3.0f * rowHeight, rowHeight, room);
+                        InvalidateRect(window, nullptr, FALSE);
+                        return 0;
+                    }
+
                     // Rotella in su (delta positivo) muove il cursore in su.
                     const int steps = static_cast<int>(GET_WHEEL_DELTA_WPARAM(wparam)) / WHEEL_DELTA;
                     GroupMenuMove(*menu, -steps);

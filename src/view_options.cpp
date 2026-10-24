@@ -318,18 +318,36 @@ void RefreshOptionItems(const AppState& app, GroupMenu& menu)
         RefreshOptionItem(app, item);
 }
 
+// Il rettangolo della riga |index|. Le righe del pannello scivolano di pixel in
+// pixel, quindi il rettangolo si ricalcola ogni volta dalla stessa vista che usa
+// il disegno: due calcoli della stessa riga sono due modi di sbagliare il clic.
+Rect OptionRowRect(const Layout& layout, const GroupMenu& menu, const Rect& panel, int index)
+{
+    const float rowHeight  = MenuRowHeight(layout, menu);
+    const float listTop    = MenuListTop(layout, panel, menu);
+    const float listBottom = MenuListBottom(layout, panel);
+    const MenuScrollView view =
+        GroupMenuScrollViewOf(menu, listTop, listBottom, rowHeight);
+    return Rect{panel.x + 6.0f * layout.scale,
+                listTop + static_cast<float>(index - view.first) * rowHeight - view.offset,
+                panel.w - 12.0f * layout.scale, rowHeight};
+}
+
 // La riga sotto un punto, dentro il pannello delle opzioni.
 int OptionRowAt(const Layout& layout, const GroupMenu& menu, const Rect& panel, float y)
 {
     const float rowHeight  = MenuRowHeight(layout, menu);
     const float listTop    = MenuListTop(layout, panel, menu);
-    const float listBottom = panel.bottom() - 26.0f * layout.scale;
+    const float listBottom = MenuListBottom(layout, panel);
     if (y < listTop || y >= listBottom)
         return -1;
-    const int first   = GroupMenuFirstVisible(menu, listTop, listBottom, rowHeight);
+    const MenuScrollView view =
+        GroupMenuScrollViewOf(menu, listTop, listBottom, rowHeight);
     const int visible = (std::max)(1, static_cast<int>((listBottom - listTop) / rowHeight));
-    const int index   = first + static_cast<int>((y - listTop) / rowHeight);
-    if (index >= first + visible || index < 0 || index >= static_cast<int>(menu.rows.size()))
+    // Lo scorrimento sposta le righe sotto il puntatore: si toglie prima di
+    // dividere, o il clic cade sulla riga che si vedeva prima dello scorrimento.
+    const int index = view.first + static_cast<int>((y - listTop + view.offset) / rowHeight);
+    if (index >= view.first + visible || index < 0 || index >= static_cast<int>(menu.rows.size()))
         return -1;
     return index;
 }
@@ -541,7 +559,15 @@ void ApplyOptionFromItem(AppState& app, GroupMenuItem& item)
     if (id == OptLanguage)
     {
         const std::wstring filter = app.options.filter;
+        // Lo scorrimento e' la posizione di chi sta leggendo: ricostruire
+        // l'elenco non e' un motivo per riportarlo in cima alla lista.
+        const float scroll = app.options.scrollPx;
+        const float target = app.options.scrollTargetPx;
         BuildOptionsMenu(app);
+        app.options.scrollPx       = scroll;
+        app.options.scrollTargetPx = target;
+        app.options.scrollFromPx   = scroll;
+        app.options.scrollStartedAt = NowSeconds();
         app.options.filter = filter;
         app.options.dirty  = true;
         GroupMenuRebuild(app.options);
@@ -883,18 +909,16 @@ MenuAction OptionsClick(AppState& app, const Layout& layout, GroupMenu& menu, fl
         return MenuAction::None;
 
     menu.selected = index;
+    // Un clic e' una scelta: il cursore si e' mosso, e se la riga sta a meta'
+    // del bordo l'elenco la porta dentro. Non cambia niente su una riga che si
+    // vede gia' intera.
+    menu.revealSelection = true;
     GroupMenuItem& item = menu.items[static_cast<size_t>(row.item)];
     if (!item.enabled)
         return MenuAction::None;
 
-    const float rowHeight = MenuRowHeight(layout, menu);
-    const float listTop   = MenuListTop(layout, panel, menu);
-    const int   first     = GroupMenuFirstVisible(menu, listTop, panel.bottom() - 26.0f * layout.scale,
-                                                  rowHeight);
-    const Rect  rowRect{panel.x + 6.0f * layout.scale,
-                        listTop + (index - first) * rowHeight,
-                        panel.w - 12.0f * layout.scale, rowHeight};
-    const Rect  control = OptionControlRect(layout, item, rowRect);
+    const Rect rowRect = OptionRowRect(layout, menu, panel, index);
+    const Rect control = OptionControlRect(layout, item, rowRect);
 
     // Cambiare una preferenza vuole il puntatore **sul controllo**. Un clic sul
     // resto della riga la sceglie e basta: sulla riga di `Spacing` un clic a

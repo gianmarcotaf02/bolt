@@ -123,6 +123,12 @@ void GroupMenuOpen(GroupMenu& menu, std::string title, std::string placeholder,
     menu.dirty    = true;
     menu.open     = true;
     menu.openedAt = NowSeconds();   // da qui parte l'animazione di apertura
+    // Un pannello che si riapre riparte dalla prima riga: la memoria dello
+    // scorrimento e' di chi lo sta guardando adesso, non del pannello.
+    menu.scrollPx        = 0.0f;
+    menu.scrollTargetPx  = 0.0f;
+    menu.scrollFromPx    = 0.0f;
+    menu.revealSelection = false;
     GroupMenuRebuild(menu);   // so the selection is valid before the first frame
 }
 
@@ -236,7 +242,12 @@ void GroupMenuMove(GroupMenu& menu, int delta)
         target += step;
 
     if (target >= 0 && target < count)
+    {
         menu.selected = target;
+        // La tastiera ha mosso il cursore: l'elenco lo deve mostrare. La
+        // rotella no, e infatti non passa di qui.
+        menu.revealSelection = true;
+    }
 }
 
 // First or last entry row, skipping the group band that may sit on the edge.
@@ -252,7 +263,10 @@ void GroupMenuSelectEdge(GroupMenu& menu, bool last)
         index += step;
 
     if (index >= 0 && index < count)
+    {
         menu.selected = index;
+        menu.revealSelection = true;   // Home/Fine portano il cursore ai due capi
+    }
 }
 
 int GroupMenuSelectedId(const GroupMenu& menu)
@@ -344,17 +358,126 @@ float MenuListTop(const Layout& layout, const Rect& panel, const GroupMenu& menu
     return menu.caption.empty() ? base : base + kMenuCaptionHeight * layout.scale;
 }
 
-// La prima riga visibile: la stessa formula per il disegno e per il clic, o le
-// due non sarebbero d'accordo su cosa sta sotto il puntatore.
-int GroupMenuFirstVisible(const GroupMenu& menu, float listTop, float listBottom, float rowHeight)
+// Dove finisce l'elenco: 26 px sopra il bordo del pannello, che sono quelli del
+// pie' di pagina. La costante sta qui perche' la leggono in quattro — il
+// disegno, il clic, la rotella e la barra — e quattro copie divergono.
+float MenuListBottom(const Layout& layout, const Rect& panel)
 {
+    return panel.bottom() - 26.0f * layout.scale;
+}
+
+MenuScrollView GroupMenuScrollViewOf(const GroupMenu& menu, float listTop, float listBottom,
+                                     float rowHeight)
+{
+    MenuScrollView view;
     const int visible = (std::max)(1, static_cast<int>((listBottom - listTop) / rowHeight));
+
+    // Il pannello delle opzioni scorre in pixel: la prima riga visibile e'
+    // quella sotto il bordo, e la frazione di riga gia' passata e' l'offset.
+    if (menu.richRows)
+    {
+        const int count     = static_cast<int>(menu.rows.size());
+        const int lastFirst = (std::max)(0, count - visible);
+        int first = static_cast<int>(menu.scrollPx / rowHeight);
+        first = first < 0 ? 0 : (first > lastFirst ? lastFirst : first);
+        view.first  = first;
+        view.offset = menu.scrollPx - static_cast<float>(first) * rowHeight;
+        if (view.offset < 0.0f)       view.offset = 0.0f;
+        if (view.offset > rowHeight)  view.offset = rowHeight;
+        return view;
+    }
+
+    // Negli altri menu la prima riga visibile la decide il cursore: la' il
+    // cursore e' la scelta, non il fuoco della tastiera.
     int first = 0;
-    if (menu.selected >= first + visible)
+    if (menu.selected >= visible)
         first = menu.selected - visible + 1;
     if (menu.selected < first)
         first = menu.selected;
-    return first;
+    view.first = first;
+    return view;
+}
+
+float GroupMenuMaxScroll(const GroupMenu& menu, float rowHeight, float room)
+{
+    const float total = static_cast<float>(menu.rows.size()) * rowHeight;
+    return (std::max)(0.0f, total - room);
+}
+
+void GroupMenuScrollBy(GroupMenu& menu, float delta, float rowHeight, float room)
+{
+    if (!menu.richRows || delta == 0.0f)
+        return;
+
+    const float limit = GroupMenuMaxScroll(menu, rowHeight, room);
+    float target = menu.scrollTargetPx + delta;
+    target = target < 0.0f ? 0.0f : (target > limit ? limit : target);
+    if (target == menu.scrollTargetPx)
+        return;
+
+    menu.scrollFromPx    = menu.scrollPx;
+    menu.scrollTargetPx  = target;
+    menu.scrollStartedAt = NowSeconds();
+}
+
+// Quanto dura lo scorrimento di un passo. Sotto i 100 ms non si legge come
+// movimento ma come salto; sopra i 250 la rotella sembra in ritardo.
+constexpr double kMenuScrollSeconds = 0.16;
+
+bool GroupMenuAdvanceScroll(GroupMenu& menu, float rowHeight, float room, bool animated)
+{
+    if (!menu.richRows)
+        return false;
+
+    const float limit = GroupMenuMaxScroll(menu, rowHeight, room);
+    menu.scrollTargetPx = menu.scrollTargetPx < 0.0f
+                              ? 0.0f
+                              : (menu.scrollTargetPx > limit ? limit : menu.scrollTargetPx);
+
+    // Il cursore mosso da chi legge va mostrato, e l'elenco lo segue di quanto
+    // basta: se e' sopra il bordo si scende fino a lui, se e' sotto si sale.
+    if (menu.revealSelection)
+    {
+        menu.revealSelection = false;
+        if (menu.selected >= 0 && menu.selected < static_cast<int>(menu.rows.size()))
+        {
+            const float top    = static_cast<float>(menu.selected) * rowHeight;
+            const float bottom = top + rowHeight;
+            float target = menu.scrollTargetPx;
+            if (top < target)                target = top;
+            else if (bottom > target + room) target = bottom - room;
+            target = target < 0.0f ? 0.0f : (target > limit ? limit : target);
+            if (target != menu.scrollTargetPx)
+            {
+                menu.scrollFromPx    = menu.scrollPx;
+                menu.scrollTargetPx  = target;
+                menu.scrollStartedAt = NowSeconds();
+            }
+        }
+    }
+
+    // Con `Animations` spenta il contenuto e' gia' dove deve stare: la
+    // preferenza dice proprio che i pannelli si muovono solo se la si vuole.
+    if (!animated || menu.scrollPx == menu.scrollTargetPx)
+    {
+        menu.scrollPx = menu.scrollTargetPx;
+        return false;
+    }
+
+    const double elapsed = NowSeconds() - menu.scrollStartedAt;
+    if (elapsed <= 0.0)
+        return true;
+    const double t = elapsed / kMenuScrollSeconds;
+    if (t >= 1.0)
+    {
+        menu.scrollPx = menu.scrollTargetPx;
+        return false;
+    }
+    // Uscita morbida: parte svelto e rallenta, che e' come si muove una mano.
+    const double rest  = 1.0 - t;
+    const float  eased = 1.0f - static_cast<float>(rest * rest * rest);
+    menu.scrollPx = menu.scrollFromPx + (menu.scrollTargetPx - menu.scrollFromPx) * eased;
+    return true;
 }
 // Quanto e' largo il controllo di un tipo. La larghezza non dipende dalla riga:
 // e' la stessa per il disegno, per il clic e per il trascinamento di uno slider.
@@ -554,8 +677,14 @@ void GroupMenuDraw(AppState& app, const Layout& layout, GroupMenu& menu)
     }
 
     const float listTop    = MenuListTop(layout, panel, menu);
-    const float listBottom = panel.bottom() - 26.0f * scale;
+    const float listBottom = MenuListBottom(layout, panel);
     const float rowHeight  = MenuRowHeight(layout, menu);
+
+    // Un fotogramma di scorrimento **prima** di sapere quali righe si vedono:
+    // il contenuto scorre anche quando il puntatore non si muove, ed e' questa
+    // chiamata a farlo avanzare, un fotogramma per volta.
+    GroupMenuAdvanceScroll(menu, rowHeight, listBottom - listTop, app.animations);
+
     r.FillRect(Rect{panel.x + 1.0f, listTop - 4.0f * scale, panel.w - 2.0f, 1.0f}, t.separator);
 
     // La testata del comando, quando chi ha aperto il menu ne conosce uno: la
@@ -587,12 +716,17 @@ void GroupMenuDraw(AppState& app, const Layout& layout, GroupMenu& menu)
                                t.textDim, scale);
     }
 
-    const int firstVisible =
-        GroupMenuFirstVisible(menu, listTop, listBottom, rowHeight);
+    const MenuScrollView view = GroupMenuScrollViewOf(menu, listTop, listBottom, rowHeight);
 
-    for (int i = firstVisible; i < static_cast<int>(menu.rows.size()); ++i)
+    // Nel pannello delle opzioni le righe scorrono a meta' fra i due bordi: senza
+    // ritaglio, scorrere disegnerebbe una riga sopra la testata del pannello, e
+    // mezza riga in fondo sopra il pie' di pagina.
+    if (menu.richRows)
+        r.SetClip(Rect{panel.x, listTop, panel.w, listBottom - listTop});
+
+    for (int i = view.first; i < static_cast<int>(menu.rows.size()); ++i)
     {
-        const float y = listTop + (i - firstVisible) * rowHeight;
+        const float y = listTop + (i - view.first) * rowHeight - view.offset;
         if (y + rowHeight > listBottom)
             break;
 
@@ -797,9 +931,12 @@ void GroupMenuDraw(AppState& app, const Layout& layout, GroupMenu& menu)
         app.clickTargets.push_back(target);
     }
 
-    // La barra di scorrimento, quando le righe non ci stanno tutte: con venti
-    // opzioni il cursore va giu' ma il pollice e' l'unica cosa che dice quanto
-    // lungo sia l'elenco.
+    r.ClearClip();
+
+    // La barra di scorrimento, quando le righe non ci stanno tutte: il pollice
+    // e' l'unica cosa che dice quanto lungo sia l'elenco e dove si e' arrivati.
+    // Segue lo scorrimento in pixel, o resterebbe fermo mentre il contenuto
+    // scivola.
     if (menu.richRows)
     {
         const float total = static_cast<float>(menu.rows.size()) * rowHeight;
@@ -811,7 +948,7 @@ void GroupMenuDraw(AppState& app, const Layout& layout, GroupMenu& menu)
             r.Draw(UIDraw::Fill(track, t.separator, barW * 0.5f));
             const float thumbH = (std::max)(24.0f * scale, room * room / total);
             const float maxOffset = (std::max)(1.0f, total - room);
-            const float offset = (firstVisible * rowHeight) / maxOffset;
+            const float offset = menu.scrollPx / maxOffset;
             r.Draw(UIDraw::Fill(Rect{track.x, track.y + (room - thumbH) * offset, barW, thumbH},
                                 t.scrollThumb, barW * 0.5f));
         }

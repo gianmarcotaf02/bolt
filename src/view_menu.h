@@ -56,7 +56,35 @@ float MenuRowHeight(const Layout& layout, const GroupMenu& menu);
 // basso: disegno e clic devono leggere **questa** funzione, o il puntatore finirebbe
 // su una riga diversa da quella che si vede.
 float MenuListTop(const Layout& layout, const Rect& panel, const GroupMenu& menu);
-int   GroupMenuFirstVisible(const GroupMenu& menu, float listTop, float listBottom, float rowHeight);
+// Dove finisce l'elenco dentro il pannello. La distanza dal bordo sta qui e non
+// in ogni chiamante: disegno, clic, rotella e barra devono contare le stesse
+// righe visibili.
+float MenuListBottom(const Layout& layout, const Rect& panel);
+// La prima riga visibile dell'elenco **e** di quanto e' gia' salita: con lo
+// scorrimento in pixel una riga sta a meta' fra due bordi, e il disegno e il
+// clic devono leggere la stessa coppia. Due calcoli della stessa riga sono due
+// occasioni di non essere d'accordo su cosa sta sotto il puntatore.
+struct MenuScrollView
+{
+    int   first  = 0;
+    float offset = 0.0f;   // quanto la riga `first` sporge sopra il bordo
+};
+MenuScrollView GroupMenuScrollViewOf(const GroupMenu& menu, float listTop, float listBottom,
+                                     float rowHeight);
+
+// --- lo scorrimento in pixel (pannello delle opzioni) ------------------------
+// Quanto e' lungo l'elenco e quanto se ne vede: dalle due misure viene il fondo
+// dello scorrimento, che chi lo muove deve conoscere prima di muoverlo.
+float GroupMenuMaxScroll(const GroupMenu& menu, float rowHeight, float room);
+
+// Un passo di rotella: |delta| pixel, positivo verso l'alto. Il bersaglio si
+// ferma ai due capi, e il contenuto lo raggiunge animato invece di saltarci.
+void GroupMenuScrollBy(GroupMenu& menu, float delta, float rowHeight, float room);
+
+// Un fotogramma di scorrimento: avvicina l'elenco al bersaglio e riporta in
+// vista il cursore, se e' stato mosso da chi legge. Vero se sta ancora
+// scivolando, cioe' se serve un altro fotogramma.
+bool GroupMenuAdvanceScroll(GroupMenu& menu, float rowHeight, float room, bool animated);
 Rect  GroupMenuPanel(const AppState& app, const Layout& layout, const GroupMenu& menu);
 Rect  ColumnMenuPanel(const AppState& app, const Layout& layout, const GroupMenu& menu);
 Rect  MenuPanel(const AppState& app, const Layout& layout, const GroupMenu& menu);

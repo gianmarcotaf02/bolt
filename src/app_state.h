@@ -463,6 +463,22 @@ struct GroupMenu
     std::unordered_set<std::string> collapsed;
     int          selected   = 0;
     int          matchCount = 0;
+
+    // --- lo scorrimento in pixel (pannello delle opzioni) --------------------
+    // In un menu il cursore **e'** la scelta, e la rotella lo muove. In una
+    // lista di preferenze no: le voci si leggono, e attraversarle col cursore
+    // vuol dire accenderle una dopo l'altra mentre si sta solo guardando piu'
+    // in basso. Li' l'elenco scorre in pixel — `scrollPx` e' l'offset
+    // dall'inizio — e il cursore resta dov'e' (vedi `GroupMenuScrollBy`).
+    float        scrollPx        = 0.0f;
+    float        scrollTargetPx  = 0.0f;
+    float        scrollFromPx    = 0.0f;   // da dove e' partita l'animazione
+    double       scrollStartedAt = 0.0;
+    // Il cursore si e' mosso per volonta' di chi legge — frecce, Home/Fine, un
+    // clic — quindi va riportato in vista. La rotella **non** alza questo
+    // segnale: se lo alzasse, scorrere riporterebbe indietro l'elenco appena
+    // mosso, che e' il difetto che questo campo esiste per evitare.
+    bool         revealSelection = false;
 };
 
 // One panel's worth of state. Switching tabs saves the live state into the tab
