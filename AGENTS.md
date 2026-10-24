@@ -364,7 +364,7 @@ autenticato come `gianmarcotaf02`): `gh release create v<versione> --repo
 gianmarcotaf02/bolt <setup> <zip> SHA256SUMS`. La release **deve** avere il setup e
 `SHA256SUMS`: e' quello che legge `Controlla aggiornamenti` (`src/update.*`, `docs/04`
 M13). Le release **v0.1.0**, **v0.1.1**, **v0.1.2**, **v0.1.3**, **v0.1.4**, **v0.1.5** e
-**v0.1.6**, **v0.1.7**, **v0.1.8**, **v0.1.9**, **v0.1.10**, **v0.1.11**, **v0.1.12**, **v0.1.13**, **v0.1.14**, **v0.1.15**, **v0.1.16**, **v0.1.17**, **v0.1.18**, **v0.1.19** e **v0.1.20** sono pubblicate;
+**v0.1.6**, **v0.1.7**, **v0.1.8**, **v0.1.9**, **v0.1.10**, **v0.1.11**, **v0.1.12**, **v0.1.13**, **v0.1.14**, **v0.1.15**, **v0.1.16**, **v0.1.17**, **v0.1.18**, **v0.1.19**, **v0.1.20** e **v0.1.21** sono pubblicate;
 la
 0.1.1 e' la stessa base della 0.1.0 e serve alla prova dell'aggiornamento, la 0.1.2 porta
 la correzione di `docs/02` §7.64, la 0.1.3 quella di §7.65, la 0.1.4 quelle di §7.66 e
@@ -378,7 +378,9 @@ dei fissaggi nella barra laterale e la **finestra dell'aggiornamento** con la ba
 download e la richiesta di riavvio; la **0.1.19** la cartella fissata che non compare
 due volte quando la shell ce l'ha gia' (docs/02 §7.77) e il .lnk che non mostra mai la
 sua estensione (docs/04); la **0.1.20** la rotella che nel pannello delle opzioni
-scorre l'elenco invece di spostare il cursore (docs/02 §7.78).
+scorre l'elenco invece di spostare il cursore (docs/02 §7.78); la **0.1.21** i file
+nascosti e quelli di sistema fuori dalla lista, con le due opzioni che li mostrano
+(docs/02 §7.79).
 
 **`tools/make-installer.ps1` non rigenera `out/SHA256SUMS`.** Il 2026-10-23, pubblicando la
 0.1.17, il file conteneva ancora le impronte della 0.1.16: allegarlo cosi' avrebbe fatto
