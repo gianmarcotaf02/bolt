@@ -327,7 +327,7 @@ void AdvanceSearch(AppState& app)
         ++app.search.visited;
 
         std::string error;
-        std::vector<Entry> entries = ReadDirectory(folder, &error, app.longPaths);
+        std::vector<Entry> entries = ReadDirectory(folder, &error, app.longPaths, app.showHiddenFiles, app.showSystemFiles);
         if (!error.empty())
             continue;   // una cartella che non si legge non ferma le altre
 

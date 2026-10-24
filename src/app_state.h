@@ -1268,6 +1268,16 @@ struct AppState
     // di un nome lungo.
     bool showFileExtension = true;
 
+    // `ShowHiddenFiles` e `ShowSystemFiles`: due attributi, due interruttori, e
+    // **spenti di partenza** — come in Esplora risorse, dove un `desktop.ini`
+    // non si vede perche' li ha tutti e due. E' l'unica preferenza di contenuto
+    // che decide cosa **entra** nella lista, non come si disegna: il file
+    // scartato non arriva a `Entry`, quindi non c'e' nemmeno nel conteggio della
+    // barra di stato. Un file che ha `HIDDEN` **e** `SYSTEM` vuole tutti e due
+    // accesi per comparire.
+    bool showHiddenFiles = false;
+    bool showSystemFiles = false;
+
     // Le due date che `FindFirstFile` da' insieme alla modifica: **spente** di
     // partenza, e si accendono dalle opzioni. In un elenco di file la data che si
     // guarda e' quella di modifica; tre date affiancate si prendono lo spazio dei

@@ -98,8 +98,14 @@ std::vector<Entry> ReadNamespaceDirectory(const std::wstring& directory, std::st
     return entries;
 }
 
+// `showHidden` e `showSystem`: cosa **entra** nella lista. Un file nascosto o di
+// sistema non viene nemmeno costruito come `Entry`, cosi' il conteggio della
+// barra di stato e il totale delle dimensioni parlano delle righe che si vedono.
+// Sono due attributi distinti perche' lo sono per Windows: un `desktop.ini` li ha
+// tutti e due, un `Thumbs.db` solo uno, e chi ne vuole vedere uno solo deve poterlo
+// dire.
 std::vector<Entry> ReadDirectory(const std::wstring& directory, std::string* error,
-                                 bool longPaths)
+                                 bool longPaths, bool showHidden, bool showSystem)
 {
     std::vector<Entry> entries;
     error->clear();
@@ -139,6 +145,15 @@ std::vector<Entry> ReadDirectory(const std::wstring& directory, std::string* err
     {
         const std::wstring name = data.cFileName;
         if (name == L"." || name == L"..")
+            continue;
+
+        // Il filtro sta **qui**, prima che la voce esista: piu' avanti sarebbe un
+        // elenco costruito e poi ripulito, e tutto quello che conta le voci (la
+        // barra di stato, le statistiche, il totale selezionato) dovrebbe
+        // ricordarsi di filtrare a sua volta.
+        if (!showHidden && (data.dwFileAttributes & FILE_ATTRIBUTE_HIDDEN) != 0)
+            continue;
+        if (!showSystem && (data.dwFileAttributes & FILE_ATTRIBUTE_SYSTEM) != 0)
             continue;
 
         Entry entry;
@@ -223,7 +238,7 @@ SubfolderResult ExpandSubfolders(AppState& app)
         }
 
         std::string error;
-        std::vector<Entry> children = ReadDirectory(item.path, &error, app.longPaths);
+        std::vector<Entry> children = ReadDirectory(item.path, &error, app.longPaths, app.showHiddenFiles, app.showSystemFiles);
         // Una sottocartella che non si legge non ferma le altre: "accesso negato" su
         // una non vuol dire niente sulle sue sorelle.
         if (!error.empty())
@@ -287,7 +302,7 @@ void LoadDirectory(AppState& app, const std::wstring& directory, bool recordHist
     }
     else
     {
-        app.entries = ReadDirectory(normalised, &app.errorText, app.longPaths);
+        app.entries = ReadDirectory(normalised, &app.errorText, app.longPaths, app.showHiddenFiles, app.showSystemFiles);
         // `Toggle Subfolders`: le voci della cartella ci sono, e se la modalita' e'
         // accesa si aggiunge quello che sta dentro le sue sottocartelle. Si fa qui e
         // non nel comando perche' vale a ogni lettura — `F5`, il sorvegliante della
@@ -1078,7 +1093,7 @@ void ReloadPaneShowing(AppState& app, const std::wstring& directory)
             continue;
 
         std::string error;
-        tab.entries = ReadDirectory(tab.directory, &error, app.longPaths);
+        tab.entries = ReadDirectory(tab.directory, &error, app.longPaths, app.showHiddenFiles, app.showSystemFiles);
         // La vista si rifa' mentre quel pannello e' in vita, cioe' al prossimo
         // fotogramma: e' il suo `viewDirty` che lo dice.
         data.view.viewDirty = true;

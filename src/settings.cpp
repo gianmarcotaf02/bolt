@@ -121,6 +121,11 @@ void LoadSettings(AppState& app)
     readFlag("showTooltips", &app.showTooltips);
     readFlag("showRecents", &app.showRecents);
     readFlag("showFileExtension", &app.showFileExtension);
+    // Cosa entra nella lista: due attributi di Windows, spenti se il file non ne
+    // parla. Una cartella piena di `desktop.ini` e di cartelle di sistema e' il
+    // comportamento di partenza di Esplora risorse.
+    readFlag("showHiddenFiles", &app.showHiddenFiles);
+    readFlag("showSystemFiles", &app.showSystemFiles);
     // Le due colonne delle date: spente se il file non ne parla, che e' il valore di
     // partenza anche per un'installazione nuova.
     readFlag("showCreatedDate", &app.showCreatedDate);
@@ -306,6 +311,8 @@ bool SaveSettings(const AppState& app)
     writeFlag("showTooltips", app.showTooltips);
     writeFlag("showRecents", app.showRecents);
     writeFlag("showFileExtension", app.showFileExtension);
+    writeFlag("showHiddenFiles", app.showHiddenFiles);
+    writeFlag("showSystemFiles", app.showSystemFiles);
     writeFlag("showCreatedDate", app.showCreatedDate);
     writeFlag("showAccessedDate", app.showAccessedDate);
     writeFlag("compactPaths", app.compactPaths);

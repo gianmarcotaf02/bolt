@@ -27,8 +27,10 @@ void ReloadKeeping(AppState& app, const std::unordered_set<std::wstring>& keep,
 // usa, e chi le prova le chiama da qui.
 // `longPaths`: il prefisso Win32 davanti al percorso, che serve a `FindFirstFile`
 // quando la cartella sta oltre i 260 caratteri (`LongPathsSupport`).
+// `showHidden` e `showSystem`: se i file nascosti e quelli di sistema **entrano**
+// nella lista (`ShowHiddenFiles`, `ShowSystemFiles`, spenti di partenza).
 std::vector<Entry> ReadDirectory(const std::wstring& directory, std::string* error,
-                                 bool longPaths);
+                                 bool longPaths, bool showHidden, bool showSystem);
 std::vector<Entry> ReadNamespaceDirectory(AppState& app, const std::wstring& location);
 
 // La scheda nel titolo della finestra.

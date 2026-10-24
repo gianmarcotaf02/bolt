@@ -32,6 +32,7 @@
 #include "language.h"
 #include "settings.h"
 #include "theme.h"
+#include "navigation.h"   // `ReloadKeeping`: il filtro dei nascosti si applica subito
 #include "view_list.h"   // `SortEntries`: cambiando `SortRecents` la lista si riordina subito
 #include "view_statusbar.h"
 
@@ -57,6 +58,10 @@ enum OptionId
     OptSpacing, OptZoom, OptAnimations, OptRoundCorners, OptSystemScheme,
     OptColorScheme, OptAlternatingRows, OptInactiveOpacity, OptFileExtension,
     OptLongPaths, OptCompactPaths,
+    // Cosa **entra** nella lista, non come si disegna: due attributi di Windows,
+    // due interruttori, spenti di partenza (`docs/03`, `ShowHiddenFiles` e
+    // `ShowSystemFiles`).
+    OptShowHiddenFiles, OptShowSystemFiles,
     // La pagina di avvio: un percorso, vuoto per "Questo PC".
     OptStartup,
     OptTooltips, OptHoverToSelect, OptUnderlineOnHover, OptSingleClick,
@@ -299,6 +304,14 @@ void RefreshOptionItem(const AppState& app, GroupMenuItem& item)
             item.control  = OptionControl::Toggle;
             item.toggleOn = app.compactPaths;
             break;
+        case OptShowHiddenFiles:
+            item.control  = OptionControl::Toggle;
+            item.toggleOn = app.showHiddenFiles;
+            break;
+        case OptShowSystemFiles:
+            item.control  = OptionControl::Toggle;
+            item.toggleOn = app.showSystemFiles;
+            break;
         case OptShowCreatedColumn:
             item.control  = OptionControl::Toggle;
             item.toggleOn = app.showCreatedDate;
@@ -500,6 +513,21 @@ void ApplyOptionFromItem(AppState& app, GroupMenuItem& item)
             app.showFileExtension = item.toggleOn;
             app.viewDirty         = true;
             break;
+        // `ShowHiddenFiles` / `ShowSystemFiles`: non e' il disegno che cambia, e'
+        // **cosa c'e'** nella cartella. Quindi la cartella si rilegge, tenendo il
+        // posto: una preferenza non deve portare via la selezione. E anche
+        // l'altro pannello, se sta sulla stessa cartella, o le due meta' della
+        // finestra direbbero due elenchi diversi.
+        case OptShowHiddenFiles:
+        case OptShowSystemFiles:
+        {
+            if (id == OptShowHiddenFiles) app.showHiddenFiles = item.toggleOn;
+            else                          app.showSystemFiles = item.toggleOn;
+            ReloadKeeping(app, app.selection, app.cursor, app.scroll);
+            ReloadPaneShowing(app, app.directory);
+            app.viewDirty = true;
+            break;
+        }
         // Le due colonne: `SetColumnVisible` fa tutto quello che serve oltre al
         // disegno — togliere il filtro di quella colonna, e riportare l'ordine al nome
         // se era lei a ordinare.
@@ -652,6 +680,12 @@ void BuildOptionsMenu(AppState& app)
         {"Show File Extension", "Mostra l'estensione nei nomi",
          "Mostra o nasconde l'estensione nei nomi dei file.",
          "Toggle the visibility of file extensions.", OptFileExtension, false},
+        {"Show Hidden Files", "Mostra i file nascosti",
+         "Mostra i file con l'attributo nascosto di Windows.",
+         "Shows files with the hidden attribute.", OptShowHiddenFiles, false},
+        {"Show System Files", "Mostra i file di sistema",
+         "Mostra i file con l'attributo di sistema. Un file con tutt'e due gli attributi vuole tutt'e due accesi.",
+         "Shows files with the system attribute.", OptShowSystemFiles, false},
         {"Long Paths Support", "Percorsi lunghi", "Percorsi oltre 260 caratteri.",
          "Enable support for paths longer than 260 characters.", OptLongPaths, false},
         {"Startup", "Avvio",

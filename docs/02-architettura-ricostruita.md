@@ -3163,3 +3163,60 @@ la riga di confine tagliata a meta' sopra la prima intera: lo scorrimento e' ani
 il ritaglio tiene. Un clic sull'etichetta di `Righe alternate` a elenco scorso evidenzia
 **quella** riga, quindi la mappa punto-riga segue lo scorrimento. Dodici frecce in su
 riportano l'elenco in cima con `Carattere` selezionata.
+
+
+### 7.79 La lista mostrava anche i file nascosti e quelli di sistema — *chiusa il 2026-10-24*
+
+**Sintomo.** In ogni cartella comparivano voci che Esplora risorse non mostra:
+`desktop.ini` sul Desktop (l'autore l'ha chiesto il 2026-10-24: «il file
+`desktop.ini` non dovrebbe essere invisibile?»), i `.git`, i `Thumbs.db`, e in una
+cartella come `C:\` perfino `$Recycle.Bin` e `System Volume Information`.
+
+**Causa.** Non era un filtro sbagliato: non c'era nessun filtro. `ReadDirectory` in
+`src/navigation.cpp` enumera con `FindFirstFileEx` e di `data.dwFileAttributes`
+guardava **solo** `FILE_ATTRIBUTE_DIRECTORY`; `FILE_ATTRIBUTE_HIDDEN` e
+`FILE_ATTRIBUTE_SYSTEM` non erano letti da nessuna parte del programma (l'unico uso
+era in `shell_sendto.cpp`, per i collegamenti). Le due preferenze che lo spec del
+riferimento elenca — `ShowHiddenFiles` e `ShowSystemFiles`, `docs/03` riga 21 — non
+erano mai state implementate: non erano due interruttori spenti, erano due
+interruttori che non esistevano.
+
+**Correzione.** Due campi in `AppState` (`showHiddenFiles`, `showSystemFiles`),
+**spenti** di partenza come in Esplora risorse, e il filtro dentro `ReadDirectory`,
+subito dopo lo scarto di `.` e `..`:
+
+```cpp
+if (!showHidden && (data.dwFileAttributes & FILE_ATTRIBUTE_HIDDEN) != 0) continue;
+if (!showSystem && (data.dwFileAttributes & FILE_ATTRIBUTE_SYSTEM) != 0) continue;
+```
+
+Sta **prima** che la `Entry` esista, non dopo: chi conta le voci (la barra di stato,
+le statistiche, il totale dei selezionati) non deve ricordarsi di filtrare a sua
+volta — e infatti il conto torna da solo. Un file con tutt'e due gli attributi, come
+`desktop.ini`, vuole tutt'e due gli interruttori accesi, che e' quello che fa anche
+Windows. Le due righe stanno nel pannello delle opzioni subito dopo `Mostra
+l'estensione nei nomi`, e accendendole la cartella si **rilegge** tenendo il posto
+(`ReloadKeeping`, piu' `ReloadPaneShowing` per l'altro pannello se guarda la stessa
+cartella), perche' qui non cambia il disegno: cambia cosa c'e' dentro. Le due chiavi
+si leggono e si scrivono in `settings.cpp` (`showHiddenFiles`, `showSystemFiles`).
+La ricerca globale usa la stessa `ReadDirectory`, quindi non trova piu' un file
+nascosto nemmeno cercandolo per nome.
+
+**Verificato** (2026-10-24) sulla sandbox, con tre file creati apposta —
+`nascosto.txt` (`Hidden`), `desktop.ini` (`Hidden`+`System`), `sistema.dat`
+(`System`) — e una copia dell'eseguibile battezzata `BoltTest.exe`, cosi' le catture
+non prendono la finestra di chi lavora:
+
+- **con i valori di partenza: 8 voci**, 4 cartelle e 4 file. Nessuno dei tre file di
+  prova compare, e la barra di stato dice 8 — il conteggio e' le righe che si vedono,
+  non le 11 sul disco.
+- scritto `desktop` nel **filtro della lista**: `0 di 8`, cioe' il file nascosto non e'
+  nemmeno fra le voci filtrabili.
+- acceso `Mostra i file nascosti`: **9 voci**, 4 cartelle e 5 file — entra
+  `nascosto.txt`, e `desktop.ini` no, perche' ha anche l'attributo di sistema.
+- acceso anche `Mostra i file di sistema`: **11 voci**, 4 cartelle e 7 file, con
+  `desktop.ini` e `sistema.dat` al loro posto in ordine di nome.
+
+Le preferenze toccate durante la prova sono state cancellate alla fine
+(`%APPDATA%\Bolt\settings.ini`, che prima della prova non c'era): l'ambiente di chi
+lavora e' rimasto quello di prima.
